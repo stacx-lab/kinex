@@ -1,5 +1,9 @@
 Record a task's device observations, actions and session trace.
 
+verbose defaults to true (all fields). Set false to omit empty optional annotations
+and bookkeeping; counts, errors and observations remain. JSON uses two-space
+indentation for its first two levels and inline deeper values.
+
 - start {devices: {"arm": 10, "wrist_cam": 2}, instruction?}
   Start continuous background capture until stop or the recording size limit. Device
   names and sampling rates are fixed at start; stop before changing them. Native driver

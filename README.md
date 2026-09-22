@@ -49,6 +49,12 @@ OAuth flows, streaming, retries, compaction and session history come from Pi
 0.86.1. Existing provider API-key environment variables are supported by Pi.
 Robot device commands work without model credentials.
 
+Device, recording, stop and key controller tool headers show their action/target.
+Expand a tool with Pi's tool-expansion control (Ctrl+O by default) to inspect its
+arguments and complete returned result. Active recording displays a red
+`rec: <recording name>` on the right of the footer's directory row, directly
+above the model name. Recording does not add a separate row.
+
 Python 3 and uv are needed when using Python tools/drivers; ffmpeg is needed for
 video encoding. Importing core or listing devices does not create Python. Kinex
 prepares `.kinex/python` on demand and never activates it in the ordinary shell.
@@ -77,6 +83,16 @@ Device names complete with Tab. General coding commands and keybindings use Pi's
 TUI: `/model`, `/login`, `/settings`, `/new`, `/resume`, `/tree`, `/fork`, `/compact`,
 `/export`, `/copy`, `/quit`. Some SDK help and diagnostics retain Pi terminology.
 Use `kinex --continue` or `kinex --session <id|file>` to resume Kinex sessions.
+
+The `device` and `record` model tools default to `verbose: true`, preserving all
+result fields. `verbose: false` omits declared empty optional fields, preserving
+faults, timestamps, zero/false values and unknown driver fields. Manual `/record`
+defaults to this cleanup; add `--verbose` immediately after its action for full
+output, for example `/record status --verbose` or `/record start --verbose arm=10`.
+All Kinex tool JSON results in the TUI indent their first two levels by two spaces
+and keep deeper values inline, including Python and workspace tools. Python tool
+returns and calibration samples use the same formatting in model context.
+The device tool's `compact` option still requests single-line JSON.
 
 Direct operations run without a model round trip. Only onboarding, registration
 and calibration submit workflows to the model. Their implementation and help live

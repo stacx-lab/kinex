@@ -7,6 +7,7 @@ import { stopDevices } from "../device/stop.ts"
 import { deviceModel, deviceModelError } from "../calibration/device-model.ts"
 import { deviceInputValues } from "./device-input.ts"
 import path from "node:path"
+import { formatJSON } from "../util/json.ts"
 import { CalibrationStore } from "../calibration/store.ts"
 import { matchesDeviceType } from "../device/profile/schema.ts"
 import { dispatchDevice } from "../device/dispatch.ts"
@@ -264,7 +265,7 @@ export async function runPyTool(cwd: string, info: PyToolInfo, args: Record<stri
   const mime = file ? await imageMime(file) : undefined
   return {
     title: `${name} (${kind} tool)`,
-    output: JSON.stringify(returned, null, 2),
+    output: formatJSON(returned),
     ...(mime && file ? { attachments: [{ mime, path: file }] } : {}),
   }
 }

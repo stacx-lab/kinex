@@ -1,6 +1,7 @@
 import type { Device } from "../../device/profile/schema.ts"
 import type { DeviceReading } from "../../device/driver.ts"
 import type { Result } from "../tool.ts"
+import { formatJSON, omitEmptyOptional } from "../../util/json.ts"
 
 // Device routing lives in the device engine; the tool family re-exports it.
 export { dispatchDevice } from "../../device/dispatch.ts"
@@ -29,8 +30,14 @@ export function unloadedDevice(device: Device): Result {
   }
 }
 
-export function renderReading(reading: DeviceReading): string {
-  const data = JSON.stringify(reading.data ?? {}, null, 2)
+// Empty optional feedback does not add information to a model-facing reading.
+// Keep faults (even []), timestamps and unfamiliar driver fields intact.
+const optionalFeedback = ["velocities", "efforts", "frame_poses"]
+const optionalReading = [...optionalFeedback, ...optionalFeedback.map(field => `state.${field}`)]
+
+export function renderReading(reading: DeviceReading, verbose = true, compact = false): string {
+  const value = reading.data ?? {}
+  const data = formatJSON(verbose ? value : omitEmptyOptional(value, optionalReading), compact)
   if (reading.filePath) return `written to ${reading.filePath}\n${data}`
   return data
 }

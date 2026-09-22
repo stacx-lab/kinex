@@ -35,6 +35,17 @@ disables Kinex questionnaires. Headless asks without a configured allow are deni
 Start Pi with `--kinex-recording` to expose recording to the model. Manual `/record`
 does not require that flag. Deleting a device still requires confirmation.
 
+Device, recording, stop and key controller calls show concise argument headers;
+Pi's tool-expansion control reveals full arguments and returned results. Recording
+shows a red `rec: <recording name>` on the right of the directory row, directly
+above the model name, without adding a row. Both features are shared
+with standalone Kinex. Model `device`/`record` results default to `verbose: true`;
+false omits empty optional fields. Manual `/record` defaults to false; use
+`/record status --verbose` (or `--verbose` immediately after another action) for
+full output. All Kinex tool JSON results use two-space indentation through the
+first two levels and keep deeper values inline, including tools without custom
+argument summaries.
+
 Tools and skill catalogs refresh inside a task after complete tool batches.
 `kinex_skill` loads skills from any enabled Kinex feature. Conflicting model tools
 use a `kinex_` prefix; unresolved collisions are reported in context.

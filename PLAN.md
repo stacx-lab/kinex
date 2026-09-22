@@ -1,5 +1,29 @@
 # Kinex progress
 
+## Completed: tool presentation and recording indicator
+
+- [x] Share action/target headers and expandable, bounded result previews between
+  standalone and native Pi, using the published SDK rendering APIs.
+- [x] Format JSON with two-space indentation through two levels. Device/record
+  model tools default to verbose output; false removes only declared empty
+  optional fields. Manual `/record` defaults to false and accepts `--verbose`.
+- [x] Show red `rec: <name>` on the directory row's right edge, directly above
+  the model name, without adding a row. Reuse Pi's live footer renderer,
+  refreshed on recording events and cleared on completion/session shutdown,
+  with stale-update protection.
+- [x] Validate output contracts, native Pi lifecycle updates, real PTY behavior,
+  core/standalone suites, typechecking and relocated package artifacts.
+- [x] Node 22.19: 60 core, 49 standalone and 13 Pi cases pass, including six
+  PTY scenarios. Typechecking, build, npm packing and documentation/diff checks
+  pass; no packages were published.
+- [x] Apply the shared JSON result renderer to every Kinex tool, including Python
+  and workspace tools without argument summaries; use the same depth-limited
+  formatting for Python results and calibration samples in model context.
+- [x] Verify JSON coverage and right alignment with runtime, renderer and PTY
+  regressions, including terminal-width changes and generic workspace tools.
+- [x] Verify the shared directory/recording row in regular and fullscreen PTYs,
+  preserving Pi's existing model, usage and status rows.
+
 ## Completed: simulator camera thread affinity
 
 - [x] Reproduce LIBERO camera noise when its renderer runs on an RPC thread;

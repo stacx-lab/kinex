@@ -3,11 +3,13 @@ import { Type } from "typebox"
 import { Text } from "@earendil-works/pi-tui"
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent"
 import { type KinexRuntime } from "@kinex/core"
+import { formatJSON } from "@kinex/core/util/json"
 import type { KinexCapabilities } from "@kinex/core/integration"
 import { registerCommands, executeCommand } from "@kinex/pi/commands"
 import type { RoboticsOwner } from "@kinex/pi/owner"
 import { contextUpdate } from "@kinex/pi/context"
 import { toolBridge, registerSkillTool } from "@kinex/pi/tools"
+import { recordingIndicator } from "@kinex/pi/recording-indicator"
 import type { CompactionControl } from "./compaction.ts"
 
 export interface SessionControl {
@@ -25,16 +27,19 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     let unsubscribe: (() => void) | undefined
     let devices: string[] = []
     let active = false
+    let statusGeneration = 0
+    const indicator = recordingIndicator()
     const notify = (ctx: ExtensionContext, message: string, level: "info" | "warning" | "error") => {
       if (ctx.hasUI) ctx.ui.notify(message, level)
       else console.error(`Kinex: ${message}`)
     }
     const status = async (ctx: ExtensionContext) => {
       if (!active) return
+      const generation = ++statusGeneration
       const list = await runtime.devices.list()
-      const recording = await runtime.recording.status()
+      if (!active || generation !== statusGeneration) return
       devices = list.map(device => device.name)
-      if (active && ctx.hasUI) ctx.ui.setStatus("kinex", `Kinex · ${list.filter(device => device.loaded).length}/${list.length} devices · ${owner.interaction.mode}${recording ? ` · REC ${recording.name}` : ""}`)
+      if (ctx.hasUI) ctx.ui.setStatus("kinex", `Kinex · ${list.filter(device => device.loaded).length}/${list.length} devices · ${owner.interaction.mode}`)
     }
     const execute = async (name: string, args: string, ctx: ExtensionContext) => {
       try {
@@ -77,7 +82,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       async execute(_id, args, signal, _update, ctx) {
         try {
           const answers = await owner.interaction.run(ctx, signal, () => owner.interaction.questions(args.questions))
-          return { content: [{ type: "text", text: JSON.stringify(answers) }], details: { answers } }
+          return { content: [{ type: "text", text: formatJSON(answers) }], details: { answers } }
         } catch (error) { ctx.abort(); throw error }
       },
     })
@@ -98,14 +103,16 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       }
       unsubscribe = runtime.subscribe(event => {
         if (event.type === "recording.warning") notify(ctx, event.message, "warning")
-        if (event.type === "recording.changed") void status(ctx).catch(error => notify(ctx, String(error), "error"))
       })
+      await indicator.bind(runtime, ctx)
       for (const activation of await runtime.devices.warmLoaded()) void activation.ready.catch(error => notify(ctx, `${activation.device.name}: ${String(error)}`, "error"))
       await bridge.refreshActive(ctx)
       await status(ctx)
     })
     pi.on("session_shutdown", async event => {
       active = false
+      statusGeneration++
+      indicator.clear()
       session.compaction.end()
       unsubscribe?.()
       await session.settle()

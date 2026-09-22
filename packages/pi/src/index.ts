@@ -8,6 +8,7 @@ import { RoboticsOwner } from "./owner.ts"
 import { toolBridge, registerSkillTool } from "./tools.ts"
 import { executeCommand, registerCommands } from "./commands.ts"
 import { projectContext } from "./native-context.ts"
+import { recordingIndicator } from "./recording-indicator.ts"
 
 export interface PiOptions {
   contributions?(runtime: KinexRuntime): readonly KinexContribution[]
@@ -25,6 +26,9 @@ export function createPiExtension(options: PiOptions = {}) {
     let skillRegistered = false
     let blocked: Error | undefined
     let leavingWorkspace = false
+    const indicator = recordingIndicator()
+    let statusGeneration = 0
+    let active = false
     const instructions = await readFile(new URL("./instructions.txt", import.meta.url), "utf8")
     const current = () => {
       if (!capabilities) throw new Error("Kinex session is not initialized")
@@ -32,10 +36,10 @@ export function createPiExtension(options: PiOptions = {}) {
     }
     const bridge = toolBridge(pi, { tools: { list: () => current().tools.list(), call: (...args) => current().tools.call(...args) } }, owner.interaction, true)
     const status = async (ctx: ExtensionContext) => {
-      if (!ctx.hasUI || !owner.runtime) return
+      if (!active || !ctx.hasUI || !owner.runtime) return
+      const generation = ++statusGeneration
       const devices = await owner.runtime.devices.list()
-      const recording = await owner.runtime.recording.status()
-      ctx.ui.setStatus("kinex", `Kinex · ${devices.filter(device => device.loaded).length}/${devices.length} devices · ${owner.interaction.mode}${recording ? ` · REC ${recording.name}` : ""}`)
+      if (active && generation === statusGeneration) ctx.ui.setStatus("kinex", `Kinex · ${devices.filter(device => device.loaded).length}/${devices.length} devices · ${owner.interaction.mode}`)
     }
     pi.registerCommand("kinex-mode", {
       description: "Kinex tool permissions: ask, auto, yolo (does not change Pi coding tools)",
@@ -48,6 +52,7 @@ export function createPiExtension(options: PiOptions = {}) {
     })
     pi.on("session_start", async (_event, ctx) => {
       try {
+        active = true
         const enableRecording = pi.getFlag("kinex-recording") === true
         if (owner.enableRecording !== enableRecording) { await owner.dispose(); owner.enableRecording = enableRecording }
         const runtime = await owner.enter(ctx.cwd)
@@ -78,13 +83,14 @@ export function createPiExtension(options: PiOptions = {}) {
         unsubscribe = runtime.subscribe(event => {
           if (event.type === "recording.warning" && ctx.hasUI) ctx.ui.notify(event.message, "warning")
         })
+        await indicator.bind(runtime, ctx)
         for (const activation of await runtime.devices.warmLoaded()) void activation.ready.catch(error => {
           if (ctx.hasUI) ctx.ui.notify(String(error), "error")
         })
         await bridge.refreshActive(ctx)
         await status(ctx)
         blocked = undefined
-      } catch (error) { await owner.dispose(); throw error }
+      } catch (error) { active = false; indicator.clear(); await owner.dispose(); throw error }
     })
     pi.on("before_agent_start", async (event, ctx) => {
       try {
@@ -122,6 +128,9 @@ export function createPiExtension(options: PiOptions = {}) {
         && path.resolve(SessionManager.open(event.targetSessionFile).getCwd()) !== path.resolve(ctx.cwd)
     })
     pi.on("session_shutdown", async event => {
+      active = false
+      statusGeneration++
+      indicator.clear()
       unsubscribe?.(); unsubscribe = undefined
       if (event.reason === "quit" || event.reason === "reload" || leavingWorkspace) await owner.dispose()
       else await owner.leaveSession()

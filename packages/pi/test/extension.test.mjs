@@ -2,6 +2,7 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { mkdir, writeFile } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
 import { isolate, fakeProvider, workspace, seed } from '../../../test/helpers.mjs'
 const isolation = await isolate()
 after(isolation.cleanup)
@@ -10,7 +11,7 @@ const { createPiExtension } = await import('../dist/index.js')
 const { coreContribution } = await import('@kinex/core/integration')
 const { executeCommand } = await import('../dist/commands.js')
 
-async function fixture(t, contributions) {
+async function fixture(t, contributions, uiContext) {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
   const agentDir = path.join(isolation.root, 'config/agent')
@@ -20,7 +21,7 @@ async function fixture(t, contributions) {
   await loader.reload()
   const result = await createAgentSession({ cwd, agentDir, resourceLoader: loader, sessionManager: SessionManager.create(cwd, path.join(cwd, 'sessions')) })
   assert.deepEqual(result.extensionsResult.errors, [])
-  await result.session.bindExtensions({ mode: 'print', onError: error => { throw new Error(error.error) } })
+  await result.session.bindExtensions({ mode: uiContext ? 'interactive' : 'print', uiContext, onError: error => { throw new Error(error.error) } })
   t.after(async () => { await result.session.abort(); await runtime?.dispose(); result.session.dispose() })
   return { cwd, fake, session: result.session, get runtime() { return runtime } }
 }
@@ -53,6 +54,40 @@ test('native Pi loads the extension and user device commands do not invoke the m
   await f.session.prompt('describe devices')
   assert.equal(f.fake.requests.length, 1)
   assert.match(JSON.stringify(f.fake.requests[0]), /kinex_context/)
+})
+
+test('native Pi updates the recording footer from manual commands and runtime completion events', async t => {
+  let footer
+  const base = { render: () => ['/workspace', 'model'], invalidate() {} }
+  const tui = { children: [{ children: [base] }], requestRender() {} }
+  const statuses = []
+  const ui = {
+    setWidget: (key, content) => { assert.equal(key, 'kinex-recording'); if (content) assert.deepEqual(content(tui).render(80), []) },
+    setFooter: factory => { footer = factory?.(tui) },
+    setStatus: (_key, text) => statuses.push(text),
+    notify: message => assert.fail(message),
+  }
+  const f = await fixture(t, undefined, ui)
+  await seed(f.runtime)
+  await f.session.prompt('/load sensor')
+  const waitForRecording = async active => {
+    const visible = () => footer?.render(80)[0].includes('rec:') ?? false
+    for (let i = 0; i < 100 && visible() !== active; i++) await delay(10)
+    assert.equal(visible(), active)
+  }
+  await f.session.prompt('/record start sensor=2 native capture')
+  await waitForRecording(true)
+  assert.match(footer.render(80)[0], /^\/workspace +\x1b\[31mrec: native-capture/)
+  await f.session.prompt('/record stop success')
+  await waitForRecording(false)
+  await f.runtime.recording.start({ specs: { sensor: { rate: 2 } }, instruction: 'quota capture', sessionID: f.session.sessionManager.getSessionId() })
+  await waitForRecording(true)
+  await f.runtime.recording.stop({ endedBy: 'quota' })
+  await waitForRecording(false)
+  await f.session.prompt('/record start missing=2')
+  await waitForRecording(false)
+  assert.equal(f.fake.requests.length, 0)
+  assert.ok(statuses.every(text => !text.includes('REC')))
 })
 
 test('native Pi discovers a tool written during the task and preserves projected context across requests', async t => {

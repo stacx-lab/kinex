@@ -21,6 +21,7 @@ export const DeviceTool = define("device", {
       .optional()
       .describe("JSON arguments for the action — commands use the DEVICE'S OWN action space (see its type's profile contract; joint devices derive joints from their model)"),
     compact: z.boolean().default(false).describe("single-line JSON output — use in polling/sampling loops"),
+    verbose: z.boolean().default(true).describe("keep all result fields; false omits empty optional feedback"),
   }),
   execute: async (args, ctx) => {
     const robot = await CalibrationStore.readManifest(ctx.directory)
@@ -39,7 +40,7 @@ export const DeviceTool = define("device", {
     const reading = args.action === "load" || args.action === "unload"
       ? await lifecycleAction(ctx.directory, device, args.action, ctx.abort)
       : await dispatchDevice(ctx.directory, device, args.action, args.args ?? {}, undefined, ctx.abort)
-    const output = args.compact && !reading.filePath ? JSON.stringify(reading.data ?? {}) : renderReading(reading)
+    const output = renderReading(reading, args.verbose || !["read", "write"].includes(args.action), args.compact)
     const mime = reading.filePath ? await imageMime(reading.filePath) : undefined
     const attachments = mime && reading.filePath ? [{ mime, path: reading.filePath }] : undefined
     return { title: command ? intent : `device ${device.name}`, output, attachments }

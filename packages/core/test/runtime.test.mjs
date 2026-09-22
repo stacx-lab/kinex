@@ -62,6 +62,25 @@ test('core discovery and context contain robotics tools and packaged assets', as
   assert.ok((await runtime.calibration.plan()).items)
 })
 
+test('device and record tools default to verbose results without changing raw observations', async t => {
+  const { runtime } = await fixture(t, { host, enableRecording: true })
+  const { tools } = await runtime.tools.list()
+  for (const name of ['device', 'record']) assert.equal(tools.find(tool => tool.name === name).inputSchema.properties.verbose.default, true)
+  const call = (name, args) => runtime.tools.call(name, args, { sessionID: 'output-test' })
+  const full = JSON.parse((await call('device', { deviceID: 'sensor' })).output)
+  assert.deepEqual(full.efforts, [])
+  const concise = await call('device', { deviceID: 'sensor', verbose: false, compact: true })
+  assert.equal(concise.output.includes('\n'), false)
+  assert.equal('efforts' in JSON.parse(concise.output), false)
+  assert.deepEqual(JSON.parse(concise.output).faults, [])
+  assert.deepEqual((await runtime.devices.dispatch('sensor', 'read')).data.efforts, [])
+  const snap = await call('record', { action: 'snap', devices: ['sensor'] })
+  assert.deepEqual(JSON.parse(snap.output).refusals, {})
+  const cleanSnap = await call('record', { action: 'snap', devices: ['sensor'], verbose: false })
+  assert.equal('refusals' in JSON.parse(cleanSnap.output), false)
+  assert.deepEqual(JSON.parse(cleanSnap.output).readings.sensor.data.faults, [])
+})
+
 test('two runtimes isolate mock state and observers even in the same workspace', async t => {
   const { runtime: a, directory } = await fixture(t)
   const b = createKinexRuntime({ directory })
@@ -142,10 +161,20 @@ test('Python tools use the packaged client and drain noisy stderr', async t => {
   const dir = path.join(directory, '.kinex', 'tool', 'node_python')
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'tool.yaml'), 'name: node_python\nkind: perception\ndescription: test\ninterpreter: python3\n')
-  await writeFile(path.join(dir, 'tool.py'), 'import os\nfrom kinex import robot, finish\nos.write(2, b"x" * 1024 * 1024)\nfinish(robot())\n')
+  await writeFile(path.join(dir, 'tool.py'), 'import os\nfrom kinex import robot, finish\nos.write(2, b"x" * 1024 * 1024)\nfinish({**robot(), "nested": {"deeper": {"values": [1, 2]}}})\n')
   const result = await runtime.tools.call('node_python', {}, { sessionID: 's' })
   assert.ok(!result.isError, result.output)
   assert.equal(JSON.parse(result.output).identity.id, 'node-test')
+  assert.match(result.output, /\n  "nested": \{\n    "deeper": \{"values":\[1,2\]\}\n  \}/)
+})
+
+test('calibration samples format their JSON payload after the textual result header', async t => {
+  const { runtime } = await fixture(t, { host })
+  const result = await runtime.tools.call('calib_sample', { deviceID: 'sensor', routine: 'format-test' }, { sessionID: 's' })
+  assert.ok(!result.isError, result.output)
+  assert.match(result.output, /^recorded sample 0[^\n]+\n\{\n  "note":/)
+  const data = JSON.parse(result.output.slice(result.output.indexOf('\n') + 1))
+  assert.deepEqual(data.faults, [])
 })
 
 test('recording works concurrently in two runtimes and finalizes on disposal', async t => {

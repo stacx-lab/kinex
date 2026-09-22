@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-w
 import { PermissionDeniedError, QuestionDeclinedError, type Result } from "@kinex/core"
 import type { KinexCapabilities } from "@kinex/core/integration"
 import type { Interaction } from "./interaction.ts"
+import { toolRenderers } from "./render.ts"
 
 export async function piResult(result: Result, signal?: AbortSignal): Promise<Awaited<ReturnType<ToolDefinition["execute"]>>> {
   const content: Awaited<ReturnType<ToolDefinition["execute"]>>["content"] = [{ type: "text", text: result.output }]
@@ -37,6 +38,7 @@ export function toolBridge(pi: ExtensionAPI, runtime: Pick<KinexCapabilities, "t
         if (registered.get(name) === fingerprint) continue
         pi.registerTool({
           name, label: `Kinex ${tool.name}`, description: tool.description,
+          ...toolRenderers(tool.name, name),
           parameters: Unsafe<Record<string, unknown>>(tool.inputSchema), executionMode: "sequential",
           async execute(callID, args, signal, _update, ctx) {
             if (!present.has(name)) throw new Error(`Tool ${tool.name} is no longer available`)

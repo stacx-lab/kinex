@@ -1,6 +1,7 @@
 import type { KinexRuntime } from "./runtime.ts"
 import { workflows } from "./workflows/index.ts"
 import { parseSpecs } from "./record/spec.ts"
+import { recordingOutput } from "./record/output.ts"
 
 export const roboticsCommands = [
   { name: "devices", description: "List devices and activation intent", arguments: "", kind: "operation" },
@@ -10,7 +11,7 @@ export const roboticsCommands = [
   { name: "ping", description: "Inspect live device status", arguments: "<device|all>", kind: "operation" },
   { name: "stop", description: "Stop actuators", arguments: "[device]", kind: "operation" },
   { name: "unregister", description: "Unload and delete a device", arguments: "<device>", kind: "operation" },
-  { name: "record", description: "Capture observations", arguments: "start|snap|stop|status ...", kind: "operation" },
+  { name: "record", description: "Capture observations", arguments: "start|snap|stop|status [--verbose] ...", kind: "operation" },
   { name: "onboarding", description: "Set up a robotics workspace", arguments: "[description]", kind: "workflow" },
   { name: "register", description: "Prepare an unloaded device profile", arguments: "<type-or-template>", kind: "workflow" },
   { name: "calibrate", description: "Resolve calibration requirements", arguments: "[scope]", kind: "workflow" },
@@ -73,25 +74,28 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
 
 async function record(runtime: KinexRuntime, tokens: string[], sessionID: string): Promise<string> {
   const [verb = "status", ...rest] = tokens
+  const verbose = rest[0] === "--verbose"
+  if (verbose) rest.shift()
+  const json = (value: unknown) => recordingOutput(value, verbose)
   if (verb === "status") {
     if (rest.length) throw new Error("Usage: /record status")
-    return JSON.stringify({ active: await runtime.recording.status(), recent: await runtime.recording.recent(5) }, null, 2)
+    return json({ active: await runtime.recording.status(), recent: await runtime.recording.recent(5) })
   }
   if (verb === "start") {
     const { specs, instruction } = parseSpecs(rest)
     if (!Object.keys(specs).length) throw new Error("Usage: /record start <device=Hz ...> [instruction]")
-    return JSON.stringify(await runtime.recording.start({ specs, instruction, sessionID }), null, 2)
+    return json(await runtime.recording.start({ specs, instruction, sessionID }))
   }
   if (verb === "snap") {
     const known = new Set((await runtime.devices.list()).map(device => device.name))
     const firstText = rest.findIndex(token => !known.has(token))
     const devices = firstText < 0 ? rest : rest.slice(0, firstText)
     if (!devices.length) throw new Error("Usage: /record snap <devices ...> [instruction]")
-    return JSON.stringify(await runtime.recording.snap({ devices, instruction: firstText < 0 ? "" : rest.slice(firstText).join(" "), sessionID }), null, 2)
+    return json(await runtime.recording.snap({ devices, instruction: firstText < 0 ? "" : rest.slice(firstText).join(" "), sessionID }))
   }
   if (verb === "stop") {
     const outcome = rest[0] === "success" || rest[0] === "failure" || rest[0] === "partial" ? rest[0] : undefined
-    return JSON.stringify(await runtime.recording.stop({ outcome, summary: (outcome ? rest.slice(1) : rest).join(" ") }), null, 2)
+    return json(await runtime.recording.stop({ outcome, summary: (outcome ? rest.slice(1) : rest).join(" ") }))
   }
   throw new Error("Usage: /record start|snap|stop|status")
 }

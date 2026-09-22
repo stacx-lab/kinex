@@ -125,7 +125,7 @@ test('cancelling an active mixed batch prevents subsequent core and coding calls
 test('question cancellation prevents later calls even in auto mode', async t => {
   const { cwd, fake, app } = await fixture(t)
   await bind(app, {
-    setHeader() {}, setStatus() {}, addAutocompleteProvider() {}, notify() {},
+    setHeader() {}, setStatus() {}, setWidget() {}, addAutocompleteProvider() {}, notify() {},
     select: async () => undefined,
   })
   fake.steps.push({ tools: [

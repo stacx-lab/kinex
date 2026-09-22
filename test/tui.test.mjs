@@ -2,7 +2,8 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { readFile, stat } from 'node:fs/promises'
+import { stripTerminalSequences } from '@earendil-works/pi-tui'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { isolate, fakeProvider, workspace, seed } from './helpers.mjs'
@@ -35,6 +36,44 @@ test('real PTY renders Kinex, SDK tools/replies and device command completion', 
   assert.equal(fake.requests.length, 2)
   assert.equal(await readFile(path.join(cwd, 'tui-result.txt'), 'utf8'), 'tui tool worked')
   await assert.rejects(stat(path.join(cwd, '.pi')), { code: 'ENOENT' })
+})
+
+for (const tuiMode of ['regular', 'fullscreen']) test(`real PTY ${tuiMode} keeps recording on the directory row with expandable tools`, { timeout: 30000 }, async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  const settingsFile = path.join(isolation.root, 'config', 'agent', 'settings.json')
+  await writeFile(settingsFile, JSON.stringify({ ...JSON.parse(await readFile(settingsFile, 'utf8')), tuiMode }))
+  fake.steps.push(
+    { tool: 'device', args: { deviceID: 'sensor', action: 'read' } },
+    { tool: 'record', args: { action: 'start', devices: { sensor: 2 }, instruction: 'PTY recording' } },
+    { text: 'RECORDING_READY' },
+  )
+  const runtime = createKinexRuntime({ directory: cwd })
+  await seed(runtime)
+  await (await runtime.devices.load('sensor')).ready
+  await runtime.dispose()
+  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--enable-recording', '--model', 'fake/test', '--seed', 'Record the sensor'], {
+    cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
+    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'RECORDING_READY', TUI_TEST_KEYS: JSON.stringify([
+      [0.5, '\u000f'], [0.3, '\u000f'], [0.3, '/record stop success\r'], [0.6, '/quit\r'],
+    ]) },
+  })
+  const text = stripTerminalSequences(stdout)
+  assert.match(text, /device read sensor/)
+  assert.match(text, /record start sensor=2Hz/)
+  assert.match(text, /rec: pty-recording/)
+  assert.ok(text.split(/\r?\n/).some(line => line.includes(cwd) && line.includes('rec: pty-recording')), 'recording must share the directory line')
+  assert.match(stdout, /\x1b\[31mrec: pty-recording/)
+  // In fullscreen mode the first expanded tool can scroll out of the viewport.
+  if (tuiMode === 'regular') assert.match(text, /"deviceID": "sensor"/)
+  assert.doesNotMatch(text + stderr, /TypeError|ReferenceError|Extension error/)
+  assert.equal(fake.requests.length, 3)
+  const saved = createKinexRuntime({ directory: cwd })
+  try {
+    const recent = await saved.recording.recent()
+    assert.equal(recent[0].status, 'stopped')
+    assert.equal(recent[0].outcome, 'success')
+  } finally { await saved.dispose() }
 })
 
 test('real PTY permission dialog approves a coding tool through the keyboard', { timeout: 30000 }, async t => {

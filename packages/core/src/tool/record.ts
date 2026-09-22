@@ -2,6 +2,7 @@ import { z } from "zod"
 import { define } from "./tool.ts"
 import { Recorder, type DeviceSpec } from "../record/recorder.ts"
 import { parseSpec } from "../record/spec.ts"
+import { recordingOutput } from "../record/output.ts"
 import DESCRIPTION from "./record.txt"
 
 // The agent's handle on the recorder: start | snap | stop | status. Starting
@@ -11,6 +12,7 @@ export const RecordTool = define("record", {
   description: DESCRIPTION,
   parameters: z.object({
     action: z.enum(["snap", "start", "stop", "status"]),
+    verbose: z.boolean().default(true).describe("keep all result fields; false omits empty optional annotations and bookkeeping"),
     devices: z
       .union([z.array(z.string()), z.record(z.string(), z.number().positive())])
       .optional()
@@ -22,7 +24,7 @@ export const RecordTool = define("record", {
     summary: z.string().optional().describe("stop: one-paragraph account of what happened"),
   }),
   execute: async (args, ctx) => {
-    const json = (value: unknown) => JSON.stringify(value, null, 1)
+    const json = (value: unknown) => recordingOutput(value, args.verbose)
     if (args.action === "snap") {
       const devices = Array.isArray(args.devices) ? args.devices : Object.keys(args.devices ?? {})
       if (devices.length === 0) return { title: "snap needs devices", output: 'list the devices to read, e.g. ["arm", "wrist_cam"]', isError: true }

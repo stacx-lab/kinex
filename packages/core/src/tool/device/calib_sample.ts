@@ -6,6 +6,7 @@ import { define } from "../tool.ts"
 import { noRobot, unknownDevice, unloadedDevice, dispatchDevice } from "./shared.ts"
 import { CalibrationStore } from "../../calibration/store.ts"
 import { readJson, writeJson } from "../../util/filesystem.ts"
+import { formatJSON } from "../../util/json.ts"
 import DESCRIPTION from "./calib_sample.txt"
 
 export const CalibSampleTool = define("calib_sample", {
@@ -94,7 +95,7 @@ export const CalibSampleTool = define("calib_sample", {
       output: [
         `recorded sample ${sample.index} → ${file} (${samples.length} total)`,
         settle && !settled ? `WARNING: settle timed out after ${settle.timeout_s}s — the device may still be moving; sample marked settled: false` : "",
-        JSON.stringify(sample.data),
+        formatJSON(sample.data),
       ]
         .filter(Boolean)
         .join("\n"),
