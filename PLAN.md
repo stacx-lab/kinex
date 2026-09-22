@@ -1,5 +1,18 @@
 # Kinex progress
 
+## Completed: simulator camera thread affinity
+
+- [x] Reproduce LIBERO camera noise when its renderer runs on an RPC thread;
+  the downloaded PNG matches the corrupt server artifact byte-for-byte.
+- [x] Keep LIBERO and RoboCasa native calls on their creating thread in both
+  clock modes, while bounded writes yield to camera reads.
+- [x] Twenty real LIBERO camera reads pass over HTTP in both clock modes;
+  synchronous pixels match owner-thread reference images exactly, and realtime
+  reads complete during a bounded write. Native clock/budget/replay checks pass.
+- [x] RoboEnv: 782 tests pass, 43 skip; lint, privacy, wheels and isolated imports
+  pass. Four new socket regressions verify LIBERO/RoboCasa rendering and cleanup
+  thread affinity. Restart existing services and reload attached Kinex devices.
+
 ## Completed: concurrent device I/O
 
 - [x] Separate observation, write, capture and lifecycle scheduling in Kinex;
