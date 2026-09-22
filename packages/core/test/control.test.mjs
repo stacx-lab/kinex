@@ -90,7 +90,7 @@ function dialog(file, callArgs, devices, tools = {}) {
       if (action === 'read') return { ok: true, data: device.read() }
       if (action === 'write') return { ok: true, data: device.write(args) }
       if (action === 'stop') return { ok: true, data: device.stop() }
-      if (action === 'ik') return { ok: true, data: { joints: device.ik } }
+      if (action === 'ik') { device.ikArgs = args; return { ok: true, data: { joints: device.ik } } }
       if (action === 'fk') return { ok: true, data: { pose: [0, 0, 0, 0, 0, 0, 1] } }
       if (action === 'infer') return { ok: true, data: device.infer(args) }
       return { ok: false, error: `no action ${action}` }
@@ -164,7 +164,7 @@ test('timeout_s is a budget in the device clock, and on_timeout decides the exit
     const held = arm({ background })
     const { result } = await move(held, { joints: [3.0, -3.0], timeout_s: 0.2 })
     assert.equal(result.terminated_by, 'timeout')
-    assert.ok(result.elapsed_s >= 0.2 && result.elapsed_s < 0.3, `elapsed ${result.elapsed_s}`)
+    assert.ok(Math.abs(result.elapsed_s - 0.2) < 1e-9, `elapsed ${result.elapsed_s}`)
     assert.equal(held.stops, 1, 'stop is the default exit')
 
     const running = arm({ background })
@@ -172,6 +172,22 @@ test('timeout_s is a budget in the device clock, and on_timeout decides the exit
     assert.equal(kept.result.terminated_by, 'timeout')
     assert.equal(running.stops, 0, 'continue leaves the goal standing')
     assert.deepEqual(running.target, [3.0, -3.0])
+  }
+})
+
+test('policy budget exhaustion never starts an extra action due to rounding', async () => {
+  for (const background of [true, false]) {
+    const device = arm({ background })
+    const { result, stderr } = await dialog(tool('run-policy'), {
+      model: 'policy', command: [{ device: 'arm' }], observation: {},
+      action_hz: 10, timeout_s: 0.2, on_timeout: 'continue',
+    }, { arm: device, policy: policy([{ actions: [[1, 1], [2, 2], [3, 3]], done: true }]) })
+    assert.ok(result, stderr)
+    assert.equal(result.terminated_by, 'timeout')
+    assert.equal(result.actions_executed, 2)
+    assert.ok(Math.abs(result.elapsed_s - 0.2) < 1e-9)
+    assert.deepEqual(device.history.at(-1), [2, 2])
+    assert.equal(device.stops, 0)
   }
 })
 
@@ -208,7 +224,7 @@ test('track alternates perception and control, passing one to the other', async 
     { perceive: { tool: 'locate_object_3d', args: { prompt: 'mug' } },
       control: { tool: 'move_to', args: { device: 'arm', timeout_s: 0.3 } },
       timeout_s: 5 },
-    {},
+    { arm: arm({ background: true }) },
     {
       locate_object_3d: (a) => { seen.push(a); return { point: [0.4, 0, 0], frame: 'arm' } },
       move_to: (a) => {
@@ -236,11 +252,11 @@ test('the controller timeout alone spans open loop to closed loop', async () => 
     let rounds = 0
     const { result } = await dialog(
       tool('track'),
-      { perceive: { tool: 'p' }, control: { tool: 'c', args: { timeout_s: segment } },
+      { perceive: { tool: 'p' }, control: { tool: 'move_to', args: { device: 'arm', timeout_s: segment } },
         timeout_s: 5, stop_when_reached: false },
-      {},
+      { arm: arm({ background: true }) },
       { p: () => ({ point: [1, 0, 0], frame: 'arm' }),
-        c: (a) => { rounds++; return { reached: false, elapsed_s: a.timeout_s, terminated_by: 'timeout' } } },
+        move_to: (a) => { rounds++; return { reached: false, elapsed_s: a.timeout_s, terminated_by: 'timeout' } } },
     )
     assert.equal(result.terminated_by, 'timeout')
     assert.equal(rounds, expected, `segment ${segment}s should give ${expected} rounds`)
@@ -251,9 +267,9 @@ test('track retries a blind round and gives up after max_misses', async () => {
   let attempts = 0, commanded = 0
   const { result } = await dialog(
     tool('track'),
-    { perceive: { tool: 'p' }, control: { tool: 'c' }, timeout_s: 5, max_misses: 3 },
-    {},
-    { p: () => { attempts++; return { point: null } }, c: () => { commanded++; return {} } },
+    { perceive: { tool: 'p' }, control: { tool: 'move_to', args: { device: 'arm', timeout_s: 1 } }, timeout_s: 5, max_misses: 3 },
+    { arm: arm({ background: true }) },
+    { p: () => { attempts++; return { point: null } }, move_to: () => { commanded++; return {} } },
   )
   assert.equal(result.terminated_by, 'perception_lost')
   assert.equal(attempts, 3)
@@ -288,23 +304,14 @@ test('a policy chunk replays at one action_hz period per action', async () => {
   assert.equal(outcomes.stepped.device.writes, 15)
 })
 
-test('track plus run_policy is the closed policy loop', async () => {
-  const device = arm({ background: true })
-  const model = policy([{ actions: [[0.2, 0.2]] }, { actions: [[0.4, -0.2]], done: true }])
-  const { result, error, stderr } = await dialog(
-    tool('track'),
-    { perceive: { tool: 'observe', args: { devices: ['arm'] } },
-      control: { tool: 'run_policy', args: { model: 'policy', command: [{ device: 'arm' }], action_hz: 10, timeout_s: 5 } },
-      timeout_s: 5 },
-    { arm: device, policy: model },
-    { observe: () => ({ devices: { arm: { positions: [0, 0] } } }), run_policy: undefined },
-  )
-  assert.equal(error, undefined, stderr)
-  // track ran run_policy twice; the second inference said done.
-  assert.equal(result.rounds, 2)
-  assert.equal(model.calls, 2)
-  assert.deepEqual(model.seen[0].obs, { devices: { arm: { positions: [0, 0] } } })
-  assert.equal(result.terminated_by, 'reached')
+test('track rejects policy controllers before perception or inference', async () => {
+  const model = policy([{ actions: [[0.2, 0.2]], done: true }])
+  const { result, stderr } = await dialog(tool('track'), {
+    perceive: { tool: 'observe' }, control: { tool: 'run_policy' }, timeout_s: 5,
+  }, { policy: model })
+  assert.equal(result, undefined)
+  assert.match(stderr, /track supports only move_to/)
+  assert.equal(model.calls, 0)
 })
 
 test('no builtin tool asks the agent to reason about the execution mode', async () => {
@@ -333,4 +340,211 @@ test('nothing declares or reads device timing any more', async () => {
     const source = await readFile(path.join(toolDir, entry.name, 'tool.py'), 'utf8')
     assert.doesNotMatch(source, /\bexecution\b/, `${entry.name}/tool.py reads the execution block`)
   }
+})
+
+function base(background, { stall = false, reached = true } = {}) {
+  const self = { clock: 0, writes: [], stops: 0 }
+  self.profile = () => ({ type: 'velocity', intrinsics: {
+    control: { mode: 'motion', modes: { walk: { posture: null, velocity: { frame: 'body', components: [
+      { axis: 'vx', units: 'm/s', bounds: { min: -1, max: 1 } },
+    ] } } } }, feedback: { pose_frame: null, velocity_components: ['vx'] },
+  } })
+  self.read = () => ({ faults: [], pose: null, velocities: [0], sample_time_s: self.clock })
+  self.write = args => {
+    self.writes.push(args)
+    const spent = stall ? 0 : background ? args.for_s : Math.min(0.02, args.for_s)
+    self.clock += spent
+    return { accepted: true, elapsed_s: spent, reached, state: self.read() }
+  }
+  self.stop = () => { self.stops++; return { stopped: true } }
+  return self
+}
+
+const drive = (device, extra = {}, tools = {}) => dialog(tool('drive'), {
+  device: 'base', mode: 'walk', velocity: { vx: 0.4 }, duration_s: 0.25, ...extra,
+}, { base: device }, tools)
+
+test('drive holds the full duration despite arrival reports, in both clocks', async () => {
+  for (const background of [true, false]) {
+    const device = base(background)
+    const { result, stderr } = await drive(device)
+    assert.ok(result, stderr)
+    assert.equal(result.terminated_by, 'duration')
+    assert.ok(Math.abs(result.elapsed_s - 0.25) < 1e-9)
+    assert.equal(device.stops, 1)
+    assert.ok(device.writes.every(a => a.velocity.vx === 0.4 && a.for_s > 0))
+    assert.equal(device.writes.length, background ? 1 : 13)
+  }
+})
+
+test('until is checked initially, between bounded writes, and at the final boundary', async () => {
+  for (const background of [true, false]) {
+    for (const trigger of [0, 0.1, 0.25, Infinity]) {
+      const device = base(background)
+      const checks = []
+      const { result, stderr } = await drive(device, { until: { tool: 'contact', every_s: 0.1 } }, {
+        contact: () => { checks.push(device.clock); return { done: device.clock + 1e-9 >= trigger } },
+      })
+      assert.ok(result, stderr)
+      assert.equal(result.terminated_by, trigger === Infinity ? 'duration' : 'until:contact')
+      assert.ok(Math.abs(result.elapsed_s - Math.min(trigger, 0.25)) < 1e-9)
+      assert.equal(checks[0], 0)
+      assert.equal(device.stops, 1)
+      assert.ok(device.writes.every(a => a.for_s <= 0.1 + 1e-9))
+    }
+  }
+})
+
+test('continue applies only to timeout, never predicates, arrival, or stalled writes', async () => {
+  for (const mode of ['predicate', 'reached', 'stalled']) {
+    const device = arm({ background: true, stall: mode === 'stalled' })
+    const { result, stderr } = await dialog(tool('move-to'), {
+      device: 'arm', joints: GOAL, timeout_s: 1, on_timeout: 'continue',
+      ...(mode === 'predicate' ? { until: { tool: 'contact', every_s: 0.1 } } : {}),
+    }, { arm: device }, { contact: () => ({ done: device.clock >= 0.1 }) })
+    assert.ok(result, stderr)
+    assert.equal(result.terminated_by, mode === 'predicate' ? 'until:contact' : mode)
+    assert.equal(device.stops, 1)
+  }
+})
+
+test('move_to accepts an observation frame and verifies measured final velocity', async () => {
+  const device = arm({ background: true, ik: GOAL })
+  const prof = device.profile
+  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = [1, 2, 3, 0, 0, 0, 1]; return p }
+  const original = device.read
+  device.read = () => ({ ...original(), velocities: [5, 0] })
+  const { result, stderr } = await move(device, {
+    joints: undefined, observation: { point: [0.1, 0, 0] }, frame: 'arm:camera', orientation: [0, 0, 0, 1],
+  })
+  assert.ok(result, stderr)
+  assert.deepEqual(device.ikArgs.pose, [1.1, 2, 3, 0, 0, 0, 1])
+  assert.equal(result.terminated_by, 'disturbed')
+  assert.equal(result.quiet_verified, true)
+})
+
+test('track runs actual move_to segments and clips the final budget', async () => {
+  for (const background of [true, false]) {
+    const device = arm({ background, ik: [3, -3] })
+    const { result, stderr } = await dialog(tool('track'), {
+      perceive: { tool: 'point' },
+      control: { tool: 'move_to', args: { device: 'arm', timeout_s: 0.2, on_timeout: 'continue', orientation: [0, 0, 0, 1] } },
+      timeout_s: 0.25,
+    }, { arm: device }, { point: () => ({ point: [1, 0, 0], frame: 'arm' }) })
+    assert.ok(result, stderr)
+    assert.equal(result.terminated_by, 'timeout')
+    assert.equal(result.rounds, 2)
+    assert.ok(Math.abs(result.elapsed_s - 0.25) < 1e-9)
+    assert.equal(device.stops, 1)
+  }
+})
+
+test('track stops a continuing move on the first miss and on final exit', async () => {
+  const device = arm({ background: true, ik: [3, -3] })
+  let perceptions = 0
+  const { result, stderr } = await dialog(tool('track'), {
+    perceive: { tool: 'point' },
+    control: { tool: 'move_to', args: { device: 'arm', timeout_s: 0.1, on_timeout: 'continue', orientation: [0, 0, 0, 1] } },
+    timeout_s: 5, max_misses: 2,
+  }, { arm: device }, { point: () => {
+    perceptions++
+    if (perceptions === 3) assert.ok(device.stops >= 1, 'must stop before retrying perception')
+    return { point: perceptions === 1 ? [1, 0, 0] : null, frame: 'arm' }
+  } })
+  assert.ok(result, stderr)
+  assert.equal(result.terminated_by, 'perception_lost')
+  assert.equal(device.stops, 3)
+})
+
+test('policy faults on a secondary device stop the whole group before the next action', async () => {
+  const first = arm({ background: true }), second = arm({ background: true })
+  const write = second.write
+  second.write = a => { const r = write(a); r.state.faults = [{ code: 'overload' }]; return r }
+  const { result, stderr } = await dialog(tool('run-policy'), {
+    model: 'policy', observation: {}, command: [{ device: 'arm' }, { device: 'hand' }],
+    action_hz: 10, timeout_s: 2, on_timeout: 'continue',
+  }, { arm: first, hand: second, policy: policy([{ actions: [[0.1, 0.1, 0.1, 0.1], [0.2, 0.2, 0.2, 0.2]], done: true }]) })
+  assert.ok(result, stderr)
+  assert.equal(result.terminated_by, 'fault')
+  assert.deepEqual(result.faulted_devices, ['hand'])
+  assert.equal(result.actions_executed, 1)
+  assert.equal(first.stops, 1)
+  assert.equal(second.stops, 1)
+})
+
+test('drive and track schemas reject removed modes before execution', async () => {
+  const { parse } = await import('yaml')
+  const { z } = await import('zod')
+  const schema = async name => z.fromJSONSchema(parse(await readFile(path.join(toolDir, name, 'tool.yaml'), 'utf8')).parameters)
+  const hold = await schema('drive')
+  assert.ok(hold.safeParse({ device: 'base', mode: 'walk', duration_s: 1 }).success)
+  for (const extra of [{ displacement: { x: 1 } }, { observation: {} }, { timeout_s: 1 }, { on_timeout: 'continue' }])
+    assert.equal(hold.safeParse({ device: 'base', mode: 'walk', duration_s: 1, ...extra }).success, false)
+  const tracking = await schema('track')
+  const args = { perceive: { tool: 'p' }, control: { tool: 'move_to', args: { device: 'arm', timeout_s: 1 } }, timeout_s: 5 }
+  assert.ok(tracking.safeParse(args).success)
+  for (const changed of [{ ...args.control, tool: 'run_policy' }, { ...args.control, args: { ...args.control.args, joints: [0] } }])
+    assert.equal(tracking.safeParse({ ...args, control: changed }).success, false)
+})
+
+test('shipped driver wrappers enforce budgets and preserve vendor execution results', async () => {
+  const { execFileSync } = await import('node:child_process')
+  execFileSync(python, [path.join(root, 'test/driver_contract.py')], {
+    env: { ...process.env, PYTHONPATH: pythonLib }, encoding: 'utf8',
+  })
+})
+
+test('track stops on success, round limit, outer predicate, and child failures', async () => {
+  for (const reason of ['reached', 'max_rounds', 'until:done', 'fault', 'stalled', 'disturbed', 'error']) {
+    const device = arm({ background: true, ik: GOAL })
+    let checks = 0
+    const { result, stderr } = await dialog(tool('track'), {
+      perceive: { tool: 'point' }, control: { tool: 'move_to', args: { device: 'arm', timeout_s: 0.1 } },
+      timeout_s: 1, max_rounds: 1,
+      ...(reason === 'until:done' ? { until: { tool: 'done' } } : {}),
+    }, { arm: device }, {
+      point: () => reason === 'error' ? {} : { point: [1, 0, 0] },
+      done: () => ({ done: ++checks === 2 }),
+      move_to: () => ({ elapsed_s: 0.1, reached: reason === 'reached',
+        terminated_by: ['fault', 'stalled', 'disturbed', 'reached'].includes(reason) ? reason : 'timeout' }),
+    })
+    if (reason === 'error') {
+      assert.equal(result, undefined)
+      assert.match(stderr, /must return a point/)
+    } else {
+      assert.ok(result, stderr)
+      assert.equal(result.terminated_by, reason)
+    }
+    assert.equal(device.stops, 1, reason)
+  }
+})
+
+test('final verification errors or faults revoke move and policy continuation', async () => {
+  for (const controller of ['move-to', 'run-policy']) {
+    for (const faults of [[{ code: 'fault' }], 'invalid']) {
+      const device = arm({ background: true })
+      const read = device.read
+      device.read = () => ({ ...read(), faults })
+      const { result, stderr } = controller === 'move-to'
+        ? await move(device, { joints: [3, -3], timeout_s: 0.1, on_timeout: 'continue' })
+        : await dialog(tool(controller), {
+          model: 'policy', command: [{ device: 'arm' }], observation: {},
+          timeout_s: 0.1, on_timeout: 'continue',
+        }, { arm: device, policy: policy([{ actions: [[3, -3]] }]) })
+      if (Array.isArray(faults)) assert.equal(result.terminated_by, 'fault')
+      else { assert.equal(result, undefined); assert.match(stderr, /faults must be a list/) }
+      assert.equal(device.stops, 1)
+    }
+  }
+})
+
+test('unmeasured final quietness is explicitly reported rather than invented', async () => {
+  const device = arm({ background: true })
+  const prof = device.profile, read = device.read
+  device.profile = () => { const p = prof(); p.intrinsics.feedback.velocities = false; return p }
+  device.read = () => ({ ...read(), velocities: [] })
+  const { result, stderr } = await move(device)
+  assert.ok(result, stderr)
+  assert.equal(result.reached, true)
+  assert.equal(result.quiet_verified, false)
 })

@@ -9,7 +9,7 @@ import threading
 
 from kinex.driver_protocol import run, release
 from kinex.velocity import command, reading
-from kinex.validation import settings
+from kinex.validation import settings, segment_result
 
 
 class Driver:
@@ -37,7 +37,7 @@ class Driver:
         raise NotImplementedError("Read body pose, velocities, height, frames and timestamp")
 
     def send_target(self, handle, value):
-        raise NotImplementedError("Select target mode and replace velocity/posture; a driver without a background clock advances one interval here")
+        raise NotImplementedError("Execute velocity/posture for value.for_s in the device clock; return accepted, elapsed_s, reached and state")
 
     def halt(self, handle, target):
         raise NotImplementedError("Apply profile stop behavior, preserving posture/balance; target is the last command or None")
@@ -81,8 +81,8 @@ class Driver:
                     raise ValueError("A background control clock requires --serve")
                 handle = self.connection()
                 self.target = value
-                self.send_target(handle, value)
-                return {"accepted": True}
+                result = segment_result(self.send_target(handle, value))
+                return {**result, "state": reading(self.profile, result["state"])}
             raise ValueError(f"Unsupported base action: {action}")
 
     def dispatch(self, action, args):

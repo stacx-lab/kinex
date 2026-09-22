@@ -37,7 +37,7 @@ contract; extraction and a shared default composition module remain deferred.
   readiness; ordinary calls never restart failed services. Stop bypasses approval.
   Unload attempts capture shutdown, stop and resource release; borrowed services
   are not terminated. Joint goals are absolute, ordered, in radians/metres;
-  a write both sets a goal and executes it for the caller's `for_s`, reporting
+  a write both sets a goal and executes it for the caller's required positive `for_s`, reporting
   `elapsed_s` in the device's own clock, whether it `reached` the caller's arrival
   spec, and the resulting state. That clock is the only time reference a
   controller reads, so the same call covers the same motion whether a background
@@ -55,12 +55,15 @@ contract; extraction and a shared default composition module remain deferred.
 - **Tools, skills and Python.** Tools declare schemas, capabilities and timeouts;
   composed calls retain permissions and recording attribution. Skills supply
   procedures. Detection/segmentation feed perception; depth localization respects
-  masks and reports camera-relative measurements. Controllers are open-loop
-  segments: `move_to` and `drive` hand a device one goal and a budget, and the
-  device runs it. `track` closes the loop by alternating any perception tool with
-  any controller, passing the observation between them, so segment length alone
-  spans open loop, closed loop and policy rollout. Execution mode is never
-  agent-visible. They stop on every exit and provide no general path planning.
+  masks and reports camera-relative measurements. Controllers hand devices bounded goals. `move_to` pursues a fixed joint or
+  pose goal; `drive` holds velocity/posture for a duration. Optional `until`
+  predicates split writes at check deadlines. `track` alternates point perception
+  with `move_to` only, clips each move to its remaining motion budget, stops on
+  perception misses and owns the final stop. `run_policy` executes one standalone
+  policy chunk and stops the whole group on any device fault. Only an explicit
+  `on_timeout: continue` leaves motion active after budget exhaustion; other exits
+  stop, and `drive`/`track` always stop on final exit. Execution mode is never
+  agent-visible. Controllers provide no general path planning.
   Core lazily prepares `.kinex/python` with uv; explicit interpreters own their
   dependencies. Ordinary host shells retain their Python environment.
 - **Recording.** Manual capture is available; model access is opt-in. Native capture

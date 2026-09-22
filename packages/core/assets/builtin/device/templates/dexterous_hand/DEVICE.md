@@ -6,6 +6,13 @@ description: dexterous hand control and observation contract.
 
 ## Use
 
+Every write requires a positive `for_s` in the device's own clock. The driver
+returns `accepted`, `elapsed_s`, boolean `reached`, and the resulting `state`.
+SDK hooks must return that report; acknowledgment alone is insufficient. Joint
+arrival may end a segment early when `arrive` is supplied. Call `stop` explicitly
+to halt a standing goal; the segment budget bounds the call, not goal lifetime.
+
+
 A distinct finger-joint controller. Uses the common joint command/read contract; move_to does not accept this type; run_policy does. Use device write/read or a hand-specific controller tool. Named fingertip frames are optional.
 
 For grasp planning, inspect optional `intrinsics.geometry`. It names a fixed

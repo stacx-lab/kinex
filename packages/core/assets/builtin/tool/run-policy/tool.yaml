@@ -9,8 +9,9 @@ description: >-
   action conversion belongs in the model driver. All commanded devices are written
   together, so one action reaches a whole embodiment at once. Each action is held
   for one action_hz period of the device's own clock, so a chunk replays at the same
-  speed on every robot. This executes ONE inference worth of actions: compose it
-  under track with observe to close the loop. Stops every commanded device on exit.
+  speed on every robot. This executes ONE inference worth of actions from an
+  observation, such as an observe bundle. Stops every commanded device on exit
+  unless on_timeout: continue leaves the last action running after budget exhaustion.
 parameters:
   type: object
   additionalProperties: false
@@ -20,7 +21,7 @@ parameters:
       description: model device serving an "infer" action (obs -> action)
     observation:
       type: object
-      description: the observation to infer from, as track passes it - typically observe's bundle
+      description: the observation to infer from, typically observe's bundle
     command:
       type: array
       minItems: 1
@@ -53,7 +54,7 @@ parameters:
       type: string
       enum: [stop, continue]
       default: stop
-      description: after the chunk, stop holds the devices where they are; continue leaves the last action standing so motion carries on while you think
+      description: only when the budget expires, continue leaves the last action standing; all other exits stop
   required: [model, observation, command]
 timeout_s: 600
 device_inputs:

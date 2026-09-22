@@ -6,7 +6,14 @@ description: joint control and observation contract.
 
 ## Use
 
-write {target:[...],for_s,arrive?,speedFraction?} sets absolute joint-position goals in model order (rad for rotary, m for prismatic joints) AND executes them, returning accepted, elapsed_s (the device time it spent), reached (judged against arrive) and the resulting state. A world advancing on its own clock runs the goal out within for_s; one that advances inside the write spends a single control interval. read reports positions, optional velocities/efforts ([] when unsupported), faults, acquisition time, and declared frame_poses. move_to settles a joint device at a fixed or pose goal; dexterous_hand is excluded. track closes the loop around a perception tool and a controller. run_policy executes a policy chunk. Optional fk/ik operate without motion; pose goals refer to kinematics.frame in the canonical device frame. Convert reference frames and TCP offsets before solving.
+Every write requires a positive `for_s` in the device's own clock. The driver
+returns `accepted`, `elapsed_s`, boolean `reached`, and the resulting `state`.
+SDK hooks must return that report; acknowledgment alone is insufficient. Joint
+arrival may end a segment early when `arrive` is supplied. Call `stop` explicitly
+to halt a standing goal; the segment budget bounds the call, not goal lifetime.
+
+
+write {target:[...],for_s,arrive?,speedFraction?} sets absolute joint-position goals in model order (rad for rotary, m for prismatic joints) AND executes them, returning accepted, elapsed_s (the device time it spent), reached (judged against arrive) and the resulting state. A world advancing on its own clock runs the goal out within for_s; one that advances inside the write spends a single control interval. read reports positions, optional velocities/efforts ([] when unsupported), faults, acquisition time, and declared frame_poses. move_to settles a joint device at a fixed or pose goal; dexterous_hand is excluded. track closes the loop around point perception and move_to. run_policy executes a policy chunk. Optional fk/ik operate without motion; pose goals refer to kinematics.frame in the canonical device frame. Convert reference frames and TCP offsets before solving.
 
 ## Setup
 

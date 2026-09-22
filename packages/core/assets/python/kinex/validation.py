@@ -34,6 +34,22 @@ def segment(args, command):
     for key in SEGMENT:
         if key in args:
             command[key] = args[key]
-    if "for_s" in command and number(command["for_s"], "for_s") <= 0:
+    if number(command.get("for_s"), "for_s") <= 0:
         raise ValueError("for_s must be positive")
+    if "arrive" in command and not isinstance(command["arrive"], dict):
+        raise ValueError("arrive must be an object")
     return command
+
+
+def segment_result(result):
+    """Validate a successful write without inventing device timing or feedback."""
+    if not isinstance(result, dict) or result.get("accepted") is not True:
+        raise ValueError("write must acknowledge accepted: true")
+    if number(result.get("elapsed_s"), "write.elapsed_s") < 0:
+        raise ValueError("write.elapsed_s must not be negative")
+    if not isinstance(result.get("reached"), bool):
+        raise ValueError("write.reached must be a boolean")
+    state = result.get("state")
+    if not isinstance(state, dict) or not isinstance(state.get("faults"), list):
+        raise ValueError("write.state must contain a faults list")
+    return result

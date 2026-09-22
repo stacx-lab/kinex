@@ -15,7 +15,7 @@ class JointDeviceDriver(Driver):
         raise NotImplementedError("Read measured state; see DEVICE.md#use")
 
     def send_target(self, handle, command):
-        raise NotImplementedError("Replace the absolute target promptly; enforce command.max_velocity when present")
+        raise NotImplementedError("Execute for command.for_s; honor arrive and max_velocity; return accepted, elapsed_s, reached and state")
 
     def halt(self, handle):
         raise NotImplementedError("Perform self.profile['intrinsics']['stop'] behavior")

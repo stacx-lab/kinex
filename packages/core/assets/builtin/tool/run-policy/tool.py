@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Execute one inference worth of policy actions; track closes the loop."""
+"""Execute one inference worth of policy actions."""
+
+from math import isclose
 
 from kinex import args, device, finish, profile
-from kinex.control import execute, read
+from kinex.control import execute, read, stop_all, stop_on_error
 from kinex.joint_control import command as joint_command, joint_model
 from kinex.scalar_control import command as scalar_command
 from kinex.validation import vector
@@ -39,10 +41,10 @@ def share(action, plan):
     return shares
 
 
-def commands(shares, plan):
+def commands(shares, plan, budget):
     built = {}
     for entry in plan:
-        payload = {"target": shares[entry["name"]]}
+        payload = {"target": shares[entry["name"]], "for_s": budget}
         if entry["model"] is None:
             scalar_command(entry["profile"], payload)
         else:
@@ -76,39 +78,45 @@ def control(a):
         actions = actions[:a["max_actions"]]
 
     hold, budget = 1.0 / a.get("action_hz", 10), a.get("timeout_s", 30)
-    elapsed, executed, reason, state = 0.0, 0, None, None
-    try:
+    elapsed, executed, reason = 0.0, 0, None
+    faulted = []
+    with stop_on_error(names):
         for action in actions:
-            payloads, held = commands(share(action, plan), plan), 0.0
+            command = commands(share(action, plan), plan, min(hold, budget - elapsed))
+            held = 0.0
             # Hold each action for its full period: a device that advances inside
             # the write needs several, one that runs the command out needs one.
-            while held < hold - 1e-9 and elapsed < budget and reason is None:
-                outcome = execute(lead["name"], payloads, min(hold - held, budget - elapsed))
+            while reason is None:
+                remaining = min(hold - held, budget - elapsed)
+                outcome = execute(lead["name"], command, remaining)
                 spent = outcome["elapsed_s"]
-                held, elapsed, state = held + spent, elapsed + spent, outcome["state"]
-                if state["faults"]:
+                held, elapsed = held + spent, elapsed + spent
+                faulted = outcome["faulted_devices"]
+                if faulted:
                     reason = "fault"
+                elif elapsed >= budget or isclose(elapsed, budget):
+                    reason = "timeout"
                 elif spent <= 0:
                     reason = "stalled"
+                elif held >= hold or isclose(held, hold):
+                    break
             executed += 1
-            if reason is None and elapsed >= budget:
-                reason = "timeout"
             if reason is not None:
                 break
-        reason = reason or ("done" if inference.get("done") else "chunk_complete")
-    except BaseException:
-        for name in names:
-            try:
-                device(name, "stop")
-            except Exception:
-                pass
-        raise
-    if reason == "fault" or a.get("on_timeout", "stop") != "continue":
-        for name in names:
-            device(name, "stop")
+    reason = reason or ("done" if inference.get("done") else "chunk_complete")
+    continuing = reason == "timeout" and a.get("on_timeout", "stop") == "continue"
+    if not continuing:
+        stop_all(names)
+    with stop_on_error(names if continuing else []):
+        final = read(lead["name"])
+    if final["faults"]:
+        reason = "fault"
+        faulted = list(dict.fromkeys([*faulted, lead["name"]]))
+        if continuing:
+            stop_all(names)
     return {"reached": reason == "done", "terminated_by": reason,
             "actions_executed": executed, "actions_offered": len(actions),
-            "elapsed_s": round(elapsed, 4), "state": read(lead["name"])}
+            "elapsed_s": elapsed, "state": final, "faulted_devices": faulted}
 
 
 if __name__ == "__main__":

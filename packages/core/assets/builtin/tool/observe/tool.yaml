@@ -2,9 +2,7 @@ name: observe
 kind: perception
 description: >-
   Read several devices at once and return their readings as one bundle, keyed by
-  device name. Camera readings carry their image path under file. Intended as
-  track's perceive step for a policy, which needs the whole observation rather
-  than a located point. Reads are concurrent but not simultaneous: they are
+  device name. Camera readings carry their image path under file. Provides the observation bundle for a standalone run_policy call. Reads are concurrent but not simultaneous: they are
   separate calls, so fast-moving state can differ slightly between them.
 parameters:
   type: object

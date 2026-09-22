@@ -31,11 +31,11 @@ const sampleTime = (device: Device, state: MockState) =>
 // What a write reports back: the device pursued the goal and spent this much of
 // its own clock doing it. The mock reaches instantly, so one interval, bounded
 // by whatever budget the caller allowed.
-function segment(state: MockState, args: Record<string, unknown>, reading: DeviceReading) {
-  const budget = typeof args["for_s"] === "number" ? args["for_s"] : MOCK_INTERVAL_S
+function segment(state: MockState, args: Record<string, unknown>, read: () => DeviceReading) {
+  const budget = z.number().positive().parse(args["for_s"])
   const spent = Math.min(MOCK_INTERVAL_S, budget)
   state.clock += spent
-  return { accepted: true, elapsed_s: spent, reached: true, state: reading.data }
+  return { accepted: true, elapsed_s: spent, reached: true, state: read().data }
 }
 
 const mocks = scoped(() => new Map<string, MockState>())
@@ -106,7 +106,7 @@ export function mockAct(
       )
       state.stopped = false
       return { deviceID: device.name, kind: device.type,
-        data: segment(state, args, mockRead(workspace, device)) }
+        data: segment(state, args, () => mockRead(workspace, device)) }
     }
     const target = z.array(z.number()).parse(args["target"])
     const joints = deviceJoints(device)
@@ -124,7 +124,7 @@ export function mockAct(
     return {
       deviceID: device.name,
       kind: device.type,
-      data: { ...segment(state, args, mockRead(workspace, device)),
+      data: { ...segment(state, args, () => mockRead(workspace, device)),
         moved: limited.map((value) => Number(value.toFixed(4))) },
     }
   }

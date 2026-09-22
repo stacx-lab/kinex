@@ -79,7 +79,11 @@ Read/status report actual state; acquisition timestamps identify samples, not
 polling. Drivers adapt native units/axes and transport; shared helpers implement
 common validation/conversion. Force/IMU drivers return raw SI measurements;
 the harness applies profile bias once. Actuated writes validate before effects,
-replace goals without restarting identical targets, and acknowledge promptly.
+require positive for_s and replace goals without restarting identical targets.
+Execute within that device-clock budget and return accepted, elapsed_s, reached
+and the resulting state; an acknowledgment alone is insufficient. SDK hooks in
+the shipped wrappers must return that report. Honor arrive when supplied and
+retain bounded waits when the device clock stalls.
 Read/load must not initiate motion or silently clear faults; unload releases
 resources and safely stops active actuation. Attempt recorder shutdown, halt,
 disconnect and owned-service cleanup even if an earlier stage fails; use

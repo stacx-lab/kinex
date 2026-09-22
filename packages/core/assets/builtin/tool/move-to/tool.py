@@ -2,14 +2,11 @@
 """Reach a fixed joint goal; the device runs the motion and reports its own time."""
 
 from kinex import args, device, finish, profile
-from kinex.control import point_in, read, run
+from kinex.control import read, run, stop_all, stop_on_error, stamp
 from kinex.frames import pose as frame_pose
-from kinex.geometry import compose_rt, pose_to_rt, xyzq_to_rt
-from kinex.joint_control import command as joint_command
+from kinex.geometry import apply_rt, compose_rt, pose_to_rt, xyzq_to_rt
+from kinex.joint_control import command as joint_command, JointSamples
 from kinex.motion import Motion, flat, pose as unit_pose, vector
-
-# Leaves the manifest's hard cap room to report an outcome instead of being killed.
-WALL_S = 570
 
 
 def per_joint(a, key, default, joints):
@@ -36,9 +33,16 @@ def solve(name, prof, pose):
 
 def observed_pose(a, name):
     """An observation's point as a pose goal in the device's canonical frame."""
-    point = point_in(name, a["observation"], a.get("frame"))
+    observation = a["observation"]
+    point = observation.get("point")
     if point is None:
         raise ValueError("the observation located nothing; track decides what to do about a miss")
+    point = vector(point, 3, "located point")
+    frame = a.get("frame") or observation.get("frame")
+    if not frame:
+        raise ValueError("the observation names no frame for its point; supply frame")
+    if frame != name:
+        point = apply_rt(pose_to_rt(frame_pose(frame, name)), point)
     offset = a.get("offset_m") or [0.0, 0.0, 0.0]
     rotation = a.get("orientation")
     if rotation is None:
@@ -61,8 +65,8 @@ def control(a):
     prof = profile(name)
     if prof.get("type") != "joint":
         raise ValueError("move_to requires type joint; dexterous_hand is excluded")
-    if a.get("frame") is not None and a.get("pose") is None:
-        raise ValueError("frame converts a pose goal; it has no meaning without pose")
+    if a.get("frame") is not None and a.get("pose") is None and a.get("observation") is None:
+        raise ValueError("frame requires a pose or observation goal")
     model = prof.get("resolved_model")
     if not isinstance(model, dict) or not model.get("joints"):
         raise ValueError("resolved joint metadata is required")
@@ -74,35 +78,43 @@ def control(a):
               "stable_s": a.get("stable_s", 0.1)}
     motion = Motion(joints, goal_joints(a, name, prof))
 
-    def target(rounds, state):
-        return motion
-
-    def write(goal):
-        payload = {"target": goal.goal_joints, "arrive": arrive}
-        if "speedFraction" in a:
-            payload["speedFraction"] = a["speedFraction"]
-        joint_command(prof, payload, model)
-        return {name: payload}
-
-    outcome = run(name, prof, target=target, write=write, until=a.get("until"),
-                  timeout_s=a["timeout_s"], on_timeout=a.get("on_timeout", "stop"))
-    return finalize(name, outcome, tolerance, quiet)
+    payload = {"target": motion.goal_joints, "arrive": arrive, "for_s": a["timeout_s"]}
+    if "speedFraction" in a:
+        payload["speedFraction"] = a["speedFraction"]
+    joint_command(prof, payload, model)
+    outcome = run(name, payload, until=a.get("until"), timeout_s=a["timeout_s"],
+                  on_timeout=a.get("on_timeout", "stop"))
+    continuing = outcome["terminated_by"] == "timeout" and a.get("on_timeout") == "continue"
+    with stop_on_error([name] if continuing else []):
+        result = finalize(name, motion, outcome, tolerance, quiet, prof)
+    if continuing and result["terminated_by"] != "timeout":
+        stop_all([name])
+    return result
 
 
 def within(error, tolerance):
     return all(value <= limit for value, limit in zip(error["joints"], tolerance))
 
 
-def finalize(name, outcome, tolerance, quiet):
+def finalize(name, goal, outcome, tolerance, quiet, prof):
     """Re-read after the move: the device's own arrival report is not the last word."""
-    final, goal, reason = read(name), outcome["goal"], outcome["terminated_by"]
+    final, reason = read(name), outcome["terminated_by"]
     error = goal.errors(final)
+    measured = prof["intrinsics"]["feedback"]["velocities"]
+    samples = JointSamples(goal.joints, measured)
+    previous = outcome["state"]
+    if not measured and previous is not None and stamp(previous) < stamp(final):
+        samples.sample(previous)
+    _, velocities, _ = samples.sample(final)
+    quiet_verified = velocities is not None
     if final["faults"]:
         reason = "fault"
-    elif reason == "reached" and not within(error, tolerance):
+    elif reason == "reached" and (not within(error, tolerance) or
+                                  (quiet_verified and any(abs(v) > limit for v, limit in zip(velocities, quiet)))):
         reason = "disturbed"
     return {"reached": reason == "reached", "terminated_by": reason,
-            "rounds": outcome["rounds"], "elapsed_s": round(outcome["elapsed_s"], 4),
+            "rounds": outcome["rounds"], "elapsed_s": outcome["elapsed_s"],
+            "quiet_verified": quiet_verified,
             "error": error, "state": final}
 
 

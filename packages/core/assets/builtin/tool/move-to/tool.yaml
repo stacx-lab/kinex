@@ -11,7 +11,8 @@ description: >-
   fixed for the whole call. Use track to re-plan against perception while moving.
   on_timeout decides what happens when the budget runs out before arrival - stop
   holds the device where it is, continue leaves it pursuing the goal. Returns
-  reached, terminated_by, elapsed_s, final state and joint error. No Cartesian
+  reached, terminated_by, elapsed_s, final state, joint error and quiet_verified
+  (whether final quietness could be independently checked). No Cartesian
   arrival, path planning, collision avoidance, balance or velocity-cap guarantee.
 parameters:
   type: object

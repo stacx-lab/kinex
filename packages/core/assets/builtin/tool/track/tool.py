@@ -1,53 +1,63 @@
 #!/usr/bin/env python3
-"""Closed loop by composition: perceive, then control on what was perceived."""
+"""Re-perceive a point between bounded move_to segments."""
 
-from kinex import args, call, finish
-
-
-def spent(result):
-    """Device-clock time a controller round consumed, as it reported it."""
-    value = result.get("elapsed_s")
-    return float(value) if isinstance(value, (int, float)) else 0.0
-
-
-def missed(observation):
-    """Whether perception explicitly located nothing this round.
-
-    Only a result that carries a null `point` is a miss. An observation with no
-    `point` at all is a different kind of perception — an image bundle for a
-    policy, say — and misses do not apply to it.
-    """
-    return "point" in observation and observation["point"] is None
+from kinex import args, call, finish, profile
+from kinex.control import predicate, stop_all, stop_on_error
+from kinex.validation import number
 
 
 def control(a):
     perceive, controller, until = a["perceive"], a["control"], a.get("until")
-    budget, allowed = a["timeout_s"], a.get("max_misses", 3)
-    ceiling, settle = a.get("max_rounds", 200), a.get("stop_when_reached", True)
+    if controller["tool"] != "move_to":
+        raise ValueError("track supports only move_to")
+    move = controller["args"]
+    if set(move) & {"joints", "pose", "observation", "until"}:
+        raise ValueError("track supplies the observation and owns its predicate")
+    name = move["device"]
+    prof = profile(name)
+    if prof.get("type") != "joint" or not prof.get("loaded"):
+        raise ValueError("track requires a loaded joint device")
+    budget, segment = a["timeout_s"], move["timeout_s"]
+    allowed, ceiling = a.get("max_misses", 3), a.get("max_rounds", 200)
     elapsed, rounds, misses, reason, last = 0.0, 0, 0, None, None
-    while reason is None:
-        rounds += 1
-        observation = call(perceive["tool"], **(perceive.get("args") or {}))
-        if missed(observation):
-            misses += 1
-            # Nothing to steer by: perceive again rather than command blindly.
-            reason = "perception_lost" if misses >= allowed else None
-        else:
-            misses = 0
-            last = call(controller["tool"], **(controller.get("args") or {}), observation=observation)
-            elapsed += spent(last)
-            if last.get("terminated_by") == "fault":
-                reason = "fault"
-            elif settle and last.get("reached"):
-                reason = "reached"
-            elif until and call(until["tool"], **(until.get("args") or {})).get(until.get("key", "done")):
-                reason = "until:" + until["tool"]
-            elif elapsed >= budget:
-                reason = "timeout"
-        if reason is None and rounds >= ceiling:
-            reason = "max_rounds"
+    with stop_on_error([name]):
+        reason = predicate(until) if until else None
+        while reason is None:
+            rounds += 1
+            observation = call(perceive["tool"], **(perceive.get("args") or {}))
+            if "point" not in observation:
+                raise ValueError("track perception must return a point or point: null")
+            if observation["point"] is None:
+                stop_all([name])
+                misses += 1
+                if misses >= allowed:
+                    reason = "perception_lost"
+            else:
+                misses = 0
+                remaining = min(segment, budget - elapsed)
+                last = call("move_to", **{**move, "timeout_s": remaining, "observation": observation})
+                spent = number(last.get("elapsed_s"), "move_to.elapsed_s")
+                if spent < 0 or spent > remaining + 1e-9:
+                    raise ValueError("move_to elapsed time exceeds its segment budget")
+                elapsed += spent
+                child_reason = last.get("terminated_by")
+                if child_reason in ("fault", "stalled", "disturbed"):
+                    reason = child_reason
+                elif child_reason not in ("reached", "timeout"):
+                    raise ValueError(f"unexpected move_to termination: {child_reason}")
+                elif a.get("stop_when_reached", True) and last.get("reached"):
+                    reason = "reached"
+                elif elapsed + 1e-9 >= budget:
+                    reason = "timeout"
+                elif spent <= 0 and not last.get("reached"):
+                    reason = "stalled"
+            if until and reason not in ("fault", "stalled", "disturbed"):
+                reason = predicate(until) or reason
+            if reason is None and rounds >= ceiling:
+                reason = "max_rounds"
+    stop_all([name])
     return {"reached": reason == "reached", "terminated_by": reason, "rounds": rounds,
-            "elapsed_s": round(elapsed, 4), "perception_misses": misses, "last": last}
+            "elapsed_s": elapsed, "perception_misses": misses, "last": last}
 
 
 if __name__ == "__main__":

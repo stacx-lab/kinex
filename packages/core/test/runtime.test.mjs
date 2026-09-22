@@ -258,3 +258,98 @@ test('core Python status is inert and initialization preserves the host Python p
   assert.ok(JSON.stringify(process.env) === JSON.stringify(before), "host environment changed")
   assert.equal((await runtime.python.status()).present, false)
 })
+
+test('actuated runtime writes require budgets and return current mock timestamps', async t => {
+  const { runtime } = await fixture(t, { host })
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
+    access: { connection: { kind: 'mock' } }, intrinsics: {
+      model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
+      home: null, control: { mode: 'position', speed: null },
+      feedback: { velocities: true, efforts: false, clock: 'simulation' },
+      stop: { behavior: 'hold', affected_devices: ['arm'] },
+    },
+  })
+  for (const for_s of [undefined, 0, -1, NaN, Infinity]) {
+    await assert.rejects(runtime.devices.dispatch('arm', 'write', { target: [0.2], ...(for_s === undefined ? {} : { for_s }) }))
+  }
+  assert.equal((await runtime.devices.dispatch('arm', 'read')).data.positions[0], 0)
+  const written = (await runtime.devices.dispatch('arm', 'write', { target: [0.2], for_s: 0.1 })).data
+  const read = (await runtime.devices.dispatch('arm', 'read')).data
+  assert.equal(written.elapsed_s, 0.02)
+  assert.equal(written.state.sample_time_s, 0.02)
+  assert.equal(written.state.sample_time_s, read.sample_time_s)
+})
+
+test('drive executes through runtime schema validation and the Python dialog', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity', loaded: true,
+    access: { connection: { kind: 'mock' } }, intrinsics: {
+      control: { mode: 'motion', body_frame: 'base', modes: { walk: { posture: null,
+        velocity: { frame: 'body', components: [{ axis: 'vx', units: 'm/s', bounds: { min: -1, max: 1 } }] },
+      } } },
+      feedback: { pose_frame: null, velocity_frame: 'base', velocity_components: ['vx'], clock: 'simulation' },
+      stop: { behavior: 'halt', affected_devices: ['base'] },
+    },
+  })
+  // Use the host interpreter explicitly: this test must not prepare core Python.
+  const dir = path.join(directory, '.kinex/tool/drive')
+  await mkdir(dir, { recursive: true })
+  for (const name of ['tool.py', 'tool.yaml']) {
+    const source = await readFile(new URL(`../assets/builtin/tool/drive/${name}`, import.meta.url), 'utf8')
+    await writeFile(path.join(dir, name), source + (name.endsWith('yaml') ? '\ninterpreter: python3\n' : ''))
+  }
+  const args = { device: 'base', mode: 'walk', velocity: { vx: 0.2 }, duration_s: 0.1 }
+  const response = await runtime.tools.call('drive', args, { sessionID: 's' })
+  assert.ok(!response.isError, response.output)
+  const result = JSON.parse(response.output)
+  assert.equal(result.terminated_by, 'duration')
+  assert.ok(Math.abs(result.elapsed_s - 0.1) < 1e-9)
+  for (const extra of [{ displacement: { x: 1 } }, { on_timeout: 'continue' }]) {
+    const invalid = await runtime.tools.call('drive', { ...args, ...extra }, { sessionID: 's' })
+    assert.equal(invalid.isError, true)
+  }
+  await assert.rejects(runtime.devices.dispatch('base', 'write', { mode: 'walk', velocity: { vx: 0.2 } }))
+  await assert.rejects(readFile(path.join(directory, '.kinex/python/pyproject.toml')), { code: 'ENOENT' })
+})
+
+test('cancelling track during perception stops its target through the runner', { timeout: 10000 }, async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
+    access: { connection: { kind: 'mock' } }, intrinsics: {
+      model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
+      home: null, control: { mode: 'position', speed: null },
+      feedback: { velocities: true, efforts: false, clock: 'simulation' },
+      stop: { behavior: 'hold', affected_devices: ['arm'] },
+    },
+  })
+  const track = path.join(directory, '.kinex/tool/track')
+  await mkdir(track, { recursive: true })
+  for (const name of ['tool.py', 'tool.yaml']) {
+    const source = await readFile(new URL(`../assets/builtin/tool/track/${name}`, import.meta.url), 'utf8')
+    await writeFile(path.join(track, name), source + (name.endsWith('yaml') ? '\ninterpreter: python3\n' : ''))
+  }
+  const perception = path.join(directory, '.kinex/tool/slow-point')
+  await mkdir(perception, { recursive: true })
+  await writeFile(path.join(perception, 'tool.yaml'), 'name: slow_point\nkind: perception\ndescription: Test perception delay\ninterpreter: python3\nparameters: {type: object, properties: {}}\ntimeout_s: 30\n')
+  await writeFile(path.join(perception, 'tool.py'), 'import time\nfrom kinex import device, finish\ndevice("arm")\ntime.sleep(30)\nfinish({"point": None})\n')
+  let started
+  const ready = new Promise(resolve => { started = resolve })
+  const events = []
+  const unsubscribe = runtime.subscribe(({ type, event }) => {
+    if (type !== 'device' || event.device.name !== 'arm') return
+    events.push(event.action)
+    if (event.action === 'read') started()
+  })
+  t.after(unsubscribe)
+  const abort = new AbortController()
+  t.after(() => abort.abort())
+  const pending = runtime.tools.call('track', {
+    perceive: { tool: 'slow_point' }, control: { tool: 'move_to', args: { device: 'arm', timeout_s: 1 } }, timeout_s: 5,
+  }, { sessionID: 's', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]) })
+  const settled = pending.then(result => ({ result }), error => ({ error }))
+  await Promise.race([ready, settled.then(outcome => { throw new Error(`track exited before perception: ${JSON.stringify(outcome)}`) })])
+  abort.abort()
+  const outcome = await settled
+  assert.ok(outcome.error || outcome.result?.isError)
+  assert.ok(events.includes('stop'), JSON.stringify(events))
+})

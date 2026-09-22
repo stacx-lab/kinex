@@ -5,6 +5,7 @@ from pathlib import Path
 
 from kinex.driver_protocol import run, release
 from kinex.joints import JointDevice, settings
+from kinex.validation import segment_result
 
 
 class Driver:
@@ -26,7 +27,7 @@ class Driver:
         raise NotImplementedError("read positions/velocities/efforts/faults, acquisition time and reported_pose")
 
     def send_target(self, handle, command):
-        raise NotImplementedError("replace target without waiting for arrival; realize max_velocity or reject")
+        raise NotImplementedError("Execute the target for command.for_s in the device clock; honor arrive and max_velocity; return accepted, elapsed_s, reached and state")
 
     def halt(self, handle):
         raise NotImplementedError("perform the declared stop behavior and scope")
@@ -74,8 +75,8 @@ class Driver:
             return state
         if action == "write":
             command = self.model().command(args)
-            self.send_target(self.connection(), command)
-            return {"accepted": True, **command}
+            result = segment_result(self.send_target(self.connection(), command))
+            return {**result, "state": self.model().reading(result["state"])}
         if action == "stop":
             stop = self.profile["intrinsics"]["stop"]
             if self.profile["name"] not in stop["affected_devices"]:

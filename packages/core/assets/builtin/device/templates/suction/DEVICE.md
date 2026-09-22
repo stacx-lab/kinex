@@ -6,7 +6,14 @@ description: suction control and observation contract.
 
 ## Use
 
-Binary vacuum activation: write {target:[value]} accepts exactly the declared on_target/off_target. read reports only declared pressure/contact channels and measured state. Activation does not establish a successful grasp.
+Every write requires a positive `for_s` in the device's own clock. The driver
+returns `accepted`, `elapsed_s`, boolean `reached`, and the resulting `state`.
+SDK hooks must return that report; acknowledgment alone is insufficient. Joint
+arrival may end a segment early when `arrive` is supplied. Call `stop` explicitly
+to halt a standing goal; the segment budget bounds the call, not goal lifetime.
+
+
+Binary vacuum activation: write {target:[value],for_s} accepts exactly the declared on_target/off_target. read reports only declared pressure/contact channels and measured state. Activation does not establish a successful grasp.
 
 ## Setup
 

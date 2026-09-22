@@ -6,7 +6,14 @@ description: gripper control and observation contract.
 
 ## Use
 
-A scalar gripper. write {target:[value],speedFraction?} uses declared position units or signed direction (-1/0/+1). Command dimensions are independent of measured finger channels. read reports positions, velocities, faults, time and supported force/contact channels. Acceptance is not closure or grasp success.
+Every write requires a positive `for_s` in the device's own clock. The driver
+returns `accepted`, `elapsed_s`, boolean `reached`, and the resulting `state`.
+SDK hooks must return that report; acknowledgment alone is insufficient. Joint
+arrival may end a segment early when `arrive` is supplied. Call `stop` explicitly
+to halt a standing goal; the segment budget bounds the call, not goal lifetime.
+
+
+A scalar gripper. write {target:[value],speedFraction?,for_s} uses declared position units or signed direction (-1/0/+1). Command dimensions are independent of measured finger channels. read reports positions, velocities, faults, time and supported force/contact channels. Acceptance is not closure or grasp success.
 
 The canonical gripper frame is its TCP. Read `intrinsics.geometry` for its physical meaning, approach direction, fixed jaw-closing axis (when applicable), and contact patches. Axes are in the canonical frame; contact frames use local +Z toward the object and local XY along the pad. Resolve moving patches through `relative_pose`. Geometry may be unknown; do not guess it from the mount or equate joint travel with physical opening.
 

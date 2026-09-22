@@ -8,28 +8,24 @@ how many times it goes round. Nothing here sleeps, and nothing polls — the wri
 returns the resulting state, so a segment costs exactly one round trip.
 """
 
+from contextlib import contextmanager
+
 from kinex import call, device, devices
-from kinex.frames import pose as frame_pose
-from kinex.geometry import apply_rt, pose_to_rt
-from kinex.validation import number, vector
+from kinex.validation import number, segment_result
 
 
 def read(name):
     """One reading, for the verification a write's own report cannot provide."""
     state = device(name).get("data") or {}
-    return checked_state(name, state)
+    if not isinstance(state.get("faults"), list):
+        raise ValueError(f"{name} read.faults must be a list")
+    return state
 
 
 def stamp(state):
     """A reading's acquisition time, falling back to its receipt time."""
     value = state.get("sample_time_s")
     return number(state.get("received_time_s") if value is None else value, "read timestamp")
-
-
-def checked_state(name, state):
-    if not isinstance(state.get("faults"), list):
-        raise ValueError(f"{name} read.faults must be a list")
-    return state
 
 
 def execute(name, commands, budget_s):
@@ -41,99 +37,83 @@ def execute(name, commands, budget_s):
     """
     batch = [{"device": target, "action": "write", "args": {**payload, "for_s": budget_s}}
              for target, payload in commands.items()]
-    outcome = None
-    for target, result in zip(commands, devices(batch)):
+    outcomes = {}
+    results = devices(batch)
+    if len(results) != len(batch):
+        raise ValueError("write batch returned an incomplete result")
+    for target, result in zip(commands, results):
         if not result.get("ok"):
             raise ValueError(f"write to {target} failed: {result.get('error', 'unknown error')}")
-        data = result.get("data") or {}
-        if data.get("accepted") is not True:
-            raise ValueError(f"write to {target} must acknowledge accepted: true")
-        if target == name:
-            outcome = data
-    if number(outcome.get("elapsed_s"), f"{name} write.elapsed_s") < 0:
-        raise ValueError(f"{name} write.elapsed_s must not be negative")
-    return {**outcome, "state": checked_state(name, outcome.get("state") or {})}
+        outcomes[target] = segment_result(result.get("data"))
+    return {**outcomes[name], "faulted_devices": [target for target, result in outcomes.items()
+                                                if result["state"]["faults"]]}
 
 
-def point_in(name, observation, frame=None):
-    """A perception result's point, expressed in `name`'s canonical frame.
-
-    None means the observation located nothing, which a caller treats as a miss
-    and not a failure: a detector that blinks should not abandon a motion.
-    """
-    point = (observation or {}).get("point")
-    if point is None:
-        return None
-    frame = frame or observation.get("frame")
-    if not frame:
-        raise ValueError("the observation names no frame for its point; supply frame")
-    measured = vector(point, 3, "located point")
-    if frame == name:
-        return measured
-    return apply_rt(pose_to_rt(frame_pose(frame, name)), measured)
+def stop_all(names):
+    """Attempt every stop, including when an earlier device refuses to stop."""
+    errors = []
+    for name in dict.fromkeys(names):
+        try:
+            device(name, "stop")
+        except Exception as error:
+            errors.append(f"{name}: {error}")
+    if errors:
+        raise RuntimeError("stop failed: " + "; ".join(errors))
 
 
-def predicate(until, elapsed, checked):
-    """Run an `until` perception tool at most every until.every_s of device time."""
-    if not until or elapsed - checked[0] < number(until.get("every_s", 1.0), "until.every_s"):
-        return None
-    checked[0] = elapsed
+@contextmanager
+def stop_on_error(names):
+    """Retain the original failure while making any cleanup failure visible."""
+    try:
+        yield
+    except BaseException as error:
+        try:
+            stop_all(names)
+        except Exception as cleanup:
+            error.add_note(str(cleanup))
+        raise
+
+
+def predicate(until):
     result = call(until["tool"], **(until.get("args") or {}))
     return "until:" + until["tool"] if result.get(until.get("key", "done")) else None
 
 
-def run(name, prof, *, target, write, until=None, timeout_s=30.0,
-        on_timeout="stop", misses=3, stop=None):
-    """Pursue a goal until the device says it arrived, or the budget is spent.
+def run(name, command, *, until=None, timeout_s=30.0,
+        on_timeout="stop", finish_when_reached=True):
+    """Execute a fixed goal, optionally checking a predicate between segments.
 
-    target(round, state) -> the goal for this round, or None to keep the previous
-      one (a perception miss; `misses` consecutive ones end the run).
-    write(goal)          -> {device: write arguments} for every device to command.
-
-    One round is one write. A device with a background clock spends the whole
-    motion in a single call; one that advances inside the write spends an
-    interval per call. `on_timeout="continue"` leaves the goal standing on the
-    way out, so motion carries on while the caller thinks; the default stops.
+    The command is validated once by the caller. Each write changes only for_s;
+    predicate deadlines are the only reason to split a device-owned segment.
     """
-    halts = stop or [name]
-    elapsed, goal, lost, rounds = 0.0, None, 0, 0
-    reason, state, checked = None, None, [0.0]
-    try:
+    elapsed, rounds, state = 0.0, 0, None
+    period = number(until.get("every_s", 1.0), "until.every_s") if until else None
+    if period is not None and period <= 0:
+        raise ValueError("until.every_s must be positive")
+    next_check = period
+    with stop_on_error([name]):
+        reason = predicate(until) if until else None
         while reason is None:
-            fresh = target(rounds, state)
-            if fresh is None:
-                lost += 1
-                if goal is None or lost >= misses:
-                    reason = "goal_lost"
-                    break
-            else:
-                goal, lost = fresh, 0
-            outcome = execute(name, write(goal), timeout_s - elapsed)
+            budget = timeout_s - elapsed
+            if until:
+                budget = min(budget, next_check - elapsed)
+            outcome = execute(name, {name: command}, budget)
             elapsed, state, rounds = elapsed + outcome["elapsed_s"], outcome["state"], rounds + 1
-            if state["faults"]:
+            if outcome["faulted_devices"]:
                 reason = "fault"
-            elif outcome.get("reached"):
-                reason = "reached"
-            elif elapsed >= timeout_s:
-                reason = "timeout"
             else:
-                reason = predicate(until, elapsed, checked)
-                if reason is None and outcome["elapsed_s"] <= 0:
-                    # A device that reports no progress will not make any later.
-                    reason = "stalled"
-    except BaseException:
-        # The harness stops every device when a controller fails, so this is
-        # belt and braces: it must never replace the error that caused the exit.
-        for halted in halts:
-            try:
-                device(halted, "stop")
-            except Exception:
-                pass
-        raise
-    # "continue" deliberately leaves the goal standing so motion carries on while
-    # the caller perceives. A fault ends that privilege.
-    if reason == "fault" or on_timeout != "continue":
-        for halted in halts:
-            device(halted, "stop")
-    return {"terminated_by": reason, "rounds": rounds, "goal_misses": lost,
-            "elapsed_s": elapsed, "state": state, "goal": goal}
+                if until and (elapsed + 1e-9 >= next_check or elapsed + 1e-9 >= timeout_s
+                              or (finish_when_reached and outcome["reached"])):
+                    reason = predicate(until)
+                    next_check = elapsed + period
+                if reason is None:
+                    if finish_when_reached and outcome["reached"]:
+                        reason = "reached"
+                    elif elapsed + 1e-9 >= timeout_s:
+                        reason = "timeout"
+                    elif outcome["elapsed_s"] <= 0:
+                        reason = "stalled"
+    if reason != "timeout" or on_timeout != "continue":
+        stop_all([name])
+    return {"terminated_by": reason, "rounds": rounds, "elapsed_s": elapsed,
+            "state": state}

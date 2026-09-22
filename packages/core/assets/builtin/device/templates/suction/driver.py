@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from kinex.driver_protocol import run, release
 from kinex.scalar_control import command, reading, stopped
-from kinex.validation import settings
+from kinex.validation import settings, segment_result
 
 HERE = Path(__file__).parent
 HANDLE = None
@@ -29,7 +29,7 @@ def send_target(handle, value, profile):
     # value contains validated/quantized target and, when supported, native_speed.
     # Execute the goal for for_s of your own clock, then report elapsed_s,
     # reached and the resulting state.
-    raise NotImplementedError("Submit the command without waiting for arrival")
+    raise NotImplementedError("Execute for value.for_s; return accepted, elapsed_s, reached and state")
 
 
 def halt(handle, profile):
@@ -70,8 +70,8 @@ def execute(action, args):
         return reading(profile, read_state(ensure_handle(profile), profile))
     if action == "write":
         value = command(profile, args)
-        send_target(ensure_handle(profile), value, profile)
-        return {"accepted": True, **value}
+        result = segment_result(send_target(ensure_handle(profile), value, profile))
+        return {**result, "state": reading(profile, result["state"])}
     if action == "stop":
         result = stopped(profile)
         halt(ensure_handle(profile), profile)
