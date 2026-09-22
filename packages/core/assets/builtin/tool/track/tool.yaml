@@ -1,61 +1,64 @@
 name: track
 kind: controller
 description: >-
-  Observe devices, ask a model to infer an absolute joint target, and write it to
-  one joint-controlled device without waiting for arrival. Actions use resolved model joint order,
-  radians or metres by joint type. Model-specific action conversion belongs in the
-  model driver. Requires joint metadata. Stops on every exit.
-  Ends on model done, a perception predicate, the iteration budget or wall timeout.
-  rate_hz caps wall-clock loop frequency, not simulation time. Slow inference lowers
-  achieved rate; no queued catch-up actions. Driver/service owns SDK sending and
-  interpolation. Gripper control and multi-device commanding are not supported.
+  Close the loop around any perception tool and any controller, agent-free. Each
+  round runs perceive, then runs control with the perception result passed as
+  observation, until the task is done or the budget is spent. The controller must
+  accept an observation parameter; move_to does, and turns a located point into a
+  goal. How often the loop re-plans is the controller's own timeout - a long one
+  perceives once and moves open loop, a short one re-perceives continuously. Set
+  the controller's on_timeout to stop for a settled observation between rounds, or
+  to continue to keep moving while perceiving. Budgets are in the device's own
+  clock, summed from what each controller round reports. A round that locates
+  nothing is retried; misses in a row end the run. Stops when the controller stops.
 parameters:
   type: object
+  additionalProperties: false
   properties:
-    model:
-      type: string
-      description: model device serving an "infer" action (obs → action)
-    observe:
-      type: array
-      items: { type: string }
-      description: device names read each step, in order; their readings are passed to infer as obs
-    command:
-      type: string
-      description: joint-controlled device that receives each action via its "write"
-    task:
-      type: string
-      description: task/goal handed to the model (e.g. a language instruction)
-    max_steps:
+    perceive:
+      type: object
+      additionalProperties: false
+      description: perception tool run at the start of every round
+      properties:
+        tool: {type: string}
+        args: {type: object}
+      required: [tool]
+    control:
+      type: object
+      additionalProperties: false
+      description: controller tool run with the perception result as observation
+      properties:
+        tool: {type: string}
+        args: {type: object}
+      required: [tool]
+    until:
+      type: object
+      additionalProperties: false
+      description: optional termination predicate - a PERCEPTION tool whose truthy key ends the run. Without it the run ends when the controller reports it reached its goal
+      properties:
+        tool: {type: string}
+        args: {type: object}
+        key: {type: string, description: "result key to test (default: done)"}
+      required: [tool]
+    stop_when_reached:
+      type: boolean
+      default: true
+      description: end the run when the controller reports reaching the goal it was given. Set false to keep re-planning until until or the budget
+    max_misses:
       type: integer
       minimum: 1
-      description: step budget (default 50)
-    rate_hz:
-      type: number
-      exclusiveMinimum: 0
-      description: wall-clock loop rate cap; defaults to 20 Hz, independent of the device control period
+      default: 3
+      description: consecutive rounds whose perception locates nothing before the run ends
+    max_rounds:
+      type: integer
+      minimum: 1
+      default: 200
+      description: ceiling on perceive/control rounds, as a runaway guard
     timeout_s:
       type: number
       exclusiveMinimum: 0
-      maximum: 590
-      default: 590
-      description: soft wall-clock budget; manifest hard cap is 600s
-    until:
-      type: object
-      description: optional termination predicate — a PERCEPTION tool run every check_every steps; truthy `key` in its result stops the loop
-      properties:
-        tool: { type: string }
-        args: { type: object }
-        key: { type: string, description: "result key to test (default: done)" }
-        check_every: { type: integer, description: "steps between checks (default: 5)" }
-      required: [tool]
-  required: [model, observe, command]
-timeout_s: 600
-device_inputs:
-  model:
-    types: [model]
-  command:
-    types: [joint]
-  observe[]:
-    types: [joint, gripper, dexterous_hand, suction, velocity, rgb, rgbd, force_torque, imu]
-devices: [model, joint]
-requires: access:model,intrinsics:model
+      maximum: 600
+      description: total budget in seconds of the device's own clock, summed from the controller's reported elapsed_s
+  required: [perceive, control, timeout_s]
+timeout_s: 900
+devices: []

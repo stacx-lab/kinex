@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { field, ControlExecution, Pose } from "./common.ts"
+import { field, Pose } from "./common.ts"
 import { Joints, ChainLink, JointSpeed, jointConfigurationErrors } from "./joints.ts"
 export { Joint, jointConfigurationErrors } from "./joints.ts"
 
@@ -39,7 +39,7 @@ export const jointShape = {
   ])),
   kinematics: JointKinematics.nullable().default(null),
   home: field(z.record(z.string().min(1), z.number()).nullable()),
-  control: field(z.strictObject({ mode: z.literal("position"), speed: field(JointSpeed), execution: field(ControlExecution) })),
+  control: field(z.strictObject({ mode: z.literal("position"), speed: field(JointSpeed) })),
   feedback: field(z.strictObject({ velocities: z.boolean(), efforts: z.boolean(), clock: z.enum(["unix", "monotonic", "simulation"]) })),
   stop: field(z.strictObject({ behavior: z.enum(["hold", "halt", "controller_emergency_stop"]),
     affected_devices: z.array(z.string().min(1)).min(1).refine((v) => new Set(v).size === v.length, "affected_devices must be unique") })),

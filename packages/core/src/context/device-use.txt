@@ -2,6 +2,6 @@
 Read profiles for facts and type references for contracts. Setup guides add or repair devices.
 All operations (lifecycle, reads, writes, custom actions) use the device tool or device/devices APIs. Only drivers access SDKs/services directly.
 Frames: arm is canonical, arm:flange local. intrinsics.frames holds device-relative xyz+xyzw poses, null for read.frame_poses feedback, or ??? until calibrated. extrinsics.mount places the device in parent_frame: p_parent = R * p_child + translation_m. Translations are metres; rotations unit [x,y,z,w], right-handed. World is optional; roots may be independent.
-Units/order follow profiles. ??? is unresolved; null follows its field, never numeric zero. accepted:true is acceptance, not arrival. Verify measured feedback; never retry uncertain writes. Cached readings retain acquisition timestamps; unavailable time uses null plus Unix received_time_s. Do not compare unrelated clocks.
+Units/order follow profiles. ??? is unresolved; null follows its field, never numeric zero. A write executes the goal and reports elapsed_s, the device time it spent, plus the state it produced; its reached flag is the device's own measurement, so verify anything that matters. Never retry uncertain writes. Cached readings retain acquisition timestamps; unavailable time uses null plus Unix received_time_s. Do not compare unrelated clocks.
 Activate UNLOADED devices via device action="load" (device_act permission) or /load. Unload releases resources; status never starts services. Python tools cannot change lifecycle.
 </device_conventions>

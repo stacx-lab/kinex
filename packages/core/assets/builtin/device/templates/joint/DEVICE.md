@@ -6,7 +6,7 @@ description: joint control and observation contract.
 
 ## Use
 
-write {target:[...],speedFraction?} replaces absolute joint-position goals in model order (rad for rotary, m for prismatic joints). Acceptance is not arrival. read reports positions, optional velocities/efforts ([] when unsupported), faults, acquisition time, and declared frame_poses. servo_to settles a joint device; dexterous_hand is excluded. track submits joint policy targets. Optional fk/ik operate without motion; pose goals refer to kinematics.frame in the canonical device frame. Convert reference frames and TCP offsets before solving.
+write {target:[...],for_s,arrive?,speedFraction?} sets absolute joint-position goals in model order (rad for rotary, m for prismatic joints) AND executes them, returning accepted, elapsed_s (the device time it spent), reached (judged against arrive) and the resulting state. A world advancing on its own clock runs the goal out within for_s; one that advances inside the write spends a single control interval. read reports positions, optional velocities/efforts ([] when unsupported), faults, acquisition time, and declared frame_poses. move_to settles a joint device at a fixed or pose goal; dexterous_hand is excluded. track closes the loop around a perception tool and a controller. run_policy executes a policy chunk. Optional fk/ik operate without motion; pose goals refer to kinematics.frame in the canonical device frame. Convert reference frames and TCP offsets before solving.
 
 ## Setup
 
@@ -21,7 +21,7 @@ intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {form
 
 kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), feedback (driver/fk), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. Declare the tip under intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
 
-control declares mode:position, speed (null or named max_velocity and default_fraction), execution (realtime with command_timeout_s, or stepped with interval_s). home names every joint or is null. feedback declares velocities, efforts and clock (unix/monotonic/simulation). stop declares behavior and affected_devices. intrinsics.frames maps local names to fixed poses or null for read.frame_poses feedback. extrinsics supplies only a mount or measured pose_frame.
+control declares mode:position, speed (null or named max_velocity and default_fraction), home names every joint or is null. feedback declares velocities, efforts and clock (unix/monotonic/simulation). stop declares behavior and affected_devices. intrinsics.frames maps local names to fixed poses or null for read.frame_poses feedback. extrinsics supplies only a mount or measured pose_frame.
 
 ### Profile
 
@@ -56,7 +56,6 @@ intrinsics:
   control:
     mode: position
     speed: ???
-    execution: ???
   feedback: ???
   stop: ???
 extrinsics:

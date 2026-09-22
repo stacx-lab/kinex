@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from kinex.motion import joint_target, vector
+from kinex.validation import SEGMENT, segment
 from kinex.urdf import read_chain
 
 
@@ -23,14 +24,14 @@ def command(profile, args, model=None):
     if not isinstance(args, dict):
         raise ValueError("write arguments must be an object")
     joints = (model or joint_model(profile))["joints"]
-    if set(args) - {"target", "speedFraction"}:
-        raise ValueError("write accepts only target and speedFraction")
+    if set(args) - {"target", "speedFraction", *SEGMENT}:
+        raise ValueError("write accepts only target, speedFraction, for_s and arrive")
     target = joint_target(args.get("target"), joints)
     speed = profile["intrinsics"]["control"]["speed"]
     if speed is None:
         if "speedFraction" in args:
             raise ValueError("speedFraction is unsupported")
-        return {"target": target}
+        return segment(args, {"target": target})
     fraction = args.get("speedFraction", speed["default_fraction"])
     vector([fraction], 1, "speedFraction")
     if not 0 < fraction <= 1:
@@ -39,7 +40,7 @@ def command(profile, args, model=None):
     vector(ceilings, len(joints), "speed ceilings")
     if any(v <= 0 or (j["max_velocity"] is not None and v > j["max_velocity"]) for j, v in zip(joints, ceilings)):
         raise ValueError("Command speed must be positive and within model velocity limits")
-    return {"target": target, "max_velocity": [v*fraction for v in ceilings]}
+    return segment(args, {"target": target, "max_velocity": [v*fraction for v in ceilings]})
 
 
 class JointSamples:

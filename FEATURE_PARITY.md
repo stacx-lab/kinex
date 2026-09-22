@@ -120,7 +120,8 @@ v0.5.0 迁移审计确认旧 core 的 104 个 src 文件、81 个 assets 文件�
 | device 工具经权限加载；Python 不得改生命周期 | 保留 | 同一 core 限制。 |
 | 校准存储/plan、待校准状态、严格写入 | 保留 | 工具能力保留，状态栏另见 UI。 |
 | frame forest、relative_pose/estimates、FK/IK | 保留 | 全部原核心算法/资源。 |
-| 感知、模型调用、locate_object_3d、servo_to、track | 保留 | 原 Python 工具及 helpers。 |
+| 感知、模型调用、locate_object_3d | 保留 | 原 Python 工具及 helpers。 |
+| servo_to、track | 替换 | 统一为 move_to / drive / run_policy，共用 kinex.control 循环；时长与频率一律以设备自身时钟表述，agent 不再感知 realtime/stepped。 |
 | 懒初始化 .kinex/python、uv 项目、显式解释器 | 保留 | 普通 bash 不激活 core venv。 |
 | workspace/global/builtin TS/JS/Python 工具 | 保留 | 不是第三方 Pi 包；每批工具结束后发现新增/变化的 schema，下次模型请求生效。不是文件监听，也不承诺同批兄弟调用立即看到新工具。 |
 | core skills 发现和 skill 工具 | 保留 | 原 `.kinex/skill` 及全局/builtin 内容仍可由模型加载；目录变化在批次结束后追加，正文下次 skill 调用时读取。 |

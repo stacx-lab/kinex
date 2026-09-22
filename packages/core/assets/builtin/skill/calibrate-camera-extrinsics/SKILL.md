@@ -37,7 +37,7 @@ Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
 Choose reachable, collision-free targets from the joint model and observed scene,
 with large rotation diversity. Use measured world geometry only when available;
 consecutive orientations ≥ ~20° apart: hand-eye degenerates with pure translations. Per pose:
-1. announce → `servo_to` with a pose in `<arm>`, or a model-ordered joint target;
+1. announce → `move_to` with a pose in `<arm>`, or a model-ordered joint target;
 2. `calib_sample deviceID=<arm> routine=calibrate-camera-extrinsics settle={...} note="pose N"`
    — the flange pose [x,y,z,qx,qy,qz,qw] lands in samples.json as `data.frame_poses.flange`;
 3. read the camera → frame path;

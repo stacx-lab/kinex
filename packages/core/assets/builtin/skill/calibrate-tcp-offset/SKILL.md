@@ -45,7 +45,7 @@ Contact rules: NEVER command motion while the tool is in contact; the contact ap
 interactive because only the user can report "touching". Per sample:
 1. The user brings the tip EXACTLY onto the point from a substantially different orientation
    (≥ 20° from every kept sample — aim higher). Free-drive: hand-guided. Otherwise: retract
-   10 cm, use `servo_to` pose goals in `<arm>` for the new orientation, then
+   10 cm, use `move_to` pose goals in `<arm>` for the new orientation, then
    approach in user-confirmed ~5 mm steps until "touching". Direct writes accept joint
    targets only. Use speedFraction only when intrinsics.control.speed supports it;
    otherwise establish an appropriate motion rate through the driver before contact work.

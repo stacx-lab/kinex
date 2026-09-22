@@ -27,7 +27,8 @@ def read_state(handle, profile):
 
 def send_target(handle, value, profile):
     # value contains validated/quantized target and, when supported, native_speed.
-    # Acknowledge promptly. Acceptance is not arrival; do not wait for completion.
+    # Execute the goal for for_s of your own clock, then report elapsed_s,
+    # reached and the resulting state.
     raise NotImplementedError("Submit the command without waiting for arrival")
 
 

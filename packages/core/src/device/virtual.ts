@@ -16,6 +16,26 @@ interface MockState {
   positions: number[]
   posture: Record<string, number>
   stopped: boolean
+  clock: number
+}
+
+// The mock has no physics and no clock of the world's, so it keeps a synthetic
+// one: an actuated mock advances it by a notional control period per write and
+// arrives at once, while a sensor mock has nothing to advance and reads wall time.
+const MOCK_INTERVAL_S = 0.02
+const advancesOnWrite = (device: Device) => isJoint(device) || isVelocity(device)
+
+const sampleTime = (device: Device, state: MockState) =>
+  advancesOnWrite(device) ? state.clock : performance.now() / 1000
+
+// What a write reports back: the device pursued the goal and spent this much of
+// its own clock doing it. The mock reaches instantly, so one interval, bounded
+// by whatever budget the caller allowed.
+function segment(state: MockState, args: Record<string, unknown>, reading: DeviceReading) {
+  const budget = typeof args["for_s"] === "number" ? args["for_s"] : MOCK_INTERVAL_S
+  const spent = Math.min(MOCK_INTERVAL_S, budget)
+  state.clock += spent
+  return { accepted: true, elapsed_s: spent, reached: true, state: reading.data }
 }
 
 const mocks = scoped(() => new Map<string, MockState>())
@@ -31,6 +51,7 @@ function mockState(workspace: string, device: Device): MockState {
     posture: isVelocity(device) && known(device.intrinsics.control)
       ? Object.fromEntries((Object.values(device.intrinsics.control.modes)[0]?.posture?.components ?? []).map((c) => [c.axis, c.default])) : {},
     stopped: false,
+    clock: 0,
   }
   mocks().set(key, created)
   return created
@@ -45,7 +66,7 @@ function mockRead(workspace: string, device: Device): DeviceReading {
     data: { pose: device.intrinsics.feedback.pose_frame === null ? null : { translation_m: [0, 0, state.posture.height ?? 0], rotation_xyzw: [0, 0, 0, 1] },
       velocities: known(device.intrinsics.feedback.velocity_components) ? device.intrinsics.feedback.velocity_components.map(() => 0) : [],
       frame_poses: poses,
-      faults: [], sample_time_s: performance.now() / 1000, note: "synthetic stationary mock, no balance simulation" },
+      faults: [], sample_time_s: sampleTime(device, state), note: "synthetic stationary mock, no balance simulation" },
   }
   return {
     deviceID: device.name,
@@ -58,7 +79,7 @@ function mockRead(workspace: string, device: Device): DeviceReading {
       frame_poses: poses,
       faults: [],
       stopped: state.stopped,
-      sample_time_s: performance.now() / 1000,
+      sample_time_s: sampleTime(device, state),
     },
   }
 }
@@ -84,7 +105,8 @@ export function mockAct(
         (device.intrinsics.control.modes[z.string().parse(args.mode)]?.posture?.components ?? []).map((c) => [c.axis, target[c.axis] ?? c.default]),
       )
       state.stopped = false
-      return { deviceID: device.name, kind: device.type, data: { accepted: true } }
+      return { deviceID: device.name, kind: device.type,
+        data: segment(state, args, mockRead(workspace, device)) }
     }
     const target = z.array(z.number()).parse(args["target"])
     const joints = deviceJoints(device)
@@ -102,7 +124,8 @@ export function mockAct(
     return {
       deviceID: device.name,
       kind: device.type,
-      data: { accepted: true, moved: limited.map((value) => Number(value.toFixed(4))) },
+      data: { ...segment(state, args, mockRead(workspace, device)),
+        moved: limited.map((value) => Number(value.toFixed(4))) },
     }
   }
   return { deviceID: device.name, kind: device.type, data: { error: `mock device has no action "${action}"` } }

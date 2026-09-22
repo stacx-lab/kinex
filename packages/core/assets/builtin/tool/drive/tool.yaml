@@ -1,0 +1,98 @@
+name: drive
+kind: controller
+description: >-
+  Move one velocity-controlled device, agent-free. Give exactly one goal: a
+  velocity/posture hold for duration_s, a displacement to cover, or an observation
+  whose point it closes on, stopping stop_distance_m short. The device executes each
+  command and reports how much of its own clock it spent, so budgets cover the same
+  motion on every robot. Use track to re-plan against perception while moving.
+  Commands use the named controller preset's declared axes, units and bounds;
+  unlisted axes are commanded at zero, or at their declared default for posture.
+  Displacement is measured from body pose feedback when the device reports it, and
+  otherwise estimated by integrating measured or commanded velocity. The result
+  names which evidence was used and reports estimated arrival as estimated, never
+  as observed; integrated estimates degrade when the device turns while translating.
+  Stops on every control-loop exit. No path planning, obstacle avoidance, terrain
+  handling or balance guarantee.
+parameters:
+  type: object
+  additionalProperties: false
+  properties: &fields
+    device:
+      type: string
+      description: velocity-controlled device name
+    mode:
+      type: string
+      description: controller preset name declared in control.modes
+    velocity:
+      type: object
+      additionalProperties: {type: number}
+      description: axis values for the preset's declared velocity components, e.g. {vx, vy, wz}; omitted axes are commanded at zero
+    posture:
+      type: object
+      additionalProperties: {type: number}
+      description: axis values for the preset's declared posture components, e.g. {height, pitch}; omitted axes keep their declared default
+    duration_s:
+      type: number
+      exclusiveMinimum: 0
+      description: how long to hold the commanded velocity/posture, in seconds of the device's own clock
+    displacement:
+      type: object
+      additionalProperties: false
+      description: distance to cover, measured in the body frame the device started from
+      properties:
+        x: {type: number, description: forward metres}
+        y: {type: number, description: left metres}
+        yaw: {type: number, description: rotation in radians}
+    observation:
+      type: object
+      description: a perception result carrying a point, as track passes it; the device closes on it. The drive is still open loop - the goal is fixed for this call
+    frame:
+      type: string
+      description: frame the observation point is expressed in; defaults to the frame the observation names
+    stop_distance_m:
+      type: number
+      minimum: 0
+      default: 0.5
+      description: stop this far short of an observation's point
+    on_timeout:
+      type: string
+      enum: [stop, continue]
+      default: stop
+      description: on running out of budget, stop halts the device; continue leaves the commanded velocity standing so it keeps moving while you think
+    tolerance_m:
+      type: number
+      exclusiveMinimum: 0
+      default: 0.05
+      description: distance within which a displacement counts as covered
+    tolerance_rad:
+      type: number
+      exclusiveMinimum: 0
+      default: 0.05
+      description: heading error within which a rotation counts as covered
+    until:
+      type: object
+      additionalProperties: false
+      description: optional extra termination predicate - a PERCEPTION tool whose truthy key stops the loop
+      properties:
+        tool: {type: string}
+        args: {type: object}
+        key: {type: string, description: "result key to test (default: done)"}
+        every_s: {type: number, exclusiveMinimum: 0, description: "seconds of the device's own clock between checks (default: 1)"}
+      required: [tool]
+    timeout_s:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 300
+      default: 30
+      description: budget in seconds of the device's own clock, so the same value covers the same amount of motion on every robot
+  required: [device, mode]
+  oneOf:
+  - {type: object, additionalProperties: false, properties: *fields, required: [device, mode, duration_s]}
+  - {type: object, additionalProperties: false, properties: *fields, required: [device, mode, displacement]}
+  - {type: object, additionalProperties: false, properties: *fields, required: [device, mode, observation]}
+timeout_s: 600
+device_inputs:
+  device:
+    types: [velocity]
+devices: []

@@ -1,13 +1,13 @@
 """Profile-driven command and feedback handling for fixed end-effector contracts."""
 
-from kinex.validation import number
+from kinex.validation import SEGMENT, number, segment
 
 import math
 
 
 def command(profile, args):
-    if set(args) - {"target", "speedFraction"}:
-        raise ValueError("write accepts only target and speedFraction")
+    if set(args) - {"target", "speedFraction", *SEGMENT}:
+        raise ValueError("write accepts only target, speedFraction, for_s and arrive")
     control = profile["intrinsics"]["control"]
     if not isinstance(control, dict) or control["mode"] == "none":
         raise ValueError("This tool has no calibrated command interface")
@@ -20,13 +20,13 @@ def command(profile, args):
             raise ValueError("target must equal off_target or on_target")
         if "speedFraction" in args:
             raise ValueError("speedFraction is unsupported")
-        return {"target": [value]}
+        return segment(args, {"target": [value]})
     if control["mode"] == "direction":
         if not -1 <= value <= 1:
             raise ValueError("direction target must be in [-1, 1]")
         if "speedFraction" in args:
             raise ValueError("speedFraction is unsupported")
-        return {"target": [0 if value == 0 else math.copysign(1, value)]}
+        return segment(args, {"target": [0 if value == 0 else math.copysign(1, value)]})
     if control["mode"] != "position":
         raise ValueError("Unknown end-effector control mode")
     bounds = control["bounds"]
@@ -41,7 +41,7 @@ def command(profile, args):
     if speed is None:
         if "speedFraction" in args:
             raise ValueError("speedFraction is unsupported")
-        return {"target": [value]}
+        return segment(args, {"target": [value]})
     if not isinstance(speed, dict):
         raise ValueError("Speed support has not been calibrated")
     fraction = number(args.get("speedFraction", speed["default_fraction"]), "speedFraction")
@@ -51,7 +51,7 @@ def command(profile, args):
     native = limits["max"] * fraction
     if speed["native_resolution"] is not None:
         native = round(native / speed["native_resolution"]) * speed["native_resolution"]
-    return {"target": [value], "native_speed": max(limits["min"], min(limits["max"], native))}
+    return segment(args, {"target": [value], "native_speed": max(limits["min"], min(limits["max"], native))})
 
 
 def reading(profile, sample):

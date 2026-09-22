@@ -41,7 +41,7 @@ function deviceLine(device: Device): string {
     }
     case "dexterous_hand":
     case "joint": {
-      bits.push(device.type === "joint" ? " absolute joint targets; arrival: servo_to" : " finger joint targets")
+      bits.push(device.type === "joint" ? " absolute joint targets; arrival: move_to" : " finger joint targets")
       const joints = deviceJoints(device)
       bits.push(joints.length ? ` ${joints.length} dof; model resolved` : " model: ???")
       if (device.type === "dexterous_hand") {
@@ -68,7 +68,6 @@ function deviceLine(device: Device): string {
       const { control, feedback, stop } = device.intrinsics
       if (known(control)) bits.push(`, motion modes: ${Object.keys(control.modes).join(", ")}`)
       if (known(stop)) bits.push(`, stop ${stop.behavior}`)
-      if (known(control) && known(control.execution)) bits.push(`, ${control.execution.mode}`)
       if (known(feedback)) bits.push(`, pose: ${feedback.pose_frame ?? "unlocalized"}`)
       break
     }

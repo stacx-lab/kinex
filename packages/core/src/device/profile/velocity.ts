@@ -1,4 +1,4 @@
-import { field, ControlExecution } from "./common.ts"
+import { field } from "./common.ts"
 import { z } from "zod"
 
 const axis = z.enum(["vx", "vy", "vz", "wx", "wy", "wz"])
@@ -36,7 +36,6 @@ export const VelocityControl = z.strictObject({
   mode: z.literal("motion"),
   body_frame: z.string().min(1),
   modes: z.record(z.string().min(1), motionMode).refine((v) => Object.keys(v).length > 0, "at least one controller mode is required"),
-  execution: field(ControlExecution),
 })
 export const VelocityStop = z.strictObject({
   behavior: z.enum(["stand", "hold", "halt", "controller_emergency_stop"]),

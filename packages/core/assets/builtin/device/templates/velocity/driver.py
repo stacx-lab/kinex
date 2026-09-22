@@ -15,7 +15,7 @@ class VelocityDeviceDriver(Driver):
         raise NotImplementedError("Read body pose, velocities, frames, faults and acquisition timestamp")
 
     def send_target(self, handle, command):
-        raise NotImplementedError("Replace velocity/posture promptly; stepped execution advances one interval")
+        raise NotImplementedError("Replace velocity/posture promptly; advance one interval here when background_clock is False")
 
     def halt(self, handle, target):
         raise NotImplementedError("Perform self.profile['intrinsics']['stop']; preserve posture/balance; target is the last command or None")

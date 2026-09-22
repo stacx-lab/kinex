@@ -1,0 +1,65 @@
+name: run_policy
+kind: controller
+description: >-
+  Ask a policy for actions from one observation and execute the chunk, agent-free.
+  infer receives obs and an optional task and returns one action or a chunk of them,
+  in resolved model joint order per commanded device (radians or metres by joint
+  type; one value for a gripper or suction tool). A flat vector is split across
+  command in order; a result keyed by device name is used as given. Model-specific
+  action conversion belongs in the model driver. All commanded devices are written
+  together, so one action reaches a whole embodiment at once. Each action is held
+  for one action_hz period of the device's own clock, so a chunk replays at the same
+  speed on every robot. This executes ONE inference worth of actions: compose it
+  under track with observe to close the loop. Stops every commanded device on exit.
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    model:
+      type: string
+      description: model device serving an "infer" action (obs -> action)
+    observation:
+      type: object
+      description: the observation to infer from, as track passes it - typically observe's bundle
+    command:
+      type: array
+      minItems: 1
+      description: devices that receive each action, in the order the action vector is split
+      items:
+        type: object
+        additionalProperties: false
+        properties:
+          device: {type: string, description: joint, dexterous_hand, gripper or suction device}
+        required: [device]
+    task:
+      type: string
+      description: task or goal handed to the model, e.g. a language instruction
+    action_hz:
+      type: number
+      exclusiveMinimum: 0
+      default: 10
+      description: actions replayed per second of the device's own clock
+    max_actions:
+      type: integer
+      minimum: 1
+      description: keep at most this many actions from the chunk; the rest are discarded
+    timeout_s:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 300
+      default: 30
+      description: budget in seconds of the device's own clock for this chunk
+    on_timeout:
+      type: string
+      enum: [stop, continue]
+      default: stop
+      description: after the chunk, stop holds the devices where they are; continue leaves the last action standing so motion carries on while you think
+  required: [model, observation, command]
+timeout_s: 600
+device_inputs:
+  model:
+    types: [model]
+  command[].device:
+    types: [joint, gripper, dexterous_hand, suction]
+devices: [model]
+requires: access:model,intrinsics:model

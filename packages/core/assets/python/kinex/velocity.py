@@ -2,7 +2,7 @@
 
 import math
 
-from kinex.validation import number, vector
+from kinex.validation import SEGMENT, number, segment, vector
 
 AXES = ("vx", "vy", "vz", "wx", "wy", "wz")
 POSTURE_AXES = ("height", "roll", "pitch", "yaw")
@@ -18,7 +18,7 @@ def command(profile, args):
     control = intrinsics(profile)["control"]
     if not isinstance(control, dict) or control.get("mode") != "motion":
         raise ValueError("Base control is unresolved")
-    if not isinstance(args, dict) or set(args) - {"mode", "velocity", "posture"}:
+    if not isinstance(args, dict) or set(args) - {"mode", "velocity", "posture", *SEGMENT}:
         raise ValueError("Expected mode with velocity and/or posture")
     name = args.get("mode")
     if not isinstance(name, str) or name not in control["modes"]:
@@ -52,14 +52,7 @@ def command(profile, args):
                 if axis not in POSTURE_AXES or component["units"] != units or (axis == "height" and low <= 0):
                     raise ValueError("Invalid posture capability")
             result[channel][axis] = value
-    execution = control["execution"]
-    if execution["mode"] == "realtime":
-        timeout = execution["command_timeout_s"]
-        if timeout is not None and number(timeout) <= 0:
-            raise ValueError("Command timeout must be positive")
-    elif execution["mode"] != "stepped" or number(execution["interval_s"]) <= 0:
-        raise ValueError("Invalid execution timing")
-    return result
+    return segment(args, result)
 
 
 def reading(profile, sample):

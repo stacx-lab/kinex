@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { hasMissing, quaternion, xyz } from "./profile/common.ts"
+import { hasMissing, quaternion, segmentFields, xyz } from "./profile/common.ts"
 import { isVelocity, known, type Device } from "./profile/schema.ts"
 import type { DeviceReading } from "./driver.ts"
 import { NamedError } from "../util/error.ts"
@@ -8,7 +8,7 @@ const values = z.record(z.string(), z.number())
 export function velocityCommand(device: Extract<Device, { type: "velocity" }>, args: Record<string, unknown>): Record<string, unknown> {
   const { control } = device.intrinsics
   if (!known(control) || hasMissing(control)) throw new NamedError("VelocityCommandError", "velocity control is unresolved")
-  const command = z.strictObject({ mode: z.string(), velocity: values.optional(), posture: values.optional() }).parse(args)
+  const command = z.strictObject({ mode: z.string(), velocity: values.optional(), posture: values.optional(), ...segmentFields }).parse(args)
   const mode = Object.hasOwn(control.modes, command.mode) ? control.modes[command.mode] : undefined
   if (!mode) throw new NamedError("VelocityCommandError", `unsupported controller mode: ${command.mode}`)
   for (const channel of ["velocity", "posture"] as const) {

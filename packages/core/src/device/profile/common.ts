@@ -36,10 +36,18 @@ export const OtherConnection = z.discriminatedUnion("kind", [Tcp, Url, Serial, S
   z.strictObject({ kind: z.literal("process") }),
 ])
 
-export const ControlExecution = z.discriminatedUnion("mode", [
-  z.strictObject({ mode: z.literal("realtime"), command_timeout_s: field(z.number().positive().nullable()) }),
-  z.strictObject({ mode: z.literal("stepped"), interval_s: field(z.number().positive()) }),
-])
+// How fast the device's own clock advances, and how soon a command must be
+// refreshed. WHO advances that clock — a background service, or the write itself —
+// is the driver's business and is deliberately not declared: controllers follow
+// the clock the device reports instead of branching on a mode, so the same call
+// covers the same motion either way.
+// Every write is a SEGMENT: the device pursues the target and reports how much
+// of its own clock it spent. `for_s` bounds that; `arrive` is the arrival spec
+// the device judges itself against. Core checks the shape, the driver the detail.
+export const segmentFields = {
+  for_s: z.number().positive().optional(),
+  arrive: z.record(z.string(), z.unknown()).optional(),
+}
 
 export const lifecycle = ["load", "unload", "status"] as const
 export const observationActions = ["read", ...lifecycle] as const

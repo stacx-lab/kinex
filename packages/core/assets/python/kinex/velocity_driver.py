@@ -1,4 +1,8 @@
-"""Bounded SDK hooks with a persistent watchdog; the SDK owns balance control."""
+"""Bounded SDK hooks for a velocity device; the SDK owns balance control.
+
+A write carries how long the command should run and reports the device time it
+spent, so a command needs no separate expiry: the caller's budget is the bound.
+"""
 
 import sys
 import threading
@@ -9,11 +13,16 @@ from kinex.validation import settings
 
 
 class Driver:
+    # True when the world advances on a clock of its own, which must therefore be
+    # served so something ticks while the agent thinks. False when this driver's
+    # own write advances physics. Kinex never needs to know which; only a driver
+    # does, which is why the profile no longer declares it.
+    background_clock = True
+
     def __init__(self, directory):
         self.profile = settings(directory)
         self.handle = None
         self.lock = threading.RLock()
-        self.timer = None
         self.error = None
         self.serving = "--serve" in sys.argv
         self.target = None
@@ -28,7 +37,7 @@ class Driver:
         raise NotImplementedError("Read body pose, velocities, height, frames and timestamp")
 
     def send_target(self, handle, value):
-        raise NotImplementedError("Select target mode and replace velocity/posture; stepped execution advances one interval")
+        raise NotImplementedError("Select target mode and replace velocity/posture; a driver without a background clock advances one interval here")
 
     def halt(self, handle, target):
         raise NotImplementedError("Apply profile stop behavior, preserving posture/balance; target is the last command or None")
@@ -40,21 +49,6 @@ class Driver:
                 raise RuntimeError("connect must return a ready handle")
         return self.handle
 
-    def cancel(self):
-        if self.timer is not None:
-            self.timer.cancel()
-            self.timer = None
-
-    def expire(self, timer):
-        with self.lock:
-            if self.timer is not timer:
-                return
-            self.cancel()
-            try:
-                self.halt(self.handle, self.target)
-            except Exception as error:
-                self.error = str(error)
-
     def execute(self, action, args):
         if not isinstance(args, dict) or (action != "write" and args):
             raise ValueError(f"Invalid arguments for {action}")
@@ -65,7 +59,6 @@ class Driver:
                 self.close(stop=True)
                 return {"unloaded": True, "stopped": True, **self.profile["intrinsics"]["stop"]}
             if action == "stop":
-                self.cancel()
                 try:
                     self.halt(self.connection(), self.target)
                 except Exception as error:
@@ -84,17 +77,10 @@ class Driver:
                 return reading(self.profile, self.read_state(self.connection()))
             if action == "write":
                 value = command(self.profile, args)
-                execution = self.profile["intrinsics"]["control"]["execution"]
-                if execution["mode"] == "realtime" and not self.serving:
-                    raise ValueError("Realtime control requires --serve")
+                if self.background_clock and not self.serving:
+                    raise ValueError("A background control clock requires --serve")
                 handle = self.connection()
-                self.cancel()
                 self.target = value
-                if execution["mode"] == "realtime" and execution["command_timeout_s"] is not None:
-                    timer = threading.Timer(execution["command_timeout_s"], lambda: self.expire(timer))
-                    timer.daemon = True
-                    self.timer = timer
-                    timer.start()
                 self.send_target(handle, value)
                 return {"accepted": True}
             raise ValueError(f"Unsupported base action: {action}")
@@ -107,7 +93,6 @@ class Driver:
 
     def close(self, stop=None):
         with self.lock:
-            self.cancel()
             handle, self.handle = self.handle, None
             target, self.target = self.target, None
             release(lambda: self.halt(handle, target) if handle is not None and (self.serving if stop is None else stop) else None,

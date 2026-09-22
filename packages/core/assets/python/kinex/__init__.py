@@ -5,7 +5,7 @@ JSON-lines dialog with the harness: one request object per stdout line, one
 response object per stdin line, strictly sequential. This module owns that
 protocol so tool code stays plain python:
 
-    from kinex import args, device, call, profile, robot, loop, finish, fail
+    from kinex import args, device, call, profile, robot, finish, fail
 
     a = args()
     cam = profile(a["camera"])                      # parsed profile.yaml (white-box)
@@ -95,48 +95,6 @@ def profile(device, *, optional=False):
 def robot():
     """The workspace robot's workspace manifest (identity, sim block, safety)."""
     return _rpc({"call": "robot"})["robot"]
-
-
-def loop(step, *, max_steps=50, rate_hz=None, until=None, timeout_s=None, on_stop=None):
-    """Run a controller loop with the standard termination conditions.
-
-    step(i) gets the 0-based step index; return truthy to end the loop ("done").
-    Other exits: an `until` perception predicate ({"tool", "args", "key": "done",
-    "check_every": 5} — the tool runs every check_every steps, a truthy `key` in
-    its result stops the loop), the `max_steps` budget, and the soft `timeout_s`
-    wall clock (the manifest's timeout_s stays the hard cap: the harness kills
-    the process and fans out "stop"). rate_hz caps the loop rate. on_stop()
-    ALWAYS runs on the way out — even when step raises or fail()s — so the
-    commanded device is stopped before the harness backstop.
-
-    Returns {"steps": n, "terminated_by": "done"|"until:<tool>"|"max_steps"|"timeout"}.
-    """
-    period = 1.0 / rate_hz if rate_hz else 0.0
-    deadline = time.monotonic() + timeout_s if timeout_s else None
-    steps, terminated_by = 0, "max_steps"
-    try:
-        while steps < max_steps:
-            tick = time.monotonic()
-            done = step(steps)
-            steps += 1
-            if done:
-                terminated_by = "done"
-                break
-            if until and steps % int(until.get("check_every", 5)) == 0:
-                result = call(until["tool"], **(until.get("args") or {}))
-                if result.get(until.get("key", "done")):
-                    terminated_by = "until:" + until["tool"]
-                    break
-            if deadline is not None and time.monotonic() >= deadline:
-                terminated_by = "timeout"
-                break
-            elapsed = time.monotonic() - tick
-            if period > elapsed:
-                time.sleep(period - elapsed)
-    finally:
-        if on_stop:
-            on_stop()
-    return {"steps": steps, "terminated_by": terminated_by}
 
 
 def finish(result=None, file=None):

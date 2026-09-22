@@ -6,7 +6,7 @@ description: dexterous hand control and observation contract.
 
 ## Use
 
-A distinct finger-joint controller. Uses the common joint command/read contract; servo_to and track do not accept this type. Use device write/read or a hand-specific controller tool. Named fingertip frames are optional.
+A distinct finger-joint controller. Uses the common joint command/read contract; move_to does not accept this type; run_policy does. Use device write/read or a hand-specific controller tool. Named fingertip frames are optional.
 
 For grasp planning, inspect optional `intrinsics.geometry`. It names a fixed
 `palm_frame` and `reference_frame`, plus `fingers` and a moving `center`.
@@ -67,7 +67,7 @@ intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {form
 
 kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), feedback (driver/fk), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. Declare the tip under intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
 
-control declares mode:position, speed (null or named max_velocity and default_fraction), execution (realtime with command_timeout_s, or stepped with interval_s). home names every joint or is null. feedback declares velocities, efforts and clock (unix/monotonic/simulation). stop declares behavior and affected_devices. intrinsics.frames maps local names to fixed poses or null for read.frame_poses feedback. extrinsics supplies only a mount or measured pose_frame.
+control declares mode:position, speed (null or named max_velocity and default_fraction), home names every joint or is null. feedback declares velocities, efforts and clock (unix/monotonic/simulation). stop declares behavior and affected_devices. intrinsics.frames maps local names to fixed poses or null for read.frame_poses feedback. extrinsics supplies only a mount or measured pose_frame.
 
 ### Profile
 
@@ -102,7 +102,6 @@ intrinsics:
   control:
     mode: position
     speed: ???
-    execution: ???
   feedback: ???
   stop: ???
 extrinsics:

@@ -37,7 +37,13 @@ contract; extraction and a shared default composition module remain deferred.
   readiness; ordinary calls never restart failed services. Stop bypasses approval.
   Unload attempts capture shutdown, stop and resource release; borrowed services
   are not terminated. Joint goals are absolute, ordered, in radians/metres;
-  acceptance is not arrival. Stepped writes advance one interval; reads do not.
+  a write both sets a goal and executes it for the caller's `for_s`, reporting
+  `elapsed_s` in the device's own clock, whether it `reached` the caller's arrival
+  spec, and the resulting state. That clock is the only time reference a
+  controller reads, so the same call covers the same motion whether a background
+  clock advances the world or the write itself does. Nothing about timing is
+  declared: no control period, and no command expiry, because the caller's budget
+  is the bound. Reads never advance it.
   Uncertain writes are not retried automatically. Batch calls are not atomic.
 - **Frames and calibration.** Frames form a forest; world is optional and missing
   relationships are not identity transforms. `relative_pose` composes declared,
@@ -49,8 +55,12 @@ contract; extraction and a shared default composition module remain deferred.
 - **Tools, skills and Python.** Tools declare schemas, capabilities and timeouts;
   composed calls retain permissions and recording attribution. Skills supply
   procedures. Detection/segmentation feed perception; depth localization respects
-  masks and reports camera-relative measurements. Servo/track controllers use
-  fresh feedback and stop on exit; they provide no general path planning.
+  masks and reports camera-relative measurements. Controllers are open-loop
+  segments: `move_to` and `drive` hand a device one goal and a budget, and the
+  device runs it. `track` closes the loop by alternating any perception tool with
+  any controller, passing the observation between them, so segment length alone
+  spans open loop, closed loop and policy rollout. Execution mode is never
+  agent-visible. They stop on every exit and provide no general path planning.
   Core lazily prepares `.kinex/python` with uv; explicit interpreters own their
   dependencies. Ordinary host shells retain their Python environment.
 - **Recording.** Manual capture is available; model access is opt-in. Native capture

@@ -227,7 +227,7 @@ function deviceNodes(device: Device): Node[] {
     gripper: "record scalar control, measured feedback and stop scope; optional aperture data supports grasp planning. See the gripper template",
     dexterous_hand: "record the ordered joint model, position control, feedback, home and stop scope. See the dexterous_hand template",
     suction: "record binary control, measured feedback and stop scope. See the suction template",
-    velocity: "record named velocity/posture modes, execution, feedback and stop. See the velocity template",
+    velocity: "record named velocity/posture modes, feedback and stop. See the velocity template",
     imu: "record supported channels, acceleration quantity, orientation reference and per-axis calibration. Mount defines the measurement location/frame. See the IMU template; never zero away gravity",
     force_torque: "record quantity, target body/frame, measured force and torque axes, and bias; no implementation origin. Mount defines the measurement frame and torque origin. See the force_torque template",
     detection: "record model identity and artifacts; detect uses the type-owned box contract",

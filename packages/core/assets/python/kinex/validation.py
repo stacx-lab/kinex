@@ -21,3 +21,19 @@ def vector(value, size, name="components"):
     for entry in value:
         number(entry, name)
     return value
+
+
+# Every write is a SEGMENT: the device pursues the target and reports how much of
+# its own clock it spent. `for_s` bounds that; `arrive` is the arrival spec it
+# judges itself against. Command validators pass both through untouched.
+SEGMENT = ("for_s", "arrive")
+
+
+def segment(args, command):
+    """Carry the segment fields from `args` onto a validated `command`."""
+    for key in SEGMENT:
+        if key in args:
+            command[key] = args[key]
+    if "for_s" in command and number(command["for_s"], "for_s") <= 0:
+        raise ValueError("for_s must be positive")
+    return command

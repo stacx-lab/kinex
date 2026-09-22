@@ -33,7 +33,7 @@ Each surface has a unique name, a pose, and an extent. Record its orientation as
 well as its position. Use an unknown extent until measured; unbounded must be
 explicit. See DEVICE.md#use for the fixed geometry contract.
 
-`calib_plan` reports world geometry as optional. `servo_to` accepts device-native
+`calib_plan` reports world geometry as optional. `move_to` accepts device-native
 targets and does not require world data. Perception tools can explicitly query the geometry.
 
 ### Adapter and field reference
@@ -64,7 +64,7 @@ frame graph. It has no driver, access, or extrinsics. Mobile bases may be roots.
   - ??? when unknown. Unknown never means infinite.
 
 Bounds describe a region; they do not prove reachability or collision clearance.
-They are not checked or clamped automatically by servo_to. Geometry is queried
+They are not checked or clamped automatically by move_to. Geometry is queried
 only by consumers that need it. A surface ray intersection uses both its pose
 and extent and rejects unknown geometry, rays behind the camera, and hits beyond
 the declared boundary.
