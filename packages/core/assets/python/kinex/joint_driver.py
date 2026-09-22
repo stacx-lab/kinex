@@ -1,6 +1,7 @@
 """Shared JSON driver lifecycle; subclasses contain only device API adapters."""
 
 import sys
+import threading
 from pathlib import Path
 
 from kinex.driver_protocol import run, release
@@ -16,6 +17,7 @@ class Driver:
         self.serving = "--serve" in sys.argv
         self.recorder = None
         self._model = None
+        self.sample_lock = threading.RLock()
 
     def connect(self):
         raise NotImplementedError("start owned control services and connect using access.connection; wait for readiness; roll back failed startup")
@@ -27,6 +29,8 @@ class Driver:
         raise NotImplementedError("read positions/velocities/efforts/faults, acquisition time and reported_pose")
 
     def send_target(self, handle, command):
+        # Check kinex.driver_protocol.check_cancelled() between native steps;
+        # read_state and halt must remain usable while this hook waits.
         raise NotImplementedError("Execute the target for command.for_s in the device clock; honor arrive and max_velocity; return accepted, elapsed_s, reached and state")
 
     def halt(self, handle):
@@ -53,7 +57,8 @@ class Driver:
         return self._model
 
     def sample(self):
-        return self.model().reading(self.read_state(self.connection()))
+        with self.sample_lock:
+            return self.model().reading(self.read_state(self.connection()))
 
     def execute(self, action, args):
         if action == "load":
@@ -67,9 +72,10 @@ class Driver:
         if action == "status":
             return {"connected": self.handle is not None}
         if action == "read":
-            if self.recorder is None:
+            recorder = self.recorder
+            if recorder is None:
                 return self.sample()
-            state = self.recorder.wait_latest()
+            state = recorder.wait_latest()
             if state is None:
                 raise RuntimeError("Recorder has no fresh state")
             return state
@@ -106,8 +112,9 @@ class Driver:
         if action == "record_stop":
             if self.recorder is None:
                 return {"file": None, "rows": 0}
-            recorder, self.recorder = self.recorder, None
+            recorder = self.recorder
             result = recorder.stop()
+            self.recorder = None
             return result
         raise ValueError(f"Unsupported joint device action: {action}")
 
@@ -119,6 +126,8 @@ class Driver:
 
     def close(self, stop=None):
         def disconnect():
+            if self.recorder is not None and self.recorder.running:
+                raise RuntimeError("capture still uses the connection; process teardown is required")
             handle, self.handle = self.handle, None
             release(lambda: self.halt(handle) if handle is not None and (self.serving if stop is None else stop) else None,
                     lambda: self.disconnect(handle) if handle is not None else None)

@@ -1,5 +1,23 @@
 # Kinex progress
 
+## Completed: concurrent device I/O
+
+- [x] Separate observation, write, capture and lifecycle scheduling in Kinex;
+  correlate persistent driver responses and interrupt affected queued writes.
+- [x] Replace RoboEnv world-wide motion waits with deferred per-device segments;
+  preserve native owner-thread execution and independent bounded-write results.
+- [x] Exercise recording through Kinex → portable drivers → supervisor → CPU worker
+  with overlapping writes, including owner-thread physics.
+- [x] Preserve stop cancellation through asynchronous driver preparation and active
+  one-shot processes; fence failed stops, lifecycle transitions and capture cleanup.
+- [x] RoboEnv: 778 tests pass, 41 skip; lint, privacy, SDK/runtime wheels and isolated
+  wheel checks pass. Native CPU terminal tests preserve final snapshots and reject
+  queued motion. Kinex source integration uses the current checkout.
+- [x] Kinex: typecheck, build, 46 standalone tests, 54 core tests and npm packing
+  pass. All 13 cross-repository concurrency/lifecycle checks pass against the final
+  core build. Persistent custom drivers require the correlated protocol and reload;
+  existing RoboEnv services require an owner restart to use the updated runtime.
+
 ## Architecture and delivery
 
 - One npm workspace owns `kinex`, `@kinex/core`, `@kinex/pi`,
@@ -75,24 +93,15 @@
   device seconds respectively; perception time is excluded. Both services were
   stopped after validation. Reports: `/tmp/kinex-bounded-fix-native/`.
 
-## Completed: bounded-write clock waits in RoboEnv
+## Completed: bounded device execution in RoboEnv
 
-- [x] Fix the world-lock starvation behind `workspace_libero`'s persistent-driver
-  timeout. RoboEnv keeps requests serialized while yielding the state lock to
-  background physics; thread-affine backends service ticks on their owner thread.
-- [x] Cover LIBERO, RoboCasa, RoboTwin, BEHAVIOR, RoboDojo, SIMPLE and Isaac Lab.
-  Repair RoboDojo budget forwarding and SIMPLE/Isaac Lab segment schemas,
-  forwarding and state/arrival responses. Kinex's driver timeout is unchanged.
-- [x] All 47 new CPU regressions pass. The broader RoboEnv run reports 757 passed,
-  41 skipped and three stale Kinex integration failures importing removed paths;
-  all three reproduce on an untouched RoboEnv HEAD snapshot. Lint, privacy audit,
-  SDK/runtime wheel builds and isolated wheel checks pass.
-- [x] Fresh `libero/drawer-and-bowl` services pass actual Kinex `move_to` with a
-  15-second device-time budget: realtime reaches in one write (0.85 s simulation,
-  1.30 s wall), synchronous in 17 writes (0.85 s simulation, 1.04 s wall).
-  Validation uses small joint motion, no model calls, and makes no task-success
-  claim. Other simulators have CPU coverage only. Validation owns only its fresh
-  services; services started before this fix require an owner restart.
+- [x] LIBERO, RoboCasa, RoboTwin, BEHAVIOR, RoboDojo, SIMPLE and Isaac Lab share
+  world-owned segment scheduling, with deferred realtime completion and atomic
+  synchronous control intervals. Device bindings forward budgets, arrival tests
+  and final state snapshots.
+- [x] Prior fresh `libero/drawer-and-bowl` services passed Kinex `move_to` with a
+  15-second device-time budget in both clock modes. The concurrency refactor adds
+  CPU coverage; it does not establish task success or fresh GPU replay.
 
 ## Control latency follow-up
 
@@ -110,7 +119,8 @@ Validated on Linux, Node 22.19.0, Pi 0.86.1, OpenCode 1.18.31 and Codex 0.155.1:
 - Typechecking and builds pass.
 - Standalone: **46 tests**, including all four real PTY cases, context/cache
   request capture, P0 batch/compaction behavior, recording and signal cleanup.
-- Core: **44 tests**, including independent package consumption, contribution
+- Core: **54 tests**, including concurrent I/O, scoped stop, lifecycle fences,
+  response correlation, independent package consumption, contribution
   composition/authorization/cancellation contracts, and the controller engine:
   device-clock budgets, controller stopping and composition, policy chunk replay,
   and guards that keep execution mode out of schemas and tools.

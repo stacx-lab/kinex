@@ -29,6 +29,10 @@ class _Recorder:
         self._first = threading.Event()
         self._result = None
 
+    @property
+    def running(self):
+        return self._thread is not None and self._thread.is_alive()
+
     def start(self):
         if self._thread is not None:
             return
@@ -46,6 +50,7 @@ class _Recorder:
             self._thread.join(timeout=5)
             if self._thread.is_alive():
                 self.error = self.error or "capture hook did not stop within 5s"
+                raise TimeoutError(self.error)
         self.ended_ns = time.time_ns()
         self.ended_mono = time.monotonic()
         self._close()

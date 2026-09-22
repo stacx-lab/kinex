@@ -86,7 +86,7 @@ test('tool permissions, validation and permission-checked lifecycle survive extr
   await assert.rejects(runtime.tools.call('device', { deviceID: 'sensor', action: 'load' }, { sessionID: 's' }), PermissionDeniedError)
 })
 
-test('persistent drivers serialize calls, drain stderr, reload and dispose', async t => {
+test('persistent drivers correlate calls, drain stderr, reload and dispose', async t => {
   const { runtime, directory } = await fixture(t, { host })
   const dir = await pythonDriver(runtime, directory)
   const ready = await runtime.devices.load('sensor'); await ready.ready
@@ -352,4 +352,185 @@ test('cancelling track during perception stops its target through the runner', {
   const outcome = await settled
   assert.ok(outcome.error || outcome.result?.isError)
   assert.ok(events.includes('stop'), JSON.stringify(events))
+})
+
+const concurrentDriver = `import threading, time
+from kinex.driver_protocol import run, check_cancelled
+started = []
+release = threading.Event()
+active = False
+def dispatch(action, args):
+    global active
+    if action == 'stop' and args.get('fail'):
+        return {'ok': False, 'error': 'halt failed'}
+    if action == 'write':
+        active = True
+        started.append(args['target'][0])
+        release.clear()
+        try:
+            while not release.wait(.005): check_cancelled()
+            check_cancelled()
+            return {'ok': True, 'tag': args['target'][0], 'accepted': True, 'elapsed_s': .1, 'reached': True}
+        finally:
+            active = False
+    if action == 'read':
+        if args.get('release'): release.set()
+        if args.get('sleep'): time.sleep(args['sleep'])
+    return {'ok': True, 'active': active, 'started': list(started), 'positions': [0], 'velocities': [0], 'efforts': [], 'faults': [], 'sample_time_s': time.monotonic(), **args}
+run(dispatch, lambda: None)
+`
+async function concurrentFixture(t) {
+  const value = await fixture(t, { host, enableRecording: true })
+  await value.runtime.profiles.writeDevice({ name: 'sensor', type: 'joint', intrinsics: {
+    model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
+    home: null, control: { mode: 'position', speed: null },
+    feedback: { velocities: true, efforts: false, clock: 'simulation' },
+    stop: { behavior: 'hold', affected_devices: ['sensor'] },
+  } })
+  await value.runtime.profiles.writeDevice({ name: 'sensor', access: { connection: { kind: 'mock' }, driver: {
+    interpreter: 'python3', persistent: true, actions: ['load', 'unload', 'status', 'read', 'write', 'stop'], timeout_s: 3,
+  } } })
+  const dir = path.join(value.directory, '.kinex', 'devices', 'sensor')
+  await writeFile(path.join(dir, 'driver.py'), concurrentDriver)
+  await (await value.runtime.devices.load('sensor')).ready
+  return value
+}
+async function waitForRead(runtime, predicate, name = 'sensor') {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const reading = await runtime.devices.dispatch(name, 'read', {}, AbortSignal.timeout(1000))
+    if (predicate(reading.data)) return reading.data
+    await delay(5)
+  }
+  assert.fail('device did not reach expected state')
+}
+
+test('reads and recording proceed during writes while same-device writes retain order', { timeout: 10000 }, async t => {
+  const { runtime } = await concurrentFixture(t)
+  const samples = []
+  runtime.subscribe(event => {
+    if (event.type === 'device' && event.event.origin === 'sampler') samples.push(event.event)
+  })
+  await runtime.recording.start({ specs: { sensor: { rate: 50 } }, sessionID: 'concurrency' })
+  const first = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 30 })
+  await waitForRead(runtime, state => state.active)
+  const second = runtime.devices.dispatch('sensor', 'write', { target: [2], for_s: 30 })
+  assert.deepEqual((await runtime.devices.ping('sensor')).reading.data.started, [1])
+  const until = Date.now() + 1500
+  while (samples.filter(event => event.reading?.data?.active).length < 3 && Date.now() < until) await delay(10)
+  assert.ok(samples.filter(event => event.reading?.data?.active).length >= 3)
+  await runtime.devices.dispatch('sensor', 'read', { release: true })
+  assert.equal((await first).data.tag, 1)
+  await waitForRead(runtime, state => state.started.length === 2)
+  await runtime.devices.dispatch('sensor', 'read', { release: true })
+  assert.equal((await second).data.tag, 2)
+  await runtime.recording.stop()
+})
+
+test('persistent responses can finish out of order without swapping callers', async t => {
+  const { runtime } = await concurrentFixture(t)
+  const order = []
+  const slow = runtime.devices.dispatch('sensor', 'read', { tag: 'slow', sleep: .2 }).then(value => { order.push('slow'); return value })
+  const fast = runtime.devices.dispatch('sensor', 'read', { tag: 'fast' }).then(value => { order.push('fast'); return value })
+  assert.equal((await fast).data.tag, 'fast')
+  assert.equal((await slow).data.tag, 'slow')
+  assert.deepEqual(order, ['fast', 'slow'])
+})
+
+test('stop interrupts an active write and invalidates queued writes without restarting motion', { timeout: 5000 }, async t => {
+  const { runtime } = await concurrentFixture(t)
+  const active = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 30 })
+  const activeRejected = assert.rejects(active, /interrupt/i)
+  await waitForRead(runtime, state => state.active)
+  const queued = runtime.devices.dispatch('sensor', 'write', { target: [2], for_s: 30 })
+  const queuedRejected = assert.rejects(queued, /interrupt/i)
+  await runtime.devices.dispatch('sensor', 'stop')
+  await Promise.all([activeRejected, queuedRejected])
+  assert.deepEqual((await runtime.devices.dispatch('sensor', 'read')).data.started, [1])
+  const next = runtime.devices.dispatch('sensor', 'write', { target: [2], for_s: 30 })
+  await waitForRead(runtime, state => state.started.length === 2)
+  await runtime.devices.dispatch('sensor', 'read', { release: true })
+  assert.equal((await next).data.tag, 2)
+})
+
+test('unload interrupts motion and fences active reads before releasing the driver', { timeout: 5000 }, async t => {
+  const { runtime } = await concurrentFixture(t)
+  const active = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 30 })
+  const rejected = assert.rejects(active, /interrupt/i)
+  await waitForRead(runtime, state => state.active)
+  const read = runtime.devices.dispatch('sensor', 'read', { sleep: .1 })
+  await delay(20)
+  await runtime.devices.unload('sensor')
+  await read
+  await rejected
+  await assert.rejects(runtime.devices.dispatch('sensor', 'read'), /not loaded|inactive/)
+  await (await runtime.devices.load('sensor')).ready
+  assert.deepEqual((await runtime.devices.dispatch('sensor', 'read')).data.started, [])
+})
+
+test('a scoped stop cancels cooperative writes in every affected persistent driver', { timeout: 5000 }, async t => {
+  const { runtime, directory } = await concurrentFixture(t)
+  const profile = (await runtime.devices.list()).find(device => device.name === 'sensor')
+  await runtime.profiles.writeDevice({ ...profile, name: 'peer', intrinsics: { ...profile.intrinsics, stop: { behavior: 'hold', affected_devices: ['peer'] } } })
+  await writeFile(path.join(directory, '.kinex', 'devices', 'peer', 'driver.py'), concurrentDriver)
+  await (await runtime.devices.load('peer')).ready
+  await runtime.profiles.writeDevice({ name: 'sensor', intrinsics: { stop: { behavior: 'hold', affected_devices: ['sensor', 'peer'] } } })
+  const active = runtime.devices.dispatch('peer', 'write', { target: [1], for_s: 30 })
+  const rejected = assert.rejects(active, /interrupt/i)
+  await waitForRead(runtime, state => state.active, 'peer')
+  await runtime.devices.dispatch('sensor', 'stop')
+  await rejected
+  assert.equal((await runtime.devices.dispatch('peer', 'read')).data.active, false)
+})
+
+test('failed stop leaves reads available and fences writes until reload', async t => {
+  const { runtime } = await concurrentFixture(t)
+  await assert.rejects(runtime.devices.dispatch('sensor', 'stop', { fail: true }), /halt failed/)
+  assert.ok((await runtime.devices.dispatch('sensor', 'read')).data)
+  await assert.rejects(runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 1 }), /stop failed|reload/i)
+  await (await runtime.devices.reload('sensor')).ready
+  const next = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 1 })
+  await waitForRead(runtime, state => state.active)
+  await runtime.devices.dispatch('sensor', 'read', { release: true })
+  await next
+})
+
+test('untagged persistent replies fail explicitly without a legacy fallback', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  const dir = await pythonDriver(runtime, directory)
+  await writeFile(path.join(dir, 'driver.py'), 'import sys, json\nfor line in sys.stdin:\n print(json.dumps({"ok": True}), flush=True)\n')
+  const activation = await runtime.devices.load('sensor')
+  await assert.rejects(activation.ready, /echo request id.*migrate/i)
+  await assert.rejects(runtime.devices.dispatch('sensor', 'read'), /inactive/i)
+})
+
+test('stop terminates an active one-shot command before admitting another write', { timeout: 5000 }, async t => {
+  const { runtime, directory } = await concurrentFixture(t)
+  await runtime.devices.unload('sensor')
+  await runtime.profiles.writeDevice({ name: 'sensor', access: { driver: { persistent: false } } })
+  const dir = path.join(directory, '.kinex/devices/sensor')
+  await writeFile(path.join(dir, 'driver.py'), `import os, time
+from pathlib import Path
+from kinex.driver_protocol import run
+def dispatch(action, args):
+    if action == 'write':
+        Path('writing').write_text(str(os.getpid()))
+        time.sleep(30)
+        Path('late-write').write_text('unsafe')
+    return {'ok': True}
+run(dispatch, lambda: None)
+`)
+  await (await runtime.devices.load('sensor')).ready
+  const active = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 30 })
+  const rejected = assert.rejects(active, /interrupted/)
+  let pid
+  const deadline = Date.now() + 2000
+  while (!pid && Date.now() < deadline) {
+    pid = await readFile(path.join(dir, 'writing'), 'utf8').catch(() => undefined)
+    if (!pid) await delay(5)
+  }
+  assert.ok(pid)
+  await runtime.devices.dispatch('sensor', 'stop')
+  await rejected
+  assert.throws(() => process.kill(Number(pid), 0), { code: 'ESRCH' })
+  await assert.rejects(readFile(path.join(dir, 'late-write')), { code: 'ENOENT' })
 })

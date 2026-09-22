@@ -185,3 +185,10 @@ tarballs; self-contained Node releases are deferred.
 `loadTools(directory, {additionalTools, enableRecording})` composes the single core
 catalog with host tools; recording is omitted unless explicitly enabled. Host tools
 and core builtins precede discovered custom tools, with conflicts reported.
+
+Device observations and recording can run during bounded writes. Writes are ordered
+per device; independent devices can write concurrently through `devices.dispatch`
+and Python `devices()`. Stop interrupts its declared device scope and rejects older
+queued writes. Load/unload/reload fence connections and capture ownership.
+Persistent drivers must echo request IDs and permit out-of-order replies; migrate
+custom loops using the shipped `kinex.driver_protocol.run` and reload devices.

@@ -7,7 +7,7 @@ import type { ManagedProcess } from "../util/process.ts"
 import { z } from "zod"
 import type { RecordConfig } from "../config/config.ts"
 import { isCameraType, type Device } from "../device/profile/schema.ts"
-import { dispatchDevice, isDeviceBusy } from "../device/dispatch.ts"
+import { dispatchDevice } from "../device/dispatch.ts"
 import type { DeviceReading } from "../device/driver.ts"
 import { Assets } from "../installation/assets.ts"
 import { lineSource, readLine, type LineSource } from "../util/lines.ts"
@@ -193,7 +193,7 @@ export function createStreams(input: { cwd: string; dir: string; config: RecordC
       const scale = entry.device.type === "rgbd" && entry.device.intrinsics.depth !== "???"
         ? entry.device.intrinsics.depth.scale_m_per_unit : undefined
       if (typeof scale === "number") entry.stats.depth_scale = scale
-      // Drivers reuse their frame inode: copy before dispatch releases its lane.
+      // Snapshot immutable per-response artifacts before handing them to the encoder.
       const frame = (() => {
         try {
           const depth = reading.data?.["depth_file"]
@@ -216,7 +216,7 @@ export function createStreams(input: { cwd: string; dir: string; config: RecordC
       await Promise.all([...entries.values()].map(async (entry) => {
         const dir = streamDir(input.dir, entry.device.name)
         entry.stats.bytes = await sizeOf(dir)
-        if (entry.source === "driver" && entry.stats.status === "recording" && !entry.closing && !await isDeviceBusy(input.cwd, entry.device.name)) {
+        if (entry.source === "driver" && entry.stats.status === "recording" && !entry.closing) {
           const reading = await dispatchDevice(input.cwd, entry.device, "status", {}, "stream").catch((error: unknown) => {
             fail(entry, error)
             return undefined

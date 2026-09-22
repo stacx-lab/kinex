@@ -37,6 +37,8 @@ class Driver:
         raise NotImplementedError("Read body pose, velocities, height, frames and timestamp")
 
     def send_target(self, handle, value):
+        # Check driver_protocol.check_cancelled() between native operations;
+        # keep read_state and halt available while this bounded hook waits.
         raise NotImplementedError("Execute velocity/posture for value.for_s in the device clock; return accepted, elapsed_s, reached and state")
 
     def halt(self, handle, target):
@@ -52,38 +54,37 @@ class Driver:
     def execute(self, action, args):
         if not isinstance(args, dict) or (action != "write" and args):
             raise ValueError(f"Invalid arguments for {action}")
-        with self.lock:
-            if action == "unload":
-                if self.handle is None and not self.serving:
-                    self.connection()
-                self.close(stop=True)
-                return {"unloaded": True, "stopped": True, **self.profile["intrinsics"]["stop"]}
-            if action == "stop":
-                try:
-                    self.halt(self.connection(), self.target)
-                except Exception as error:
-                    self.error = str(error)
-                    raise
-                self.error = None
-                return {"stopped": True, **self.profile["intrinsics"]["stop"]}
-            if self.error is not None:
-                raise RuntimeError(f"Base stop failed: {self.error}")
-            if action == "load":
+        if action == "unload":
+            if self.handle is None and not self.serving:
                 self.connection()
-                return {"loaded": True}
-            if action == "status":
-                return {"connected": self.handle is not None}
-            if action == "read":
-                return reading(self.profile, self.read_state(self.connection()))
-            if action == "write":
-                value = command(self.profile, args)
-                if self.background_clock and not self.serving:
-                    raise ValueError("A background control clock requires --serve")
-                handle = self.connection()
-                self.target = value
-                result = segment_result(self.send_target(handle, value))
-                return {**result, "state": reading(self.profile, result["state"])}
-            raise ValueError(f"Unsupported base action: {action}")
+            self.close(stop=True)
+            return {"unloaded": True, "stopped": True, **self.profile["intrinsics"]["stop"]}
+        if action == "stop":
+            try:
+                self.halt(self.connection(), self.target)
+            except Exception as error:
+                self.error = str(error)
+                raise
+            self.error = None
+            return {"stopped": True, **self.profile["intrinsics"]["stop"]}
+        if self.error is not None and action == "write":
+            raise RuntimeError(f"Base stop failed: {self.error}")
+        if action == "load":
+            self.connection()
+            return {"loaded": True}
+        if action == "status":
+            return {"connected": self.handle is not None}
+        if action == "read":
+            return reading(self.profile, self.read_state(self.connection()))
+        if action == "write":
+            value = command(self.profile, args)
+            if self.background_clock and not self.serving:
+                raise ValueError("A background control clock requires --serve")
+            handle = self.connection()
+            self.target = value
+            result = segment_result(self.send_target(handle, value))
+            return {**result, "state": reading(self.profile, result["state"])}
+        raise ValueError(f"Unsupported base action: {action}")
 
     def dispatch(self, action, args):
         try:

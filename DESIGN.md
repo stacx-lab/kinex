@@ -30,7 +30,10 @@ contract; extraction and a shared default composition module remain deferred.
   discovery must not create a nearer workspace and change that precedence.
 - **Devices and control.** Types describe interfaces; profiles separate access,
   intrinsics and extrinsics. Drivers alone own SDK connections, units and cleanup;
-  dispatch validates capabilities, serializes each device and observes traffic.
+  dispatch validates capabilities, serializes writes per device and observes traffic.
+  Reads run alongside writes; independent devices write concurrently. Stop
+  interrupts affected commands and clears their queued writes. Lifecycle
+  transitions fence resource users before releasing connections.
   Persistent drivers use JSONL; one-shot drivers release temporary clients. Core
   includes a mock, not a simulator engine. User commands or permission-checked
   model tools control lifecycle; Python tools cannot. `loaded` is intent, not

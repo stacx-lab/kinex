@@ -54,8 +54,8 @@ scaffolding. A concrete instance such as SAM3 may also have a substantial setup.
 
 Drivers are persistent by default (`access.driver.persistent: true`). The harness
 runs `<interpreter> driver.py --serve` in the device directory: one JSON line
-{action,args} per request, one flushed response {ok:true,...payload} or
-{ok:false,error:"..."}. Use kinex.driver_protocol.run for the message loop,
+{id,action,args} per request, one flushed response {id,ok:true,...payload} or
+{id,ok:false,error:"..."}. Echo the string id; replies may finish out of order. Use kinex.driver_protocol.run for the message loop,
 stdout isolation and idempotent cleanup on EOF/SIGTERM. Load acquires connections
 and starts any owned model, arm-control or camera-streaming service, then waits
 for readiness. Load is idempotent: reuse healthy resources, and restore an owned
@@ -66,6 +66,22 @@ explicitly load it again. Status only observes and must never initialize it.
 SDK diagnostics go to stderr; imports must also keep stdout clean. Preserve
 large arrays/images as files; expose a main attachment as file. The harness
 returns other payload fields as data. Set timeout_s for the longest operation.
+
+Reads/status/FK/IK run concurrently with bounded writes. Writes are ordered per
+logical device; independent devices may write together. Capture start/stop uses a
+separate ordered queue. Load/unload fence active users before replacing resources.
+SDK hooks must protect short native operations and connection bookkeeping, never
+hold a lock needed by reads or halt throughout a motion wait. Check
+`kinex.driver_protocol.check_cancelled()` between native operations in write hooks.
+Stop cancels active and queued writes before invoking halt; new writes wait for
+stop completion. The runner also accepts the internal `{id,interrupt:true}` control
+frame to cancel hooks when a different driver's stop affects this device.
+Camera hooks must return consistent snapshots; file paths must identify immutable
+per-response artifacts. The camera templates serialize SDK acquisition and copy
+reused buffers. Recorder shutdown must finish before disconnecting its source.
+Existing hand-written persistent loops must migrate to correlated replies; untagged
+responses fail with a migration error. Regenerate RoboEnv workspace drivers from
+the updated catalog and reload devices before use.
 
 Only use explicit persistent:false for adapters that require a fresh process
 per call. These run as `<interpreter> driver.py <action> '<JSON args>'` and

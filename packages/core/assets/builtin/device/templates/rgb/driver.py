@@ -5,12 +5,15 @@ Complete the four source hooks; shared capture code validates and encodes output
 """
 
 import pathlib
+import threading
+from copy import deepcopy
 import sys
 from kinex.driver_protocol import run, release
 from kinex.capture import settings, validate, save
 
 HERE = pathlib.Path(__file__).parent
 OUT = HERE / "out"
+SOURCE_LOCK = threading.RLock()
 
 STREAM = None  # whatever open_stream() returns; reused within one process
 RECORDER = None  # kinex.stream.VideoRecorder while recording
@@ -61,12 +64,19 @@ def ensure_stream():
 def latest_frame():
     """The frame to serve: the capture thread's latest while streaming (never a
     second grab() on a busy device), otherwise one fresh grab()."""
-    if RECORDER is None:
-        return validate(settings(HERE), grab(ensure_stream()))
-    color = RECORDER.wait_latest()
+    recorder = RECORDER
+    if recorder is None:
+        return sample(ensure_stream())
+    color = recorder.wait_latest()
     if color is None:
-        raise RuntimeError(f"recorder has no frame yet: {RECORDER.error or 'still warming up'}")
+        raise RuntimeError(f"recorder has no frame yet: {recorder.error or 'still warming up'}")
     return color
+
+
+def sample(stream):
+    # SDK grabs may reuse buffers; publish an owned snapshot before releasing it.
+    with SOURCE_LOCK:
+        return deepcopy(validate(settings(HERE), grab(stream)))
 
 
 def read(args):
@@ -79,9 +89,14 @@ def load_hook(args):
 
 
 def unload_hook(args):
-    global STREAM
-    stream, STREAM = STREAM, None
-    release(lambda: record_stop(args), lambda: close_stream(stream) if stream is not None else None)
+    def disconnect():
+        global STREAM
+        if RECORDER is not None and RECORDER.running:
+            raise RuntimeError("capture still uses the stream; process teardown is required")
+        stream, STREAM = STREAM, None
+        if stream is not None:
+            close_stream(stream)
+    release(lambda: record_stop(args), disconnect)
     return {"unloaded": True}
 
 
@@ -98,7 +113,7 @@ def record_start(args):
         print("record_start: closing stale recording", file=sys.stderr)
         record_stop(args)
     stream = ensure_stream()
-    RECORDER = VideoRecorder(lambda: validate(settings(HERE), grab(stream)), args["dir"],
+    RECORDER = VideoRecorder(lambda: sample(stream), args["dir"],
                              rate_hz=args.get("rate_hz") or 15, fps=args.get("fps") or 15,
                              max_px=args.get("max_px"), image=lambda sample: sample["color"])
     RECORDER.start()
@@ -110,8 +125,9 @@ def record_stop(args):
     global RECORDER
     if RECORDER is None:
         return {"file": None, "frames": 0}
-    recorder, RECORDER = RECORDER, None
+    recorder = RECORDER
     result = recorder.stop()
+    RECORDER = None
     return result
 
 

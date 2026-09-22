@@ -3,7 +3,7 @@
 from kinex.validation import settings
 
 import math
-import time
+import uuid
 from pathlib import Path
 
 
@@ -43,7 +43,7 @@ def save(profile, sample, directory):
     validate(profile, sample)
     out = Path(directory)
     out.mkdir(exist_ok=True)
-    stamp = time.time_ns()
+    stamp = uuid.uuid4().hex
     color_path = out / f"color-{stamp}.png"
     Image.fromarray(sample["color"]).save(color_path)
     color = profile["intrinsics"]["color"]

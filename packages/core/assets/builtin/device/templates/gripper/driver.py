@@ -28,7 +28,8 @@ def read_state(handle, profile):
 def send_target(handle, value, profile):
     # value contains validated/quantized target and, when supported, native_speed.
     # Execute the goal for for_s of your own clock, then report elapsed_s,
-    # reached and the resulting state.
+    # reached and the resulting state. Check driver_protocol.check_cancelled()
+    # between native operations; reads and halt must run while motion waits.
     raise NotImplementedError("Execute for value.for_s; return accepted, elapsed_s, reached and state")
 
 

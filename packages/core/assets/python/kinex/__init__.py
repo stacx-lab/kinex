@@ -73,8 +73,8 @@ def devices(commands):
     """Run device calls concurrently and return results in input order.
 
     Entries are {device, action?, args?}; action defaults to read. Reads and writes
-    may be mixed. Each result reports its own success or failure. Calls to one
-    device are serialized; different devices can run concurrently. This does not
+    may be mixed. Each result reports its own success or failure. Writes to one
+    device are ordered; reads bypass writes and independent devices write concurrently. This does not
     promise simultaneous sampling or atomic effects in a shared simulator.
     """
     return _rpc({"call": "devices", "commands": commands})["results"]
