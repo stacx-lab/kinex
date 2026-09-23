@@ -23,22 +23,12 @@ def vector(value, size, name="components"):
     return value
 
 
-# Every write is a SEGMENT: the device pursues the target and reports how much of
-# its own clock it spent. `for_s` bounds that; `arrive` is the arrival spec it
-# judges itself against. Command validators pass both through untouched.
-SEGMENT = ("for_s", "arrive")
-
-
 def segment(args, command):
-    """Carry the segment fields from `args` onto a validated `command`."""
-    for key in SEGMENT:
-        if key in args:
-            command[key] = args[key]
-    if number(command.get("for_s"), "for_s") <= 0:
+    """Attach a validated duration to a velocity or scalar command."""
+    budget = number(args.get("for_s"), "for_s")
+    if budget <= 0:
         raise ValueError("for_s must be positive")
-    if "arrive" in command and not isinstance(command["arrive"], dict):
-        raise ValueError("arrive must be an object")
-    return command
+    return {**command, "for_s": budget}
 
 
 def segment_result(result):

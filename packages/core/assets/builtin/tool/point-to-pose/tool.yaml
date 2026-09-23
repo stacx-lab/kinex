@@ -1,0 +1,40 @@
+name: point_to_pose
+kind: perception
+description: "Convert an observed point into {args: {pose, frame}} for move_to. Returns {args: null} when point is null. Reads current FK orientation unless orientation is supplied."
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    observation:
+      type: object
+      properties:
+        point:
+          oneOf:
+          - {type: array, items: {type: number}, minItems: 3, maxItems: 3}
+          - {type: 'null'}
+        frame: {type: string}
+      required: [point]
+    device:
+      type: string
+      description: "Joint device whose canonical frame and tool orientation define the goal."
+    frame:
+      type: string
+      description: "Source frame override; defaults to observation.frame."
+    offset_m:
+      type: array
+      items: {type: number}
+      minItems: 3
+      maxItems: 3
+      description: "Offset in the target device frame, in metres."
+    orientation:
+      type: array
+      items: {type: number}
+      minItems: 4
+      maxItems: 4
+      description: "Goal quaternion [x,y,z,w] in the target device frame."
+  required: [observation, device]
+timeout_s: 60
+devices: []
+device_inputs:
+  device:
+    types: [joint]

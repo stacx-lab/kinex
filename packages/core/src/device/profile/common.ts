@@ -36,13 +36,8 @@ export const OtherConnection = z.discriminatedUnion("kind", [Tcp, Url, Serial, S
   z.strictObject({ kind: z.literal("process") }),
 ])
 
-// Every write is a SEGMENT: the device pursues the target and reports how much
-// of its own clock it spent. `for_s` bounds that; `arrive` is the arrival spec
-// the device judges itself against. Core checks the shape, the driver the detail.
-export const segmentFields = {
-  for_s: z.number().positive(),
-  arrive: z.record(z.string(), z.unknown()).optional(),
-}
+// Scalar and velocity writes hold a command for a bounded device-time duration.
+export const segmentFields = { for_s: z.number().positive() }
 
 export const lifecycle = ["load", "unload", "status"] as const
 export const observationActions = ["read", ...lifecycle] as const

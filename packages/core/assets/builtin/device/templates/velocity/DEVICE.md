@@ -6,25 +6,19 @@ description: velocity control and observation contract.
 
 ## Use
 
-Every write requires a positive `for_s` in the device's own clock. The driver
-returns `accepted`, `elapsed_s`, boolean `reached`, and the resulting `state`.
-SDK hooks must return that report; acknowledgment alone is insufficient. Joint
-arrival may end a segment early when `arrive` is supplied. Call `stop` explicitly
-to halt a standing goal; the segment budget bounds the call, not goal lifetime.
-
-
-write {mode,velocity?,posture?,for_s} uses exactly the axes, units and frames declared for that controller preset. vx/vy/vz are linear velocity, wx/wy/wz angular velocity; yaw is a posture angle and height is metres. Unsupported axes fail before motion. `drive` commands this type for a timed hold, optionally ending on an `until` predicate. Reads report measured root pose, velocities, faults, acquisition time and named frame_poses. Stop can hold, stand or halt according to the profile.
+`write({mode, velocity?, posture?, for_s})` holds a preset command for positive
+`for_s` device seconds and returns `accepted`, `elapsed_s`, `reached` and `state`.
+Axes, units and frames come from `control.modes`. Use `drive` for a timed hold
+with automatic final stop. Raw write completion does not clear a standing command.
+Reads return measured pose, velocities, faults, time and named `frame_poses`.
 
 ## Setup
 
-Load initializes the connection and any owned control/streaming service, waiting
-for readiness; status only observes. Unload stops active work according to the
-profile and releases every owned resource, even if a cleanup stage fails. Follow
-setup-device for service ownership, partial-startup rollback and exit cleanup.
+Follow setup-device for registration and lifecycle ownership. Load waits for
+readiness; status only observes; unload stops motion and releases owned resources.
+Use `???` for unresolved facts and `null` only where the schema permits it.
 
-Use setup-device for registration and driver lifecycle. Fill the starter with known facts; `???` marks unresolved values and `null` has the field’s declared meaning.
-
-control contains mode:motion, body_frame and modes. Each preset has nullable velocity {frame:body|heading,components:[{axis,units,bounds}]} and posture {reference,components:[{axis,units,bounds,default}]}. Whether physics advances on a background clock or inside your write is your driver's business: set Driver.background_clock and serve it, or advance physics inside send_target. Either way a write runs the goal for the caller's for_s and reports the device time it spent, so a command needs no separate expiry. feedback declares pose_frame (null if unlocalized), velocity_frame, velocity_components and clock. Root placement comes from measured feedback, never a fixed mount.
+control contains mode:motion, body_frame and modes. Each preset has nullable velocity {frame:body|heading,components:[{axis,units,bounds}]} and posture {reference,components:[{axis,units,bounds,default}]}. send_target executes for for_s on the device clock and reports measured elapsed_s and state. feedback declares pose_frame (null if unlocalized), velocity_frame, velocity_components and clock. Root placement comes from measured feedback, never a fixed mount.
 
 ### Profile
 

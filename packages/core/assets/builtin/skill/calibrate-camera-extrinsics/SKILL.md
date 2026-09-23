@@ -13,8 +13,7 @@ frame; the procedure runs on the color stream). One pure-numpy Tsai–Lenz solve
   offset need not be measured; the solver absorbs it) → T_base_camera.
 
 Choose the variant from the recorded mount; ask only if the physical arrangement is unclear.
-Use a supported low-speed setting for the loop (speedFraction ≤ 0.15 only when
-intrinsics.control.speed is configured). Anyone steadying the board keeps hands clear. Scratch: `.kinex/calib/calibrate-camera-extrinsics/`.
+Use move_to with speedFraction ≤ 0.15 for the loop. Anyone steadying the board keeps hands clear. Scratch: `.kinex/calib/calibrate-camera-extrinsics/`.
 
 Run scripts with the prepared Python and `PYTHONPATH=<kinex-root>/python`.
 Scratch paths are workspace-relative; pass absolute evidence paths to scripts.

@@ -2,7 +2,7 @@
 
 import math
 
-from kinex.validation import SEGMENT, number, segment, vector
+from kinex.validation import number, segment, vector
 
 AXES = ("vx", "vy", "vz", "wx", "wy", "wz")
 POSTURE_AXES = ("height", "roll", "pitch", "yaw")
@@ -18,7 +18,7 @@ def command(profile, args):
     control = intrinsics(profile)["control"]
     if not isinstance(control, dict) or control.get("mode") != "motion":
         raise ValueError("Base control is unresolved")
-    if not isinstance(args, dict) or set(args) - {"mode", "velocity", "posture", *SEGMENT}:
+    if not isinstance(args, dict) or set(args) - {"mode", "velocity", "posture", "for_s"}:
         raise ValueError("Expected mode with velocity and/or posture")
     name = args.get("mode")
     if not isinstance(name, str) or name not in control["modes"]:

@@ -24,13 +24,13 @@ To install independent packaged artifacts instead, build the repository and run
 
 ```sh
 npm install --prefix /path/to/kinex-plugins \
-  /tmp/kinex-release/kinex-core-0.6.0.tgz \
-  /tmp/kinex-release/kinex-opencode-0.6.0.tgz
+  /tmp/kinex-release/kinex-core-0.8.0.tgz \
+  /tmp/kinex-release/kinex-opencode-0.8.0.tgz
 opencode plugin file:///path/to/kinex-plugins/node_modules/@kinex/opencode
 ```
 
 This does not require standalone Kinex or an adjacent core checkout. After npm
-publication, use `opencode plugin @kinex/opencode@0.6.0`.
+publication, use `opencode plugin @kinex/opencode@0.8.0`.
 
 For manual configuration, use `file:///.../dist/server.js` in the `plugin` array
 of `opencode.json` and `file:///.../dist/tui.js` in `.opencode/tui.json`. Choose one

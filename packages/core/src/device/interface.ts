@@ -1,5 +1,5 @@
 import { lifecycle, streamActions } from "./profile/common.ts"
-import { isModel, isActuated, type Device } from "./profile/schema.ts"
+import { isModel, isActuated, known, type Device } from "./profile/schema.ts"
 
 // Required driver actions gate access readiness in calib_plan. Hardware and
 // simulators use this same contract; only the in-memory mock bypasses drivers.

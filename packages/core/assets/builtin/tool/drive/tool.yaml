@@ -1,17 +1,13 @@
 name: drive
 kind: controller
-description: Hold a velocity/posture command for duration_s of the device clock. Omitted velocity
-  axes are zero; omitted posture axes use preset defaults. Commands must match the preset axes, units
-  and bounds. Optional until checks a perception predicate before motion and between bounded writes.
-  Stops on completion, predicate, fault or error. Returns reached (duration completed), terminated_by,
-  elapsed_s and final state. No displacement control, navigation or balance guarantee.
+description: "Hold a velocity/posture command for duration_s. An until predicate can end it early. Always stops on exit; reached means the duration completed."
 parameters:
   type: object
   additionalProperties: false
   properties:
     device:
       type: string
-      description: velocity-controlled device name
+      description: "Device name."
     mode:
       type: string
       description: controller preset name declared in control.modes
@@ -19,25 +15,21 @@ parameters:
       type: object
       additionalProperties:
         type: number
-      description: axis values for the preset's declared velocity components, e.g. {vx, vy, wz};
-        omitted axes are commanded at zero
+      description: "Preset velocity axes; omitted axes are zero."
     posture:
       type: object
       additionalProperties:
         type: number
-      description: axis values for the preset's declared posture components, e.g. {height, pitch};
-        omitted axes keep their declared default
+      description: "Preset posture axes; omitted axes use declared defaults."
     duration_s:
       type: number
       exclusiveMinimum: 0
-      description: how long to hold the commanded velocity/posture, in seconds of the device's own
-        clock
+      description: "Hold duration in device-clock seconds."
       maximum: 300
     until:
       type: object
       additionalProperties: false
-      description: optional extra termination predicate - a PERCEPTION tool whose truthy key stops
-        the loop
+      description: "Perception predicate checked before motion and at checkpoints; a truthy key stops."
       properties:
         tool:
           type: string

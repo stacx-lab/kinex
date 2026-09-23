@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Complete the SDK hooks; the shared driver owns validation and the watchdog."""
+"""Complete the SDK hooks; the shared driver owns validation and lifecycle."""
 from pathlib import Path
 from kinex.velocity_driver import Driver
 

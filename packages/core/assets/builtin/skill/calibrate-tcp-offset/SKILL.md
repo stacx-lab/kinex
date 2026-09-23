@@ -47,8 +47,7 @@ interactive because only the user can report "touching". Per sample:
    (≥ 20° from every kept sample — aim higher). Free-drive: hand-guided. Otherwise: retract
    10 cm, use `move_to` pose goals in `<arm>` for the new orientation, then
    approach in user-confirmed ~5 mm steps until "touching". Direct writes accept joint
-   targets only. Use speedFraction only when intrinsics.control.speed supports it;
-   otherwise establish an appropriate motion rate through the driver before contact work.
+   reference sequences only. Use move_to planning rates and speedFraction to slow contact approaches.
 2. `calib_sample deviceID=<arm> routine=calibrate-tcp-offset settle={...}
    note="touch N, <orientation description>"`.
 3. **Validate as you go**: check the new quaternion's angular distance to every kept sample

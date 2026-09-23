@@ -47,7 +47,7 @@ export async function createCodexAdapter(options: CodexOptions) {
     const translate = (text: string) => text.replace(/(?<![\w/.-])\/(devices|load|unload|reload|ping|stop|unregister|record|onboarding|register|calibrate)(?![\w/-])/g,
       (_, name: string) => `kinex-codex control --directory ${quotedDirectory} ${name}`)
     const initial = await capabilities.context()
-    const server = new Server({ name: "kinex", version: "0.6.0" }, {
+    const server = new Server({ name: "kinex", version: "0.8.0" }, {
       capabilities: { tools: {} }, instructions: `${prose}\n\n${translate(initial.instructions)}`,
     })
     let previous: Record<string, string> = {}

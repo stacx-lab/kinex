@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Execute one inference worth of policy actions."""
 
-from math import isclose
-
-from kinex import args, device, finish, profile
-from kinex.control import execute, read, stop_all, stop_on_error
+from kinex import args, device, finish, profile, devices
+from kinex.control import stop_all, stop_on_error
 from kinex.joint_control import command as joint_command, joint_model
 from kinex.scalar_control import command as scalar_command
 from kinex.validation import vector
@@ -41,18 +39,6 @@ def share(action, plan):
     return shares
 
 
-def commands(shares, plan, budget):
-    built = {}
-    for entry in plan:
-        payload = {"target": shares[entry["name"]], "for_s": budget}
-        if entry["model"] is None:
-            scalar_command(entry["profile"], payload)
-        else:
-            joint_command(entry["profile"], payload, entry["model"])
-        built[entry["name"]] = payload
-    return built
-
-
 def control(a):
     model = a["model"]
     policy = profile(model)
@@ -77,46 +63,39 @@ def control(a):
     if a.get("max_actions") is not None:
         actions = actions[:a["max_actions"]]
 
-    hold, budget = 1.0 / a.get("action_hz", 10), a.get("timeout_s", 30)
-    elapsed, executed, reason = 0.0, 0, None
-    faulted = []
+    frequency, budget = a.get("action_hz", 10), a.get("timeout_s", 30)
+    split = [share(action, plan) for action in actions]
+    sequences = {entry["name"]: [action[entry["name"]] for action in split] for entry in plan}
+    # Validate the entire chunk before admitting its first action.
+    for entry in plan:
+        if entry["model"] is not None:
+            joint_command(entry["profile"], {"actions": sequences[entry["name"]], "freq_hz": frequency}, entry["model"])
+        else:
+            for target in sequences[entry["name"]]:
+                scalar_command(entry["profile"], {"target": target, "for_s": 1 / frequency})
     with stop_on_error(names):
-        for action in actions:
-            command = commands(share(action, plan), plan, min(hold, budget - elapsed))
-            held = 0.0
-            # Hold each action for its full period: a device that advances inside
-            # the write needs several, one that runs the command out needs one.
-            while reason is None:
-                remaining = min(hold - held, budget - elapsed)
-                outcome = execute(lead["name"], command, remaining)
-                spent = outcome["elapsed_s"]
-                held, elapsed = held + spent, elapsed + spent
-                faulted = outcome["faulted_devices"]
-                if faulted:
-                    reason = "fault"
-                elif elapsed >= budget or isclose(elapsed, budget):
-                    reason = "timeout"
-                elif spent <= 0:
-                    reason = "stalled"
-                elif held >= hold or isclose(held, hold):
-                    break
-            executed += 1
-            if reason is not None:
-                break
-    reason = reason or ("done" if inference.get("done") else "chunk_complete")
-    continuing = reason == "timeout" and a.get("on_timeout", "stop") == "continue"
-    if not continuing:
-        stop_all(names)
-    with stop_on_error(names if continuing else []):
-        final = read(lead["name"])
-    if final["faults"]:
-        reason = "fault"
-        faulted = list(dict.fromkeys([*faulted, lead["name"]]))
-        if continuing:
+        results = devices([{"device": name, "action": "write", "args": {
+            "actions": sequences[name], "freq_hz": frequency, "for_s": budget}} for name in names])
+        for result in results:
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error", "policy write failed"))
+        outcomes = {name: result["data"] for name, result in zip(names, results)}
+        states = {name: outcome["state"] for name, outcome in outcomes.items()}
+        completed = min(outcome["completed_actions"] for outcome in outcomes.values())
+        reason = "timeout" if completed < len(actions) else "done" if inference.get("done") else "chunk_complete"
+        faulted = [name for name, state in states.items() if state["faults"]]
+        if faulted:
+            raise RuntimeError(f"fault: {', '.join(faulted)}")
+        stalled = [name for name, outcome in outcomes.items()
+                   if outcome["elapsed_s"] <= 0 and outcome.get("terminated_by") != "timeout"]
+        if stalled:
+            raise RuntimeError(f"stalled: {', '.join(stalled)}")
+        if reason == "timeout":
             stop_all(names)
-    return {"reached": reason == "done", "terminated_by": reason,
-            "actions_executed": executed, "actions_offered": len(actions),
-            "elapsed_s": elapsed, "state": final, "faulted_devices": faulted}
+        return {"reached": reason == "done", "terminated_by": reason,
+                "actions_executed": completed, "actions_offered": len(actions),
+                "elapsed_s": max(outcome["elapsed_s"] for outcome in outcomes.values()),
+                "state": states[lead["name"]], "states": states}
 
 
 if __name__ == "__main__":

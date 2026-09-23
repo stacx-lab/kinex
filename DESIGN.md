@@ -30,7 +30,8 @@ contract; extraction and a shared default composition module remain deferred.
   discovery must not create a nearer workspace and change that precedence.
 - **Devices and control.** Types describe interfaces; profiles separate access,
   intrinsics and extrinsics. Drivers alone own SDK connections, units and cleanup;
-  dispatch validates capabilities, serializes writes per device and observes traffic.
+  dispatch preflights commands once before admission and observes traffic; drivers
+  validate again at the device boundary. A per-device scheduler replaces prior motion.
   Reads run alongside writes; independent devices write concurrently. Stop
   interrupts affected commands and clears their queued writes. Lifecycle
   transitions fence resource users before releasing connections.
@@ -40,14 +41,25 @@ contract; extraction and a shared default composition module remain deferred.
   readiness; ordinary calls never restart failed services. Stop bypasses approval.
   Unload attempts capture shutdown, stop and resource release; borrowed services
   are not terminated. Joint goals are absolute, ordered, in radians/metres;
-  a write both sets a goal and executes it for the caller's required positive `for_s`, reporting
-  `elapsed_s` in the device's own clock, whether it `reached` the caller's arrival
-  spec, and the resulting state. That clock is the only time reference a
-  controller reads, so the same call covers the same motion whether a background
-  clock advances the world or the write itself does. Nothing about timing is
-  declared: no control period, and no command expiry, because the caller's budget
-  is the bound. Reads never advance it.
-  Uncertain writes are not retried automatically. Batch calls are not atomic.
+  `write` streams complete `actions` at `freq_hz`, without planning or arrival waits.
+  Any positive frequency is accepted; device executors map the chunk onto their
+  local clocks. Profiles expose no native period. Results contain
+  `completed_actions` (consumed input points, including resampled points),
+  actual `elapsed_s` and `state`.
+  Upper-layer tools stop, establish measured rest, plan and submit waypoint buffers.
+  Optional write `for_s` bounds execution. Trajectory planning uses available joint
+  velocity and acceleration limits to cap configurable tool rates.
+  Arrival uses wrapped joint errors, measured quiet velocity and a stable device-time
+  interval. Timeout, cancellation and faults stop the owned motion. Completed raw
+  sequences hold measured state in stepped execution; realtime devices retain their
+  last reference.
+  A new valid command replaces prior motion on its resource. Cleanup can stop only
+  its own motion; explicit user stop remains unconditional. Validation precedes
+  replacement. Concurrent writes use independent device lanes; the simulator
+  owns their shared world clock. Starts and effects across devices are not atomic.
+  Reads never advance the device clock. RPC frequency is independent of servo
+  frequency: devices execute buffers locally; tools check arrival at chunk boundaries.
+  Uncertain writes are not retried automatically. Generic batch calls are not atomic.
 - **Frames and calibration.** Frames form a forest; world is optional and missing
   relationships are not identity transforms. `relative_pose` composes declared,
   live and call-local estimated edges, preferring fewer estimates; samples are
@@ -58,15 +70,24 @@ contract; extraction and a shared default composition module remain deferred.
 - **Tools, skills and Python.** Tools declare schemas, capabilities and timeouts;
   composed calls retain permissions and recording attribution. Skills supply
   procedures. Detection/segmentation feed perception; depth localization respects
-  masks and reports camera-relative measurements. Controllers hand devices bounded goals. `move_to` pursues a fixed joint or
+  masks and reports camera-relative measurements. Controllers hand devices bounded
+  commands. `move_to` pursues a fixed joint or
   pose goal; `drive` holds velocity/posture for a duration. Optional `until`
-  predicates split writes at check deadlines. `track` alternates point perception
-  with `move_to` only, clips each move to its remaining motion budget, stops on
-  perception misses and owns the final stop. `run_policy` executes one standalone
-  policy chunk and stops the whole group on any device fault. Only an explicit
-  `on_timeout: continue` leaves motion active after budget exhaustion; other exits
-  stop, and `drive`/`track` always stop on final exit. Execution mode is never
-  agent-visible. Controllers provide no general path planning.
+  predicates split writes at check deadlines. `track` composes `perceive` → `process`
+  → `control`; processing maps observations to controller arguments or a miss.
+  Controllers own their time bounds; track treats results as opaque and ends on
+  its predicate or round/miss limits. Misses and final exit stop owned motion.
+  `point_to_pose` converts located points into explicit pose goals. Controller
+  faults, stalls and disturbed arrival raise errors after stopping. `run_policy` executes one standalone
+  policy chunk using concurrent buffered writes. Normal completion follows
+  each device’s execution mode; timeout and faults stop the commanded devices.
+  `drive` and `track` always stop on final exit. Execution mode belongs to the
+  deployment, never to controller arguments. `move_to` generates synchronized
+  quintic joint trajectories, submits bounded
+  writes and checks arrival at chunk boundaries using 10 Hz holds. Tool defaults
+  are 1 rad/s and 3 rad/s² for rotary joints, 0.1 m/s and 0.3 m/s² for linear joints,
+  capped by known limits. These are planning policy, not inferred hardware ratings.
+  It does not promise collision-free path planning.
   Core lazily prepares `.kinex/python` with uv; explicit interpreters own their
   dependencies. Ordinary host shells retain their Python environment.
 - **Recording.** Manual capture is available; model access is opt-in. Native capture

@@ -1,48 +1,20 @@
-# Architecture
+# Robotics
 
-DEVICES → TOOLS → SKILLS.
-- Devices are named control or observation endpoints. Types describe interfaces:
-  joint, velocity, gripper, dexterous_hand, suction, rgb, rgbd, imu, force_torque,
-  model, world, other. Morphology describes the assembly, not the device type.
-- Each device has a profile under .kinex/devices/<name>/. Drivers implement read,
-  load/unload/status; actuators add write/stop, joint devices optionally add ik/fk,
-  and models expose declared inference actions. World is profile-only.
-- The device tool calls one driver. Python tools use kinex.device() or
-  kinex.devices(commands) for mixed concurrent reads/writes. Results preserve input
-  order and individual failures; concurrent calls do not imply one atomic step.
-- Perception tools read and compute. Controller tools may command devices and run
-  feedback loops. Prefer a reusable controller over manually stepping device writes.
-  Tool manifests declare accepted device types; the harness checks selected devices
-  and required loaded types, including composed calls.
-- Skills guide procedures that need the agent's judgment. See <available_skills>.
+Devices expose hardware or simulator interfaces; profiles define their facts and
+capabilities. Only drivers access SDKs/services directly. Use the device tool or
+Kinex device APIs for lifecycle, readings and commands.
 
-# Device use
+Perception tools read and compute; controller tools command devices and run feedback
+loops. Prefer move_to, drive, track or run_policy over manual control loops. Skills
+supply procedures that require judgment. Load setup-device when adding or repairing
+a device; use /onboarding when no robot is configured.
 
-Read the actual profile for device parameters and operation schemas. Follow the
-injected <device_conventions>; load setup-device only when adding or repairing a
-device. Profiles hold access, intrinsics and extrinsics as applicable. Use calib_write
-to persist facts and queue unknown calibration; /calibrate resolves those requests.
+Follow the profiles' units, limits and declared safety constraints. Read state before
+motion, use small/slow motions when uncertain, and record missing facts as calibration
+requests through calib_write. /calibrate resolves those requests. Command acceptance
+or arrival does not establish task success.
 
-The user controls loaded state through /load and /unload. Never read or command an
-UNLOADED device. After changing a persistent driver or its cached configuration,
-request /reload so it picks up the change. A persistent:false adapter starts fresh
-for each call. /unregister removes the device.
-
-Simulation uses the same profiles, drivers and dispatch as hardware. Report actual
-readings and outcomes. Command acceptance does not establish arrival or task success.
-The operator selects non-overlapping control endpoints; do not assume automatic
-controller switching or coordination.
-
-# Motion and interaction
-
-- Read state before commanding motion and follow the device's units and limits.
-  Respect manifest safety caps and keep-out zones. Prefer small, slow motions when
-  uncertain; do not invent missing hardware facts. Record unknown facts as
-  needs-calibration items; device constraints still apply when interviews are disabled.
-- Commands use the harness permission flow. Announce intent and let the tool request
-  approval; do not duplicate that request with the host question interface.
-- On faults, unexpected contact or lost feedback, use device_stop first, then
-  diagnose. With no deviceID it stops all loaded actuators without a permission prompt.
-- Ask questions only for missing facts, choices or physical feedback. Batch related
-  questions and offer "I don't know" for facts the user may not have.
-- When no robot is configured, use /onboarding.
+On faults, unexpected contact or lost feedback, call device_stop before diagnosing.
+Use the tool permission flow; do not duplicate its approval request through questions.
+Ask only for missing facts, choices or physical feedback, and keep unknown facts
+unknown when the user cannot supply them.

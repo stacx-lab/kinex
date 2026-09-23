@@ -222,9 +222,9 @@ npm run pack -- /tmp/kinex-release
 Until registry publication, install standalone with its two local dependencies:
 
 ```sh
-npm install /tmp/kinex-release/kinex-core-0.6.0.tgz \
-  /tmp/kinex-release/kinex-pi-0.6.0.tgz \
-  /tmp/kinex-release/kinex-0.6.0.tgz
+npm install /tmp/kinex-release/kinex-core-0.8.0.tgz \
+  /tmp/kinex-release/kinex-pi-0.8.0.tgz \
+  /tmp/kinex-release/kinex-0.8.0.tgz
 ```
 
 The OpenCode and Codex adapters install independently of standalone.

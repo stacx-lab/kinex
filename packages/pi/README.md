@@ -11,8 +11,8 @@ Install core and the Pi adapter together in an external directory:
 
 ```sh
 npm install --prefix /path/to/kinex-plugins \
-  /tmp/kinex-release/kinex-core-0.6.0.tgz \
-  /tmp/kinex-release/kinex-pi-0.6.0.tgz
+  /tmp/kinex-release/kinex-core-0.8.0.tgz \
+  /tmp/kinex-release/kinex-pi-0.8.0.tgz
 pi install /path/to/kinex-plugins/node_modules/@kinex/pi
 ```
 

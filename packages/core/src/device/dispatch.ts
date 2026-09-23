@@ -1,6 +1,8 @@
+import { claimMotion, ownsMotion, ownedMotions } from "./ownership.ts"
+import { isCommandAction } from "./interface.ts"
 import { scheduleDevice, type CommandAdmission } from "./scheduler.ts"
 import { scoped } from "../scope.ts"
-import { jointReading } from "./joint.ts"
+import { jointReading, jointResult } from "./joint.ts"
 import { spatialReading } from "./spatial.ts"
 import { velocityReading } from "./velocity.ts"
 import { writeCommand } from "./command.ts"
@@ -10,7 +12,7 @@ import { modelOperation, modelInput, modelOutput } from "./model.ts"
 import { forceTorqueReading } from "./force-torque.ts"
 import path from "node:path"
 import { CalibrationStore } from "../calibration/store.ts"
-import { known, type Device } from "./profile/schema.ts"
+import { known, isJoint, type Device } from "./profile/schema.ts"
 import { runDriver, isServing, stopServing, interruptServing, type DeviceReading } from "./driver.ts"
 import { mockAct } from "./virtual.ts"
 import { notifyDevice, notifyDeactivation } from "./observe.ts"
@@ -66,28 +68,39 @@ export async function dispatchDevice(
 function dispatchInWorkspace(workspace: string, device: Device, action: string, args: Record<string, unknown>, origin?: string, signal?: AbortSignal): Promise<DeviceReading> {
   const key = path.join(workspace, "devices", device.name)
   signal?.throwIfAborted()
+  // Preflight before replacement; the driver independently validates at its boundary.
+  const operation = modelOperation(device, action)
+  args = modelInput(operation, args)
+  if (action === "write") args = writeCommand(device, args)
+  if (action === "stop" && origin && !ownsMotion(key, origin))
+    return Promise.resolve({ deviceID: device.name, kind: device.type, data: { stopped: false, terminated_by: "replaced" } })
+  if (isCommandAction(device, action) && !["load", "unload", "stop"].includes(action))
+    claimMotion(key, origin)
   if (action === "load") inactive().add(key)
   const wall = Date.now()
-  const request = { args }
   const run = async (admission: CommandAdmission) => {
     signal?.throwIfAborted()
     if (["load", "unload", "status"].includes(action) && Object.keys(args).length)
       throw new NamedError("DeviceLifecycleError", `${action} accepts no arguments`)
     if (!["load", "unload", "status", "stop", "record_stop"].includes(action) && (!device.loaded || inactive().has(key)))
       throw new NamedError("DeviceInactiveError", `device "${device.name}" is inactive; load it before ${action}`)
-    const operation = modelOperation(device, action)
-    request.args = modelInput(operation, args)
-    if (action === "write")
-      request.args = writeCommand(device, request.args)
     const interruptions = action === "stop" ? Promise.allSettled(
       affected.filter(name => name !== key).map(name => interruptServing(workspace, path.basename(name))),
     ) : Promise.resolve([])
-    const reading = await route(workspace, device, action, request.args, signal, admission).finally(async () => {
+    const reading = await route(workspace, device, action, args, signal, admission).finally(async () => {
       if (action === "unload") await stopServing(workspace, device.name)
     })
     const failures = (await interruptions).filter(result => result.status === "rejected")
     if (failures.length) throw new NamedError("DeviceStopError", "stop applied but an affected driver could not acknowledge interruption")
     if (action === "load") inactive().delete(key)
+    if (isJoint(device) && action === "write") {
+      try {
+        return jointResult(device, args, reading)
+      } catch (error) {
+        await route(workspace, device, "stop", {})
+        throw error
+      }
+    }
     return action === "read" ? validateReading(device, reading) : modelOutput(operation, reading)
   }
   const stop = "stop" in device.intrinsics ? device.intrinsics.stop : undefined
@@ -96,12 +109,12 @@ function dispatchInWorkspace(workspace: string, device: Device, action: string, 
   return abortable(settle, signal)
     .then(
       (reading) => {
-        notifyDevice({ workspace, device, action, args: request.args, origin, reading, wall, latencyMs: Date.now() - wall })
+        notifyDevice({ workspace, device, action, args: args, origin, reading, wall, latencyMs: Date.now() - wall })
         return reading
       },
       (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
-        notifyDevice({ workspace, device, action, args: request.args, origin, error: message, wall, latencyMs: Date.now() - wall })
+        notifyDevice({ workspace, device, action, args: args, origin, error: message, wall, latencyMs: Date.now() - wall })
         throw error
       },
     )
@@ -144,4 +157,14 @@ export async function deactivateDevice(cwd: string, device: Device): Promise<voi
   await dispatchInWorkspace(workspace, device, "unload", {})
     .catch((error: unknown) => errors.push(error))
   if (errors.length) throw new NamedError("DeviceUnloadError", `unload failed for ${device.name}: ${errors.map(String).join("; ")}`, { errors: errors.map(String) })
+}
+
+export async function stopOwnedMotions(cwd: string, owner: string): Promise<void> {
+  const workspace = await CalibrationStore.workspaceDir(cwd)
+  const results = await Promise.allSettled(ownedMotions(owner).filter(key => path.dirname(key) === path.join(workspace, "devices")).map(async key => {
+    const device = await CalibrationStore.readDevice(cwd, path.basename(key))
+    if (device?.loaded) await dispatchDevice(cwd, device, "stop", {}, owner)
+  }))
+  const failures = results.filter(result => result.status === "rejected")
+  if (failures.length) throw new AggregateError(failures.map(result => result.reason), "owned motion stop failed")
 }

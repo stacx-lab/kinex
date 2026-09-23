@@ -28,32 +28,19 @@ export interface CommandAdmission {
 export function scheduleDevice<T>(key: string, action: string, run: (admission: CommandAdmission) => Promise<T>, affected = [key]): Promise<T> {
   const state = lane(key)
   const mutation = !["read", "status", "fk", "ik", "record_start", "record_stop", "load", "unload", "stop"].includes(action)
-  const command = mutation ? new AbortController() : undefined
-  if (command) state.commands.add(command)
+  if (mutation) return scheduleWrite(state, run)
   let before = state.barrier
-  if (mutation) before = Promise.all([before, state.writer])
   if (action.startsWith("record_")) before = Promise.all([before, state.capture])
   if (action === "load" || action === "unload") before = Promise.allSettled([...state.active])
   const stopped = action === "stop" ? affected.map(lane) : []
   for (const peer of stopped)
     for (const pending of peer.commands)
       pending.abort(new NamedError("DeviceInterruptedError", "device command was interrupted by stop"))
-  const check = () => {
-    command?.signal.throwIfAborted()
-    if (mutation && state.fault) throw new NamedError("DeviceStopError", `device stop failed: ${String(state.fault)}; reload before commanding it`)
-  }
-  const result = before.then(async () => {
-    check()
-    const value = await run({ check, interrupted: command?.signal })
-    check()
-    return value
-  })
+  const result = before.then(() => run({ check() {} }))
   state.active.add(result)
   void result.finally(() => {
     state.active.delete(result)
-    if (command) state.commands.delete(command)
   }).catch(() => {})
-  if (mutation) state.writer = settled(result)
   if (action.startsWith("record_")) state.capture = settled(result)
   if (action === "load" || action === "unload") {
     state.barrier = settled(result)
@@ -65,5 +52,33 @@ export function scheduleDevice<T>(key: string, action: string, run: (admission: 
       void result.catch(error => { peer.fault = error })
     }
   }
+  return result
+}
+
+// A new write replaces the previous command on this device.
+function scheduleWrite<T>(state: Lane, run: (admission: CommandAdmission) => Promise<T>): Promise<T> {
+  const command = new AbortController()
+  for (const pending of state.commands)
+    pending.abort(new NamedError("DeviceReplacedError", "device command was replaced"))
+  state.commands.add(command)
+  const check = () => {
+    command.signal.throwIfAborted()
+    if (state.fault) throw new NamedError("DeviceStopError", "device stop failed; reload before commanding it")
+  }
+  const result = Promise.all([state.barrier, state.writer]).then(async () => {
+    check()
+    const value = await run({ check, interrupted: command.signal })
+    check()
+    return value
+  }).catch((error: unknown) => {
+    if (error instanceof NamedError && error.data.code === "stop_failed") state.fault = error
+    throw error
+  })
+  state.writer = settled(result)
+  state.active.add(result)
+  void result.finally(() => {
+    state.active.delete(result)
+    state.commands.delete(command)
+  }).catch(() => {})
   return result
 }

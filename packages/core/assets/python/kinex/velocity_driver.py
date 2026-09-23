@@ -13,12 +13,6 @@ from kinex.validation import settings, segment_result
 
 
 class Driver:
-    # True when the world advances on a clock of its own, which must therefore be
-    # served so something ticks while the agent thinks. False when this driver's
-    # own write advances physics. Kinex never needs to know which; only a driver
-    # does, which is why the profile no longer declares it.
-    background_clock = True
-
     def __init__(self, directory):
         self.profile = settings(directory)
         self.handle = None
@@ -78,8 +72,6 @@ class Driver:
             return reading(self.profile, self.read_state(self.connection()))
         if action == "write":
             value = command(self.profile, args)
-            if self.background_clock and not self.serving:
-                raise ValueError("A background control clock requires --serve")
             handle = self.connection()
             self.target = value
             result = segment_result(self.send_target(handle, value))

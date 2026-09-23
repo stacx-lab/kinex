@@ -73,9 +73,9 @@ def devices(commands):
     """Run device calls concurrently and return results in input order.
 
     Entries are {device, action?, args?}; action defaults to read. Reads and writes
-    may be mixed. Each result reports its own success or failure. Writes to one
-    device are ordered; reads bypass writes and independent devices write concurrently. This does not
-    promise simultaneous sampling or atomic effects in a shared simulator.
+    may be mixed. Each result reports its own success or failure. A new write
+    replaces prior motion on that device; reads bypass writes. Calls do not
+    promise simultaneous sampling or atomic effects across devices.
     """
     return _rpc({"call": "devices", "commands": commands})["results"]
 
@@ -83,6 +83,11 @@ def devices(commands):
 def call(tool, **kwargs):
     """Compose another python tool; returns its result object."""
     return _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
+
+
+def stop_owned():
+    """Stop motion owned by this invocation and its composed tools (controllers only)."""
+    _rpc({"call": "stop_owned"})
 
 
 def profile(device, *, optional=False):

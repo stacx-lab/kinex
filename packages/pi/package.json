@@ -1,6 +1,6 @@
 {
   "name": "@kinex/pi",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Kinex integration for pi",
   "type": "module",
   "files": [
@@ -21,7 +21,7 @@
     }
   },
   "dependencies": {
-    "@kinex/core": "0.6.0"
+    "@kinex/core": "0.8.0"
   },
   "pi": {
     "extensions": [

@@ -84,7 +84,7 @@ function parsePayload(deviceName: string, line: string | undefined): Record<stri
 function toReading(device: Device, payload: Record<string, unknown>, stderr: string, interpreter: string): DeviceReading {
   if (payload["ok"] === false)
     throw new DriverError(pythonDiagnostic(`driver for "${device.name}" failed: ${String(payload["error"] ?? "no error message")}`, interpreter), {
-      stderr: stderr.trim(),
+      stderr: stderr.trim(), code: payload["code"], details: payload["details"],
     })
   const { ok: _ok, file: filePath, ...data } = payload
   if (isModel(device) && filePath !== undefined && typeof filePath !== "string")
@@ -212,6 +212,9 @@ async function runServe(
   entry.pending.set(id, response)
   const abort = () => failServing(entry, signal?.reason ?? new DriverError("driver request aborted"))
   signal?.addEventListener("abort", abort, { once: true })
+  const interrupt = () => { void interruptServing(cwd, device.name).catch(error => failServing(entry, error)) }
+  admission?.interrupted?.addEventListener("abort", interrupt, { once: true })
+  if (admission?.interrupted?.aborted) interrupt()
   const timer = setTimeout(() => failServing(entry, new DriverError("persistent driver timed out")), timeoutMs(device))
   const payload = await (async () => {
     if (signal?.aborted) abort()
@@ -228,6 +231,7 @@ async function runServe(
     throw new DriverError(pythonDiagnostic(`driver for "${device.name}" failed: ${String(error)}\n${entry.stderr.tail.trim()}`, entry.interpreter), { stderr: entry.stderr.tail.trim() })
   }).finally(() => {
     clearTimeout(timer)
+    admission?.interrupted?.removeEventListener("abort", interrupt)
     signal?.removeEventListener("abort", abort)
   })
   try {

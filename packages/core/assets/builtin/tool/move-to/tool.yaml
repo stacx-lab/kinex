@@ -1,26 +1,13 @@
 name: move_to
 kind: controller
-description: >-
-  Move one joint-controlled device to a fixed goal, agent-free. Give exactly one
-  goal: joints in resolved model order, a pose of kinematics.frame, or an observation
-  from a perception tool whose point becomes the goal; supply frame to convert from
-  another declared frame first. Poses go to the
-  device's IK driver, which validates its solution with FK. The device pursues the
-  goal itself and reports how much of its own clock it spent, so timeout_s covers
-  the same amount of motion on every robot. This is an open-loop move: the goal is
-  fixed for the whole call. Use track to re-plan against perception while moving.
-  on_timeout decides what happens when the budget runs out before arrival - stop
-  holds the device where it is, continue leaves it pursuing the goal. Returns
-  reached, terminated_by, elapsed_s, final state, joint error and quiet_verified
-  (whether final quietness could be independently checked). No Cartesian
-  arrival, path planning, collision avoidance, balance or velocity-cap guarantee.
+description: "Move to one fixed joint or pose goal and verify quiet arrival. Plans a joint trajectory and submits buffered writes; no collision avoidance. Timeout stops motion. Use track to update the goal from perception."
 parameters:
   type: object
   additionalProperties: false
   properties: &fields
     device:
       type: string
-      description: joint-controlled device name
+      description: "Device name."
     joints:
       type: array
       items: {type: number}
@@ -33,27 +20,22 @@ parameters:
       description: pose [x,y,z,qx,qy,qz,qw] of kinematics.frame, in the device canonical frame unless frame is given; requires declared IK
     frame:
       type: string
-      description: frame the pose or observation point is expressed in, as device or device:frame; defaults to the frame the observation names. Converted to the device canonical frame before solving
-    observation:
-      type: object
-      description: a perception result carrying a point, as track passes it; the point becomes the goal. The move is still open loop - the goal is fixed for this call
-    offset_m:
-      type: array
-      minItems: 3
-      maxItems: 3
-      items: {type: number}
-      description: standoff added to an observation's point, in the device's canonical frame
-    orientation:
-      type: array
-      minItems: 4
-      maxItems: 4
-      items: {type: number}
-      description: goal rotation xyzw for an observation goal; defaults to the orientation the device already holds
+      description: "Pose source frame: device or device:frame; defaults to the device canonical frame."
     speedFraction:
       type: number
       exclusiveMinimum: 0
       maximum: 1
-      description: optional fraction of control.speed ceilings; requires speed support
+      description: "Fraction of resolved planning velocity and acceleration rates."
+    max_velocity:
+      oneOf:
+      - {type: number, exclusiveMinimum: 0}
+      - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
+      description: "Planning rate in model order; defaults to 1 rad/s or 0.1 m/s, capped by known limits."
+    max_acceleration:
+      oneOf:
+      - {type: number, exclusiveMinimum: 0}
+      - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
+      description: "Planning rate in model order; defaults to 3 rad/s² or 0.3 m/s², capped by known limits. Defaults are tool policy, not hardware ratings."
     joint_tolerance:
       oneOf:
       - {type: number, exclusiveMinimum: 0}
@@ -70,21 +52,16 @@ parameters:
       type: number
       exclusiveMinimum: 0
       default: 0.1
-      description: how long the device must hold within tolerance to count as arrived, in seconds of its own clock
+      description: "Required time within position and velocity tolerances, in device seconds."
     timeout_s:
       type: number
       exclusiveMinimum: 0
       maximum: 300
-      description: budget in seconds of the device's own clock, so the same value covers the same amount of motion on every robot
-    on_timeout:
-      type: string
-      enum: [stop, continue]
-      default: stop
-      description: on running out of budget before arrival, stop holds the device where it is; continue leaves it pursuing the goal so it keeps moving while you think
+      description: "Motion budget in device-clock seconds."
     until:
       type: object
       additionalProperties: false
-      description: optional extra termination predicate - a PERCEPTION tool whose truthy key stops the move
+      description: "Perception predicate checked before motion and at checkpoints; a truthy key stops."
       properties:
         tool: {type: string}
         args: {type: object}
@@ -95,7 +72,6 @@ parameters:
   oneOf:
   - {type: object, additionalProperties: false, properties: *fields, required: [device, timeout_s, joints]}
   - {type: object, additionalProperties: false, properties: *fields, required: [device, timeout_s, pose]}
-  - {type: object, additionalProperties: false, properties: *fields, required: [device, timeout_s, observation]}
 timeout_s: 600
 device_inputs:
   device:

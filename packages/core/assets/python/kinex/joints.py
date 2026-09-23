@@ -27,14 +27,11 @@ class JointDevice:
         names = [j["name"] for j in self.joints]
         if not names or len(names) != len(set(names)):
             raise ValueError("Model requires unique joint names")
-        for label, values in (("home", self.intrinsics["home"]), ("speed", self.intrinsics["control"]["speed"])):
-            if values is None:
-                continue
-            mapping = values["max_velocity"] if label == "speed" else values
-            if not isinstance(mapping, dict) or set(mapping) != set(names):
-                raise ValueError(f"{label} must name every model joint exactly once")
-        if self.intrinsics["home"] is not None:
-            joint_target([self.intrinsics["home"][name] for name in names], self.joints)
+        home = self.intrinsics["home"]
+        if home is not None:
+            if not isinstance(home, dict) or set(home) != set(names):
+                raise ValueError("home must name every model joint exactly once")
+            joint_target([home[name] for name in names], self.joints)
         if self.options and self.options["backend"] == "numerical" and self.solver is None:
             raise ValueError("Numerical IK requires model geometry")
 

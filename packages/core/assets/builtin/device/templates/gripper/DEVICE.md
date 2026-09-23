@@ -6,25 +6,20 @@ description: gripper control and observation contract.
 
 ## Use
 
-Every write requires a positive `for_s` in the device's own clock. The driver
-returns `accepted`, `elapsed_s`, boolean `reached`, and the resulting `state`.
-SDK hooks must return that report; acknowledgment alone is insufficient. Joint
-arrival may end a segment early when `arrive` is supplied. Call `stop` explicitly
-to halt a standing goal; the segment budget bounds the call, not goal lifetime.
+`write({target: [value], speedFraction?, for_s})` uses the declared position units
+or signed direction. Command width is independent of measured finger channels.
+It returns `accepted`, `elapsed_s`, `reached` and `state`; completion does not
+establish grasp success or clear a standing command. Use `stop` to halt it.
 
-
-A scalar gripper. write {target:[value],speedFraction?,for_s} uses declared position units or signed direction (-1/0/+1). Command dimensions are independent of measured finger channels. read reports positions, velocities, faults, time and supported force/contact channels. Acceptance is not closure or grasp success.
-
-The canonical gripper frame is its TCP. Read `intrinsics.geometry` for its physical meaning, approach direction, fixed jaw-closing axis (when applicable), and contact patches. Axes are in the canonical frame; contact frames use local +Z toward the object and local XY along the pad. Resolve moving patches through `relative_pose`. Geometry may be unknown; do not guess it from the mount or equate joint travel with physical opening.
+The canonical frame is the TCP. `intrinsics.geometry` describes its location,
+approach and closing axes, and contact patches. Contact frames use +Z toward the
+object and XY along the pad. Resolve moving patches with `relative_pose`.
 
 ## Setup
 
-Load initializes the connection and any owned control/streaming service, waiting
-for readiness; status only observes. Unload stops active work according to the
-profile and releases every owned resource, even if a cleanup stage fails. Follow
-setup-device for service ownership, partial-startup rollback and exit cleanup.
-
-Use setup-device for registration and driver lifecycle. Fill the starter with known facts; `???` marks unresolved values and `null` has the field’s declared meaning.
+Follow setup-device for registration and lifecycle ownership. Load waits for
+readiness; status only observes; unload stops motion and releases owned resources.
+Use `???` for unresolved facts and `null` only where the schema permits it.
 
 control.mode is position or direction. Position declares units, bounds, resolution, open_target, close_target and optional speed. Direction declares opposite -1/+1 endpoints and increment_per_interval. feedback positions name measured channels and units; aperture_model optionally converts them to metres. stop declares behavior and scope. A gripper mount locates its TCP; finger joints do not turn it into a joint device.
 

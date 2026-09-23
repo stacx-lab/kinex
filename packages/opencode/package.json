@@ -1,6 +1,6 @@
 {
   "name": "@kinex/opencode",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Kinex integration for opencode",
   "type": "module",
   "files": [
@@ -30,7 +30,7 @@
     }
   },
   "dependencies": {
-    "@kinex/core": "0.6.0",
+    "@kinex/core": "0.8.0",
     "@opencode-ai/plugin": "1.18.31",
     "zod": "^4.4.3",
     "@opencode-ai/sdk": "1.18.31"

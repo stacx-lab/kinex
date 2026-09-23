@@ -1,8 +1,8 @@
 """Device-independent joint models and absolute position command validation."""
 
+import math
 from pathlib import Path
 from kinex.motion import joint_target, vector
-from kinex.validation import SEGMENT, segment
 from kinex.urdf import read_chain
 
 
@@ -21,52 +21,51 @@ def joint_model(profile, directory=None):
 
 
 def command(profile, args, model=None):
+    from kinex.validation import number
     if not isinstance(args, dict):
-        raise ValueError("write arguments must be an object")
+        raise ValueError("joint command must be an object")
     joints = (model or joint_model(profile))["joints"]
-    if set(args) - {"target", "speedFraction", *SEGMENT}:
-        raise ValueError("write accepts only target, speedFraction, for_s and arrive")
-    target = joint_target(args.get("target"), joints)
-    speed = profile["intrinsics"]["control"]["speed"]
-    if speed is None:
-        if "speedFraction" in args:
-            raise ValueError("speedFraction is unsupported")
-        return segment(args, {"target": target})
-    fraction = args.get("speedFraction", speed["default_fraction"])
-    vector([fraction], 1, "speedFraction")
-    if not 0 < fraction <= 1:
-        raise ValueError("speedFraction must be in (0,1]")
-    ceilings = [speed["max_velocity"][j["name"]] for j in joints]
-    vector(ceilings, len(joints), "speed ceilings")
-    if any(v <= 0 or (j["max_velocity"] is not None and v > j["max_velocity"]) for j, v in zip(joints, ceilings)):
-        raise ValueError("Command speed must be positive and within model velocity limits")
-    return segment(args, {"target": target, "max_velocity": [v*fraction for v in ceilings]})
+    if set(args) - {"actions", "freq_hz", "for_s"} or not {"actions", "freq_hz"} <= set(args):
+        raise ValueError("write requires actions, freq_hz and optional for_s")
+    actions = args["actions"]
+    if not isinstance(actions, list) or not actions:
+        raise ValueError("actions must be a nonempty sequence")
+    for target in actions:
+        joint_target(target, joints)
+    frequency = number(args["freq_hz"], "freq_hz")
+    if frequency <= 0:
+        raise ValueError("freq_hz must be positive")
+    if "for_s" in args and number(args["for_s"], "for_s") <= 0:
+        raise ValueError("for_s must be positive")
+    return dict(args)
 
 
-class JointSamples:
-    """Freshness and velocity estimates in one device's acquisition clock."""
+class Arrival:
+    """Arrival is established with fresh device-clock samples, not cached reads."""
 
-    def __init__(self, joints, measured):
-        self.joints, self.measured = joints, measured
-        self.stamp, self.positions, self.velocities = None, None, None
+    def __init__(self, joints, target, spec):
+        self.joints, self.target, self.spec = joints, target, spec
+        self.since = None
+        self.stamp = None
 
     def sample(self, state):
-        import math
-        positions = vector(state.get("positions"), len(self.joints), "read.positions")
         stamp = state.get("sample_time_s")
-        stamp = vector([state.get("received_time_s") if stamp is None else stamp], 1, "read timestamp")[0]
+        if stamp is None:
+            stamp = state["received_time_s"]
         if self.stamp is not None and stamp < self.stamp:
             raise ValueError("device sample clock moved backwards")
-        if stamp == self.stamp:
-            if positions != self.positions:
-                raise ValueError("cached sample changed positions")
-            return stamp, self.velocities, False
-        velocities = vector(state.get("velocities"), len(self.joints), "read.velocities") if self.measured else None
-        if not self.measured:
-            vector(state.get("velocities"), 0, "unsupported read.velocities")
-            if self.stamp is not None:
-                delta = [math.atan2(math.sin(a-b), math.cos(a-b)) if joint["type"] == "continuous" else a-b
-                         for a, b, joint in zip(positions, self.positions, self.joints)]
-                velocities = [value / (stamp-self.stamp) for value in delta]
-        self.stamp, self.positions, self.velocities = stamp, list(positions), velocities
-        return stamp, velocities, True
+        fresh = self.stamp is None or stamp > self.stamp
+        self.stamp = stamp
+        errors = [math.atan2(math.sin(q-t), math.cos(q-t)) if j["type"] == "continuous" else q-t
+                  for q, t, j in zip(state["positions"], self.target, self.joints)]
+        within = all(abs(e) <= tol for e, tol in zip(errors, self.spec["joint_tolerance"]))
+        quiet = self.spec.get("quiet_velocity")
+        if quiet is not None:
+            velocity = vector(state.get("velocities"), len(self.joints), "velocities")
+            within = within and all(abs(v) <= tol for v, tol in zip(velocity, quiet))
+        if not within:
+            self.since = None
+            return False
+        if self.since is None and fresh:
+            self.since = stamp
+        return self.since is not None and stamp - self.since + 1e-9 >= self.spec.get("stable_s", 0)

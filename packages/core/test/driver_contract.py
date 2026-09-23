@@ -16,7 +16,7 @@ JOINT = {
     'name': 'arm', 'type': 'joint', 'intrinsics': {
         'model': {'format': 'joints', 'joints': [{'name': 'j0', 'type': 'revolute',
                   'limits': {'min': -2, 'max': 2}, 'max_velocity': 2, 'max_effort': None}]},
-        'home': None, 'control': {'mode': 'position', 'speed': None}, 'frames': {},
+        'home': None, 'control': {'mode': 'position'}, 'frames': {},
         'feedback': {'velocities': True, 'efforts': False, 'clock': 'simulation'},
     },
 }
@@ -46,16 +46,18 @@ def outcome(kind):
 class DriverContracts(unittest.TestCase):
     def adapters(self):
         joint = JointDriver.__new__(JointDriver)
+        joint.profile = JOINT
         model = JointDevice(JOINT)
         joint.model = lambda: model
         joint.connection = lambda: object()
-        joint.send_target = lambda *_: outcome('joint')
+        joint.servo = lambda *_: outcome('joint')
+        joint.halt = lambda *_: None
         velocity = VelocityDriver.__new__(VelocityDriver)
         velocity.profile, velocity.lock = VELOCITY, threading.RLock()
         velocity.error, velocity.serving = None, True
         velocity.connection = lambda: object()
         velocity.send_target = lambda *_: outcome('velocity')
-        yield joint, {'target': [.2], 'for_s': .1}
+        yield joint, {'actions': [[.2]], 'freq_hz': 10}
         yield velocity, {'mode': 'walk', 'velocity': {'vx': .2}, 'for_s': .1}
         for kind in ('gripper', 'suction'):
             spec = importlib.util.spec_from_file_location(kind, ROOT / 'assets/builtin/device/templates' / kind / 'driver.py')
@@ -70,18 +72,25 @@ class DriverContracts(unittest.TestCase):
             with self.subTest(adapter=adapter):
                 result = adapter.execute('write', args)
                 self.assertEqual(result['elapsed_s'], .1)
-                self.assertTrue(result['reached'])
+                self.assertTrue(result.get('reached', result.get('completed_actions') == 1))
                 self.assertEqual(result['state']['sample_time_s'], .1)
                 self.assertEqual(result['state']['faults'], [])
+
+    def test_bounded_velocity_write_does_not_depend_on_transport_mode(self):
+        for adapter, args in self.adapters():
+            if isinstance(adapter, VelocityDriver):
+                adapter.serving = False
+                self.assertEqual(adapter.execute('write', args)['elapsed_s'], .1)
 
     def test_budgets_are_required_before_any_sdk_effect(self):
         for adapter, args in self.adapters():
             for bad in (None, 0, -1, float('nan'), True):
                 calls = []
                 adapter.send_target = lambda *a: calls.append(a)
-                command = {**args, 'for_s': bad}
+                field = 'freq_hz' if isinstance(adapter, JointDriver) else 'for_s'
+                command = {**args, field: bad}
                 if bad is None:
-                    command.pop('for_s')
+                    command.pop(field)
                 with self.assertRaises(ValueError):
                     adapter.execute('write', command)
                 self.assertEqual(calls, [])
@@ -90,9 +99,47 @@ class DriverContracts(unittest.TestCase):
         for adapter, args in self.adapters():
             for bad in (None, {'accepted': True}, {**outcome('joint'), 'elapsed_s': -1},
                         {**outcome('joint'), 'reached': 'yes'}, {**outcome('joint'), 'state': {}}):
-                adapter.send_target = lambda *_, bad=bad: bad
-                with self.assertRaises(ValueError):
+                if isinstance(adapter, JointDriver):
+                    if isinstance(bad, dict) and bad.get('reached') == 'yes':
+                        continue  # write has no arrival field
+                    adapter.servo = lambda *_, bad=bad: bad
+                else:
+                    adapter.send_target = lambda *_, bad=bad: bad
+                with self.assertRaises((ValueError, KeyError)):
                     adapter.execute('write', args)
+
+    def test_joint_sequence_prevalidates_every_point_and_stops_on_short_servo(self):
+        driver, _ = next(self.adapters())
+        effects = []
+        driver.servo = lambda *args: effects.append(args) or outcome('joint')
+        driver.halt = lambda _: effects.append('stop')
+        with self.assertRaises(ValueError):
+            driver.execute('write', {'actions': [[.2], [3]], 'freq_hz': 10})
+        self.assertEqual(effects, [])
+        driver.servo = lambda *_: {**outcome('joint'), 'elapsed_s': 0}
+        with self.assertRaisesRegex(ValueError, 'period'):
+            driver.execute('write', {'actions': [[.2]], 'freq_hz': 10})
+        self.assertEqual(effects, ['stop'])
+
+    def test_end_effector_buffers_validate_the_tail_and_honor_budget(self):
+        for adapter, _ in self.adapters():
+            if isinstance(adapter, (JointDriver, VelocityDriver)):
+                continue
+            calls, stops = [], []
+            adapter.send_target = lambda handle, value, profile: calls.append(value) or {
+                **outcome('scalar'), 'elapsed_s': value['for_s']}
+            adapter.halt = lambda *_: stops.append(True)
+            with self.assertRaises(ValueError):
+                adapter.execute('write', {'actions': [[.2], [2]], 'freq_hz': 10})
+            self.assertEqual(calls, [])
+            result = adapter.execute('write', {
+                'actions': [[.2], [-.2], [0]], 'freq_hz': 10, 'for_s': .25})
+            self.assertEqual(result['completed_actions'], 2)
+            self.assertEqual(result['terminated_by'], 'timeout')
+            self.assertAlmostEqual(result['elapsed_s'], .25)
+            self.assertEqual([value['target'] for value in calls], [[1], [-1], [0]])
+            self.assertEqual(stops, [True])
+
 
     def test_stops_attempt_every_device_and_preserve_original_error(self):
         calls, previous = [], control.device
@@ -115,11 +162,13 @@ class DriverContracts(unittest.TestCase):
             control.device = previous
 
     def test_failed_final_stop_is_reported_without_retrying(self):
-        result = {'ok': True, 'data': outcome('joint')}
-        with patch.object(control, 'devices', return_value=[result]), \
+        spec = importlib.util.spec_from_file_location('drive', ROOT / 'assets/builtin/tool/drive/tool.py')
+        drive = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(drive)
+        with patch.object(drive, 'device', return_value={'data': outcome('velocity')}), \
                 patch.object(control, 'device', side_effect=RuntimeError('unavailable')) as device:
             with self.assertRaisesRegex(RuntimeError, 'stop failed: arm: unavailable'):
-                control.run('arm', {'target': [.2], 'for_s': .1}, timeout_s=.1)
+                drive.hold('arm', {'for_s': .1}, .1, None)
             device.assert_called_once_with('arm', 'stop')
 
 

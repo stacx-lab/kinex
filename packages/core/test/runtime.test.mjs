@@ -288,12 +288,12 @@ test('core Python status is inert and initialization preserves the host Python p
   assert.equal((await runtime.python.status()).present, false)
 })
 
-test('actuated runtime writes require budgets and return current mock timestamps', async t => {
+test('joint sequences reject old targets and return current mock timestamps', async t => {
   const { runtime } = await fixture(t, { host })
   await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
     access: { connection: { kind: 'mock' } }, intrinsics: {
       model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
-      home: null, control: { mode: 'position', speed: null },
+      home: null, control: { mode: 'position' },
       feedback: { velocities: true, efforts: false, clock: 'simulation' },
       stop: { behavior: 'hold', affected_devices: ['arm'] },
     },
@@ -302,7 +302,7 @@ test('actuated runtime writes require budgets and return current mock timestamps
     await assert.rejects(runtime.devices.dispatch('arm', 'write', { target: [0.2], ...(for_s === undefined ? {} : { for_s }) }))
   }
   assert.equal((await runtime.devices.dispatch('arm', 'read')).data.positions[0], 0)
-  const written = (await runtime.devices.dispatch('arm', 'write', { target: [0.2], for_s: 0.1 })).data
+  const written = (await runtime.devices.dispatch('arm', 'write', { actions: [[0.2]], freq_hz: 50 })).data
   const read = (await runtime.devices.dispatch('arm', 'read')).data
   assert.equal(written.elapsed_s, 0.02)
   assert.equal(written.state.sample_time_s, 0.02)
@@ -341,12 +341,12 @@ test('drive executes through runtime schema validation and the Python dialog', a
   await assert.rejects(readFile(path.join(directory, '.kinex/python/pyproject.toml')), { code: 'ENOENT' })
 })
 
-test('cancelling track during perception stops its target through the runner', { timeout: 10000 }, async t => {
+test('cancelling a controller before motion does not stop unowned devices', { timeout: 10000 }, async t => {
   const { runtime, directory } = await fixture(t, { host })
   await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
     access: { connection: { kind: 'mock' } }, intrinsics: {
       model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
-      home: null, control: { mode: 'position', speed: null },
+      home: null, control: { mode: 'position' },
       feedback: { velocities: true, efforts: false, clock: 'simulation' },
       stop: { behavior: 'hold', affected_devices: ['arm'] },
     },
@@ -373,14 +373,15 @@ test('cancelling track during perception stops its target through the runner', {
   const abort = new AbortController()
   t.after(() => abort.abort())
   const pending = runtime.tools.call('track', {
-    perceive: { tool: 'slow_point' }, control: { tool: 'move_to', args: { device: 'arm', timeout_s: 1 } }, timeout_s: 5,
+    perceive: { tool: 'slow_point' }, process: { tool: 'point_to_pose', args: { device: 'arm' } },
+    control: { tool: 'move_to', args: { device: 'arm', timeout_s: 1 } },
   }, { sessionID: 's', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]) })
   const settled = pending.then(result => ({ result }), error => ({ error }))
   await Promise.race([ready, settled.then(outcome => { throw new Error(`track exited before perception: ${JSON.stringify(outcome)}`) })])
   abort.abort()
   const outcome = await settled
   assert.ok(outcome.error || outcome.result?.isError)
-  assert.ok(events.includes('stop'), JSON.stringify(events))
+  assert.ok(!events.includes('stop'), JSON.stringify(events))
 })
 
 const concurrentDriver = `import threading, time
@@ -393,13 +394,15 @@ def dispatch(action, args):
     if action == 'stop' and args.get('fail'):
         return {'ok': False, 'error': 'halt failed'}
     if action == 'write':
+        if args['actions'][0][0] == -1:
+            return {'ok': False, 'error': 'native halt failed', 'code': 'stop_failed', 'details': {'elapsed_s': .02}}
         active = True
-        started.append(args['target'][0])
+        started.append(args['actions'][0][0])
         release.clear()
         try:
             while not release.wait(.005): check_cancelled()
             check_cancelled()
-            return {'ok': True, 'tag': args['target'][0], 'accepted': True, 'elapsed_s': .1, 'reached': True}
+            return {'ok': True, 'tag': args['actions'][0][0], 'completed_actions': 1, 'elapsed_s': .02, 'state': {'positions': [0], 'velocities': [0], 'efforts': [], 'faults': [], 'sample_time_s': time.monotonic()}}
         finally:
             active = False
     if action == 'read':
@@ -412,7 +415,7 @@ async function concurrentFixture(t) {
   const value = await fixture(t, { host, enableRecording: true })
   await value.runtime.profiles.writeDevice({ name: 'sensor', type: 'joint', intrinsics: {
     model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
-    home: null, control: { mode: 'position', speed: null },
+    home: null, control: { mode: 'position' },
     feedback: { velocities: true, efforts: false, clock: 'simulation' },
     stop: { behavior: 'hold', affected_devices: ['sensor'] },
   } })
@@ -433,23 +436,22 @@ async function waitForRead(runtime, predicate, name = 'sensor') {
   assert.fail('device did not reach expected state')
 }
 
-test('reads and recording proceed during writes while same-device writes retain order', { timeout: 10000 }, async t => {
+test('reads and recording continue while a new command replaces the old write', { timeout: 10000 }, async t => {
   const { runtime } = await concurrentFixture(t)
   const samples = []
   runtime.subscribe(event => {
     if (event.type === 'device' && event.event.origin === 'sampler') samples.push(event.event)
   })
   await runtime.recording.start({ specs: { sensor: { rate: 50 } }, sessionID: 'concurrency' })
-  const first = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 30 })
+  const first = runtime.devices.dispatch('sensor', 'write', { actions: [[1]], freq_hz: 50 })
+  const interrupted = assert.rejects(first, /interrupted|replaced/)
   await waitForRead(runtime, state => state.active)
-  const second = runtime.devices.dispatch('sensor', 'write', { target: [2], for_s: 30 })
-  assert.deepEqual((await runtime.devices.ping('sensor')).reading.data.started, [1])
+  const second = runtime.devices.dispatch('sensor', 'write', { actions: [[2]], freq_hz: 50 })
+  await interrupted
+  await waitForRead(runtime, state => state.started.length === 2)
   const until = Date.now() + 1500
   while (samples.filter(event => event.reading?.data?.active).length < 3 && Date.now() < until) await delay(10)
   assert.ok(samples.filter(event => event.reading?.data?.active).length >= 3)
-  await runtime.devices.dispatch('sensor', 'read', { release: true })
-  assert.equal((await first).data.tag, 1)
-  await waitForRead(runtime, state => state.started.length === 2)
   await runtime.devices.dispatch('sensor', 'read', { release: true })
   assert.equal((await second).data.tag, 2)
   await runtime.recording.stop()
@@ -467,15 +469,15 @@ test('persistent responses can finish out of order without swapping callers', as
 
 test('stop interrupts an active write and invalidates queued writes without restarting motion', { timeout: 5000 }, async t => {
   const { runtime } = await concurrentFixture(t)
-  const active = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 30 })
+  const active = runtime.devices.dispatch('sensor', 'write', { actions: [[1]], freq_hz: 50 })
   const activeRejected = assert.rejects(active, /interrupt/i)
   await waitForRead(runtime, state => state.active)
-  const queued = runtime.devices.dispatch('sensor', 'write', { target: [2], for_s: 30 })
+  const queued = runtime.devices.dispatch('sensor', 'write', { actions: [[2]], freq_hz: 50 })
   const queuedRejected = assert.rejects(queued, /interrupt/i)
   await runtime.devices.dispatch('sensor', 'stop')
   await Promise.all([activeRejected, queuedRejected])
   assert.deepEqual((await runtime.devices.dispatch('sensor', 'read')).data.started, [1])
-  const next = runtime.devices.dispatch('sensor', 'write', { target: [2], for_s: 30 })
+  const next = runtime.devices.dispatch('sensor', 'write', { actions: [[2]], freq_hz: 50 })
   await waitForRead(runtime, state => state.started.length === 2)
   await runtime.devices.dispatch('sensor', 'read', { release: true })
   assert.equal((await next).data.tag, 2)
@@ -483,7 +485,7 @@ test('stop interrupts an active write and invalidates queued writes without rest
 
 test('unload interrupts motion and fences active reads before releasing the driver', { timeout: 5000 }, async t => {
   const { runtime } = await concurrentFixture(t)
-  const active = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 30 })
+  const active = runtime.devices.dispatch('sensor', 'write', { actions: [[1]], freq_hz: 50 })
   const rejected = assert.rejects(active, /interrupt/i)
   await waitForRead(runtime, state => state.active)
   const read = runtime.devices.dispatch('sensor', 'read', { sleep: .1 })
@@ -503,7 +505,7 @@ test('a scoped stop cancels cooperative writes in every affected persistent driv
   await writeFile(path.join(directory, '.kinex', 'devices', 'peer', 'driver.py'), concurrentDriver)
   await (await runtime.devices.load('peer')).ready
   await runtime.profiles.writeDevice({ name: 'sensor', intrinsics: { stop: { behavior: 'hold', affected_devices: ['sensor', 'peer'] } } })
-  const active = runtime.devices.dispatch('peer', 'write', { target: [1], for_s: 30 })
+  const active = runtime.devices.dispatch('peer', 'write', { actions: [[1]], freq_hz: 50 })
   const rejected = assert.rejects(active, /interrupt/i)
   await waitForRead(runtime, state => state.active, 'peer')
   await runtime.devices.dispatch('sensor', 'stop')
@@ -515,9 +517,9 @@ test('failed stop leaves reads available and fences writes until reload', async 
   const { runtime } = await concurrentFixture(t)
   await assert.rejects(runtime.devices.dispatch('sensor', 'stop', { fail: true }), /halt failed/)
   assert.ok((await runtime.devices.dispatch('sensor', 'read')).data)
-  await assert.rejects(runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 1 }), /stop failed|reload/i)
+  await assert.rejects(runtime.devices.dispatch('sensor', 'write', { actions: [[1]], freq_hz: 50 }), /stop failed|reload/i)
   await (await runtime.devices.reload('sensor')).ready
-  const next = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 1 })
+  const next = runtime.devices.dispatch('sensor', 'write', { actions: [[1]], freq_hz: 50 })
   await waitForRead(runtime, state => state.active)
   await runtime.devices.dispatch('sensor', 'read', { release: true })
   await next
@@ -549,7 +551,7 @@ def dispatch(action, args):
 run(dispatch, lambda: None)
 `)
   await (await runtime.devices.load('sensor')).ready
-  const active = runtime.devices.dispatch('sensor', 'write', { target: [1], for_s: 30 })
+  const active = runtime.devices.dispatch('sensor', 'write', { actions: [[1]], freq_hz: 50 })
   const rejected = assert.rejects(active, /interrupted/)
   let pid
   const deadline = Date.now() + 2000
@@ -562,4 +564,185 @@ run(dispatch, lambda: None)
   await rejected
   assert.throws(() => process.kill(Number(pid), 0), { code: 'ESRCH' })
   await assert.rejects(readFile(path.join(dir, 'late-write')), { code: 'ENOENT' })
+})
+
+test('joint buffers validate before execution and accept arbitrary rates', async t => {
+  const { runtime } = await fixture(t, { host })
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
+    access: { connection: { kind: 'mock' } }, intrinsics: {
+      model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
+      home: null, control: { mode: 'position' },
+      feedback: { velocities: true, efforts: false, clock: 'simulation' },
+      stop: { behavior: 'hold', affected_devices: ['arm'] },
+    },
+  })
+  for (const args of [
+    { actions: [], freq_hz: 50 }, { actions: [[0.1], [3]], freq_hz: 50 },
+    { actions: [[0.1]], freq_hz: 0 }, { target: [0.1], for_s: 1 },
+  ]) await assert.rejects(runtime.devices.dispatch('arm', 'write', args))
+  assert.equal((await runtime.devices.dispatch('arm', 'read')).data.sample_time_s, 0)
+  const sequence = (await runtime.devices.dispatch('arm', 'write', { actions: [[0.1], [0.2]], freq_hz: 25 })).data
+  assert.equal(sequence.completed_actions, 2)
+  assert.equal(sequence.elapsed_s, 0.08)
+  assert.equal(sequence.reached, undefined)
+  assert.deepEqual(sequence.state.positions, [0.2])
+  for (const freq_hz of [3, 30, 60, 123.4]) {
+    const result = (await runtime.devices.dispatch('arm', 'write', { actions: [[.1], [.2]], freq_hz })).data
+    assert.equal(result.completed_actions, 2)
+    assert.equal(result.elapsed_s, 2 / freq_hz)
+  }
+  await assert.rejects(runtime.devices.dispatch('arm', 'set', { target: [0.1], for_s: 1, arrive: { joint_tolerance: [0.01] } }), /unsupported/)
+})
+
+
+test('native motion stop failures preserve progress and fence subsequent commands', async t => {
+  const { runtime } = await concurrentFixture(t)
+  await assert.rejects(runtime.devices.dispatch('sensor', 'write', { actions: [[-1]], freq_hz: 50 }),
+    error => error.data.code === 'stop_failed' && error.data.details.elapsed_s === .02)
+  await assert.rejects(runtime.devices.dispatch('sensor', 'write', { actions: [[1]], freq_hz: 50 }), /stop failed/)
+  assert.deepEqual((await runtime.devices.dispatch('sensor', 'read')).data.started, [])
+})
+
+
+test('move_to plans and executes without knowing the device clock', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
+    access: { connection: { kind: 'mock' } }, intrinsics: {
+      model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 1, max_acceleration: 2, max_effort: null }] },
+      home: null, control: { mode: 'position' },
+      feedback: { velocities: true, efforts: false, clock: 'simulation' },
+      stop: { behavior: 'hold', affected_devices: ['arm'] },
+    },
+  })
+  const dir = path.join(directory, '.kinex/tool/move-to')
+  await mkdir(dir, { recursive: true })
+  for (const name of ['tool.py', 'tool.yaml']) {
+    const source = await readFile(new URL(`../assets/builtin/tool/move-to/${name}`, import.meta.url), 'utf8')
+    await writeFile(path.join(dir, name), source + (name.endsWith('yaml') ? '\ninterpreter: python3\n' : ''))
+  }
+  const response = await runtime.tools.call('move_to', { device: 'arm', joints: [.2], timeout_s: 3 }, { sessionID: 's' })
+  assert.ok(!response.isError, response.output)
+  const result = JSON.parse(response.output)
+  assert.equal(result.reached, true)
+  assert.deepEqual(result.state.positions, [.2])
+  assert.ok(result.elapsed_s > .2 && result.elapsed_s < 3)
+})
+
+async function trackingFixture(t) {
+  const value = await fixture(t, { host })
+  const { runtime, directory } = value
+  for (const name of ['arm', 'hand', 'unrelated']) {
+    await runtime.profiles.writeDevice({ name, type: 'joint', loaded: true,
+      access: { connection: { kind: 'mock' } }, intrinsics: {
+        model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
+        home: null, control: { mode: 'position', execution: 'realtime' },
+        feedback: { velocities: true, efforts: false, clock: 'simulation' },
+        stop: { behavior: 'hold', affected_devices: [name] },
+      },
+    })
+  }
+  const install = async (name, manifest, code) => {
+    const dir = path.join(directory, '.kinex/tool', name)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'tool.yaml'), `${manifest}\ninterpreter: python3\n`)
+    await writeFile(path.join(dir, 'tool.py'), code)
+  }
+  await install('track', await readFile(new URL('../assets/builtin/tool/track/tool.yaml', import.meta.url), 'utf8'),
+    await readFile(new URL('../assets/builtin/tool/track/tool.py', import.meta.url), 'utf8'))
+  await install('sample', 'name: sample\nkind: perception\ndescription: test',
+    'from kinex import device, finish\nfinish(device("arm")["data"])\n')
+  await install('convert', 'name: convert\nkind: perception\ndescription: test\nparameters: {type: object}', `import time
+from kinex import args, device, call, stop_owned, finish
+from kinex.control import read
+a = args()
+mode = a.get('mode')
+if mode == 'stop': stop_owned()
+if mode == 'write': device('arm', 'write', actions=[[.2]], freq_hz=10)
+if mode == 'compose': call('act', target=.2)
+if mode == 'invalid': finish({'args': {'target': 'invalid'}})
+if mode == 'model': device('policy', 'infer')
+if a['observation']['positions'][0] > 0:
+    if mode == 'wait':
+        device('sensor')
+        time.sleep(30)
+    if mode == 'fail': raise RuntimeError('processing failed after motion')
+    finish({'args': None})
+finish({'args': {'target': .2}})
+`)
+  await install('act', `name: act
+kind: controller
+description: test
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    target: {type: number}
+  required: [target]`, `from kinex import args, devices, finish
+results = devices([{'device': name, 'action': 'write', 'args': {'actions': [[args()['target']]], 'freq_hz': 10}} for name in ['arm', 'hand']])
+if not all(r['ok'] for r in results): raise RuntimeError(str(results))
+finish({'custom': True})
+`)
+  const events = []
+  t.after(runtime.subscribe(({ type, event }) => { if (type === 'device') events.push(event) }))
+  const args = { perceive: { tool: 'sample' }, process: { tool: 'convert' }, control: { tool: 'act' }, max_misses: 1 }
+  return { ...value, args, events }
+}
+
+test('track stops owned actuators on misses and errors, excluding model inference and unrelated motion', async t => {
+  for (const mode of ['model', 'fail']) {
+    await t.test(mode, async t => {
+      const { runtime, directory, args, events } = await trackingFixture(t)
+      const contract = { type: 'object', properties: {}, required: [] }
+      await runtime.profiles.writeDevice({ name: 'policy', type: 'model', loaded: true,
+        access: { connection: { kind: 'process', compute: { kind: 'cpu' } }, driver: { interpreter: 'python3', actions: ['read', 'status', 'load', 'unload', 'infer'], timeout_s: 5 } },
+        intrinsics: { family: 'test', artifacts: [], operations: [{ name: 'infer', input: contract, output: contract }] },
+      })
+      await writeFile(path.join(directory, '.kinex/devices/policy/driver.py'),
+        'from kinex.driver_protocol import run\nrun(lambda action, args: {"ok": True}, lambda: None)\n')
+      await (await runtime.devices.load('policy')).ready
+      await runtime.devices.dispatch('unrelated', 'write', { actions: [[.5]], freq_hz: 10 })
+      const response = await runtime.tools.call('track', { ...args, process: { tool: 'convert', args: { mode } } }, { sessionID: 's' })
+      if (mode === 'fail') {
+        assert.equal(response.isError, true)
+        assert.match(response.output, /processing failed after motion/)
+      } else {
+        assert.ok(!response.isError, response.output)
+        assert.equal(JSON.parse(response.output).terminated_by, 'perception_lost')
+        assert.equal(events.filter(e => e.action === 'infer').length, 2)
+      }
+      assert.deepEqual([...new Set(events.filter(e => e.action === 'stop').map(e => e.device.name))].sort(), ['arm', 'hand'])
+      assert.equal((await runtime.devices.dispatch('unrelated', 'read')).data.stopped, false)
+      for (const name of ['arm', 'hand']) assert.equal((await runtime.devices.dispatch(name, 'read')).data.stopped, true)
+    })
+  }
+})
+
+test('processing retains perception permissions and generated controller arguments are validated', async t => {
+  const { runtime, args, events } = await trackingFixture(t)
+  for (const [mode, error] of [['stop', /only controller tools/], ['write', /may not command/], ['compose', /may only compose/], ['invalid', /target/]]) {
+    const response = await runtime.tools.call('track', { ...args, process: { tool: 'convert', args: { mode } } }, { sessionID: 's' })
+    assert.equal(response.isError, true, mode)
+    assert.match(response.output, error)
+  }
+  assert.ok(!events.some(e => e.action === 'write' || e.action === 'stop'))
+})
+
+test('cancelling track during processing stops owned motion without stopping its replacement', { timeout: 15000 }, async t => {
+  const { runtime, args, events } = await trackingFixture(t)
+  let started
+  const ready = new Promise(resolve => { started = resolve })
+  t.after(runtime.subscribe(({ type, event }) => {
+    if (type === 'device' && event.device.name === 'sensor' && event.action === 'read') started()
+  }))
+  const abort = new AbortController()
+  t.after(() => abort.abort())
+  const pending = runtime.tools.call('track', { ...args, process: { tool: 'convert', args: { mode: 'wait' } } },
+    { sessionID: 's', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]) })
+  await Promise.race([ready, pending.then(response => { throw Error(`track exited before processing wait: ${response.output}`) })])
+  await runtime.devices.dispatch('arm', 'write', { actions: [[.8]], freq_hz: 10 })
+  abort.abort()
+  assert.equal((await pending).isError, true)
+  assert.deepEqual([...new Set(events.filter(e => e.action === 'stop').map(e => e.device.name))], ['hand'])
+  assert.equal((await runtime.devices.dispatch('arm', 'read')).data.stopped, false)
+  assert.equal((await runtime.devices.dispatch('hand', 'read')).data.stopped, true)
 })

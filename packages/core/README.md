@@ -75,24 +75,48 @@ The existing root APIs remain available without adopting contributions.
 
 ## Bounded control
 
-Every actuated write requires positive `for_s` and returns `accepted`, `elapsed_s`,
-`reached` and the resulting `state`. Drivers own the clock and execution; incomplete
-acknowledgments are errors. A segment bounds the call; explicit stops halt standing
-commands. Controller defaults stop on exit.
+Joint `write({actions, freq_hz})` buffers complete position references at any
+positive frequency. The device owns timing and resampling; its native cadence is
+not a profile field. Results report actual elapsed time, measured state and
+consumed action count, including references skipped during resampling. No arrival wait or
+trajectory generation happens inside write. RPC may run at 20 Hz or below while
+local servo and physics run faster.
 
-- `move_to`: fixed joints, pose or observed point; optional `until` predicate.
-- `drive`: velocity/posture for required `duration_s`, optionally ending on `until`.
-  Always stops; no displacement goals or continuation option.
-- `track`: point perception followed only by `move_to`. Requires
-  `control: {tool: "move_to", args: {device, timeout_s, ...}}`; each child budget is
-  capped by the remaining total. Optional continuation applies between successful
-  rounds, but a miss and every final exit stop the target.
-- `run_policy`: standalone action chunk from an observation such as an `observe`
-  bundle. Any commanded device fault stops the whole group.
+- `move_to` accepts joints or a pose. It stops, measures rest,
+  generates a quintic trajectory, submits bounded writes and checks arrival.
+  Planning defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear
+  joints, capped by known velocity/acceleration limits.
+  `max_velocity` and `max_acceleration` override planning rates
+  within known limits; `speedFraction` scales them. Defaults are not hardware ratings.
+- `run_policy` validates one waypoint chunk, then submits buffered writes to its
+  devices concurrently. Calls do not guarantee simultaneous starts.
+- `drive` holds velocity/posture for a duration.
+- `track` composes `perceive`, `process`, and `control` tool calls. Processing receives
+  `observation` and returns `{args: {...}}` to overlay controller arguments, or
+  `{args: null}` for a miss. Controllers own their time bounds and raise failures;
+  tracking ends on `until`, `max_rounds` (200), or consecutive `max_misses` (3).
+  Misses and final exit stop owned motion. Controller results remain opaque.
+- `point_to_pose` converts a located point into pose arguments, handling frame
+  conversion, offsets, and an explicit or current FK orientation.
 
-Predicates are checked before motion and between writes at their device-time
-interval (default one second). `on_timeout: continue`, where available, applies
-only to budget exhaustion. Track's budget counts executed motion, not perception.
+Timeout, cancellation and faults stop the motion owned by that invocation. A newer
+valid command replaces older motion; cleanup from the old invocation cannot stop
+its replacement. Completed buffers, including those from `move_to`, hold measured
+state in stepped simulation and retain the last reference in realtime
+simulation or hardware. Deployment selects the mode; controller arguments are identical.
+Predicates are checked before motion and at bounded device-time checkpoints.
+Track checks its predicate before the first round and after each round.
+Uncertain motion is never retried.
+
+For example, repeated point tracking with bounded arm moves:
+
+```python
+call("track",
+     perceive={"tool": "locate_object_3d", "args": {"camera": "camera", "model": "detector", "prompt": "mug"}},
+     process={"tool": "point_to_pose", "args": {"device": "arm", "offset_m": [0, 0, 0.1]}},
+     control={"tool": "move_to", "args": {"device": "arm", "timeout_s": 0.5}},
+     max_rounds=10)
+```
 
 ## Public runtime
 

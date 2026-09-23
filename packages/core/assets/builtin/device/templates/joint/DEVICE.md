@@ -6,29 +6,25 @@ description: joint control and observation contract.
 
 ## Use
 
-Every write requires a positive `for_s` in the device's own clock. The driver
-returns `accepted`, `elapsed_s`, boolean `reached`, and the resulting `state`.
-SDK hooks must return that report; acknowledgment alone is insufficient. Joint
-arrival may end a segment early when `arrive` is supplied. Call `stop` explicitly
-to halt a standing goal; the segment budget bounds the call, not goal lifetime.
+`write({actions, freq_hz})` executes absolute joint vectors in model order
+(radians/metres). The device owns timing and resampling; write does not plan or
+wait for arrival. Optional `for_s` limits the execution duration.
 
-
-write {target:[...],for_s,arrive?,speedFraction?} sets absolute joint-position goals in model order (rad for rotary, m for prismatic joints) AND executes them, returning accepted, elapsed_s (the device time it spent), reached (judged against arrive) and the resulting state. A world advancing on its own clock runs the goal out within for_s; one that advances inside the write spends a single control interval. read reports positions, optional velocities/efforts ([] when unsupported), faults, acquisition time, and declared frame_poses. move_to settles a joint device at a fixed or pose goal; dexterous_hand is excluded. track closes the loop around point perception and move_to. run_policy executes a policy chunk. Optional fk/ik operate without motion; pose goals refer to kinematics.frame in the canonical device frame. Convert reference frames and TCP offsets before solving.
+New commands replace older motion. Completed write holds measured state in stepped execution and retains its last reference
+in realtime execution. Timeout, cancellation, faults and `stop` terminate motion.
+Reads never advance physics.
 
 ## Setup
 
-Load initializes the connection and any owned control/streaming service, waiting
-for readiness; status only observes. Unload stops active work according to the
-profile and releases every owned resource, even if a cleanup stage fails. Follow
-setup-device for service ownership, partial-startup rollback and exit cleanup.
+Follow setup-device for registration and lifecycle ownership. Load waits for
+readiness; status only observes; unload stops motion and releases owned resources.
+Use `???` for unresolved facts and `null` only where the schema permits it.
 
-Use setup-device for registration and driver lifecycle. Fill the starter with known facts; `???` marks unresolved values and `null` has the field’s declared meaning.
-
-intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {format:serial_chain,joints,chain}, or {format:urdf,path,base_link,tip_link}. Each joint declares name, type (revolute/continuous/prismatic), limits (null only for continuous), max_velocity and max_effort (nullable). Geometry is optional.
+intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {format:serial_chain,joints,chain}, or {format:urdf,path,base_link,tip_link}. Each joint declares name, type (revolute/continuous/prismatic), limits (null only for continuous), max_velocity and max_effort (nullable); max_acceleration is optional. Geometry is optional.
 
 kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), feedback (driver/fk), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. Declare the tip under intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
 
-control declares mode:position, speed (null or named max_velocity and default_fraction), home names every joint or is null. feedback declares velocities, efforts and clock (unix/monotonic/simulation). stop declares behavior and affected_devices. intrinsics.frames maps local names to fixed poses or null for read.frame_poses feedback. extrinsics supplies only a mount or measured pose_frame.
+home names every joint or is null. feedback declares velocities, efforts and clock (unix/monotonic/simulation). stop declares behavior and affected_devices. intrinsics.frames maps local names to fixed poses or null for read.frame_poses feedback. extrinsics supplies only a mount or measured pose_frame.
 
 ### Profile
 
@@ -60,9 +56,7 @@ intrinsics:
   model: ???
   kinematics: null
   home: ???
-  control:
-    mode: position
-    speed: ???
+  control: ???
   feedback: ???
   stop: ???
 extrinsics:

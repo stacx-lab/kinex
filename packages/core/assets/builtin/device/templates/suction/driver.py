@@ -4,7 +4,7 @@
 import sys
 from pathlib import Path
 from kinex.driver_protocol import run, release
-from kinex.scalar_control import command, reading, stopped
+from kinex.scalar_control import command, reading, stopped, write_buffer
 from kinex.validation import settings, segment_result
 
 HERE = Path(__file__).parent
@@ -71,6 +71,11 @@ def execute(action, args):
         return reading(profile, read_state(ensure_handle(profile), profile))
     if action == "write":
         value = command(profile, args)
+        if "actions" in value:
+            handle = ensure_handle(profile)
+            return write_buffer(profile, value,
+                lambda point: send_target(handle, point, profile),
+                lambda: halt(handle, profile))
         result = segment_result(send_target(ensure_handle(profile), value, profile))
         return {**result, "state": reading(profile, result["state"])}
     if action == "stop":

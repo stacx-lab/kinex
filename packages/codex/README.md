@@ -13,8 +13,8 @@ Build from the repository with `npm ci && npm run build`, then:
 ```sh
 npm run pack -- /tmp/kinex-release
 npm install --prefix /path/to/kinex-plugins \
-  /tmp/kinex-release/kinex-core-0.6.0.tgz \
-  /tmp/kinex-release/kinex-codex-0.6.0.tgz
+  /tmp/kinex-release/kinex-core-0.8.0.tgz \
+  /tmp/kinex-release/kinex-codex-0.8.0.tgz
 ```
 
 Add this to the robot project's trusted `.codex/config.toml`, or to your user

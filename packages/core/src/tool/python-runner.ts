@@ -3,14 +3,13 @@ import { spawnProcess } from "../util/process.ts"
 import { abortable } from "../util/abort.ts"
 import { z } from "zod"
 import { pythonRuntime, pythonDiagnostic } from "../python/environment.ts"
-import { stopDevices } from "../device/stop.ts"
 import { deviceModel, deviceModelError } from "../calibration/device-model.ts"
 import { deviceInputValues } from "./device-input.ts"
 import path from "node:path"
 import { formatJSON } from "../util/json.ts"
 import { CalibrationStore } from "../calibration/store.ts"
 import { matchesDeviceType } from "../device/profile/schema.ts"
-import { dispatchDevice } from "../device/dispatch.ts"
+import { dispatchDevice, stopOwnedMotions } from "../device/dispatch.ts"
 import { isCommandAction } from "../device/interface.ts"
 import { Assets } from "../installation/assets.ts"
 import { imageMime } from "../util/media.ts"
@@ -83,6 +82,7 @@ const missingDevicesError = (name: string, missing: string[]) =>
 // profile / robot / call other PERCEPTION tools; controller additionally may
 // COMMAND devices (isCommandAction) and call any tool.
 type Request = Record<string, unknown>
+type MotionContext = Context & { motionOwner: string }
 
 // One device action, validated exactly like the single "device" call — shared
 // by it and each entry of the batched "devices" call.
@@ -93,6 +93,7 @@ async function deviceCall(
   actionRaw: unknown,
   argsRaw: unknown,
   signal: AbortSignal,
+  owner: string,
 ): Promise<Record<string, unknown>> {
   if (typeof name !== "string") return { ok: false, error: "device needs a device name" }
   const device = await CalibrationStore.readDevice(cwd, name)
@@ -104,15 +105,25 @@ async function deviceCall(
   if (isCommandAction(device, action) && info.manifest.kind !== "controller")
     return { ok: false, error: `perception tool "${info.manifest.name}" may not command a device ("${action}" on ${name}) — only controller tools command devices` }
   const args = (typeof argsRaw === "object" && argsRaw !== null ? argsRaw : {}) as Record<string, unknown>
-  const reading = await dispatchDevice(cwd, device, action, args, undefined, signal).catch((error: unknown) => ({
+  const reading = await dispatchDevice(cwd, device, action, args, owner, signal).catch((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
   }))
   if ("error" in reading) return { ok: false, error: reading.error }
   return { ok: true, ...(reading.data ? { data: reading.data } : {}), ...(reading.filePath ? { file: reading.filePath } : {}) }
 }
 
-async function dispatch(cwd: string, info: PyToolInfo, request: Request, ctx: Context, depth: number): Promise<Record<string, unknown>> {
+async function dispatch(cwd: string, info: PyToolInfo, request: Request, ctx: MotionContext, depth: number): Promise<Record<string, unknown>> {
   const call = request["call"]
+  if (call === "stop_owned") {
+    if (info.manifest.kind !== "controller")
+      return { ok: false, error: "only controller tools may stop owned motion" }
+    try {
+      await stopOwnedMotions(cwd, ctx.motionOwner)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
   const robot = await CalibrationStore.readManifest(cwd)
   if (call === "robot") {
     if (!robot) return { ok: false, error: "no robot is onboarded in this project" }
@@ -132,7 +143,7 @@ async function dispatch(cwd: string, info: PyToolInfo, request: Request, ctx: Co
   }
   if (call === "device") {
     if (!robot) return { ok: false, error: "no robot is onboarded in this project" }
-    return deviceCall(cwd, info, request["device"], request["action"], request["args"], ctx.abort)
+    return deviceCall(cwd, info, request["device"], request["action"], request["args"], ctx.abort, ctx.motionOwner)
   }
   if (call === "devices") {
     if (!robot) return { ok: false, error: "no robot is onboarded in this project" }
@@ -142,7 +153,7 @@ async function dispatch(cwd: string, info: PyToolInfo, request: Request, ctx: Co
     const results = await Promise.all(
       commands.map(async (command) => {
         const entry = (typeof command === "object" && command !== null ? command : {}) as Record<string, unknown>
-        const result = await deviceCall(cwd, info, entry["device"], entry["action"], entry["args"], ctx.abort)
+        const result = await deviceCall(cwd, info, entry["device"], entry["action"], entry["args"], ctx.abort, ctx.motionOwner)
         return { ...(typeof entry["device"] === "string" ? { device: entry["device"] } : {}), ...result }
       }),
     )
@@ -159,18 +170,18 @@ async function dispatch(cwd: string, info: PyToolInfo, request: Request, ctx: Co
     const missing = await missingDeviceTypes(cwd, target.manifest)
     if (missing.length > 0) return { ok: false, error: missingDevicesError(name, missing) }
     const args = (typeof request["args"] === "object" && request["args"] !== null ? request["args"] : {}) as Record<string, unknown>
-    return invoke(cwd, target, args, ctx, depth + 1).then(
+    return invoke(cwd, target, args, ctx, depth + 1, ctx.motionOwner).then(
       (result) => ({ ok: true, result }),
       (error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }),
     )
   }
-  return { ok: false, error: `unknown call "${String(call)}" — use device, devices, tool, profile, or robot` }
+  return { ok: false, error: `unknown call "${String(call)}" — use device, devices, tool, profile, robot, or stop_owned` }
 }
 
 // Run the dialog to completion; resolves with the tool's return object.
-async function invoke(cwd: string, info: PyToolInfo, args: Record<string, unknown>, ctx: Context, depth: number): Promise<Record<string, unknown>> {
+async function invoke(cwd: string, info: PyToolInfo, args: Record<string, unknown>, ctx: Context, depth: number, motionOwner: string = crypto.randomUUID()): Promise<Record<string, unknown>> {
   const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(info.manifest.timeout_s * 1000))])
-  const scoped = { ...ctx, abort: signal }
+  const scoped = { ...ctx, abort: signal, motionOwner }
   signal.throwIfAborted()
   await validateInputs(cwd, info, args)
   signal.throwIfAborted()
@@ -240,7 +251,7 @@ async function invoke(cwd: string, info: PyToolInfo, args: Record<string, unknow
   }).catch(async (error: unknown) => {
     // Stop before returning a failed controller to its caller, including a parent tool.
     if (info.manifest.kind === "controller") {
-      for (const outcome of await stopDevices(cwd)) if ("error" in outcome) log.warn(outcome.error, { device: outcome.device })
+      await stopOwnedMotions(cwd, motionOwner).catch(failure => { log.warn(String(failure)) })
     }
     throw error
   })

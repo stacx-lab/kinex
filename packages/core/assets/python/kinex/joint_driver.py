@@ -2,11 +2,13 @@
 
 import sys
 import threading
+import uuid
+
 from pathlib import Path
 
-from kinex.driver_protocol import run, release
+from kinex.driver_protocol import run, release, check_cancelled
 from kinex.joints import JointDevice, settings
-from kinex.validation import segment_result
+from kinex.validation import number
 
 
 class Driver:
@@ -28,10 +30,80 @@ class Driver:
     def read_state(self, handle):
         raise NotImplementedError("read positions/velocities/efforts/faults, acquisition time and reported_pose")
 
-    def send_target(self, handle, command):
-        # Check kinex.driver_protocol.check_cancelled() between native steps;
-        # read_state and halt must remain usable while this hook waits.
-        raise NotImplementedError("Execute the target for command.for_s in the device clock; honor arrive and max_velocity; return accepted, elapsed_s, reached and state")
+    def servo(self, handle, target, period_s):
+        raise NotImplementedError("Send one absolute reference for period_s; return elapsed_s and measured state. Honor SDK cadence, allow read/stop, and do not interpolate.")
+
+    def motion_result(self, result):
+        if not isinstance(result, dict) or number(result.get("elapsed_s"), "elapsed_s") < 0:
+            raise ValueError("motion must report nonnegative elapsed_s")
+        if not isinstance(result.get("state"), dict):
+            raise ValueError("motion must report measured state")
+        state = self.model().reading(result["state"])
+        if state["faults"]:
+            raise RuntimeError(f"joint device fault: {state['faults']}")
+        return {**result, "state": state}
+
+    def stop_motion(self, handle):
+        try:
+            self.halt(handle)
+        except Exception as error:
+            error.code = "stop_failed"
+            raise
+
+    def reference(self, handle, target, period):
+        result = self.motion_result(self.servo(handle, target, period))
+        if result["elapsed_s"] + 1e-8 < period:
+            raise ValueError("servo returned before its action period elapsed")
+        return result
+
+    def motion(self, args):
+        command = self.model().command(args)
+        for_s = command.get("for_s")
+        handle = self.connection()
+        elapsed, completed, state = 0.0, 0, None
+        stop_attempted = False
+
+        def stop():
+            nonlocal stop_attempted
+            if not stop_attempted:
+                stop_attempted = True
+                self.stop_motion(handle)
+
+        try:
+            check_cancelled()
+            period = 1 / command["freq_hz"]
+            for target in command["actions"]:
+                check_cancelled()
+                duration = period if for_s is None else min(period, for_s - elapsed)
+                if duration <= 0:
+                    break
+                result = self.reference(handle, target, duration)
+                elapsed += result["elapsed_s"]
+                state = result["state"]
+                if for_s is not None and elapsed > for_s + 1e-8:
+                    raise ValueError("servo exceeded sequence budget")
+                if duration + 1e-8 < period:
+                    break
+                completed += 1
+            check_cancelled()
+            timeout = completed < len(command["actions"])
+            stepped = self.profile["intrinsics"]["control"].get("execution", "realtime") == "stepped"
+            if timeout or stepped:
+                stop()
+                state = self.sample()
+            return {"completed_actions": completed, "elapsed_s": elapsed, "state": state,
+                    "execution_id": uuid.uuid4().hex,
+                    "terminated_by": "timeout" if timeout else "completed",
+                    "reference_state": "stopped" if stop_attempted else "target"}
+        except BaseException as error:
+            error.details = {"completed_actions": completed, "elapsed_s": elapsed, "state": state}
+            try:
+                stop()
+            except Exception as stop_error:
+                stop_error.code = "stop_failed"
+                stop_error.add_note(f"motion failed: {error}")
+                raise stop_error from error
+            raise
 
     def halt(self, handle):
         raise NotImplementedError("perform the declared stop behavior and scope")
@@ -80,14 +152,12 @@ class Driver:
                 raise RuntimeError("Recorder has no fresh state")
             return state
         if action == "write":
-            command = self.model().command(args)
-            result = segment_result(self.send_target(self.connection(), command))
-            return {**result, "state": self.model().reading(result["state"])}
+            return self.motion(args)
         if action == "stop":
             stop = self.profile["intrinsics"]["stop"]
             if self.profile["name"] not in stop["affected_devices"]:
                 raise ValueError("stop scope must include this device")
-            self.halt(self.connection())
+            self.stop_motion(self.connection())
             return {"stopped": True, **stop}
         if action == "fk":
             if set(args) != {"joints"}:
@@ -122,14 +192,15 @@ class Driver:
         try:
             return {"ok": True, **self.execute(action, args)}
         except Exception as exc:
-            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}",
+                    "details": getattr(exc, "details", None), "code": getattr(exc, "code", None)}
 
     def close(self, stop=None):
         def disconnect():
             if self.recorder is not None and self.recorder.running:
                 raise RuntimeError("capture still uses the connection; process teardown is required")
             handle, self.handle = self.handle, None
-            release(lambda: self.halt(handle) if handle is not None and (self.serving if stop is None else stop) else None,
+            release(lambda: self.stop_motion(handle) if handle is not None and (self.serving if stop is None else stop) else None,
                     lambda: self.disconnect(handle) if handle is not None else None)
         # The sampler uses connection(); stop it before clearing that handle.
         release(lambda: self.execute("record_stop", {}), disconnect)

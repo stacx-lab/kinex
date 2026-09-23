@@ -1,5 +1,3 @@
-Immediately stops motion. With no deviceID it stops EVERY loaded actuated device (each
-through its own driver's "stop" action); with a deviceID it stops just that device.
-Never gated behind a permission prompt. The result reports, per device, whether the
-stop actually went through — a device whose driver declares no "stop" action is
-called out loudly, because it may still be moving.
+Stop the named device, or all loaded actuators when deviceID is omitted. Stops use
+each driver's declared behavior and affected-device scope. No approval is required.
+Results report each device's acknowledgment or failure; inspect failures before resuming.

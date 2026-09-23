@@ -6,23 +6,16 @@ description: suction control and observation contract.
 
 ## Use
 
-Every write requires a positive `for_s` in the device's own clock. The driver
-returns `accepted`, `elapsed_s`, boolean `reached`, and the resulting `state`.
-SDK hooks must return that report; acknowledgment alone is insufficient. Joint
-arrival may end a segment early when `arrive` is supplied. Call `stop` explicitly
-to halt a standing goal; the segment budget bounds the call, not goal lifetime.
-
-
-Binary vacuum activation: write {target:[value],for_s} accepts exactly the declared on_target/off_target. read reports only declared pressure/contact channels and measured state. Activation does not establish a successful grasp.
+`write({target: [value], for_s})` accepts the declared on_target or off_target.
+It returns `accepted`, `elapsed_s`, `reached` and measured `state`; activation does
+not establish grasp success or clear the vacuum command. `read` exposes declared
+pressure/contact channels. `stop` follows the profile's behavior and scope.
 
 ## Setup
 
-Load initializes the connection and any owned control/streaming service, waiting
-for readiness; status only observes. Unload stops active work according to the
-profile and releases every owned resource, even if a cleanup stage fails. Follow
-setup-device for service ownership, partial-startup rollback and exit cleanup.
-
-Use setup-device for registration and driver lifecycle. Fill the starter with known facts; `???` marks unresolved values and `null` has the field’s declared meaning.
+Follow setup-device for registration and lifecycle ownership. Load waits for
+readiness; status only observes; unload stops motion and releases owned resources.
+Use `???` for unresolved facts and `null` only where the schema permits it.
 
 control declares mode:binary, distinct on_target/off_target. feedback declares positions (possibly empty), velocities, sensors, clock and aperture_model:null. stop declares behavior and affected_devices. Mount locates the suction TCP.
 

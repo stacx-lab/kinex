@@ -27,7 +27,7 @@
 | `kinex stats [--json]` | 缺失 | Pi 有当前会话统计，没有接入旧跨会话聚合。 |
 | `kinex upgrade [version]` | 缺失 | 源码/npm 构建交付，没有自更新命令。 |
 | `--log-level` / `KINEX_LOG_LEVEL` | 变化 | 无统一 CLI 日志选项；复制的 core 自身日志设施仍存在，不能当作整个新 harness 的日志控制。 |
-| help/version、错误退出码 | 保留 | 新版 CLI 自行处理；版本为 0.6.0。 |
+| help/version、错误退出码 | 保留 | 新版 CLI 自行处理；版本为 0.8.0。 |
 
 旧证据：`src/index.ts`、`src/cli/cmd/*`、`src/cli/chat.ts`。新证据：`src/cli.ts`。
 

@@ -1,10 +1,6 @@
 name: track
 kind: controller
-description: Track a perceived point with bounded move_to segments. Each round perceives, then passes
-  the observation to move_to. control.args.timeout_s bounds each segment; timeout_s bounds total
-  executed motion time, excluding perception. Optional continuation keeps moving between successful
-  rounds after a segment timeout. A perception miss stops motion before retrying. Always stops the
-  target when tracking ends. Only move_to is supported; no policy or velocity controllers.
+description: "Repeat perceive → process → control until a predicate or round/miss limit. Each controller call owns its time bounds. Stops owned motion on misses and exit."
 parameters:
   type: object
   additionalProperties: false
@@ -12,144 +8,45 @@ parameters:
     perceive:
       type: object
       additionalProperties: false
-      description: perception tool run at the start of every round
       properties:
-        tool:
-          type: string
-        args:
-          type: object
-      required:
-      - tool
+        tool: {type: string}
+        args: {type: object}
+      required: [tool]
+    process:
+      type: object
+      additionalProperties: false
+      properties:
+        tool: {type: string}
+        args: {type: object}
+      required: [tool]
+      description: "Receives perception as observation, overriding configured observation. Returns {args: object} to overlay control.args, or {args: null} to skip control and count a miss."
     control:
       type: object
       additionalProperties: false
       properties:
-        tool:
-          type: string
-          const: move_to
-        args:
-          type: object
-          additionalProperties: false
-          properties:
-            device:
-              type: string
-              description: joint-controlled device name
-            timeout_s:
-              type: number
-              exclusiveMinimum: 0
-              maximum: 300
-              description: budget in seconds of the device's own clock, so the same value covers
-                the same amount of motion on every robot
-            frame:
-              type: string
-              description: frame the pose or observation point is expressed in, as device or device:frame;
-                defaults to the frame the observation names. Converted to the device canonical frame
-                before solving
-            offset_m:
-              type: array
-              minItems: 3
-              maxItems: 3
-              items:
-                type: number
-              description: standoff added to an observation's point, in the device's canonical frame
-            orientation:
-              type: array
-              minItems: 4
-              maxItems: 4
-              items:
-                type: number
-              description: goal rotation xyzw for an observation goal; defaults to the orientation
-                the device already holds
-            speedFraction:
-              type: number
-              exclusiveMinimum: 0
-              maximum: 1
-              description: optional fraction of control.speed ceilings; requires speed support
-            joint_tolerance:
-              oneOf:
-              - type: number
-                exclusiveMinimum: 0
-              - type: array
-                items:
-                  type: number
-                  exclusiveMinimum: 0
-                minItems: 1
-              default: 0.01
-              description: scalar or per-joint values in model order; radians/metres
-            quiet_velocity:
-              oneOf:
-              - type: number
-                exclusiveMinimum: 0
-              - type: array
-                items:
-                  type: number
-                  exclusiveMinimum: 0
-                minItems: 1
-              default: 0.005
-              description: scalar or per-joint values in model order; radians/metres per second
-            stable_s:
-              type: number
-              exclusiveMinimum: 0
-              default: 0.1
-              description: how long the device must hold within tolerance to count as arrived, in
-                seconds of its own clock
-            on_timeout:
-              type: string
-              enum:
-              - stop
-              - continue
-              default: stop
-              description: on running out of budget before arrival, stop holds the device where it
-                is; continue leaves it pursuing the goal so it keeps moving while you think
-          required:
-          - device
-          - timeout_s
-      required:
-      - tool
-      - args
+        tool: {type: string}
+        args: {type: object}
+      required: [tool]
+      description: "Bounded controller call. Results are returned as last, not interpreted; failures must raise errors."
     until:
       type: object
       additionalProperties: false
-      description: optional termination predicate - a PERCEPTION tool whose truthy key ends the run.
-        Without it the run ends when the controller reports it reached its goal
+      description: "Predicate checked before the first round and after every round; a truthy key ends tracking."
       properties:
-        tool:
-          type: string
-        args:
-          type: object
-        key:
-          type: string
-          description: 'result key to test (default: done)'
-      required:
-      - tool
-    stop_when_reached:
-      type: boolean
-      default: true
-      description: end the run when move_to reports reaching the goal it was given. Set false
-        to keep re-planning until until or the budget
+        tool: {type: string}
+        args: {type: object}
+        key: {type: string, description: "Result key to test (default: done)."}
+      required: [tool]
     max_misses:
       type: integer
       minimum: 1
       default: 3
-      description: consecutive rounds whose perception locates nothing before the run ends
+      description: "Consecutive processing misses before stopping."
     max_rounds:
       type: integer
       minimum: 1
       default: 200
-      description: ceiling on perceive/control rounds, as a runaway guard
-    timeout_s:
-      type: number
-      exclusiveMinimum: 0
-      maximum: 600
-      description: total budget in seconds of the device's own clock, summed from the controller's
-        reported elapsed_s
-  required:
-  - perceive
-  - control
-  - timeout_s
+      description: "Maximum perceive/process/control rounds."
+  required: [perceive, process, control]
 timeout_s: 900
 devices: []
-device_inputs:
-  control.args.device:
-    types:
-    - joint
