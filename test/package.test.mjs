@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, rm, rename, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, rename, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +29,8 @@ test('four tarballs install and relocate, with adapters independent of standalon
   for (const name of Object.keys(env)) if (name.endsWith('API_KEY') || name.endsWith('API_TOKEN')) delete env[name]
   const entry = path.join(relocated, 'node_modules/kinex/bin/kinex.mjs')
   const invoke = (...args) => exec(process.execPath, [entry, ...args], { cwd: relocated, env, timeout: 20000 })
-  assert.match((await invoke('--version')).stdout, /0\.6\.0/)
+  const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
+  assert.equal((await invoke('--version')).stdout.trim(), version)
   assert.match((await invoke('--help')).stdout, /--enable-recording/)
   assert.match((await invoke('run', '/devices')).stdout, /No devices/)
   await assert.rejects(stat(path.join(relocated, '.pi')), { code: 'ENOENT' })
