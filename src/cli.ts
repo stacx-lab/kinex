@@ -59,9 +59,16 @@ async function main(): Promise<void> {
     if (headless) {
       if (values.record && app.owner.runtime) {
         await Promise.all((await app.owner.runtime.devices.warmLoaded()).map(activation => activation.ready))
-        await executeRoboticsCommand(app.owner.runtime, "record", `start ${values.record}`, {
+        const started = await executeRoboticsCommand(app.owner.runtime, "record", `start ${values.record}`, {
           sessionID: app.host.session.sessionId, confirm: async () => false,
         })
+        if (started.kind !== "output") throw new Error("Recording did not return a result")
+        const report = JSON.parse(started.text) as { refusals?: Record<string, string> }
+        const refusals = Object.entries(report.refusals ?? {})
+        if (refusals.length) {
+          await app.owner.runtime.recording.stop({ endedBy: "error" })
+          throw new Error(`--record refused: ${refusals.map(([device, reason]) => `${device}: ${reason}`).join("; ")}`)
+        }
       }
       process.exitCode = await runPrintMode(app.host, {
         mode: values.json ? "json" : "text",

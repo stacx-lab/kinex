@@ -59,3 +59,30 @@ run(dispatch, close)
     assert.equal(recordings[0].status, 'stopped')
   })
 }
+
+test('headless --record reports a refused device before requesting a model', { timeout: 15000 }, async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  const core = createKinexRuntime({ directory: cwd })
+  await seed(core)
+  await core.profiles.writeDevice({ name: 'sensor', loaded: true })
+  await core.dispose()
+
+  const child = spawn(process.execPath, [entry, 'run', '--auto', '--model', 'fake/test',
+    '--record', 'sensor=2 camera=2', 'Read the sensors'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+  let stderr = ''
+  child.stdout.resume()
+  child.stderr.on('data', data => { stderr += data })
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') })
+  const [code] = await once(child, 'exit')
+  assert.equal(code, 1, stderr)
+  assert.match(stderr, /--record refused: camera: no device "camera" in this workspace/)
+  assert.equal(fake.requests.length, 0)
+
+  const reader = createKinexRuntime({ directory: cwd })
+  t.after(() => reader.dispose())
+  const recordings = await reader.recording.recent()
+  assert.equal(recordings.length, 1)
+  assert.equal(recordings[0].status, 'stopped')
+  assert.deepEqual(Object.keys(recordings[0].sampling.devices), ['sensor'])
+})
