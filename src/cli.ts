@@ -66,8 +66,7 @@ async function main(): Promise<void> {
         const report = JSON.parse(started.text) as { refusals?: Record<string, string> }
         const refusals = Object.entries(report.refusals ?? {})
         if (refusals.length) {
-          await app.owner.runtime.recording.stop({ endedBy: "error" })
-          throw new Error(`--record refused: ${refusals.map(([device, reason]) => `${device}: ${reason}`).join("; ")}`)
+          console.error(`Kinex: --record refused: ${refusals.map(([device, reason]) => `${device}: ${reason}`).join("; ")}`)
         }
       }
       process.exitCode = await runPrintMode(app.host, {

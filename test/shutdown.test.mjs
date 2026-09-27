@@ -60,29 +60,40 @@ run(dispatch, close)
   })
 }
 
-test('headless --record reports a refused device before requesting a model', { timeout: 15000 }, async t => {
-  const cwd = await workspace(t)
-  const fake = await fakeProvider(t, isolation.root)
-  const core = createKinexRuntime({ directory: cwd })
-  await seed(core)
-  await core.profiles.writeDevice({ name: 'sensor', loaded: true })
-  await core.dispose()
+for (const specs of ['sensor=2 camera=2', 'camera=2']) {
+  test(`headless --record ${specs} reports refusals and continues the model task`, { timeout: 15000 }, async t => {
+    const cwd = await workspace(t)
+    const fake = await fakeProvider(t, isolation.root)
+    const core = createKinexRuntime({ directory: cwd })
+    await seed(core)
+    await core.profiles.writeDevice({ name: 'sensor', loaded: true })
+    await core.dispose()
 
-  const child = spawn(process.execPath, [entry, 'run', '--auto', '--model', 'fake/test',
-    '--record', 'sensor=2 camera=2', 'Read the sensors'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
-  let stderr = ''
-  child.stdout.resume()
-  child.stderr.on('data', data => { stderr += data })
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') })
-  const [code] = await once(child, 'exit')
-  assert.equal(code, 1, stderr)
-  assert.match(stderr, /--record refused: camera: no device "camera" in this workspace/)
-  assert.equal(fake.requests.length, 0)
+    const reader = createKinexRuntime({ directory: cwd })
+    t.after(() => reader.dispose())
+    let statusDuringTask
+    fake.respond = async () => {
+      statusDuringTask = (await reader.recording.recent())[0]?.status
+      return { text: 'TASK_COMPLETED' }
+    }
+    const child = spawn(process.execPath, [entry, 'run', '--auto', '--model', 'fake/test',
+      '--record', specs, 'Read the sensors'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', data => { stdout += data })
+    child.stderr.on('data', data => { stderr += data })
+    t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') })
+    const [code] = await once(child, 'close')
+    assert.equal(code, 0, stderr)
+    assert.match(stderr, /--record refused: camera: no device "camera" in this workspace/)
+    assert.match(stdout, /TASK_COMPLETED/)
+    assert.equal(fake.requests.length, 1)
+    const hasValidDevice = specs.includes('sensor=')
+    assert.equal(statusDuringTask, hasValidDevice ? 'recording' : 'stopped')
 
-  const reader = createKinexRuntime({ directory: cwd })
-  t.after(() => reader.dispose())
-  const recordings = await reader.recording.recent()
-  assert.equal(recordings.length, 1)
-  assert.equal(recordings[0].status, 'stopped')
-  assert.deepEqual(Object.keys(recordings[0].sampling.devices), ['sensor'])
-})
+    const recordings = await reader.recording.recent()
+    assert.equal(recordings.length, 1)
+    assert.equal(recordings[0].status, 'stopped')
+    assert.deepEqual(Object.keys(recordings[0].sampling.devices), hasValidDevice ? ['sensor'] : [])
+  })
+}
