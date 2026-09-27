@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util"
-import { InteractiveMode, runPrintMode } from "@earendil-works/pi-coding-agent"
+import { InteractiveMode, main as piMain, runPrintMode } from "@earendil-works/pi-coding-agent"
 import { createApplication } from "./application.ts"
 import { executeRoboticsCommand } from "@kinex/core"
 
@@ -8,6 +8,7 @@ const help = `Kinex — robotics coding agent
 kinex [options]                       Interactive terminal
 kinex run [options] "prompt"          Run once; prints the final reply
 kinex run "/devices"                  Direct robotics command; no model needed
+kinex --export <session.jsonl> [output.html]  Export a session to HTML
 
 --model provider/model               Select a Pi model/provider
 --thinking off|minimal|low|medium|high|xhigh
@@ -29,11 +30,17 @@ async function main(): Promise<void> {
   const { values, positionals } = parseArgs({ allowPositionals: true, strict: true, options: {
     help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" },
     model: { type: "string" }, thinking: { type: "string" }, effort: { type: "string" },
+    export: { type: "string" },
     continue: { type: "boolean" }, session: { type: "string" }, auto: { type: "boolean" }, yolo: { type: "boolean" },
     "enable-recording": { type: "boolean" }, record: { type: "string" }, seed: { type: "string" }, json: { type: "boolean" },
   } })
   if (values.help) { console.log(help); return }
   if (values.version) { console.log("0.8.2"); return }
+  if (values.export !== undefined) {
+    if (!values.export || positionals.length > 1) throw new Error("Usage: kinex --export <session.jsonl> [output.html]")
+    await piMain(["--export", values.export, ...positionals])
+    return
+  }
   if (values.auto && values.yolo) throw new Error("Choose --auto or --yolo")
   const thinking = values.thinking ?? values.effort
   if (thinking !== undefined && thinking !== "off" && thinking !== "minimal" && thinking !== "low" && thinking !== "medium" && thinking !== "high" && thinking !== "xhigh") throw new Error("Invalid thinking level")
