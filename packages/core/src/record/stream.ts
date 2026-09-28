@@ -1,4 +1,4 @@
-import { preparePython } from "../python/environment.ts"
+import { pythonRuntime } from "../python/environment.ts"
 import { spawnProcess } from "../util/process.ts"
 import fs from "node:fs"
 import fsp from "node:fs/promises"
@@ -99,7 +99,7 @@ export function createStreams(input: { cwd: string; dir: string; config: RecordC
       entry.stats.status = "recording"
       return
     }
-    const runtime = await preparePython(input.cwd)
+    const runtime = await pythonRuntime(input.cwd)
     const proc = spawnProcess([runtime.executable, Assets.python("record_encode.py"), "--dir", dir, "--fps", String(args.fps), "--max-px", String(args.max_px),
       ...(entry.device.type === "rgbd" ? ["--depth"] : [])], {
       stdin: "pipe", stdout: "pipe", stderr: "pipe",

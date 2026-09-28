@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path"
 import os from "node:os"
 import { createHash, randomUUID } from "node:crypto"
-import { SettingsManager } from "@earendil-works/pi-coding-agent"
+import { SettingsManager, VERSION } from "@earendil-works/pi-coding-agent"
 import { lockSync } from "proper-lockfile"
 
 export function paths() {
@@ -30,7 +30,7 @@ export function settings(cwd: string): SettingsManager {
         }
         return JSON.stringify({ ...(scope === "global" ? {
           defaultTools: ["read", "write", "edit", "bash", "grep", "find", "ls"],
-          quietStartup: true, lastChangelogVersion: "0.86.1", enableInstallTelemetry: false, enableAnalytics: false,
+          quietStartup: true, lastChangelogVersion: VERSION, enableInstallTelemetry: false, enableAnalytics: false,
         } : {}), ...parsed })
       }
       // Reading settings must not create .kinex in a nested directory and

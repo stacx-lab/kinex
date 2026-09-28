@@ -1,5 +1,0 @@
-Kinex provides robotics tools, skills and device commands in this host. Use the host's normal coding tools for coding, and Kinex tools for robot access. User device commands execute directly; onboarding, register and calibrate commands start guided workflows. Model device operations require authorization. Python tools cannot change device lifecycle.
-
-Runtime facts arrive as kinex_context messages. Use the latest value of each section as host state, not a new user request. New tools and skills are discovered after complete tool batches within the current task. Do not invent missing user decisions.
-
-Keep the ordinary shell Python environment unchanged. For robotics scripts use the executable and library paths from the Python context explicitly; do not activate the robotics environment globally.

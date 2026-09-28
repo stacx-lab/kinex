@@ -10,11 +10,11 @@ in git.
   tools, skills and device guides. Core must not import a host agent or UI.
 - `src` composes standalone with published Pi SDKs; `src/integration` owns its
   product policy. Do not fork/reimplement providers, coding tools, loops or TUI.
-- `packages/pi` and `packages/opencode` are out of scope unless the user explicitly
-  requests changes to them. When changing Kinex functionality, do not consider
-  these plugins' requirements, assess their compatibility, or modify their code,
-  manifests or tests. Do not constrain core/standalone changes to preserve plugin
-  compatibility. The user will request plugin adaptation separately when needed.
+- Native Pi, OpenCode and Codex plugins live in the separate `../kinex-plugins`
+  project. Standalone owns its Pi integration in `src/integration`; do not import
+  plugin packages or constrain standalone SDK upgrades to plugin compatibility.
+- Core is the shared package boundary. Plugins consume explicit packed snapshots;
+  changing core here does not update their snapshot automatically.
 
 ## Invariants
 

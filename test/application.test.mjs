@@ -8,6 +8,24 @@ const isolation = await isolate()
 after(isolation.cleanup)
 const { createApplication } = await import('../dist/application.js')
 
+test('headless context includes one short Python instruction without onboarding or environment creation', async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  t.after(() => app.dispose())
+  await bind(app)
+  await app.host.session.prompt('Describe the available Python environment without running tools')
+  const request = fake.requests[0]
+  const system = JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
+  assert.equal(system.match(/Kinex core Python:/g)?.length, 1)
+  assert.match(system, /uv add\/uv sync/)
+  assert.doesNotMatch(system, /Default pyproject\.toml|\{\{PROJECT\}\}/)
+  const context = await app.owner.runtime.context()
+  assert.ok(JSON.stringify(request).includes(context.python.executable))
+  assert.equal(context.python.present, false)
+  await assert.rejects(stat(path.join(cwd, '.kinex/python')), { code: 'ENOENT' })
+})
+
 test('direct commands need no model and preserve the robotics workspace', async t => {
   const cwd = await workspace(t)
   const outputs = []

@@ -1,0 +1,86 @@
+[
+  {
+    "repo": "yuanty/fastwam",
+    "revision": "8eaceeb24c3cc92ff2a9c9a9d266a4941b836705",
+    "filename": "libero_optional_idm_2cam224.pt",
+    "size": 12041735545,
+    "sha256": "26b4efffded221b9a303ca8f2cddb9999c8b7524e2751c855c74a986242ce8b4"
+  },
+  {
+    "repo": "yuanty/fastwam",
+    "revision": "8eaceeb24c3cc92ff2a9c9a9d266a4941b836705",
+    "filename": "libero_optional_idm_2cam224_dataset_stats.json",
+    "size": 40939,
+    "git_blob": "e8ff7341ad86b9750dc1fbc26250da8c2c05f1a2"
+  },
+  {
+    "repo": "yuanty/fastwam",
+    "revision": "8eaceeb24c3cc92ff2a9c9a9d266a4941b836705",
+    "filename": "libero_uncond_2cam224.pt",
+    "size": 12041735140,
+    "sha256": "1000437cfcf55c000094f79a2600634c502bcb5b492476b94bf8509883a49579"
+  },
+  {
+    "repo": "yuanty/fastwam",
+    "revision": "8eaceeb24c3cc92ff2a9c9a9d266a4941b836705",
+    "filename": "libero_uncond_2cam224_dataset_stats.json",
+    "size": 40939,
+    "git_blob": "e8ff7341ad86b9750dc1fbc26250da8c2c05f1a2"
+  },
+  {
+    "repo": "yuanty/fastwam",
+    "revision": "8eaceeb24c3cc92ff2a9c9a9d266a4941b836705",
+    "filename": "robotwin_uncond_3cam_384.pt",
+    "size": 12041813092,
+    "sha256": "776475b22566a791854ecf31cf3b50f25e7d8d94c343132ec16eb94994aa9e63"
+  },
+  {
+    "repo": "yuanty/fastwam",
+    "revision": "8eaceeb24c3cc92ff2a9c9a9d266a4941b836705",
+    "filename": "robotwin_uncond_3cam_384_dataset_stats.json",
+    "size": 88715,
+    "git_blob": "f1652563d2dedbd7063c55bd8c2f4297ec648d45"
+  },
+  {
+    "repo": "Wan-AI/Wan2.2-TI2V-5B",
+    "revision": "921dbaf3f1674a56f47e83fb80a34bac8a8f203e",
+    "filename": "Wan2.2_VAE.pth",
+    "size": 2818839170,
+    "sha256": "20eb789667fa5e60e7516bf509512f6cb61f01b0aa0695eadaea930c13892b36"
+  },
+  {
+    "repo": "Wan-AI/Wan2.2-TI2V-5B",
+    "revision": "921dbaf3f1674a56f47e83fb80a34bac8a8f203e",
+    "filename": "models_t5_umt5-xxl-enc-bf16.pth",
+    "size": 11361920418,
+    "sha256": "7cace0da2b446bbbbc57d031ab6cf163a3d59b366da94e5afe36745b746fd81d"
+  },
+  {
+    "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+    "revision": "37ec512624d61f7aa208f7ea8140a131f93afc9a",
+    "filename": "google/umt5-xxl/special_tokens_map.json",
+    "size": 6623,
+    "git_blob": "14855e7052ffbb595057dfd791d293c1c940db2c"
+  },
+  {
+    "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+    "revision": "37ec512624d61f7aa208f7ea8140a131f93afc9a",
+    "filename": "google/umt5-xxl/spiece.model",
+    "size": 4548313,
+    "sha256": "e3909a67b780650b35cf529ac782ad2b6b26e6d1f849d3fbb6a872905f452458"
+  },
+  {
+    "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+    "revision": "37ec512624d61f7aa208f7ea8140a131f93afc9a",
+    "filename": "google/umt5-xxl/tokenizer.json",
+    "size": 16837417,
+    "sha256": "6e197b4d3dbd71da14b4eb255f4fa91c9c1f2068b20a2de2472967ca3d22602b"
+  },
+  {
+    "repo": "Wan-AI/Wan2.1-T2V-1.3B",
+    "revision": "37ec512624d61f7aa208f7ea8140a131f93afc9a",
+    "filename": "google/umt5-xxl/tokenizer_config.json",
+    "size": 61728,
+    "git_blob": "4e1cc1cd85599ce0b47fd0a746af188fe4043ff2"
+  }
+]

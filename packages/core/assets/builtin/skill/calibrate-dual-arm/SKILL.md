@@ -13,7 +13,7 @@ need accuracy. This skill measures `T_anchorbase_secondbase` DIRECTLY: both TCPs
 same points, and a rigid registration between the two base-frame point sets is the arm-to-arm
 edge. Script: `scripts/fit_dual.py` (numpy only). Scratch: `.kinex/calib/calibrate-dual-arm/`.
 
-Run scripts with the prepared Python and `PYTHONPATH=<kinex-root>/python`.
+In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
 Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
 
 ## 0. Preconditions
@@ -25,7 +25,7 @@ Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
   this skill rewrites. With no trusted body mount yet it still works — the second arm mounts
   on the anchor (step 3).
 - ≥ 4 rigid, well-spaced, non-coplanar fiducials REACHABLE BY BOTH arms (3 non-collinear
-  minimum). `uv run --project .kinex/python python -c "import numpy"`.
+  minimum). `"<core-python>" -c "import numpy"`.
 - ONE ARM MOVES AT A TIME: park the idle arm clear of the shared workspace first. Approach a
   point in ~5 mm user-confirmed steps with a supported low-speed setting; never command motion while
   touching.
@@ -47,7 +47,7 @@ than averaging silently. `points.json` in the scratch directory:
 ## 2. Solve
 
 ```bash
-uv run --project .kinex/python python scripts/fit_dual.py --points /absolute/path/points.json
+"<core-python>" scripts/fit_dual.py --points /absolute/path/points.json
 ```
 
 Returns `pose` = `T_anchorbase_secondbase` (second base in the anchor's base frame,

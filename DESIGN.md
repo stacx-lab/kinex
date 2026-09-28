@@ -9,9 +9,8 @@ Hardware and simulators share the same device contracts.
 | --- | --- |
 | `packages/core/src`, `packages/core/assets` | Robotics runtime, business rules and shipped content; no agent/UI dependencies. |
 | `src` | Standalone CLI, isolated coding storage and product policy; published Pi SDKs supply the coding harness and TUI. |
-| `packages/pi` | Shared Pi integration used by standalone, plus the native Pi extension. |
-| `packages/opencode` | Server-owned runtime and model tools; TUI command dialogs connect over local Unix IPC. |
-| `packages/codex` | Stdio MCP tools, permission/question forms and user controls over private Unix IPC. |
+| `src/integration` | Standalone Pi integration and product policy, independent of native plugins. |
+| `../kinex-plugins` (separate project) | Native Pi, OpenCode and Codex integrations consuming a packed core snapshot. |
 
 `KinexContribution` exposes tools, skills, commands and context. Products explicitly
 compose contributions; adapters translate host APIs. Compatible feature changes
@@ -79,7 +78,12 @@ contract; extraction and a shared default composition module remain deferred.
   its predicate or round/miss limits. Misses and final exit stop owned motion.
   `point_to_pose` converts located points into explicit pose goals. Controller
   faults, stalls and disturbed arrival raise errors after stopping. `run_policy` executes one standalone
-  policy chunk using concurrent buffered writes. Normal completion follows
+  policy chunk using concurrent buffered writes. Cartesian pose and pose-delta
+  chunks resolve a frozen frame snapshot and rigid tool offset, then solve IK
+  seeded from measured joints and each preceding solution. Deltas accumulate
+  translation and left-composed axis-angle rotation in the reference frame.
+  The selected chunk is validated before any write; model devices only infer.
+  Normal completion follows
   each device’s execution mode; timeout and faults stop the commanded devices.
   `drive` and `track` always stop on final exit. Execution mode belongs to the
   deployment, never to controller arguments. `move_to` generates synchronized
@@ -88,8 +92,13 @@ contract; extraction and a shared default composition module remain deferred.
   are 1 rad/s and 3 rad/s² for rotary joints, 0.1 m/s and 0.3 m/s² for linear joints,
   capped by known limits. These are planning policy, not inferred hardware ratings.
   It does not promise collision-free path planning.
-  Core lazily prepares `.kinex/python` with uv; explicit interpreters own their
-  dependencies. Ordinary host shells retain their Python environment.
+  Core prepares `.kinex/python` with uv only when its interpreter is missing.
+  Existing environments execute without dependency synchronization; dependency
+  changes and repairs are explicit. Concurrent first use within a process waits for preparation,
+  including when uv has created the interpreter but has not finished installing.
+  Explicit interpreters own their dependencies. Ordinary host shells retain their
+  Python environment. Core Python guidance is a single stable paragraph; paths and
+  presence are dynamic context, available without onboarding in headless sessions.
 - **Recording.** Manual capture is available; model access is opt-in. Native capture
   or dispatch sampling produces manifests, timelines, profile snapshots and
   per-device products; incidental traffic is separate. Acquisition timestamps,
@@ -100,28 +109,24 @@ contract; extraction and a shared default composition module remain deferred.
 ## Host contracts
 
 Trusted commands and model calls stay separate. Hosts own approval UI, session
-identity and cancellation. Pi keeps devices across same-workspace sessions while
-ending outgoing recordings; workspace replacement/quit disposes them. OpenCode
-owns one runtime per workspace instance and enforces recording session ownership.
-
-Pi serializes robotics-containing batches; OpenCode serializes Kinex calls only.
-Denial/cancellation stops subsequent scoped calls, without rolling back completed
-work. Tools/skills refresh within tasks. Stable instructions stay separate from
-appended state; compaction restores a full snapshot before continuation. Standalone
-adds robotics summary rules; native Pi keeps its summarizer. Images enter history
-as bytes. OpenCode's projection ledger stays local to the robotics workspace.
-
-Codex serializes Kinex calls, with immediate stop and invalidation of queued
-calls after denial/cancellation. Its MCP process owns one runtime and recording
-identity; a separate user CLI shares that runtime without model requests. Stable
-instructions accompany discovery; full context is available on demand and changes
-are returned with tool results. There is no per-turn/compaction hook or Codex
-transcript export. EOF/signals dispose resources. Core remains host-independent.
+identity and cancellation. Standalone retains devices across same-workspace
+sessions while ending outgoing recordings; workspace replacement/quit disposes them.
+Robotics-containing batches execute in order. Denial/cancellation stops subsequent
+scoped calls without rolling back completed work. Tools/skills refresh within tasks.
+Stable instructions accompany a dynamic context snapshot restored after compaction.
+Images enter history as bytes. Native host contracts belong to the separate plugin
+project; core remains host-independent.
 
 ## Delivery
 
-One npm workspace releases five version-aligned packages with exact internal
-dependencies. Node >=22.19; tested hosts are Pi 0.86.1, OpenCode 1.18.31 and Codex 0.155.1.
-CI checks contracts, real hosts and relocated packages before producing tarballs.
-See [core API](packages/core/README.md), [usage](README.md),
-[adapter limits](FEATURE_PARITY.md#11-v060-native-adapter-范围) and [progress](PLAN.md).
+This npm workspace releases standalone and core with aligned versions and an exact
+internal dependency. Node >=22.19; standalone uses Pi SDK 0.87.1. Native plugins
+have independent versions and SDK dependencies in `kinex-plugins`. They import
+`@kinex/core` through its package exports, consuming a checked-in tarball snapshot
+with checksum and source provenance; no core source is maintained in that project.
+Standalone and the native Pi plugin own separate host glue so their SDK upgrades
+are independent. Core does not import either host integration.
+
+CI checks core, standalone, real PTY behavior and relocated packages before
+producing two tarballs. See [core API](packages/core/README.md),
+[usage](README.md) and [progress](PLAN.md).

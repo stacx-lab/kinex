@@ -16,6 +16,9 @@ test('packed package runs in an unrelated directory without Bun or repository as
   const packed = await exec('npm', ['pack', '--json', '--pack-destination', directory], { cwd: root })
   const [pack] = JSON.parse(packed.stdout)
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
+  for (const name of ['driver.py', 'setup.sh', 'provision.py', 'fastwam_config.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
+    assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
+  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/policy.py'))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
   await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(directory, pack.filename), '@types/node@22'], { cwd: directory })
   await writeFile(path.join(directory, 'consumer.mts'), `

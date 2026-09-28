@@ -2,9 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { stripTerminalSequences, visibleWidth, getCapabilities, setCapabilities } from '@earendil-works/pi-tui'
 import { initTheme } from '@earendil-works/pi-coding-agent'
-import { toolRenderers } from '../dist/render.js'
-import { toolBridge, piResult } from '../dist/tools.js'
-import { recordingIndicator, recordingFooter } from '../dist/recording-indicator.js'
+import { toolRenderers } from '../dist/integration/render.js'
+import { toolBridge, piResult } from '../dist/integration/tools.js'
+import { recordingIndicator, recordingFooter } from '../dist/integration/recording-indicator.js'
 
 const theme = { fg: (_color, text) => text, bold: text => text }
 const context = { expanded: false, args: {}, isError: false }

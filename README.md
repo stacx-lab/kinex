@@ -46,7 +46,7 @@ cd /path/to/robot-workspace
 
 Use `/login` to authenticate and `/model` to select a model. The provider catalog,
 OAuth flows, streaming, retries, compaction and session history come from Pi
-0.86.1. Existing provider API-key environment variables are supported by Pi.
+0.87.1. Existing provider API-key environment variables are supported by Pi.
 Robot device commands work without model credentials.
 
 Device, recording, stop and key controller tool headers show their action/target.
@@ -55,9 +55,10 @@ arguments and complete returned result. Active recording displays a red
 `rec: <recording name>` on the right of the footer's directory row, directly
 above the model name. Recording does not add a separate row.
 
-Python 3 and uv are needed when using Python tools/drivers; ffmpeg is needed for
-video encoding. Importing core or listing devices does not create Python. Kinex
-prepares `.kinex/python` on demand and never activates it in the ordinary shell.
+Python 3 runs Python tools/drivers; uv is needed to prepare or repair their default
+environment, and ffmpeg is needed for video encoding. Discovery does not create
+Python. Kinex prepares `.kinex/python` when its interpreter is missing; existing
+environments run without syncing. The ordinary shell environment stays unchanged.
 
 ## Commands
 
@@ -203,8 +204,6 @@ See [DESIGN.md](DESIGN.md), [the core API](packages/core/README.md) and the
 npm run typecheck
 npm test                         # fake provider, CLI/package, real Linux/macOS PTY
 npm run test:core                # core and independent npm consumption
-npm run test:adapters            # after build; real Pi/OpenCode loading and TUI
-npm run test:codex               # after build; MCP, real Codex and package relocation
 npm run test:tui                 # after build
 ```
 
@@ -213,41 +212,36 @@ PTY tests need Python 3 and a POSIX host. Do not rebuild core while consumer tes
 are running. Live provider cache rates and real robot task success require separate
 environment-specific validation.
 
-After building, pack all five packages with:
+After building, pack standalone and core with:
 
 ```sh
 npm run pack -- /tmp/kinex-release
 ```
 
-Until registry publication, install standalone with its two local dependencies:
+Until registry publication, install standalone with its core dependency:
 
 ```sh
-npm install /tmp/kinex-release/kinex-core-0.8.1.tgz \
-  /tmp/kinex-release/kinex-pi-0.8.1.tgz \
-  /tmp/kinex-release/kinex-0.8.1.tgz
+npm install /tmp/kinex-release/kinex-core-0.8.2.tgz \
+  /tmp/kinex-release/kinex-0.8.2.tgz
 ```
 
-The OpenCode and Codex adapters install independently of standalone.
-GitHub CI checks types, core, standalone and all three adapters. Tests include
-real host loading, PTY interaction and package relocation. CI uses `.nvmrc`, Python
-3.12 and pinned OpenCode/Codex dev dependencies; no physical devices or paid models.
+GitHub CI checks types, core and standalone, including PTY interaction and package
+relocation. CI uses `.nvmrc` and Python 3.12; no physical devices or paid models.
 
-A `v*` tag must match all five versions and exact internal dependencies. Release CI
-runs all checks and publishes five npm tarballs plus `SHA256SUMS` as GitHub assets.
-It does not publish to npm or bundle Node. Routine builds/tests publish nothing.
+A `v*` tag must match the standalone and core versions and their exact dependency.
+Release CI publishes two npm tarballs plus `SHA256SUMS` as GitHub assets. It does
+not publish to npm or bundle Node. Routine builds/tests publish nothing.
 
 ## Use Kinex in another harness
 
-- [Pi extension](packages/pi/README.md): native text commands and dynamically registered tools.
-- [OpenCode plugin](packages/opencode/README.md): native command dialogs plus fixed discovery/call tools.
-- [Codex adapter](packages/codex/README.md): MCP tools and direct user controls sharing one runtime.
-
-All consume `@kinex/core` and preserve the robotics workspace. They use the host's
-own coding configuration and sessions. Adapter packages live in the same workspace
-and release together, but users do not need standalone Kinex to install them.
+Pi, OpenCode and Codex plugins are maintained in the separate
+[`kinex-plugins` project](../kinex-plugins/README.md), with independent installs,
+SDK versions, tests and releases. They consume a versioned `@kinex/core` tarball
+and do not require standalone Kinex or a source checkout. Their core snapshot is
+updated explicitly; robotics code is maintained only in this repository.
 
 `@kinex/core/integration` defines feature contributions for tools, skills, commands
 and namespaced context. Host adapters consume contributions; product entrypoints
 explicitly compose them around a shared runtime. A future `@kinex/real-world` can
 provide onboarding independently without rewriting the host adapters. This release
-does not split that package, add a dynamic feature loader, or implement Codex/MCP.
+does not split that package, add a dynamic feature loader, or change plugin host integrations.

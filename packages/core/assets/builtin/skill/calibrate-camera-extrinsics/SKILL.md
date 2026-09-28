@@ -15,7 +15,7 @@ frame; the procedure runs on the color stream). One pure-numpy Tsai–Lenz solve
 Choose the variant from the recorded mount; ask only if the physical arrangement is unclear.
 Use move_to with speedFraction ≤ 0.15 for the loop. Anyone steadying the board keeps hands clear. Scratch: `.kinex/calib/calibrate-camera-extrinsics/`.
 
-Run scripts with the prepared Python and `PYTHONPATH=<kinex-root>/python`.
+In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
 Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
 
 ## 0. Preconditions
@@ -25,7 +25,7 @@ Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
   It declares a moving attachment frame in intrinsics.frames. The examples use
   flange; substitute the actual frame in readings and solver arguments.
   Pose goals require the device’s declared IK; joint goals do not.
-- Use Kinex core Python (`uv run --project .kinex/python python`); verify `import cv2, numpy, yaml`
+- Use Kinex core Python (`"<core-python>"`); verify `import cv2, numpy, yaml`
   and `cv2.aruco`. Keep one OpenCV distribution in that environment.
 - A board of KNOWN geometry. No factory board? Do not block: print a ChArUco/checkerboard
   and have the user measure one square (±0.5 mm is plenty) — a measured print IS a measured
@@ -40,7 +40,7 @@ consecutive orientations ≥ ~20° apart: hand-eye degenerates with pure transla
 2. `calib_sample deviceID=<arm> routine=calibrate-camera-extrinsics settle={...} note="pose N"`
    — the flange pose [x,y,z,qx,qy,qz,qw] lands in samples.json as `data.frame_poses.flange`;
 3. read the camera → frame path;
-4. `uv run --project .kinex/python python scripts/detect_board.py --image PATH --profile .kinex/devices/<camera>/profile.yaml \
+4. `"<core-python>" scripts/detect_board.py --image PATH --profile .kinex/devices/<camera>/profile.yaml \
       --board charuco --squares-x 7 --squares-y 5 \
       --square-mm <MEASURED> --marker-mm <MEASURED_MARKER> --dict DICT_4X4_50`
    → `{"ok": true, "rvec": [...], "tvec": [...], "reproj_px": 0.6, "corners": 31}`;
@@ -52,7 +52,7 @@ Accumulate kept pairs in `pairs.json` (write tool — NOT `samples.json`, which 
 
 ## 2. Solve
 
-    uv run --project .kinex/python python scripts/solve_extrinsics.py --device <arm> --frame flange --mode eye_in_hand|eye_to_hand --samples pairs.json
+    "<core-python>" scripts/solve_extrinsics.py --device <arm> --frame flange --mode eye_in_hand|eye_to_hand --samples pairs.json
 
     → {"ok": true, "translation_m": [x,y,z], "rotation_xyzw": [qx,qy,qz,qw], "parent_frame": "flange"|"<arm>",
        "method": "Tsai", "residual_rot_deg": 0.8, "residual_trans_mm": 4.1, "pairs_used": 12}

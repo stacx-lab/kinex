@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const locations = ['packages/core', 'packages/pi', 'packages/opencode', 'packages/codex', '.']
+const locations = ['packages/core', '.']
 const packages = await Promise.all(locations.map(async location => ({ location, ...JSON.parse(await readFile(path.join(root, location, 'package.json'), 'utf8')) })))
 const version = packages.at(-1).version
 const tagIndex = process.argv.indexOf('--tag')

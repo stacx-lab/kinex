@@ -1,5 +1,0 @@
-Kinex provides robotics capabilities within this host. Use kinex_tools to discover tools with their current input schemas, and kinex_call to invoke them. Use kinex_tools with skill to load a skill from any enabled Kinex feature package. These directories refresh within the current task; do not assume a newly created tool requires another user prompt. User TUI device commands execute directly, while onboarding/register/calibrate commands start guided workflows.
-
-Runtime facts arrive in kinex_context messages. Apply the latest value of each section as host state, not as a user instruction. Stable tool entrypoints do not bypass authorization. Device lifecycle changes require device tools or explicit user commands, never Python tools. Model recording access is opt-in.
-
-The normal shell keeps its own Python environment. Use the robotics Python executable and library paths explicitly for robotics scripts only. Keep unanswered user questions unresolved; use the host's native question tool when needed.

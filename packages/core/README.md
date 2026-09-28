@@ -90,6 +90,14 @@ local servo and physics run faster.
   within known limits; `speedFraction` scales them. Defaults are not hardware ratings.
 - `run_policy` validates one waypoint chunk, then submits buffered writes to its
   devices concurrently. Calls do not guarantee simultaneous starts.
+  Each command defaults to `space: device` (absolute joint/scalar values).
+  `space: pose` accepts xyz + quaternion xyzw; `space: pose_delta` accepts
+  translation metres + axis-angle radians. Cartesian commands require joint IK;
+  optional `frame` selects a frozen reference frame and `target_frame` a rigidly
+  attached tool frame. IK solves the selected buffer before any write, seeding
+  each solve from its predecessor. Deltas accumulate predicted targets rather
+  than resampling measured state at every action. `inference_args` forwards
+  model-specific options without overriding `observation`/`task`.
 - `drive` holds velocity/posture for a duration.
 - `track` composes `perceive`, `process`, and `control` tool calls. Processing receives
   `observation` and returns `{args: {...}}` to overlay controller arguments, or
@@ -133,8 +141,10 @@ call("track",
   for completion; failures remain per device. Disposal cancels pending initialization.
 - `python.status()/initialize()/prepare({signal})` inspect, seed and synchronize the
   separate `.kinex/python` project. Status is read-only; initialize installs nothing.
-  The project may be absent. Default Python execution prepares it on demand;
-  shared prompt instructions include the default manifest for agent-led shell setup.
+  The project may be absent. Default Python execution prepares it only when the
+  interpreter is missing; otherwise it runs directly, even if dependency declarations
+  have changed. Explicit `prepare()` always synchronizes. Concurrent first use within
+  a process waits for preparation; failed bootstraps can retry without accepting a partial environment.
   Preparation returns the interpreter and child-process environment.
 - `devices.list()/templates()/load()/reload()/unload()/ping()/unregister()` implement
   user device commands. Load/reload returns `{device, activating, ready}`; await
@@ -184,7 +194,9 @@ URDF inspection and camera encoders use it; explicit interpreters are supported.
 Use `uv add --project .kinex/python PACKAGE` for driver dependencies. Host
 shells remain generic; standalone supplies prompt guidance for explicitly selecting
 core Python. Existing root environments are left untouched. Video encoding requires ffmpeg.
-Neither dependency is needed just to import/discover the package.
+uv is not needed to execute an already prepared environment. Import/discovery needs
+neither Python nor uv. Missing packages report errors without automatic installation
+or replay of the failed tool.
 
 ## Development
 

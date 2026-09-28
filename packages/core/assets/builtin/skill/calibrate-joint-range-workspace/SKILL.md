@@ -9,7 +9,7 @@ resolves: intrinsics:joint, intrinsics:world
 Fills `intrinsics:<arm>` joint limits (and the named home configuration if missing) and the `world` device's
 bounds + surfaces (`intrinsics:world`). Script: `scripts/estimate_reach.py` (numpy + PyYAML).
 
-Run scripts with `PYTHONPATH=<kinex-root>/python` so they share the device geometry library.
+In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
 
 ## 0. Automate first — the zero-human path
 
@@ -21,7 +21,7 @@ Joint model introspection needs no motion:
    Search vendor model metadata before asking the user to measure missing limits.
 2. **Optional reach estimate** (analysis only; not world geometry):
 
-       uv run --project .kinex/python python scripts/estimate_reach.py --profile /path/to/devices/arm/profile.yaml \
+       "<core-python>" scripts/estimate_reach.py --profile /path/to/devices/arm/profile.yaml \
          --samples 20000 --percentile 99
 
        → {"ok": true, "frame": "arm", "aabb_min": [...], "aabb_max": [...], "max_reach_m": 0.85, "samples": 20000}

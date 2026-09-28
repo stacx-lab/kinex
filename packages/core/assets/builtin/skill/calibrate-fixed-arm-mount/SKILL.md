@@ -11,7 +11,7 @@ Fills `extrinsics:<arm>`: the arm base in its fixed parent frame, fitted as
 `mount` convention, so the fit is written as-is. Script: `scripts/fit_mount.py`
 (numpy only). Scratch: `.kinex/calib/calibrate-fixed-arm-mount/`.
 
-Run scripts with the prepared Python and `PYTHONPATH=<kinex-root>/python`.
+In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
 Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
 
 ## Check the frame definition
@@ -24,7 +24,7 @@ not an identity transform.
 ## 0. Preconditions
 
 - The parent frame is physically defined and reproducible (for example `world:fixture`).
-- `uv run --project .kinex/python python -c "import numpy"`.
+- `"<core-python>" -c "import numpy"`.
 - ≥ 4 rigid, well-spaced, non-coplanar fiducials preferred (3 non-collinear is the minimum),
   each measured in BOTH frames, metres, same order. Arm-frame coordinates: the robot/CAD
   drawing, or touch-probing with a calibrated TCP and reading the state. Parent-frame
@@ -51,7 +51,7 @@ never average them silently):
 ## 2. Solve
 
 ```bash
-uv run --project .kinex/python python scripts/fit_mount.py --points /absolute/path/points.json
+"<core-python>" scripts/fit_mount.py --points /absolute/path/points.json
 ```
 
 One JSON object: `pose`, per-point residuals, rms/max, point count, singular values,

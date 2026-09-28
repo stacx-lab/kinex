@@ -5,10 +5,10 @@ import {
   ModelRuntime, SessionManager, type CreateAgentSessionOptions,
 } from "@earendil-works/pi-coding-agent"
 import { paths, sessionDirectory, settings } from "./settings.ts"
-import { RoboticsOwner } from "@kinex/pi/owner"
+import { RoboticsOwner } from "./integration/owner.ts"
 import { kinexExtension } from "./integration/extension.ts"
 import { createCompactionControl } from "./integration/compaction.ts"
-import type { Mode } from "@kinex/pi/interaction"
+import type { Mode } from "./integration/interaction.ts"
 import type { KinexRuntime } from "@kinex/core"
 import { composeContributions, coreContribution, type KinexContribution } from "@kinex/core/integration"
 
@@ -65,16 +65,7 @@ export async function createApplication(options: ApplicationOptions) {
       const model = options.model && slash > 0 ? modelRuntime.getModel(options.model.slice(0, slash), options.model.slice(slash + 1)) : undefined
       if (options.model && !model) throw new Error(`Unknown model ${options.model}; use provider/model and configure agent/models.json if needed`)
       const result = await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent, model, thinkingLevel: options.thinkingLevel })
-      const agent = result.session.agent
       compaction.bind(result.session)
-      const prepareNextTurn = agent.prepareNextTurnWithContext
-      agent.prepareNextTurnWithContext = async (turn, signal) => {
-        // Pi 0.86.1 persists context-only extension messages to agent state, but
-        // its running loop retains a separate message array. Sync before Pi's
-        // own compaction/loadout preparation so the next request sees both.
-        const context = { ...turn.context, messages: agent.state.messages.slice() }
-        return prepareNextTurn ? prepareNextTurn({ ...turn, context }, signal) : { context }
-      }
       submitWorkflow = prompt => result.session.sendUserMessage(prompt, { deliverAs: "followUp" })
       settle = async () => { await result.session.abort(); await settingsManager.flush() }
       return { ...result, services, diagnostics: services.diagnostics }

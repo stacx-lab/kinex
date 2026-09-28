@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
-import { sessionEntryToContextMessages, type AgentSession } from "@earendil-works/pi-coding-agent"
-import type { contextUpdate } from "@kinex/pi/context"
+import type { AgentSession } from "@earendil-works/pi-coding-agent"
+import type { contextUpdate } from "./context.ts"
 
 type ContextMessage = NonNullable<Awaited<ReturnType<typeof contextUpdate>>["message"]>
 
@@ -48,11 +48,8 @@ export async function createCompactionControl() {
       if (!session) throw new Error("Session is not initialized")
       // Only used at the committed compaction boundary: no tool batch is pending.
       // sendMessage(triggerTurn:false) would defer this until the next turn_end.
-      const manager = session.sessionManager
-      const id = manager.appendCustomMessageEntry(message.customType, message.content, message.display, message.details)
-      const entry = manager.getEntry(id)
-      if (!entry) throw new Error("Compaction context was not persisted")
-      session.agent.state.messages.push(...sessionEntryToContextMessages(entry))
+      session.sessionManager.appendCustomMessageEntry(message.customType, message.content, message.display, message.details)
+      session.refreshContext()
     },
   }
 }

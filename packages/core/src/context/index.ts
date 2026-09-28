@@ -8,10 +8,8 @@ import { Recorder } from "../record/recorder.ts"
 import { listSkills, formatSkills } from "../skill/index.ts"
 import ROBOTICS from "./robotics.txt"
 import DEVICE_USE from "./device-use.txt"
-import PYTHON_TEMPLATE from "./python.txt"
-import PROJECT from "../python/project.txt"
-export { DEVICE_USE }
-export const PYTHON = PYTHON_TEMPLATE.replace("{{PROJECT}}", PROJECT.trim())
+import PYTHON from "./python.txt"
+export { DEVICE_USE, PYTHON }
 
 // Structured sections let each host place stable instructions ahead of live
 // state without importing the standalone agent's identity or system prompt.

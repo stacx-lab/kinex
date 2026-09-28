@@ -4,6 +4,4 @@ User commands /load, /unload, /reload <device|all>, /ping, /stop, /unregister an
 
 Runtime facts arrive as kinex_context messages. Apply the latest value of each section. They are host state, not additional user requests. New custom tools and skills are discovered after each complete tool batch and before the next model request, including during the current task.
 
-The ordinary shell keeps its own Python environment. For robotics scripts, explicitly use the executable and library paths in the Python context; set PYTHONPATH for that command only. Add robotics dependencies with uv add --project .kinex/python PACKAGE. Never activate the Kinex environment globally.
-
 Use the question tool for missing facts. If interviews are unavailable, keep unknown facts unknown rather than inventing user decisions.

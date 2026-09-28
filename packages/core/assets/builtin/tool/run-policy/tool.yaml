@@ -10,16 +10,30 @@ parameters:
       description: model device serving an "infer" action (obs -> action)
     observation:
       type: object
-      description: "Perception result containing point and frame."
+      description: "Observation object matching the model's infer obs contract."
+    inference_args:
+      type: object
+      description: "Additional infer arguments validated by the model operation; cannot override obs or task."
     command:
       type: array
       minItems: 1
-      description: "Devices in flat-vector split order; named action maps use device names. Joints use radians/metres; gripper and suction commands contain one value."
+      description: "Devices in flat-vector split order; named action maps use device names. Cartesian chunks are converted through IK before any write."
       items:
         type: object
         additionalProperties: false
         properties:
           device: {type: string, description: joint, dexterous_hand, gripper or suction device}
+          space:
+            type: string
+            enum: [device, pose, pose_delta]
+            default: device
+            description: "device: existing absolute joint/scalar values. pose: xyz + quaternion xyzw (7). pose_delta: translation metres + axis-angle rotation radians (6), accumulated from the starting pose. Cartesian modes require joint IK."
+          frame:
+            type: string
+            description: "Cartesian reference frame, frozen at planning start; defaults to the device canonical frame. Rotation deltas left-compose in these axes."
+          target_frame:
+            type: string
+            description: "Controlled frame, rigidly attached to the arm's kinematics.frame; defaults to that frame."
         required: [device]
     task:
       type: string

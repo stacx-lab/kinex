@@ -1,5 +1,5 @@
 import { scoped, currentScope } from "../scope.ts"
-import { preparePython } from "../python/environment.ts"
+import { pythonRuntime } from "../python/environment.ts"
 import { spawnProcess } from "../util/process.ts"
 import { readFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
@@ -19,7 +19,7 @@ export async function urdfModel(directory: string, file: string, base: string, t
   const cached = models().get(key)
   if (cached) return cached
   const pending = (async () => {
-    const runtime = await preparePython(directory)
+    const runtime = await pythonRuntime(directory)
     const proc = spawnProcess([runtime.executable, Assets.python("introspect_urdf.py"), "--urdf", file,
       "--base-link", base, "--tip-link", tip, "--stdin"], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: runtime.env, signal: currentScope().signal })
     proc.stdin.write(xml)

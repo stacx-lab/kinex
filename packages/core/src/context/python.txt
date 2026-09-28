@@ -1,31 +1,6 @@
-Kinex core Python:
-- Kinex uses a separate uv project under .kinex/python/: pyproject.toml, uv.lock and
-  .venv. Do not assume .kinex/python exists: discovery does not create it, and the
-  project or environment may be missing or deleted. Create the runtime when needed.
-  Default Python tools, drivers and core helpers create and synchronize it before
-  execution. The host coding agent's ordinary Python environment is separate.
-- Before running a robotics script in the shell or adding dependencies, check the
-  absolute Kinex Python project path from context. If pyproject.toml is missing,
-  create its parent directory and write the template below there. Preserve an
-  existing pyproject.toml and its dependencies. Then run
-  `UV_PROJECT_ENVIRONMENT=<Kinex virtual environment> uv sync --project <Kinex Python project>`
-  to create or repair .venv and uv.lock before using the interpreter. Quote paths;
-  apply this environment selection only to Kinex commands, without changing the
-  host's shell defaults. Recheck files if a later command reports them missing.
-
-Default pyproject.toml for a missing Kinex Python project:
-```toml
-{{PROJECT}}
-```
-
-- Fresh core projects include numpy, scipy, Pillow, PyYAML and opencv-python-headless.
-  Add driver dependencies with
-  `UV_PROJECT_ENVIRONMENT=<Kinex virtual environment> uv add --project <Kinex Python project> PACKAGE`.
-  Explicit driver/tool interpreters remain independent and own their dependencies.
-- Use distribution names: PIL → Pillow, cv2 → opencv-python-headless, yaml → PyYAML.
-  Keep one OpenCV distribution. On import failure inspect the reported interpreter
-  and repair its environment. Before rerunning a failed controller, check whether
-  it already acted and resume from measured state.
-- Use the absolute Kinex Python project path from context when running outside the
-  workspace root. `.kinex/python` examples assume the workspace root; select skill
-  scripts using their actual paths from the loaded skill directory.
+Kinex core Python: use the executable and library paths from the current Python
+context for robotics scripts, setting PYTHONPATH only for that command. Default
+Python execution prepares missing environments automatically; existing environments
+run directly. If dependencies are missing or need updating, repair the selected
+environment with uv add/uv sync using its project path. Explicit interpreters own
+their dependencies. Keep the ordinary shell environment unchanged.

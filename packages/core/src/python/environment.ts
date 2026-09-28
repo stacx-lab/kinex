@@ -23,9 +23,9 @@ export async function pythonEnvironment(cwd: string) {
   }
 }
 
-// Initialization installs nothing and never touches the ordinary project files.
-export async function initializePython(cwd: string) {
-  const runtime = await pythonEnvironment(cwd)
+type PythonEnvironment = Awaited<ReturnType<typeof pythonEnvironment>>
+
+async function initialize(runtime: PythonEnvironment) {
   await mkdir(runtime.project, { recursive: true })
   await writeFile(path.join(runtime.project, "pyproject.toml"), PROJECT, { flag: "wx" }).catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "EEXIST") return
@@ -34,9 +34,14 @@ export async function initializePython(cwd: string) {
   return runtime
 }
 
-async function synchronize(cwd: string, signal?: AbortSignal) {
+// Initialization installs nothing and never touches the ordinary project files.
+export async function initializePython(cwd: string) {
+  return initialize(await pythonEnvironment(cwd))
+}
+
+async function synchronize(runtime: PythonEnvironment, signal?: AbortSignal) {
   signal?.throwIfAborted()
-  const runtime = await initializePython(cwd)
+  await initialize(runtime)
   const uv = await which("uv")
   if (!uv) throw new NamedError("PythonEnvironmentError", "Install uv to prepare Kinex core Python, then run uv sync --project .kinex/python.")
   signal?.throwIfAborted()
@@ -54,13 +59,27 @@ async function synchronize(cwd: string, signal?: AbortSignal) {
   return { ...runtime, present: true }
 }
 
-// Shared by runtimes in this process; uv locks the environment across processes.
-const preparations = new Map<string, Promise<unknown>>()
-export async function preparePython(cwd: string, signal = currentScope().signal) {
+// Preparations are shared by runtimes in this process.
+const preparations = new Map<string, Promise<PythonEnvironment>>()
+// A failed bootstrap may leave a Python executable before its packages exist.
+const incomplete = new Set<string>()
+async function prepare(cwd: string, onlyIfMissing: boolean, signal?: AbortSignal) {
   signal?.throwIfAborted()
-  const { project } = await pythonEnvironment(cwd)
-  const previous = preparations.get(project) ?? Promise.resolve()
-  const pending = previous.catch(() => {}).then(() => synchronize(cwd, signal))
+  const runtime = await pythonEnvironment(cwd)
+  signal?.throwIfAborted()
+  const { project } = runtime
+  const previous = preparations.get(project)
+  if (onlyIfMissing && runtime.present && !previous && !incomplete.has(project)) return runtime
+  const pending = (previous ?? Promise.resolve()).catch(() => {}).then(async () => {
+    signal?.throwIfAborted()
+    const present = await exists(runtime.executable)
+    signal?.throwIfAborted()
+    if (onlyIfMissing && present && !incomplete.has(project)) return { ...runtime, present }
+    if (!present) incomplete.add(project)
+    const prepared = await synchronize(runtime, signal)
+    incomplete.delete(project)
+    return prepared
+  })
   preparations.set(project, pending)
   void pending.finally(() => {
     if (preparations.get(project) === pending) preparations.delete(project)
@@ -68,9 +87,15 @@ export async function preparePython(cwd: string, signal = currentScope().signal)
   return abortable(pending, signal)
 }
 
-export async function pythonRuntime(cwd: string, interpreter?: string, signal?: AbortSignal) {
+// Explicit preparation always synchronizes, including an existing environment.
+export async function preparePython(cwd: string, signal = currentScope().signal) {
+  return prepare(cwd, false, signal)
+}
+
+export async function pythonRuntime(cwd: string, interpreter?: string, signal = currentScope().signal) {
+  signal?.throwIfAborted()
   if (interpreter) return { executable: interpreter, env: { ...process.env } }
-  return preparePython(cwd, signal)
+  return prepare(cwd, true, signal)
 }
 
 export function pythonDiagnostic(message: string, executable: string) {

@@ -12,7 +12,7 @@ calibrate that local transform; this mount-writing procedure does not apply. The
 stacked (Ri − Rj) t = pj − pi) is `scripts/fit_tcp.py` (numpy). Scratch:
 `.kinex/calib/calibrate-tcp-offset/`.
 
-Run scripts with the prepared Python and `PYTHONPATH=<kinex-root>/python`.
+In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
 Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
 
 ## 0. Automate first — zero-touch paths, in order
@@ -32,7 +32,7 @@ Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
 - Read `data.frame_poses.flange` (or the declared attachment frame): the driver already removes any reported TCP offset using
   intrinsics.kinematics.feedback and frame_to_reported. Do not subtract it again.
 - A rigid pointed tool (a gripper can pinch a rod) and a FIXED sharp reference point (nail
-  tip, fixture corner). `uv run --project .kinex/python python -c "import numpy"`.
+  tip, fixture corner). `"<core-python>" -c "import numpy"`.
 - Ask whether the robot has free-drive / hand-guiding and strongly prefer it: the user moves
   the arm, you only read state — no commanded motion near contact.
 - **Repeatability pre-check** (two touches): touch the point twice from the SAME
@@ -57,7 +57,7 @@ interactive because only the user can report "touching". Per sample:
 
 ## 3. Solve
 
-    uv run --project .kinex/python python scripts/fit_tcp.py --samples samples.json --frame flange
+    "<core-python>" scripts/fit_tcp.py --samples samples.json --frame flange
 
     → {"ok": true, "tcp_translation_m": [x, y, z], "fixed_point_m": [...],
        "residual_mm": 1.2, "per_sample_mm": [...], "n": 7}

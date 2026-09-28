@@ -1,3 +1,70 @@
+## Version 0.8.2
+
+- [x] Align standalone/core versions, the exact internal dependency, lockfile and CLI.
+- [x] Update package installation examples for the two-package release.
+- [x] Validate typecheck, standalone/core tests, build and v0.8.2 release artifacts.
+
+Includes FastWAM policy inference, plugin project separation, Pi SDK 0.87.1 and
+Python execution without repeated dependency synchronization.
+Validation: typecheck, 79 core tests, 53 standalone tests, build, v0.8.2 metadata
+and both release tarball checksums passed.
+
+## Python execution without repeated dependency synchronization
+
+- [x] Reuse existing default interpreters; prepare only missing environments.
+- [x] Route tools, driver startup, URDF parsing and recording through the same check.
+- [x] Keep explicit preparation and coordinate concurrent bootstrap/cancellation.
+- [x] Reduce system Python guidance to one paragraph and remove implicit skill syncs.
+- [x] Validate preparation races, errors, headless context and full checks/package.
+
+No new commands or onboarding prerequisite. Plugin snapshots remain unchanged.
+Validation: typecheck, 53 standalone tests, 79 core tests, build and two-package
+release packing with checksum verification passed.
+
+## Standalone Pi SDK update
+
+- [x] Pin pi-ai, pi-coding-agent and pi-tui to npm's latest release, 0.87.1.
+- [x] Use canonical session context and the SDK refresh API after compaction.
+- [x] Derive the changelog setting from the installed SDK version.
+- [x] Validate type checking, standalone/core tests, build and packaging.
+
+Plugin dependencies and their core snapshot remain unchanged.
+Validation: typecheck, 52 standalone tests (including PTY, permissions and
+compaction), 70 core tests, build and two-package release packing passed.
+
+## Plugin project separation
+
+- [x] Move native Pi, OpenCode and Codex packages to `../kinex-plugins`.
+- [x] Give standalone its own Pi integration; remove plugin dependencies.
+- [x] Add independent plugin builds, CI and versioned core snapshot consumption.
+- [x] Update LIBERO plugin launch paths without restarting hosts.
+- [x] Validate independent installs, tests, relocated packages and release artifacts.
+
+The split preserved Pi SDK versions. Core has one source in this repository.
+Validation: clean npm installs, typechecks, 52 standalone tests (including PTY),
+70 core tests and 36 plugin tests passed. Plugin checks ran in an isolated copy
+without an adjacent Kinex checkout. Each plugin installed and relocated with only
+its core snapshot. Both projects built and packed independently; LIBERO launcher
+paths resolve. No hosts were restarted and no models were loaded.
+
+## FastWAM policy integration
+
+- [x] Add Cartesian policy spaces, rigid tool offsets and seeded buffered IK.
+- [x] Add the builtin FastWAM inference service and pinned provisioning recipe.
+- [x] Verify core contracts, standalone integration and relocated packaging.
+- [x] Provision LIBERO base, Optional IDM and RoboTwin base checkpoints.
+- [x] Validate all four inference paths and one ten-action LIBERO chunk.
+
+Validation targets inference and chunk execution, not benchmark task success.
+No training, RoboTwin rollout or plugin adaptation is included.
+
+Validation: typecheck, 47 standalone and 70 core tests, build, package relocation
+and tarball creation passed. All three checkpoints loaded with complete inference
+weights; both Optional IDM modes and both base variants returned finite chunks.
+LIBERO consumed ten arm/gripper actions in 0.5 simulation seconds without faults.
+RoboTwin used a synthetic observation fixture. The model was unloaded and the
+owned simulator stopped after acceptance.
+
 ## Version 0.8.1
 
 - [x] Align package versions, internal dependencies, CLI/MCP versions and install examples.

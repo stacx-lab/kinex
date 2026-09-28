@@ -83,7 +83,7 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
       if (action === 'read') return { ok: true, data: device.read() }
       if (action === 'write') { owned.add(device); return { ok: true, data: device.write(args) } }
       if (action === 'stop') return { ok: true, data: device.stop() }
-      if (action === 'ik') { device.ikArgs = args; return { ok: true, data: { joints: device.ik } } }
+      if (action === 'ik') { device.ikArgs = args; return { ok: true, data: { joints: typeof device.ik === 'function' ? device.ik(args) : device.ik } } }
       if (action === 'fk') return { ok: true, data: { pose: [0, 0, 0, 0, 0, 0, 1] } }
       if (action === 'infer') return { ok: true, data: device.infer(args) }
       return { ok: false, error: `no action ${action}` }
@@ -99,7 +99,7 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
         for (const device of owned) device.stop()
         return reply({ ok: true })
       }
-      if (call === 'profile') return reply({ ok: true, profile: devices[message.device].profile() })
+      if (call === 'profile') return reply({ ok: true, profile: devices[message.device]?.profile() ?? null })
       if (call === 'device') return reply(act(devices[message.device], message.action ?? 'read', message.args ?? {}))
       if (call === 'devices') return reply({ ok: true, results: message.commands.map((c) => ({
         device: c.device, ...act(devices[c.device], c.action ?? 'read', c.args ?? {}) })) })
@@ -519,5 +519,85 @@ test('drive raises faults and stalls after stopping', async () => {
     assert.equal(result, undefined)
     assert.match(stderr, new RegExp(`base: ${reason}`))
     assert.equal(device.stops, 1)
+  }
+})
+
+function cartesianArm() {
+  const self = arm({ background: false })
+  const originalProfile = self.profile, originalRead = self.read
+  self.profile = () => ({ ...originalProfile(),
+    intrinsics: { ...originalProfile().intrinsics, frames: { flange: null } },
+    extrinsics: { mount: { parent: 'world', parent_frame: 'world', translation_m: [1, 0, 0], rotation_xyzw: [0, 0, 0, 1] } },
+  })
+  self.read = () => ({ ...originalRead(), frame_poses: { flange: [0, 0, 0, 0, 0, 0, 1] } })
+  self.solves = []
+  self.ik = args => { self.solves.push(args); return args.pose.slice(0, 2) }
+  return self
+}
+const rigidTool = { profile: () => ({ name: 'tip', type: 'other', intrinsics: { frames: {} },
+  extrinsics: { mount: { parent: 'arm', parent_frame: 'flange', translation_m: [0.1, 0, 0], rotation_xyzw: [0, 0, 0, 1] } },
+}) }
+
+test('policy accumulates Cartesian deltas, removes tool offset and seeds buffered IK', async () => {
+  const self = cartesianArm(), model = policy([{ actions: [[0.02, 0, 0, 0, 0, 0], [0.03, 0.01, 0, 0, 0, 0]] }])
+  const { result, stderr } = await dialog(tool('run-policy'), {
+    model: 'policy', observation: {}, inference_args: { seed: 7 }, task: 'move',
+    command: [{ device: 'arm', space: 'pose_delta', frame: 'world', target_frame: 'tip' }],
+  }, { arm: self, policy: model, tip: rigidTool })
+  assert.ok(result, stderr)
+  assert.equal(self.writes, 1)
+  assert.deepEqual(self.solves[0].seed, [0, 0])
+  assert.deepEqual(self.solves[1].seed, self.solves[0].pose.slice(0, 2))
+  assert.ok(Math.abs(self.history[0][0] - 0.02) < 1e-10)
+  assert.ok(Math.abs(self.history[1][0] - 0.05) < 1e-10)
+  assert.equal(self.history[1][1], 0.01)
+  assert.deepEqual(model.seen, [{ obs: {}, task: 'move', seed: 7 }])
+})
+
+test('policy rotates about the tool origin and converts absolute Cartesian goals', async () => {
+  for (const space of ['pose_delta', 'pose']) {
+    const self = cartesianArm()
+    const action = space === 'pose_delta' ? [0, 0, 0, 0, 0, Math.PI / 2] : [1.1, 0, 0, 0, 0, Math.SQRT1_2, Math.SQRT1_2]
+    const { result, stderr } = await dialog(tool('run-policy'), {
+      model: 'policy', observation: {}, command: [{ device: 'arm', space, frame: 'world', target_frame: 'tip' }],
+    }, { arm: self, policy: policy([{ actions: [action] }]), tip: rigidTool })
+    assert.ok(result, stderr)
+    assert.ok(Math.abs(self.ikArgs.pose[0] - 0.1) < 1e-10)
+    assert.ok(Math.abs(self.ikArgs.pose[1] + 0.1) < 1e-10)
+    assert.ok(Math.abs(self.ikArgs.pose[5] - Math.SQRT1_2) < 1e-10)
+  }
+})
+
+test('policy rejects a failed later IK solution before admitting any writes', async () => {
+  const self = cartesianArm()
+  self.ik = args => { self.solves.push(args); return self.solves.length === 2 ? null : [0.1, 0] }
+  const { result, stderr } = await dialog(tool('run-policy'), {
+    model: 'policy', observation: {}, command: [{ device: 'arm', space: 'pose_delta' }],
+  }, { arm: self, policy: policy([{ actions: Array(2).fill([0.1, 0, 0, 0, 0, 0]) }]) })
+  assert.equal(result, undefined)
+  assert.match(stderr, /IK result/)
+  assert.equal(self.writes, 0)
+  assert.equal(self.stops, 0)
+})
+
+test('policy rotation deltas use reference axes rather than rotating tool axes', async () => {
+  const self = cartesianArm(), read = self.read
+  self.read = () => ({ ...read(), frame_poses: { flange: [0, 0, 0, Math.SQRT1_2, 0, 0, Math.SQRT1_2] } })
+  const { result, stderr } = await dialog(tool('run-policy'), {
+    model: 'policy', observation: {}, command: [{ device: 'arm', space: 'pose_delta' }],
+  }, { arm: self, policy: policy([{ actions: [[0, 0, 0, 0, 0, Math.PI / 2]] }]) })
+  assert.ok(result, stderr)
+  for (const component of self.ikArgs.pose.slice(3)) assert.ok(Math.abs(component - 0.5) < 1e-10)
+})
+
+test('policy rejects live tool offsets and reserved inference argument overrides', async () => {
+  for (const extra of [{ inference_args: { obs: {} } }, {}]) {
+    const self = cartesianArm(), model = policy([{ actions: [[0, 0, 0, 0, 0, 0]] }])
+    const { result, stderr } = await dialog(tool('run-policy'), {
+      model: 'policy', observation: {}, command: [{ device: 'arm', space: 'pose_delta', target_frame: 'arm' }], ...extra,
+    }, { arm: self, policy: model })
+    assert.equal(result, undefined)
+    assert.match(stderr, extra.inference_args ? /cannot override/ : /rigidly attached/)
+    assert.equal(self.writes, 0)
   }
 })

@@ -24,8 +24,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:core
-      # Build and test standalone, then verify native adapters with real host loaders.
+      # Build and test standalone, including PTY and relocated package checks.
       - run: npm test
-      - run: npm run test:adapters
-      - run: npm run test:codex
       - run: node script/release.mjs --check

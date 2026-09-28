@@ -11,14 +11,14 @@ printed target. On an rgbd device this is the COLOR pinhole (`intrinsics.color`)
 vendor SDK's factory intrinsics when it reports them, and always take the depth block
 (`intrinsics.depth`: scale/range/alignment) from the SDK — never from a board.
 
-Run scripts with `PYTHONPATH=<kinex-root>/python` so they share the device geometry library.
+In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
 
 ## 0. Preconditions
 
 - `access:<camera>` done (you need frames from it).
-- Use Kinex core Python (`uv run --project .kinex/python python`); verify `import cv2, numpy`
+- Use Kinex core Python (`"<core-python>"`); verify `import cv2, numpy`
   and `cv2.aruco`. Keep one OpenCV distribution in that environment.
-- A printed target. Offer `uv run --project .kinex/python python scripts/generate_board.py --out board.png` (ChArUco 7x5,
+- A printed target. Offer `"<core-python>" scripts/generate_board.py --out board.png` (ChArUco 7x5,
   30 mm squares, DICT_4X4_50; `--board checkerboard` for a plain 9x6). Printed FLAT at 100%
   on rigid backing — then the user MUST measure one printed square with a ruler: printers
   rescale, and a wrong square size silently corrupts every downstream calibration. Use the
@@ -35,7 +35,7 @@ returned image path. Coach diversity — the solver needs it:
 
 ## 2. Solve
 
-    uv run --project .kinex/python python scripts/calibrate_intrinsics.py --images 'FRAMES_DIR/*.png' \
+    "<core-python>" scripts/calibrate_intrinsics.py --images 'FRAMES_DIR/*.png' \
       --board charuco --squares-x 7 --squares-y 5 --square-mm <MEASURED> --dict DICT_4X4_50
 
 Checkerboard: `--board checkerboard --corners-x 9 --corners-y 6 --square-mm <MEASURED>`

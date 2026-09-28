@@ -27,7 +27,7 @@
 | `kinex stats [--json]` | 缺失 | Pi 有当前会话统计，没有接入旧跨会话聚合。 |
 | `kinex upgrade [version]` | 缺失 | 源码/npm 构建交付，没有自更新命令。 |
 | `--log-level` / `KINEX_LOG_LEVEL` | 变化 | 无统一 CLI 日志选项；复制的 core 自身日志设施仍存在，不能当作整个新 harness 的日志控制。 |
-| help/version、错误退出码 | 保留 | 新版 CLI 自行处理；版本为 0.8.1。 |
+| help/version、错误退出码 | 保留 | 新版 CLI 自行处理；版本为 0.8.2。 |
 
 旧证据：`src/index.ts`、`src/cli/cmd/*`、`src/cli/chat.ts`。新证据：`src/cli.ts`。
 
@@ -80,7 +80,7 @@
 | 旧 session/auth/TUI KV 状态迁移 | 缺失 | 第一阶段明确不迁移；机器人 workspace 仍兼容。 |
 | 会话间设备连接/录制归属 | 保留 | 同 cwd 切换聊天保留连接、停止当前录制；换 cwd/退出 dispose。 |
 
-旧证据：`src/session/loop.ts`、`runner.ts`、`compact.ts`、`attachment.ts`、`src/integration/kinex/prompt.ts`、`compaction.txt`。新证据：`packages/pi/src/context.ts`、`tools.ts`、`owner.ts` 及 `src/integration/extension.ts`。
+旧证据：`src/session/loop.ts`、`runner.ts`、`compact.ts`、`attachment.ts`、`src/integration/kinex/prompt.ts`、`compaction.txt`。新证据：`src/integration/context.ts`、`tools.ts`、`owner.ts` 及 `src/integration/extension.ts`。
 
 ## 4. 工具、权限与交互
 
@@ -221,7 +221,7 @@ v0.5.0 迁移审计确认旧 core 的 104 个 src 文件、81 个 assets 文件�
 | core 工具批次顺序、权限拒绝和取消语义 | 使用 Pi sequential 元数据，让含 core/question 的整批按序执行；纯 coding 保持并行。保留原权限、取消和 disposal。 | 设备/校准/Python controller 拒绝、question 取消、运行中取消不启动后续调用；已完成工作保留；热加载工具也保序；正常继续和重开会话可恢复；纯 coding rendezvous 验证并行。 |
 | compaction 保留机器人事实，并在首次后续请求恢复最新状态 | 使用公开压缩事件、stream function 和 SessionManager API；临时摘要规则只作用于压缩请求，提交后立即持久化并同步完整 core snapshot。 | 手动、任务内阈值和 overflow 首次后续请求包含最新状态；用户 focus 保留；摘要重试/失败/取消无规则泄漏或重复 snapshot；状态恢复失败时停止，重新成功刷新后继续。 |
 
-证据：`packages/pi/src/tools.ts`、`src/integration/extension.ts`、`compaction.ts`、`compaction.txt`、`src/application.ts` 和 `test/p0.test.mjs`。这两个完整保证属于 standalone 适配层，其他 harness 仅安装 core 不会自动继承；本轮已为 native Pi/OpenCode 接入各自调度和压缩生命周期，差异见下表。测试验证请求与状态合同，不保证真实模型摘要绝不遗漏，也不代表物理硬件验收。
+证据：`src/integration/tools.ts`、`src/integration/extension.ts`、`compaction.ts`、`compaction.txt`、`src/application.ts` 和 `test/p0.test.mjs`。这两个完整保证属于 standalone 适配层，其他 harness 仅安装 core 不会自动继承；本轮已为 native Pi/OpenCode 接入各自调度和压缩生命周期，差异见下表。测试验证请求与状态合同，不保证真实模型摘要绝不遗漏，也不代表物理硬件验收。
 
 ### P1：紧接着补，按实际使用场景设门槛
 

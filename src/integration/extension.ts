@@ -5,11 +5,11 @@ import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "@earendil
 import { type KinexRuntime } from "@kinex/core"
 import { formatJSON } from "@kinex/core/util/json"
 import type { KinexCapabilities } from "@kinex/core/integration"
-import { registerCommands, executeCommand } from "@kinex/pi/commands"
-import type { RoboticsOwner } from "@kinex/pi/owner"
-import { contextUpdate } from "@kinex/pi/context"
-import { toolBridge, registerSkillTool } from "@kinex/pi/tools"
-import { recordingIndicator } from "@kinex/pi/recording-indicator"
+import { registerCommands, executeCommand } from "./commands.ts"
+import type { RoboticsOwner } from "./owner.ts"
+import { contextUpdate } from "./context.ts"
+import { toolBridge, registerSkillTool } from "./tools.ts"
+import { recordingIndicator } from "./recording-indicator.ts"
 import type { CompactionControl } from "./compaction.ts"
 
 export interface SessionControl {
