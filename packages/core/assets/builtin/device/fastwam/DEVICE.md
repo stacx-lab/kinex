@@ -62,8 +62,7 @@ Pass the observation to `run_policy`. For the LIBERO Panda workspace:
     {"device": "gripper"}
   ],
   "action_hz": 20,
-  "max_actions": 10,
-  "timeout_s": 1
+  "max_actions": 10
 }
 ```
 
