@@ -81,8 +81,13 @@ def devices(commands):
 
 
 def call(tool, **kwargs):
-    """Compose another python tool; returns its result object."""
+    """Compose a Python tool or device/devices; returns its structured result."""
     return _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
+
+
+def inline(source, values, *, kind="perception"):
+    """Call an inline lambda or main function with keyword arguments in values."""
+    return _rpc({"call": "inline", "python": source, "kind": kind, "args": values})["result"]
 
 
 def stop_owned():
@@ -104,9 +109,7 @@ def robot():
 
 def finish(result=None, file=None):
     """End the tool successfully. `file` (an image path) is shown to the agent."""
-    payload = dict(result or {})
-    if file:
-        payload["file"] = file
+    payload = {**(result or {}), "file": file} if file else result
     _emit({"return": payload})
     sys.exit(0)
 

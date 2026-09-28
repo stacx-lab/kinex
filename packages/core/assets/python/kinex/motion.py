@@ -37,18 +37,3 @@ def joint_target(value, joints):
         if limits is not None and not limits["min"] <= position <= limits["max"]:
             raise ValueError(f"target outside joint limits: {joint['name']}")
     return value
-
-
-class Motion:
-    """A fixed joint goal, independent of the device pose representation."""
-
-    def __init__(self, joints, goal_joints):
-        self.joints = joints
-        self.goal_joints = joint_target(goal_joints, joints)
-
-    def errors(self, state):
-        positions = vector(state.get("positions"), len(self.joints), "read.positions")
-        delta = [math.atan2(math.sin(a - b), math.cos(a - b)) if j.get("type") == "continuous" else a - b
-                 for a, b, j in zip(self.goal_joints, positions, self.joints)]
-        error = {"joint": max(map(abs, delta)), "joints": list(map(abs, delta))}
-        return error

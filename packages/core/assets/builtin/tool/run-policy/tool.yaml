@@ -1,6 +1,6 @@
 name: run_policy
 kind: controller
-description: "Infer once and submit buffered writes to the commanded devices concurrently. Starts are not atomic. Normal completion follows each device’s reference policy; timeout or faults stop commanded devices."
+description: "Infer once and submit action buffers concurrently. Returns after submission; execution is asynchronous."
 parameters:
   type: object
   additionalProperties: false
@@ -47,12 +47,6 @@ parameters:
       type: integer
       minimum: 1
       description: keep at most this many actions from the chunk; the rest are discarded
-    timeout_s:
-      type: number
-      exclusiveMinimum: 0
-      maximum: 300
-      default: 30
-      description: "Motion budget in device-clock seconds."
   required: [model, observation, command]
 timeout_s: 600
 device_inputs:

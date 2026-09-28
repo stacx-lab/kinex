@@ -39,28 +39,24 @@ contract; extraction and a shared default composition module remain deferred.
   model tools control lifecycle; Python tools cannot. `loaded` is intent, not
   readiness; ordinary calls never restart failed services. Stop bypasses approval.
   Unload attempts capture shutdown, stop and resource release; borrowed services
-  are not terminated. Joint goals are absolute, ordered, in radians/metres;
-  `write` streams complete `actions` at `freq_hz`, without planning or arrival waits.
-  Any positive frequency is accepted; device executors map the chunk onto their
-  local clocks. Profiles expose no native period. Results contain
-  `completed_actions` (consumed input points, including resampled points),
-  actual `elapsed_s` and `state`.
-  Upper-layer tools stop, establish measured rest, plan and submit waypoint buffers.
-  Optional write `for_s` bounds execution. Trajectory planning uses available joint
-  velocity and acceleration limits to cap configurable tool rates.
-  Arrival uses wrapped joint errors, measured quiet velocity and a stable device-time
-  interval. Timeout, cancellation and faults stop the owned motion. Completed raw
-  sequences hold measured state in stepped execution; realtime devices retain their
-  last reference.
-  A new valid command replaces prior motion on its resource. Cleanup can stop only
-  its own motion; explicit user stop remains unconditional. Validation precedes
-  replacement. Concurrent writes use independent device lanes; the simulator
-  owns their shared world clock. Starts and effects across devices are not atomic.
-  Reads never advance the device clock. RPC frequency is independent of servo
-  frequency: devices execute buffers locally; tools check arrival at chunk boundaries.
-  Uncertain writes are not retried automatically. Generic batch calls are not atomic.
+  are not terminated. Joint goals are absolute vectors in model order, in radians/metres.
+  All actuator writes submit a validated buffer with `duration_s` and return
+  immediately with `execution_id`, submission `elapsed_s` and measured `state`.
+  Gripper and suction actions are flat numeric sequences; joint and dexterous-hand
+  actions are sequences of joint vectors. One command is a one-element sequence.
+  New writes replace pending references without stopping; invalid writes leave
+  them intact. Devices consume buffers at their fixed cadence. Position commands
+  retain their final reference; velocity commands expire to zero velocity while
+  preserving posture. Explicit stop clears affected buffers. Background faults
+  remain visible through reads. Ownership outlives write calls; cleanup cannot
+  stop a replacement owned by another invocation.
+  `world.read` returns `time_s`; `world.wait(duration_s)` returns `time_s` and
+  actual `elapsed_s`. Drivers abstract physical and simulated clocks. Concurrent
+  waits share world time and support individual cancellation. Reads never advance
+  time. Uncertain writes are never retried automatically.
 - **Frames and calibration.** Frames form a forest; world is optional and missing
-  relationships are not identity transforms. `relative_pose` composes declared,
+  relationships are not identity transforms. `relative_pose` composes full local
+  poses attached to its child and parent frames, using declared,
   live and call-local estimated edges, preferring fewer estimates; samples are
   cached only within a call. `???` is unresolved; `null` follows field semantics.
   Calibration writes are validated and planning is read-only. FK/IK uses declared
@@ -69,29 +65,30 @@ contract; extraction and a shared default composition module remain deferred.
 - **Tools, skills and Python.** Tools declare schemas, capabilities and timeouts;
   composed calls retain permissions and recording attribution. Skills supply
   procedures. Detection/segmentation feed perception; depth localization respects
-  masks and reports camera-relative measurements. Controllers hand devices bounded
-  commands. `move_to` pursues a fixed joint or
-  pose goal; `drive` holds velocity/posture for a duration. Optional `until`
-  predicates split writes at check deadlines. `track` composes `perceive` → `process`
-  → `control`; processing maps observations to controller arguments or a miss.
-  Controllers own their time bounds; track treats results as opaque and ends on
-  its predicate or round/miss limits. Misses and final exit stop owned motion.
-  `point_to_pose` converts located points into explicit pose goals. Controller
-  faults, stalls and disturbed arrival raise errors after stopping. `run_policy` executes one standalone
-  policy chunk using concurrent buffered writes. Cartesian pose and pose-delta
-  chunks resolve a frozen frame snapshot and rigid tool offset, then solve IK
-  seeded from measured joints and each preceding solution. Deltas accumulate
-  translation and left-composed axis-angle rotation in the reference frame.
-  The selected chunk is validated before any write; model devices only infer.
-  Normal completion follows
-  each device’s execution mode; timeout and faults stop the commanded devices.
-  `drive` and `track` always stop on final exit. Execution mode belongs to the
-  deployment, never to controller arguments. `move_to` generates synchronized
-  quintic joint trajectories, submits bounded
-  writes and checks arrival at chunk boundaries using 10 Hz holds. Tool defaults
-  are 1 rad/s and 3 rad/s² for rotary joints, 0.1 m/s and 0.3 m/s² for linear joints,
-  capped by known limits. These are planning policy, not inferred hardware ratings.
-  It does not promise collision-free path planning.
+  masks and reports camera-relative measurements. `servo` plans from measured
+  joint positions and submits a trajectory segment for `duration_s`, without
+  stopping, settling or arrival checks. Planning rates default to 1 rad/s and
+  3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints, capped by known limits.
+  Short windows truncate the trajectory; long windows hold the goal. Planning
+  does not promise collision avoidance.
+  `track` composes perceive → process → control → world.wait → optional stop → until.
+  Each stage references a tool or supplies inline Python: a lambda or source
+  defining `main`, called with keyword arguments and returning JSON data.
+  Inline calls bypass discovery and use fresh subprocesses with the caller's
+  interpreter, working directory, cancellation and deadline. Parameters and
+  results use the existing JSONL pipes. Only inline control has controller
+  capabilities; other inline stages have perception capabilities.
+  Process returns a dict directly; optional process/control inputs map JSON
+  Pointers from the previous result into arguments. Nulls are misses; absent paths
+  are errors. It passes context and predicate state explicitly. `stop_after_control` defaults
+  false; misses, errors, cancellation and final exit stop owned motion.
+  `settled` checks joint error, quiet velocity and stable world time, with an
+  optional world-time timeout. `device` and `devices` share execution; batches
+  authorize before dispatch, preserve result order and report per-entry failures.
+  Python composition retains capability restrictions and forbids lifecycle changes.
+  `run_policy` infers once, validates the selected chunk, converts Cartesian
+  actions using frozen frames and seeded IK, and submits device buffers concurrently.
+  It returns submission information without waiting or claiming arrival.
   Core prepares `.kinex/python` with uv only when its interpreter is missing.
   Existing environments execute without dependency synchronization; dependency
   changes and repairs are explicit. Concurrent first use within a process waits for preparation,

@@ -191,9 +191,15 @@ function deviceNodes(device: Device): Node[] {
   // Unloaded devices are off-limits to the tools, so nothing about them can
   // hold the robot back: their whole chain is optional.
   const optional = !GATING_TYPES.includes(device.type) || !device.loaded
-  // World data is optional; it never gates control or task readiness.
+  // World geometry is optional; clock access is checked independently.
   if (device.type === "world")
     return [
+      {
+        id: `access:${device.name}`, title: `Clock access (${device.name})`,
+        dependsOn: ["devices-declared"], optional: !device.loaded, device: ref,
+        how: "configure a world driver with read and wait",
+        check: (ctx) => accessCheck(device, ctx),
+      },
       {
         id: `intrinsics:${device.name}`,
         title: `Spatial information (${device.name})`,

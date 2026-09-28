@@ -99,6 +99,79 @@ Direct operations run without a model round trip. Only onboarding, registration
 and calibration submit workflows to the model. Their implementation and help live
 in feature contributions shared with the Pi and OpenCode adapters.
 
+## Control and world time
+
+Writes submit an action buffer with `duration_s` and return immediately.
+Gripper and suction use flat `actions: [value, ...]`; joint devices and dexterous
+hands use `actions: [[joint1, joint2, ...], ...]`. A single command uses one action.
+Use `device("world", "wait", duration_s=...)` for delays in the driver's clock.
+`servo` plans and submits a joint trajectory. `track` composes perception,
+processing, control and an `until` predicate, waiting `wait_s` each round.
+
+`device` calls one device; `devices` accepts a batch of calls:
+
+```json
+{"calls": [{"deviceID": "camera"}, {"deviceID": "arm"}]}
+```
+
+A workspace perception tool `target_pose` can return `{frame, pose}`. This
+composition transforms that full pose into the arm frame and tracks it:
+
+```json
+{
+  "world": "world",
+  "wait_s": 0.1,
+  "perceive": {"tool": "target_pose"},
+  "process": {
+    "tool": "relative_pose",
+    "args": {"parent": {"frame": "arm"}},
+    "inputs": {"/child/frame": "/frame", "/child/pose": "/pose"}
+  },
+  "control": {
+    "tool": "servo",
+    "args": {"device": "arm", "duration_s": 0.2},
+    "inputs": {"/pose": "/pose"}
+  },
+  "until": {"tool": "settled", "args": {"timeout_s": 10}},
+  "stop_after_control": false
+}
+```
+
+Without `inputs`, process receives `observation` and its returned dict overrides
+controller arguments. With `inputs`, JSON Pointer mappings select the fields.
+Null results or selected null values count as misses; missing paths are errors.
+`relative_pose` uses `{frame, pose?}` for both endpoints; local poses default to
+identity and always contain translation and orientation.
+
+Any stage can use inline Python instead of a tool name, without creating files
+or waiting for discovery. For a previously measured target in the arm frame:
+
+```json
+{
+  "world": "world",
+  "wait_s": 0.1,
+  "perceive": {
+    "python": "lambda target: target",
+    "args": {"target": {"pose": [0.3, 0, 0.2, 0, 0, 0, 1]}}
+  },
+  "process": {"python": "lambda observation: observation"},
+  "control": {"tool": "servo", "args": {"device": "arm", "duration_s": 0.2}},
+  "until": {"tool": "settled", "args": {"timeout_s": 10}}
+}
+```
+
+`python` accepts a lambda or source defining `main`, including imports and helper
+functions. Functions receive keyword arguments and return JSON data directly.
+Each call runs in a fresh Python process with the caller's interpreter and working
+directory. Runtime transfers arguments and results through JSONL pipes. Inline
+control may command devices; the other inline stages have perception capabilities.
+Until receives `context` and `state`, returning `done`, optional `state` and `reason`.
+
+Replace perception/processing with live observation tools for closed-loop control.
+`stop_after_control` stops owned motion after each world wait; track always stops
+owned motion on exit. `settled` checks measured joint error and quiet velocity
+for a stable interval, using world time for its optional timeout.
+
 ## Headless
 
 ```sh

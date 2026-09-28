@@ -12,8 +12,7 @@ const toolDir = path.join(root, 'assets', 'builtin', 'tool')
 const python = process.env.PYTHON ?? 'python3'
 const tool = (name) => path.join(toolDir, name, 'tool.py')
 
-// The same buffered interface, with mode-specific terminal references.
-function arm({ background, dof = 2, rate = 1, ik = null, stall = false }) {
+function arm({ dof = 2, rate = 1, ik = null }) {
   const self = {
     positions: Array(dof).fill(0), target: Array(dof).fill(0), clock: 0,
     writes: 0, reads: 0, stops: 0, history: [], ik,
@@ -32,24 +31,13 @@ function arm({ background, dof = 2, rate = 1, ik = null, stall = false }) {
   self.read = () => { self.reads++; return snapshot() }
   self.write = (args) => {
     self.writes++
-    const period = 1 / args.freq_hz
-    let elapsed = 0, completed = 0
-    for (const target of args.actions) {
-      const duration = Math.min(period, (args.for_s ?? Infinity) - elapsed)
-      if (duration <= 1e-9) break
-      self.history.push([...target])
-      self.target = [...target]
-      if (!stall) advance(duration)
-      elapsed += duration
-      if (duration < period - 1e-9) break
-      completed++
-    }
-    if (!background || completed < args.actions.length) self.stop()
-    return { completed_actions: completed, elapsed_s: elapsed,
-      terminated_by: completed < args.actions.length ? 'timeout' : 'completed', state: snapshot() }
+    self.history.push(...args.actions.map(q => [...q]))
+    self.pending = args
+    return { execution_id: 'test', elapsed_s: 0, state: snapshot() }
   }
 
-  self.stop = () => { self.stops++; self.target = [...self.positions]; return { stopped: true } }
+  self.advance = seconds => { if (self.pending) self.target = self.pending.actions.at(-1); advance(seconds) }
+  self.stop = () => { self.pending = null; self.stops++; self.target = [...self.positions]; return { stopped: true } }
   self.profile = () => ({
     name: 'arm', type: 'joint', loaded: true,
     resolved_model: { joints: self.positions.map((_, i) => ({ name: `j${i}`, type: 'revolute', limits: { min: -3.2, max: 3.2 }, max_velocity: 2 })), chain: null },
@@ -80,6 +68,7 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
     let stderr = '', done = false
     proc.stderr.on('data', (chunk) => { stderr += chunk })
     const act = (device, action, args) => {
+      if (action === 'wait') return { ok: true, data: device.wait(args) }
       if (action === 'read') return { ok: true, data: device.read() }
       if (action === 'write') { owned.add(device); return { ok: true, data: device.write(args) } }
       if (action === 'stop') return { ok: true, data: device.stop() }
@@ -122,348 +111,29 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
   })
 }
 
-const GOAL = [0.5, -0.3]
-const move = (device, extra = {}) =>
-  dialog(tool('move-to'), { device: 'arm', joints: GOAL, timeout_s: 10, ...extra }, { arm: device })
-
-test('identical arguments produce identical motion however the world advances', async () => {
-  const outcomes = {}
-  for (const background of [true, false]) {
-    const device = arm({ background })
-    const { result, error, stderr } = await move(device)
-    assert.equal(error, undefined, stderr)
-    assert.equal(result.terminated_by, 'reached')
-    assert.deepEqual(result.state.positions.map((v) => Number(v.toFixed(3))), GOAL)
-    assert.ok(device.stops >= 1)
-    outcomes[background ? 'background' : 'stepped'] = { result, device }
-  }
-  const [live, stepped] = [outcomes.background, outcomes.stepped]
-  // The same goal costs the same device time on both...
-  assert.ok(Math.abs(live.result.elapsed_s - stepped.result.elapsed_s) < 0.05,
-    `device elapsed diverged: ${live.result.elapsed_s} vs ${stepped.result.elapsed_s}`)
-  // Both clocks use the same upper-layer motion loop.
-  assert.equal(live.result.rounds, 1)
-  assert.equal(stepped.result.rounds, 1)
-})
-
-test('a pose goal is solved by the device IK driver', async () => {
-  for (const background of [true, false]) {
-    const device = arm({ background, ik: GOAL })
-    const { result, error, stderr } = await move(device, { joints: undefined, pose: [0.4, -0.2, 0, 0, 0, 0, 1] })
-    assert.equal(error, undefined, stderr)
-    assert.equal(result.reached, true)
-  }
-})
-
-test('a device that reports no progress ends the run instead of spinning', async () => {
-  const device = arm({ background: false, stall: true })
-  const { result } = await move(device)
-  assert.equal(result.terminated_by, 'timeout')
-  assert.ok(device.stops >= 1)
-})
-
-
-test('track passes arbitrary perception through processing and keeps controller results opaque', async () => {
-  const seen = [], controls = [], processed = []
-  const { result, error, stderr } = await dialog(tool('track'), {
-    perceive: { tool: 'detect', args: { prompt: 'mug' } },
-    process: { tool: 'convert', args: { scale: 2, observation: { stale: true } } },
-    control: { tool: 'custom', args: { device: 'arm', target: -1, duration_s: 0.3 } },
-    until: { tool: 'done' },
-  }, {}, {
-    detect: a => { seen.push(a); return { coordinate: seen.length } },
-    convert: a => { processed.push(a); return { args: { target: a.observation.coordinate * a.scale } } },
-    custom: a => { controls.push(a); return { custom_result: controls.length, reached: true } },
-    done: () => ({ done: controls.length === 3 }),
-  })
-  assert.equal(error, undefined, stderr)
-  assert.deepEqual(result, { terminated_by: 'until:done', rounds: 3, perception_misses: 0,
-    last: { custom_result: 3, reached: true } })
-  assert.deepEqual(seen, Array(3).fill({ prompt: 'mug' }))
-  assert.deepEqual(processed[0], { scale: 2, observation: { coordinate: 1 } })
-  assert.deepEqual(controls, [2, 4, 6].map(target => ({ device: 'arm', target, duration_s: 0.3 })))
-})
-
-test('track leaves timing to its controller and resets consecutive misses', async () => {
-  let round = 0
-  const controls = []
-  const { result, stderr } = await dialog(tool('track'), {
-    perceive: { tool: 'p' }, process: { tool: 'convert' },
-    control: { tool: 'custom', args: { timeout_s: 0.5 } }, max_rounds: 6, max_misses: 2,
-  }, {}, {
-    p: () => ({ seen: ++round % 2 === 0 }),
-    convert: a => ({ args: a.observation.seen ? {} : null }),
-    custom: a => { controls.push(a); return { terminated_by: 'timeout' } },
-  })
-  assert.ok(result, stderr)
-  assert.equal(result.terminated_by, 'max_rounds')
-  assert.equal(result.perception_misses, 0)
-  assert.deepEqual(controls, Array(3).fill({ timeout_s: 0.5 }))
-})
-
-test('track retries processing misses without commanding or stopping unowned devices', async () => {
-  let attempts = 0, commanded = 0
-  const device = arm({ background: true })
-  const { result, stderr } = await dialog(tool('track'), {
-    perceive: { tool: 'p' }, process: { tool: 'point_to_pose', args: { device: 'arm' } },
-    control: { tool: 'custom' }, max_misses: 3,
-  }, { arm: device }, {
-    p: () => { attempts++; return { point: null } },
-    custom: () => { commanded++; return {} },
-  })
-  assert.ok(result, stderr)
-  assert.equal(result.terminated_by, 'perception_lost')
-  assert.equal(attempts, 3)
-  assert.equal(commanded, 0)
-  assert.equal(device.stops, 0)
-})
-
-test('a policy chunk replays at one action_hz period per action', async () => {
-  const chunk = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
-  const outcomes = {}
-  for (const background of [true, false]) {
-    const device = arm({ background })
-    const model = policy([{ actions: chunk, done: true }])
-    const { result, error, stderr } = await dialog(
-      tool('run-policy'),
-      { model: 'policy', observation: { devices: {} }, command: [{ device: 'arm' }],
-        action_hz: 10, timeout_s: 20 },
-      { arm: device, policy: model },
-    )
-    assert.equal(error, undefined, `background=${background}: ${stderr}`)
-    assert.equal(result.terminated_by, 'done')
-    assert.equal(result.actions_executed, 3)
-    assert.deepEqual(device.history.at(-1), [0.3, 0.3], 'the final action must reach the device')
-    assert.equal(device.stops, background ? 0 : 1)
-    outcomes[background ? 'background' : 'stepped'] = { result, device }
-  }
-  // Three actions at 10 Hz is 0.3 s of robot time whoever advances the clock...
-  for (const key of ['background', 'stepped'])
-    assert.ok(Math.abs(outcomes[key].result.elapsed_s - 0.3) < 1e-6, `${key}: ${outcomes[key].result.elapsed_s}`)
-  // One buffered RPC per device, regardless of clock mode.
-  assert.equal(outcomes.background.device.writes, 1)
-  assert.equal(outcomes.stepped.device.writes, 1)
-})
-
-test('track runs policy chunks and stops every owned device on a miss and final exit', async () => {
-  const first = arm({ background: true }), second = arm({ background: true })
-  const model = policy([{ actions: [[0.2, 0.2, 0.3, 0.3]], done: true }])
-  let perceptions = 0
-  const { result, stderr } = await dialog(tool('track'), {
-    perceive: { tool: 'observe' }, process: { tool: 'convert' },
-    control: { tool: 'run_policy', args: { model: 'policy', command: [{ device: 'arm' }, { device: 'hand' }], timeout_s: 1 } },
-    max_misses: 2,
-  }, { arm: first, hand: second, policy: model }, {
-    observe: () => {
-      perceptions++
-      if (perceptions === 2) assert.equal(first.stops, 0, 'retain controller behavior between rounds')
-      if (perceptions === 3) assert.ok(first.stops > 0 && second.stops > 0, 'stop before retrying a miss')
-      return { available: perceptions === 1, image: 'frame.png' }
-    },
-    convert: a => ({ args: a.observation.available ? { observation: a.observation } : null }),
-  })
-  assert.ok(result, stderr)
-  assert.equal(result.terminated_by, 'perception_lost')
-  assert.equal(result.last.terminated_by, 'done', 'policy completion does not end tracking')
-  assert.equal(model.calls, 1)
-  assert.equal(model.seen[0].obs.image, 'frame.png')
-  assert.equal(first.stops, 3)
-  assert.equal(second.stops, 3)
-})
-
-function base(background, { stall = false, reached = true } = {}) {
-  const self = { clock: 0, writes: [], stops: 0 }
-  self.profile = () => ({ type: 'velocity', intrinsics: {
-    control: { mode: 'motion', modes: { walk: { posture: null, velocity: { frame: 'body', components: [
-      { axis: 'vx', units: 'm/s', bounds: { min: -1, max: 1 } },
-    ] } } } }, feedback: { pose_frame: null, velocity_components: ['vx'] },
-  } })
-  self.read = () => ({ faults: [], pose: null, velocities: [0], sample_time_s: self.clock })
-  self.write = args => {
-    self.writes.push(args)
-    const spent = stall ? 0 : background ? args.for_s : Math.min(0.02, args.for_s)
-    self.clock += spent
-    return { accepted: true, elapsed_s: spent, reached, state: self.read() }
-  }
-  self.stop = () => { self.stops++; return { stopped: true } }
-  return self
-}
-
-const drive = (device, extra = {}, tools = {}) => dialog(tool('drive'), {
-  device: 'base', mode: 'walk', velocity: { vx: 0.4 }, duration_s: 0.25, ...extra,
-}, { base: device }, tools)
-
-test('drive holds the full duration despite arrival reports, in both clocks', async () => {
-  for (const background of [true, false]) {
-    const device = base(background)
-    const { result, stderr } = await drive(device)
+test('relative_pose composes both local rotations and offsets and reverses the result', async () => {
+  const device = arm({}), prof = device.profile, q = Math.SQRT1_2
+  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = [1, 2, 3, 0, 0, q, q]; return p }
+  const child = { frame: 'arm:camera', pose: [1, 0, 0, 1, 0, 0, 0] }
+  const parent = { frame: 'arm', pose: [1, 1, 1, 0, 0, q, q] }
+  const near = (actual, expected) => actual.forEach((v, i) => assert.ok(Math.abs(v - expected[i]) < 1e-9, `${actual} != ${expected}`))
+  for (const [a, b, expected] of [[child, parent, [2, 0, 2, 1, 0, 0, 0]], [parent, child, [-2, 0, 2, 1, 0, 0, 0]]]) {
+    const { result, stderr } = await dialog(tool('relative-pose'), { child: a, parent: b }, { arm: device })
     assert.ok(result, stderr)
-    assert.equal(result.terminated_by, 'duration')
-    assert.ok(Math.abs(result.elapsed_s - 0.25) < 1e-9)
-    assert.equal(device.stops, 1)
-    assert.ok(device.writes.every(a => a.velocity.vx === 0.4 && a.for_s > 0))
-    assert.equal(device.writes.length, background ? 1 : 13)
+    near(result.pose, expected)
+    assert.deepEqual(result.pose, [...result.translation, ...result.rotation])
+    assert.equal(result.estimated_links, 0)
   }
-})
-
-test('until is checked initially, between bounded writes, and at the final boundary', async () => {
-  for (const background of [true, false]) {
-    for (const trigger of [0, 0.1, 0.25, Infinity]) {
-      const device = base(background)
-      const checks = []
-      const { result, stderr } = await drive(device, { until: { tool: 'contact', every_s: 0.1 } }, {
-        contact: () => { checks.push(device.clock); return { done: device.clock + 1e-9 >= trigger } },
-      })
-      assert.ok(result, stderr)
-      assert.equal(result.terminated_by, trigger === Infinity ? 'duration' : 'until:contact')
-      assert.ok(Math.abs(result.elapsed_s - Math.min(trigger, 0.25)) < 1e-9)
-      assert.equal(checks[0], 0)
-      assert.equal(device.stops, 1)
-      assert.ok(device.writes.every(a => a.for_s <= 0.1 + 1e-9))
-    }
-  }
-})
-
-
-test('point_to_pose transforms points, offsets and orientation without commanding', async () => {
-  const device = arm({ background: true })
-  const prof = device.profile
-  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = [1, 2, 3, 0, 0, 0, 1]; return p }
-  for (const orientation of [undefined, [0, 0, 1, 0]]) {
-    const { result, stderr } = await dialog(tool('point-to-pose'), {
-      device: 'arm', observation: { point: [0.1, 0, 0], frame: 'unused' }, frame: 'arm:camera',
-      offset_m: [0, 0.2, 0], ...(orientation ? { orientation } : {}),
-    }, { arm: device })
-    assert.ok(result, stderr)
-    assert.deepEqual(result.args, { pose: [1.1, 2.2, 3, ...(orientation ?? [0, 0, 0, 1])], frame: 'arm' })
-  }
-  assert.equal(device.reads, 1, 'only default orientation needs a joint reading')
+  const identity = await dialog(tool('relative-pose'), { child: { frame: 'arm' }, parent: { frame: 'arm' } }, { arm: device })
+  near(identity.result.pose, [0, 0, 0, 0, 0, 0, 1])
+  const bad = await dialog(tool('relative-pose'), { child: { ...child, pose: [0, 0, 0, 0, 0, 0, 0] }, parent }, { arm: device })
+  assert.match(bad.stderr, /unit quaternion/)
   assert.equal(device.writes, 0)
-  assert.equal(device.stops, 0)
-  const invalid = await dialog(tool('point-to-pose'), { device: 'arm', observation: { point: [1, 0, 0] } }, { arm: device })
-  assert.equal(invalid.result, undefined)
-  assert.match(invalid.stderr, /names no frame/)
-})
-
-test('move_to accepts a pose frame and raises on disturbed final velocity', async () => {
-  const device = arm({ background: true, ik: GOAL })
-  const prof = device.profile
-  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = [1, 2, 3, 0, 0, 0, 1]; return p }
-  const original = device.read
-  device.read = () => ({ ...original(), velocities: [5, 0] })
-  const { result, stderr } = await move(device, {
-    joints: undefined, pose: [0.1, 0, 0, 0, 0, 0, 1], frame: 'arm:camera',
-  })
-  assert.equal(result, undefined)
-  assert.match(stderr, /arm: disturbed/)
-  assert.deepEqual(device.ikArgs.pose, [1.1, 2, 3, 0, 0, 0, 1])
-  assert.ok(device.stops >= 1)
-})
-
-test('track processes points into actual move_to segments with controller-owned timing', async () => {
-  for (const background of [true, false]) {
-    const device = arm({ background, ik: [3, -3] })
-    const { result, stderr } = await dialog(tool('track'), {
-      perceive: { tool: 'point' },
-      process: { tool: 'point_to_pose', args: { device: 'arm', orientation: [0, 0, 0, 1] } },
-      control: { tool: 'move_to', args: { device: 'arm', timeout_s: 0.2 } }, max_rounds: 2,
-    }, { arm: device }, { point: () => ({ point: [1, 0, 0], frame: 'arm' }) })
-    assert.ok(result, stderr)
-    assert.equal(result.terminated_by, 'max_rounds')
-    assert.equal(result.rounds, 2)
-    assert.ok(Math.abs(device.clock - 0.4) < 1e-9)
-    assert.deepEqual(device.ikArgs.pose, [1, 0, 0, 0, 0, 0, 1])
-    assert.ok(device.stops >= 2)
-  }
-})
-
-test('track supports drive durations without interpreting reached', async () => {
-  const device = base(true)
-  const { result, stderr } = await dialog(tool('track'), {
-    perceive: { tool: 'heading' }, process: { tool: 'convert' },
-    control: { tool: 'drive', args: { device: 'base', mode: 'walk', duration_s: 0.2 } }, max_rounds: 2,
-  }, { base: device }, {
-    heading: () => ({ forward: 0.1 }),
-    convert: a => ({ args: { velocity: { vx: a.observation.forward } } }),
-  })
-  assert.ok(result, stderr)
-  assert.equal(result.rounds, 2)
-  assert.equal(result.last.reached, true)
-  assert.ok(Math.abs(device.clock - 0.4) < 1e-9)
-  assert.ok(device.stops >= 3)
-})
-
-test('policy faults stop commanded devices after their buffered calls settle', async () => {
-  const first = arm({ background: true }), second = arm({ background: true })
-  const write = second.write
-  second.write = a => { const r = write(a); r.state.faults = [{ code: 'overload' }]; return r }
-  const { result, stderr } = await dialog(tool('run-policy'), {
-    model: 'policy', observation: {}, command: [{ device: 'arm' }, { device: 'hand' }],
-    action_hz: 10, timeout_s: 2,
-  }, { arm: first, hand: second, policy: policy([{ actions: [[0.1, 0.1, 0.1, 0.1], [0.2, 0.2, 0.2, 0.2]], done: true }]) })
-  assert.equal(result, undefined)
-  assert.match(stderr, /fault: hand/)
-  assert.ok(first.stops >= 1)
-  assert.ok(second.stops >= 1)
-})
-
-test('shipped driver wrappers enforce budgets and preserve vendor execution results', async () => {
-  const { execFileSync } = await import('node:child_process')
-  execFileSync(python, [path.join(root, 'test/driver_contract.py')], {
-    env: { ...process.env, PYTHONPATH: pythonLib }, encoding: 'utf8',
-  })
-})
-
-test('track rejects malformed processing and propagates stage failures after stopping owned motion', async () => {
-  for (const failure of ['perceive', 'process', 'control', 'until', null, [], {}, { args: [] }, { args: 1 }]) {
-    const device = arm({ background: true })
-    const model = policy([{ actions: [[0.1, 0.1]] }])
-    let rounds = 0
-    const { result, stderr } = await dialog(tool('track'), {
-      perceive: { tool: 'p' }, process: { tool: 'convert' },
-      control: { tool: failure === 'control' ? 'custom' : 'run_policy', args: {
-        model: 'policy', command: [{ device: 'arm' }], timeout_s: 1,
-      } }, until: { tool: 'done' }, max_rounds: 3,
-    }, { arm: device, policy: model }, {
-      p: () => { if (++rounds > 1 && failure === 'perceive') throw Error('perception failed'); return {} },
-      convert: () => {
-        if (rounds > 1 && failure === 'process') throw Error('processing failed')
-        if (rounds > 1 && typeof failure === 'object') return failure
-        return { args: { observation: {} } }
-      },
-      custom: () => { throw Error('control failed') },
-      done: () => { if (rounds > 0 && failure === 'until') throw Error('predicate failed'); return { done: false } },
-    })
-    assert.equal(result, undefined)
-    assert.match(stderr, /failed|process must return/)
-    assert.equal(device.stops, failure === 'control' ? 0 : 1)
-  }
-})
-
-test('track checks its predicate before any stage', async () => {
-  const { result, stderr } = await dialog(tool('track'), {
-    perceive: { tool: 'unused' }, process: { tool: 'unused' }, control: { tool: 'unused' },
-    until: { tool: 'done', key: 'ready' },
-  }, {}, { done: () => ({ ready: true }) })
-  assert.ok(result, stderr)
-  assert.deepEqual(result, { terminated_by: 'until:done', rounds: 0, perception_misses: 0, last: null })
-})
-
-test('move_to timeout always stops, with a bounded number of RPC calls', async () => {
-  for (const background of [true, false]) {
-    const device = arm({ background })
-    const { result, stderr } = await move(device, { joints: [3, -3], timeout_s: 0.2 })
-    assert.ok(result, stderr)
-    assert.equal(result.terminated_by, 'timeout')
-    assert.ok(Math.abs(result.elapsed_s - 0.2) < 1e-8)
-    assert.ok(device.stops >= 1)
-    assert.equal(device.writes, 2)
-    assert.deepEqual(device.target, device.positions)
-  }
+  assert.equal(device.reads, 0)
 })
 
 test('policy validates every point before submitting its chunk', async () => {
-  const device = arm({ background: true })
+  const device = arm({})
   const { result, stderr } = await dialog(tool('run-policy'), {
     model: 'policy', command: [{ device: 'arm' }], observation: {},
   }, { arm: device, policy: policy([{ actions: [[0.1, 0.1], [99, 0]] }]) })
@@ -471,59 +141,8 @@ test('policy validates every point before submitting its chunk', async () => {
   assert.match(stderr, /limits/)
   assert.equal(device.writes, 0)
 })
-
-test('policy timeout stops the group without starting the next action', async () => {
-  const device = arm({ background: true })
-  const { result, stderr } = await dialog(tool('run-policy'), {
-    model: 'policy', command: [{ device: 'arm' }], observation: {}, action_hz: 10, timeout_s: 0.2,
-  }, { arm: device, policy: policy([{ actions: [[1, 1], [2, 2], [3, 3]] }]) })
-  assert.ok(result, stderr)
-  assert.equal(result.terminated_by, 'timeout')
-  assert.equal(result.actions_executed, 2)
-  assert.deepEqual(device.history.at(-1), [2, 2])
-  assert.ok(device.stops >= 1)
-})
-
-test('quiet arrival without measured velocities fails before motion', async () => {
-  const device = arm({ background: true }), profile = device.profile
-  device.profile = () => { const p = profile(); p.intrinsics.feedback.velocities = false; return p }
-  const { result, stderr } = await move(device)
-  assert.equal(result, undefined)
-  assert.match(stderr, /measured velocities/)
-  assert.equal(device.writes, 0)
-})
-
-
-test('move_to raises faults and zero-progress failures after stopping', async () => {
-  for (const reason of ['fault', 'stalled']) {
-    const device = arm({ background: true })
-    const write = device.write
-    device.write = args => {
-      const result = write(args)
-      if (reason === 'fault') result.state.faults = [{ code: 'overload' }]
-      else { result.elapsed_s = 0; result.terminated_by = 'completed' }
-      return result
-    }
-    const { result, stderr } = await move(device)
-    assert.equal(result, undefined)
-    assert.match(stderr, new RegExp(`arm: ${reason}`))
-    assert.ok(device.stops >= 1)
-  }
-})
-
-test('drive raises faults and stalls after stopping', async () => {
-  for (const reason of ['fault', 'stalled']) {
-    const device = base(true, { stall: reason === 'stalled' })
-    if (reason === 'fault') device.read = () => ({ faults: [{ code: 'overload' }], sample_time_s: device.clock })
-    const { result, stderr } = await drive(device)
-    assert.equal(result, undefined)
-    assert.match(stderr, new RegExp(`base: ${reason}`))
-    assert.equal(device.stops, 1)
-  }
-})
-
 function cartesianArm() {
-  const self = arm({ background: false })
+  const self = arm({})
   const originalProfile = self.profile, originalRead = self.read
   self.profile = () => ({ ...originalProfile(),
     intrinsics: { ...originalProfile().intrinsics, frames: { flange: null } },
@@ -600,4 +219,180 @@ test('policy rejects live tool offsets and reserved inference argument overrides
     assert.match(stderr, extra.inference_args ? /cannot override/ : /rigidly attached/)
     assert.equal(self.writes, 0)
   }
+})
+
+function clock(arm) {
+  return { time: 0, read() { return { time_s: this.time } },
+    wait({ duration_s }) { this.time += duration_s; arm.advance(duration_s); return { time_s: this.time, elapsed_s: duration_s } } }
+}
+const tracking = { world: 'world', wait_s: 0.1, max_rounds: 3,
+  perceive: { tool: 'target' }, process: { tool: 'process' },
+  control: { tool: 'servo', args: { device: 'arm', duration_s: 0.2 } },
+  until: { tool: 'done' } }
+const stages = { target: () => ({ joints: [0.2, 0.1] }), process: ({ observation }) => observation, done: () => ({ done: false }) }
+
+test('servo submits a bounded trajectory without waiting or stopping', async () => {
+  const armDevice = arm({})
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], duration_s: .13 }, { arm: armDevice })
+  assert.ok(result, stderr)
+  assert.equal(armDevice.writes, 1)
+  assert.equal(armDevice.stops, 0)
+  assert.equal(armDevice.clock, 0)
+  assert.equal(armDevice.history.length, 13)
+  assert.ok(armDevice.history.at(-1)[0] < 2)
+  assert.deepEqual(result.joints, [2, 1])
+})
+
+test('servo resolves pose targets through IK and pads short moves', async () => {
+  const armDevice = arm({ ik: [0.01, 0.02] })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', pose: [0, 0, 0, 0, 0, 0, 1], duration_s: 2 }, { arm: armDevice })
+  assert.ok(result, stderr)
+  assert.deepEqual(armDevice.history.at(-1), [.01, .02])
+  assert.equal(armDevice.history.length, 200)
+})
+
+test('track waits after submission and optionally stops before until', async () => {
+  for (const stop_after_control of [false, true]) {
+    const armDevice = arm({}), world = clock(armDevice), observed = []
+    const { result, stderr } = await dialog(tool('track'), { ...tracking, stop_after_control }, { arm: armDevice, world }, {
+      ...stages, done: ({ context, state }) => { observed.push([context.round, world.time, armDevice.stops]); return { done: false, state: (state ?? 0) + 1 } },
+    })
+    assert.ok(result, stderr)
+    assert.equal(result.rounds, 3)
+    assert.equal(result.until_state, 4)
+    assert.equal(armDevice.writes, 3)
+    assert.equal(armDevice.stops, stop_after_control ? 4 : 1)
+    assert.ok(Math.abs(world.time - .3) < 1e-9)
+    assert.deepEqual(observed.map(row => row[2]), stop_after_control ? [0, 1, 2, 3] : [0, 0, 0, 0])
+  }
+})
+
+test('track waits on misses, resets consecutive misses and propagates predicate state', async () => {
+  const armDevice = arm({}), world = clock(armDevice)
+  let rounds = 0
+  const { result, stderr } = await dialog(tool('track'), { ...tracking, max_rounds: 6, max_misses: 2 }, { arm: armDevice, world }, {
+    ...stages, process: ({ observation }) => ++rounds === 2 ? observation : null,
+  })
+  assert.ok(result, stderr)
+  assert.equal(result.terminated_by, 'perception_lost')
+  assert.equal(result.rounds, 4)
+  assert.equal(armDevice.writes, 1)
+  assert.equal(world.time, .4)
+})
+
+test('track propagates stage failures and stops owned motion', async () => {
+  const armDevice = arm({}), world = clock(armDevice)
+  let rounds = 0
+  const { result, stderr } = await dialog(tool('track'), tracking, { arm: armDevice, world }, {
+    ...stages, process: ({ observation }) => { if (++rounds === 2) throw Error('processing failed'); return observation },
+  })
+  assert.equal(result, undefined)
+  assert.match(stderr, /processing failed/)
+  assert.equal(armDevice.stops, 1)
+})
+
+test('settled persists stable time across fresh tool processes and resets on goal changes', async () => {
+  const armDevice = arm({}), world = clock(armDevice)
+  let state = null
+  const check = async (time, joints = [0, 0]) => {
+    const out = await dialog(tool('settled'), { context: { time_s: time, world: 'world', control_result: { device: 'arm', joints } }, state }, { arm: armDevice, world })
+    assert.ok(out.result, out.stderr)
+    state = out.result.state
+    return out.result.done
+  }
+  assert.equal(await check(0), false)
+  assert.equal(await check(.05), false)
+  assert.equal(await check(.1), true)
+  assert.equal(await check(.2, [.1, 0]), false)
+  assert.equal(state.since_s, null)
+})
+
+test('settled uses world time for timeout even without a resolved target', async () => {
+  const first = await dialog(tool('settled'), { context: { time_s: 3 }, timeout_s: 1 }, {})
+  const next = await dialog(tool('settled'), { context: { time_s: 4 }, state: first.result.state, timeout_s: 1 }, {})
+  assert.equal(next.result.reason, 'timeout')
+})
+
+test('run_policy flattens end-effector columns and validates the entire chunk before writes', async () => {
+  for (const invalid of [false, true]) {
+    const armDevice = arm({}), submitted = []
+    const gripper = {
+      profile: () => ({ type: 'gripper', intrinsics: { control: {
+        mode: 'position', bounds: { min: 0, max: 1 }, resolution: null, speed: null,
+      } } }),
+      write: args => { submitted.push(args); return { execution_id: 'gripper', elapsed_s: 0, state: { faults: [] } } },
+      stop: () => ({}),
+    }
+    const model = policy([{ actions: [[.1, .2, .3], [.2, .3, invalid ? 2 : .4]] }])
+    const { result, stderr } = await dialog(tool('run-policy'), {
+      model: 'policy', observation: {}, command: [{ device: 'arm' }, { device: 'gripper' }], action_hz: 10,
+    }, { arm: armDevice, gripper, policy: model })
+    if (invalid) {
+      assert.match(stderr, /exceeds profile command bounds/)
+      assert.equal(armDevice.writes, 0)
+      assert.deepEqual(submitted, [])
+    } else {
+      assert.equal(result?.actions_submitted, 2, stderr)
+      assert.deepEqual(submitted, [{ actions: [.3, .4], duration_s: .2 }])
+      assert.deepEqual(armDevice.pending, { actions: [[.1, .2], [.2, .3]], duration_s: .2 })
+    }
+  }
+})
+
+test('run_policy submits complete chunks without advancing time', async () => {
+  const armDevice = arm({}), model = policy([{ actions: [[.1, .2], [.2, .3]] }])
+  const { result, stderr } = await dialog(tool('run-policy'), { model: 'policy', observation: {}, command: [{ device: 'arm' }], action_hz: 20 }, { arm: armDevice, policy: model })
+  assert.ok(result, stderr)
+  assert.equal(result.actions_submitted, 2)
+  assert.equal(result.duration_s, .1)
+  assert.equal(armDevice.clock, 0)
+  assert.equal(armDevice.stops, 0)
+})
+
+test('track maps a measured pose through relative_pose into servo', async () => {
+  const device = arm({ ik: [0.1, 0.2] }), prof = device.profile, world = clock(device)
+  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = [1, 2, 3, 0, 0, 0, 1]; return p }
+  const options = { ...tracking, max_rounds: 1,
+    process: { tool: 'relative_pose', args: { parent: { frame: 'arm' } },
+      inputs: { '/child/frame': '/frame', '/child/pose': '/poses/0' } },
+    control: { ...tracking.control, inputs: { '/pose': '/pose' } } }
+  const { result, stderr } = await dialog(tool('track'), options, { arm: device, world }, {
+    ...stages, target: () => ({ frame: 'arm:camera', poses: [[0.1, 0.2, 0.3, 0, 0, 1, 0]] }) })
+  assert.ok(result, stderr)
+  assert.deepEqual(device.ikArgs.pose, [1.1, 2.2, 3.3, 0, 0, 1, 0])
+  assert.equal(world.time, 0.1)
+  assert.equal(device.writes, 1)
+  assert.equal(device.stops, 1)
+})
+
+test('track input mapping handles array destinations, escaped keys, nulls and missing paths', async () => {
+  for (const mode of ['valid', 'null', 'missing', 'invalid']) {
+    const device = arm({}), world = clock(device)
+    const { result, stderr } = await dialog(tool('track'), { ...tracking, max_rounds: 1, max_misses: 1,
+      process: { tool: 'process', args: { retained: true }, inputs: { '/values/0': '/a~1b/~0key' } },
+      control: { ...tracking.control, inputs: { '/joints': mode === 'missing' ? '/missing' : '/goal' } },
+    }, { arm: device, world }, { ...stages,
+      target: () => ({ 'a/b': { '~key': mode === 'null' ? null : [0.2, 0.1] } }),
+      process: args => { assert.deepEqual(args, { retained: true, values: [[0.2, 0.1]] }); return mode === 'invalid' ? [] : { goal: args.values[0], ignored: true } },
+    })
+    if (mode === 'valid') { assert.ok(result, stderr); assert.equal(device.writes, 1) }
+    else if (mode === 'null') { assert.equal(result.terminated_by, 'perception_lost'); assert.equal(device.writes, 0) }
+    else { assert.equal(result, undefined); assert.match(stderr, mode === 'missing' ? /missing input path/ : /dict or null/); assert.equal(device.writes, 0) }
+  }
+})
+
+test('relative_pose bridges disconnected frames only with supplied estimates', async () => {
+  const armDevice = arm({}), camera = arm({})
+  const original = camera.profile
+  camera.profile = () => ({ ...original(), name: 'camera' })
+  const input = { child: { frame: 'camera', pose: [1, 0, 0, 0, 0, 0, 1] }, parent: { frame: 'arm' } }
+  const disconnected = await dialog(tool('relative-pose'), input, { arm: armDevice, camera })
+  assert.equal(disconnected.result, undefined)
+  const { result, stderr } = await dialog(tool('relative-pose'), { ...input, estimates: [
+    { child: 'camera', parent: 'arm', translation_m: [0, 1, 0], rotation_xyzw: [0, 0, 1, 0] },
+  ] }, { arm: armDevice, camera })
+  assert.ok(result, stderr)
+  assert.deepEqual(result.pose, [-1, 1, 0, 0, 0, 1, 0])
+  assert.equal(result.estimated_links, 1)
+  assert.equal(result.path[0].kind, 'estimated')
 })

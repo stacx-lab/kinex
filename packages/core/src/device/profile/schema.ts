@@ -126,7 +126,7 @@ const EndEffectorAccess = z.strictObject({
   driver: driverWith([...actuatedActions, "introspect"]),
 })
 
-// Optional spatial reference data; no access channel or parent transform.
+// World geometry and clock share a driver, without a parent transform.
 const WorldIntrinsics = z.strictObject({
   source: Source.default("unknown"),
   ...worldShape,
@@ -224,7 +224,9 @@ export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...deviceBase, type: z.literal("detection"), access: ModelAccess.optional(), extrinsics: z.never().optional(), intrinsics: DetectionIntrinsics }),
   z.strictObject({ ...deviceBase, type: z.literal("segmentation"), access: ModelAccess.optional(), extrinsics: z.never().optional(), intrinsics: SegmentationIntrinsics }),
   z.strictObject({ ...deviceBase, type: z.literal("world"),
-    access: z.never().optional(), extrinsics: z.never().optional(), intrinsics: WorldIntrinsics,
+    access: z.strictObject({ ...jointState, connection: may(OtherConnection).default(MISSING),
+      driver: driverWith(["read", "wait", "load", "unload", "status"]),
+    }).optional(), extrinsics: z.never().optional(), intrinsics: WorldIntrinsics,
   }),
   z.strictObject({ ...deviceBase, type: z.literal("other"), intrinsics: MiscIntrinsics }),
 ]).superRefine((device, ctx) => {

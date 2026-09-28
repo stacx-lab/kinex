@@ -24,7 +24,7 @@ Each device has devices/<name>/profile.yaml under .kinex/:
 - access: connection and driver;
 - intrinsics: control/feedback facts, model or sensor calibration, and local frames;
 - extrinsics: mounting transform or measured pose reference.
-Models have no extrinsics. The optional world profile contains spatial references,
+Models have no extrinsics. The world driver provides read/wait on its clock; its optional geometry contains spatial references,
 bounds and surfaces, with no access, driver or extrinsics.
 
 Address the canonical frame by device name and local frames as device:frame.

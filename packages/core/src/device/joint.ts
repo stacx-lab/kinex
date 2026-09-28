@@ -21,18 +21,12 @@ export function jointReading(device: Device, reading: DeviceReading): DeviceRead
   return { ...reading, data }
 }
 
-export function jointResult(device: Device, args: Record<string, unknown>, reading: DeviceReading): DeviceReading {
-  const result = z.object({ elapsed_s: z.number().nonnegative(), state: z.record(z.string(), z.unknown()),
-    completed_actions: z.number().int().nonnegative(),
+export function jointResult(device: Device, reading: DeviceReading): DeviceReading {
+  const result = z.object({ execution_id: z.string().min(1), elapsed_s: z.number().nonnegative(),
+    state: z.record(z.string(), z.unknown()),
   }).passthrough().parse(reading.data)
   const state = jointReading(device, { ...reading, data: result.state }).data
   if (z.object({ faults: z.array(z.unknown()) }).parse(state).faults.length)
     throw new NamedError("JointResultError", "joint motion reported faults")
-  const offered = z.array(z.unknown()).parse(args.actions).length
-  if (result.completed_actions > offered ||
-    result.completed_actions < offered && (args.for_s === undefined || result.terminated_by !== "timeout"))
-    throw new NamedError("JointResultError", "write returned an incomplete sequence without an error")
-  if (args.for_s !== undefined && result.elapsed_s > z.number().parse(args.for_s) + 1e-8)
-    throw new NamedError("JointResultError", "motion exceeded its execution budget")
   return { ...reading, data: { ...result, state } }
 }

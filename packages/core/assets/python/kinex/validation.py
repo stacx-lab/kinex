@@ -25,21 +25,7 @@ def vector(value, size, name="components"):
 
 def segment(args, command):
     """Attach a validated duration to a velocity or scalar command."""
-    budget = number(args.get("for_s"), "for_s")
+    budget = number(args.get("duration_s"), "duration_s")
     if budget <= 0:
-        raise ValueError("for_s must be positive")
-    return {**command, "for_s": budget}
-
-
-def segment_result(result):
-    """Validate a successful write without inventing device timing or feedback."""
-    if not isinstance(result, dict) or result.get("accepted") is not True:
-        raise ValueError("write must acknowledge accepted: true")
-    if number(result.get("elapsed_s"), "write.elapsed_s") < 0:
-        raise ValueError("write.elapsed_s must not be negative")
-    if not isinstance(result.get("reached"), bool):
-        raise ValueError("write.reached must be a boolean")
-    state = result.get("state")
-    if not isinstance(state, dict) or not isinstance(state.get("faults"), list):
-        raise ValueError("write.state must contain a faults list")
-    return result
+        raise ValueError("duration_s must be positive")
+    return {**command, "duration_s": budget}

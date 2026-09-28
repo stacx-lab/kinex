@@ -13,7 +13,7 @@ frame; the procedure runs on the color stream). One pure-numpy Tsai–Lenz solve
   offset need not be measured; the solver absorbs it) → T_base_camera.
 
 Choose the variant from the recorded mount; ask only if the physical arrangement is unclear.
-Use move_to with speedFraction ≤ 0.15 for the loop. Anyone steadying the board keeps hands clear. Scratch: `.kinex/calib/calibrate-camera-extrinsics/`.
+Use servo with speedFraction ≤ 0.15 for the loop. Anyone steadying the board keeps hands clear. Scratch: `.kinex/calib/calibrate-camera-extrinsics/`.
 
 In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
 Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
@@ -36,7 +36,7 @@ Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
 Choose reachable, collision-free targets from the joint model and observed scene,
 with large rotation diversity. Use measured world geometry only when available;
 consecutive orientations ≥ ~20° apart: hand-eye degenerates with pure translations. Per pose:
-1. announce → `move_to` with a pose in `<arm>`, or a model-ordered joint target;
+1. announce → `servo` with a pose in `<arm>`, or a model-ordered joint target;
 2. `calib_sample deviceID=<arm> routine=calibrate-camera-extrinsics settle={...} note="pose N"`
    — the flange pose [x,y,z,qx,qy,qz,qw] lands in samples.json as `data.frame_poses.flange`;
 3. read the camera → frame path;

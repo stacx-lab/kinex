@@ -14,8 +14,12 @@ class VelocityDeviceDriver(Driver):
     def read_state(self, handle):
         raise NotImplementedError("Read body pose, velocities, frames, faults and acquisition timestamp")
 
-    def send_target(self, handle, command):
-        raise NotImplementedError("Execute velocity/posture for command.for_s; return accepted, elapsed_s, reached and state")
+    @property
+    def period_s(self):
+        raise NotImplementedError("Return the hardware control period")
+
+    def set_target(self, handle, command):
+        raise NotImplementedError("Set velocity/posture without waiting")
 
     def halt(self, handle, target):
         raise NotImplementedError("Perform self.profile['intrinsics']['stop']; preserve posture/balance; target is the last command or None")

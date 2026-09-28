@@ -1,15 +1,14 @@
-"""Bounded SDK hooks for a velocity device; the SDK owns balance control.
-
-A write carries how long the command should run and reports the device time it
-spent, so a command needs no separate expiry: the caller's budget is the bound.
-"""
+"""Velocity driver lifecycle and asynchronous reference execution."""
 
 import sys
 import threading
+import time
+
+from kinex.buffer import Buffer
 
 from kinex.driver_protocol import run, release
 from kinex.velocity import command, reading
-from kinex.validation import settings, segment_result
+from kinex.validation import settings
 
 
 class Driver:
@@ -20,6 +19,16 @@ class Driver:
         self.error = None
         self.serving = "--serve" in sys.argv
         self.target = None
+        self.buffer = None
+
+    def command(self, args):
+        return command(self.profile, args)
+
+    def reading(self, state):
+        return reading(self.profile, state)
+
+    def references(self, value):
+        return [value]
 
     def connect(self):
         raise NotImplementedError("Start owned control services and connect without commanding motion; roll back failed startup")
@@ -30,10 +39,12 @@ class Driver:
     def read_state(self, handle):
         raise NotImplementedError("Read body pose, velocities, height, frames and timestamp")
 
-    def send_target(self, handle, value):
-        # Check driver_protocol.check_cancelled() between native operations;
-        # keep read_state and halt available while this bounded hook waits.
-        raise NotImplementedError("Execute velocity/posture for value.for_s in the device clock; return accepted, elapsed_s, reached and state")
+    @property
+    def period_s(self):
+        raise NotImplementedError("Return the hardware control period")
+
+    def set_target(self, handle, value):
+        raise NotImplementedError("Set velocity/posture without waiting")
 
     def halt(self, handle, target):
         raise NotImplementedError("Apply profile stop behavior, preserving posture/balance; target is the last command or None")
@@ -55,7 +66,10 @@ class Driver:
             return {"unloaded": True, "stopped": True, **self.profile["intrinsics"]["stop"]}
         if action == "stop":
             try:
-                self.halt(self.connection(), self.target)
+                if self.buffer is not None:
+                    self.buffer.stop()
+                else:
+                    self.halt(self.connection(), self.target)
             except Exception as error:
                 self.error = str(error)
                 raise
@@ -69,13 +83,24 @@ class Driver:
         if action == "status":
             return {"connected": self.handle is not None}
         if action == "read":
-            return reading(self.profile, self.read_state(self.connection()))
+            state = self.reading(self.read_state(self.connection()))
+            if self.buffer is not None and self.buffer.error:
+                state["faults"].append({"code": "buffer_failed"})
+            return state
         if action == "write":
-            value = command(self.profile, args)
+            if not self.serving:
+                raise ValueError("local buffers require a persistent driver")
+            value = self.command(args)
             handle = self.connection()
             self.target = value
-            result = segment_result(self.send_target(handle, value))
-            return {**result, "state": reading(self.profile, result["state"])}
+            if self.buffer is None:
+                self.buffer = Buffer(self.period_s, lambda target: self.set_target(handle, target),
+                                     lambda: self.halt(handle, self.target), expire=self.profile["type"] == "velocity")
+            start = time.monotonic()
+            identity = self.buffer.submit(self.references(value), value["duration_s"])
+            state = self.execute("read", {})
+            return {"execution_id": identity, "elapsed_s": time.monotonic() - start,
+                    "state": state}
         raise ValueError(f"Unsupported base action: {action}")
 
     def dispatch(self, action, args):
@@ -86,6 +111,9 @@ class Driver:
 
     def close(self, stop=None):
         with self.lock:
+            if self.buffer is not None:
+                self.buffer.close()
+                self.buffer = None
             handle, self.handle = self.handle, None
             target, self.target = self.target, None
             release(lambda: self.halt(handle, target) if handle is not None and (self.serving if stop is None else stop) else None,

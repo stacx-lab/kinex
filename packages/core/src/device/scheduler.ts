@@ -27,7 +27,7 @@ export interface CommandAdmission {
 
 export function scheduleDevice<T>(key: string, action: string, run: (admission: CommandAdmission) => Promise<T>, affected = [key]): Promise<T> {
   const state = lane(key)
-  const mutation = !["read", "status", "fk", "ik", "record_start", "record_stop", "load", "unload", "stop"].includes(action)
+  const mutation = !["read", "wait", "status", "fk", "ik", "record_start", "record_stop", "load", "unload", "stop"].includes(action)
   if (mutation) return scheduleWrite(state, run)
   let before = state.barrier
   if (action.startsWith("record_")) before = Promise.all([before, state.capture])

@@ -6,11 +6,12 @@ description: velocity control and observation contract.
 
 ## Use
 
-`write({mode, velocity?, posture?, for_s})` holds a preset command for positive
-`for_s` device seconds and returns `accepted`, `elapsed_s`, `reached` and `state`.
-Axes, units and frames come from `control.modes`. Use `drive` for a timed hold
-with automatic final stop. Raw write completion does not clear a standing command.
-Reads return measured pose, velocities, faults, time and named `frame_poses`.
+`write({mode, velocity?, posture?, duration_s})` submits a velocity/posture
+command and returns immediately. Axes, units and frames come from `control.modes`.
+At duration expiry, velocity becomes zero while posture is retained.
+New valid writes replace pending actions without stopping. Results contain
+`execution_id`, actual `elapsed_s` and measured `state`.
+Use `world.wait({duration_s})` to wait for execution. Stop clears the buffer.
 
 ## Setup
 
@@ -18,7 +19,7 @@ Follow setup-device for registration and lifecycle ownership. Load waits for
 readiness; status only observes; unload stops motion and releases owned resources.
 Use `???` for unresolved facts and `null` only where the schema permits it.
 
-control contains mode:motion, body_frame and modes. Each preset has nullable velocity {frame:body|heading,components:[{axis,units,bounds}]} and posture {reference,components:[{axis,units,bounds,default}]}. send_target executes for for_s on the device clock and reports measured elapsed_s and state. feedback declares pose_frame (null if unlocalized), velocity_frame, velocity_components and clock. Root placement comes from measured feedback, never a fixed mount.
+control contains mode:motion, body_frame and modes. Each preset has nullable velocity {frame:body|heading,components:[{axis,units,bounds}]} and posture {reference,components:[{axis,units,bounds,default}]}. Implement period_s and nonblocking set_target hooks; the shared driver owns the buffer. feedback declares pose_frame (null if unlocalized), velocity_frame, velocity_components and clock. Root placement comes from measured feedback, never a fixed mount.
 
 ### Profile
 

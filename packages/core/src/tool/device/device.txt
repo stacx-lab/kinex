@@ -1,4 +1,6 @@
-Call a named device with action (default read) and args. Its profile declares operations, units and parameters. Prefer move_to for arm goals and run_policy for synchronized action chunks.
+Call a named device with action (default read) and args. Its profile declares operations, units and parameters. Prefer servo for arm goals and run_policy for synchronized action chunks.
 Load an inactive device before use. load/unload accept no arguments; status inspects readiness without starting services. Calls enforce device permissions. Python tools cannot load or unload devices.
-Results contain data and/or a file path. Camera images display directly; interpret depth using the profile. Resolve named device:frame references with relative_pose. World is a frame profile without a driver.
+Results contain data and/or a file path. Camera images display directly; interpret depth using the profile. Resolve named device:frame references with relative_pose. World read returns time_s; world.wait(duration_s) waits on the driver clock. Actuator writes take duration_s and return immediately; use world.wait to pace control.
 verbose defaults to true; false omits empty optional feedback while preserving faults, timestamps and unknown fields. compact selects single-line JSON.
+
+Use devices with calls: [{deviceID, action?, args?}] for concurrent device calls.

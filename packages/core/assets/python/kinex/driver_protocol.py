@@ -86,6 +86,7 @@ def run(dispatch, cleanup, *, serving=None):
     stop_tail = None
     output_lock = threading.Lock()
     writes = []
+    waiters = {}
     pending = set()
     pools = {}
     with protocol_output() as output, termination():
@@ -132,6 +133,7 @@ def run(dispatch, cleanup, *, serving=None):
                     output.write(json.dumps({**result, "id": request["id"]}, allow_nan=False) + "\n")
                     output.flush()
             finally:
+                waiters.pop(request["id"], None)
                 _operation.cancel = None
 
         try:
@@ -147,7 +149,16 @@ def run(dispatch, cleanup, *, serving=None):
                 request = json.loads(line)
                 if not isinstance(request.get("id"), str):
                     raise ValueError("persistent requests require a string id; migrate the caller")
-                if request.get("interrupt") is True:
+                target = request.get("interrupt")
+                if isinstance(target, str):
+                    event = waiters.get(target)
+                    if event is not None:
+                        event.set()
+                    with output_lock:
+                        output.write(json.dumps({"id": request["id"], "ok": True}) + "\n")
+                        output.flush()
+                    continue
+                if target is True:
                     for _, event in writes:
                         event.set()
                     with output_lock:
@@ -164,10 +175,12 @@ def run(dispatch, cleanup, *, serving=None):
                     wait(pending)
                     send(request)
                     continue
-                kind = ("read" if action in {"read", "status", "fk", "ik"} else
+                kind = ("read" if action in {"read", "wait", "status", "fk", "ik"} else
                         "capture" if action in {"record_start", "record_stop"} else
                         "stop" if action == "stop" else "write")
-                event = threading.Event() if kind == "write" else None
+                event = threading.Event() if kind == "write" or action == "wait" else None
+                if action == "wait":
+                    waiters[request["id"]] = event
                 future = pools[kind].submit(send, request, event, stop_tail if kind == "write" else None)
                 if kind == "stop":
                     stop_tail = future

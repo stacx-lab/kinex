@@ -1,37 +1,62 @@
 #!/usr/bin/env python3
-"""Repeat perception, argument processing and bounded control."""
+"""Compose observation, control, world time and a stateful predicate."""
 
-from kinex import args, call, finish, stop_owned
-from kinex.control import predicate, stop_on_error
+from kinex import args, call, device, finish, inline, stop_owned
+from kinex.control import stop_on_error
+from kinex.inputs import arguments
+
+
+def stage(spec, values, *, kind="perception"):
+    if "python" in spec:
+        return inline(spec["python"], values, kind=kind)
+    return call(spec["tool"], **values)
 
 
 def control(a):
-    perceive, process, controller = a["perceive"], a["process"], a["control"]
-    until = a.get("until")
-    rounds, misses, last = 0, 0, None
+    perceive, process, controller, until = (a[key] for key in ("perceive", "process", "control", "until"))
+    world = a["world"]
+    rounds, misses, last, predicate_state = 0, 0, None, None
+    context = {"round": 0, "observation": None, "control_args": controller.get("args", {}),
+               "control_result": None, "world": world}
+
+    def check():
+        nonlocal predicate_state
+        context["time_s"] = device(world)["data"]["time_s"]
+        result = stage(until, {**until.get("args", {}), "context": context, "state": predicate_state})
+        if not isinstance(result, dict) or not isinstance(result.get("done"), bool):
+            raise ValueError("until must return done: boolean")
+        predicate_state = result.get("state")
+        return (result.get("reason") or "until") if result["done"] else None
+
     with stop_on_error():
-        reason = predicate(until) if until else None
+        reason = check()
         while reason is None:
             rounds += 1
-            observation = call(perceive["tool"], **(perceive.get("args") or {}))
-            processed = call(process["tool"], **{**(process.get("args") or {}), "observation": observation})
-            if (not isinstance(processed, dict) or "args" not in processed or
-                    processed["args"] is not None and not isinstance(processed["args"], dict)):
-                raise ValueError("process must return {args: object} or {args: null}")
-            if processed["args"] is None:
+            observation = stage(perceive, perceive.get("args", {}))
+            process_args = arguments(process, observation, observation=True)
+            processed = None if process_args is None else stage(process, process_args)
+            if processed is not None and not isinstance(processed, dict):
+                raise ValueError("process must return a dict or null")
+            values = None if processed is None else arguments(controller, processed)
+            context.update(round=rounds, observation=observation, control_args=None, control_result=None)
+            if values is None:
                 stop_owned()
                 misses += 1
                 if misses >= a.get("max_misses", 3):
                     reason = "perception_lost"
             else:
                 misses = 0
-                last = call(controller["tool"], **{**(controller.get("args") or {}), **processed["args"]})
-            if until:
-                reason = predicate(until) or reason
+                last = stage(controller, values, kind="controller")
+                context.update(control_args=values, control_result=last)
+            device(world, "wait", duration_s=a["wait_s"])
+            if a.get("stop_after_control", False):
+                stop_owned()
+            reason = check() or reason
             if reason is None and rounds >= a.get("max_rounds", 200):
                 reason = "max_rounds"
-    stop_owned()
-    return {"terminated_by": reason, "rounds": rounds, "perception_misses": misses, "last": last}
+        stop_owned()
+    return {"terminated_by": reason, "rounds": rounds, "perception_misses": misses,
+            "last": last, "until_state": predicate_state}
 
 
 if __name__ == "__main__":

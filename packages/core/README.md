@@ -73,58 +73,67 @@ Duplicate identifiers are errors; tool directories are re-read when calling.
 A contribution borrows resources; the product that created the runtime disposes it.
 The existing root APIs remain available without adopting contributions.
 
-## Bounded control
+## Device calls and control
 
-Joint `write({actions, freq_hz})` buffers complete position references at any
-positive frequency. The device owns timing and resampling; its native cadence is
-not a profile field. Results report actual elapsed time, measured state and
-consumed action count, including references skipped during resampling. No arrival wait or
-trajectory generation happens inside write. RPC may run at 20 Hz or below while
-local servo and physics run faster.
+`device` calls one device; `devices` accepts `calls: [{deviceID, action?, args?}]`.
+Batch permissions are checked before dispatch. Calls run concurrently under each
+device's scheduler; results stay in input order and report individual errors.
+Camera files are attached as images. Sampling is not simultaneous and effects
+are not atomic. Python tools may compose these tools without gaining lifecycle
+or controller capabilities.
 
-- `move_to` accepts joints or a pose. It stops, measures rest,
-  generates a quintic trajectory, submits bounded writes and checks arrival.
-  Planning defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear
-  joints, capped by known velocity/acceleration limits.
-  `max_velocity` and `max_acceleration` override planning rates
-  within known limits; `speedFraction` scales them. Defaults are not hardware ratings.
-- `run_policy` validates one waypoint chunk, then submits buffered writes to its
-  devices concurrently. Calls do not guarantee simultaneous starts.
-  Each command defaults to `space: device` (absolute joint/scalar values).
-  `space: pose` accepts xyz + quaternion xyzw; `space: pose_delta` accepts
-  translation metres + axis-angle radians. Cartesian commands require joint IK;
-  optional `frame` selects a frozen reference frame and `target_frame` a rigidly
-  attached tool frame. IK solves the selected buffer before any write, seeding
-  each solve from its predecessor. Deltas accumulate predicted targets rather
-  than resampling measured state at every action. `inference_args` forwards
-  model-specific options without overriding `observation`/`task`.
-- `drive` holds velocity/posture for a duration.
-- `track` composes `perceive`, `process`, and `control` tool calls. Processing receives
-  `observation` and returns `{args: {...}}` to overlay controller arguments, or
-  `{args: null}` for a miss. Controllers own their time bounds and raise failures;
-  tracking ends on `until`, `max_rounds` (200), or consecutive `max_misses` (3).
-  Misses and final exit stop owned motion. Controller results remain opaque.
-- `point_to_pose` converts a located point into pose arguments, handling frame
-  conversion, offsets, and an explicit or current FK orientation.
+Actuator writes submit validated buffers with `duration_s` and return immediately.
+Devices consume them at their fixed cadence. Position devices retain the last
+reference; velocity devices expire to zero velocity while retaining posture.
+`world.read` returns `time_s`; `world.wait(duration_s)` waits on the driver's clock.
 
-Timeout, cancellation and faults stop the motion owned by that invocation. A newer
-valid command replaces older motion; cleanup from the old invocation cannot stop
-its replacement. Completed buffers, including those from `move_to`, hold measured
-state in stepped simulation and retain the last reference in realtime
-simulation or hardware. Deployment selects the mode; controller arguments are identical.
-Predicates are checked before motion and at bounded device-time checkpoints.
-Track checks its predicate before the first round and after each round.
-Uncertain motion is never retried.
+- `servo` plans and submits a joint trajectory segment from measured state. It
+  accepts joints or a pose, without waiting for arrival. Short durations truncate
+  the trajectory; longer durations hold the goal. Planning defaults are 1 rad/s
+  and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints, capped by known limits.
+- `run_policy` infers once, splits the selected chunk across devices, and submits
+  buffers concurrently. Cartesian `pose` and `pose_delta` actions use frozen
+  reference frames and seeded IK; `target_frame` must be rigidly attached to the
+  IK frame. It returns submission results without waiting.
+  Gripper/suction writes use flat `actions: [value, ...]`; joint and dexterous-hand
+  writes use sequences of joint vectors. Both require `duration_s`.
+- `relative_pose` accepts `child` and `parent`, each `{frame, pose?}`. A local pose
+  is `[x,y,z,qx,qy,qz,qw]` in metres with a unit quaternion, defaulting to identity.
+  Both local transforms participate. The result expresses child in parent and
+  includes `translation`, `rotation`, `pose`, `path` and `estimated_links`.
+- `track` composes perceive → process → control → world.wait → optional stop → until.
+  Process receives `observation` and returns a dict that overrides `control.args`.
+  Optional `inputs` on process/control maps destination argument JSON Pointers
+  to source paths in the preceding result. With mappings, only selected values
+  are injected. Null results or selected null values count as misses; missing
+  paths are errors. `settled` checks arrival and optional world-time timeout.
+  Each stage accepts either `tool` or `python`, alongside the same `args` and
+  mappings. Inline Python is a lambda or source defining `main`; it receives
+  keyword arguments and returns JSON data without calling `finish`.
 
-For example, repeated point tracking with bounded arm moves:
+For a workspace perception tool returning `{frame, pose}`:
 
 ```python
-call("track",
-     perceive={"tool": "locate_object_3d", "args": {"camera": "camera", "model": "detector", "prompt": "mug"}},
-     process={"tool": "point_to_pose", "args": {"device": "arm", "offset_m": [0, 0, 0.1]}},
-     control={"tool": "move_to", "args": {"device": "arm", "timeout_s": 0.5}},
-     max_rounds=10)
+call("track", world="world", wait_s=0.1,
+     perceive={"tool": "target_pose"},
+     process={"tool": "relative_pose", "args": {"parent": {"frame": "arm"}},
+              "inputs": {"/child/frame": "/frame", "/child/pose": "/pose"}},
+     control={"tool": "servo", "args": {"device": "arm", "duration_s": 0.2},
+              "inputs": {"/pose": "/pose"}},
+     until={"tool": "settled", "args": {"timeout_s": 10}})
 ```
+
+For a fixed target, use `perceive={"python": "lambda target: target", "args":
+{"target": {"frame": "arm", "pose": [0.3, 0, 0.2, 0, 0, 0, 1]}}}`.
+Inline stages bypass discovery and run in fresh subprocesses through the existing
+JSONL dialog, inheriting the caller's interpreter, working directory and deadline.
+Only inline control has controller capabilities. Until state is passed explicitly
+between rounds. Python tools can also use `inline(source, values, kind="perception")`;
+requesting controller capability requires a controller caller.
+
+Track stops owned motion on misses, errors, cancellation and final exit.
+`stop_after_control` also stops it after each round's wait. Cleanup cannot stop
+another invocation's replacement. Uncertain writes are never retried.
 
 ## Public runtime
 

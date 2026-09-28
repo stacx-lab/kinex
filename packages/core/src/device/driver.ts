@@ -114,7 +114,7 @@ function failServing(entry: DriverProcess, error: unknown): void {
 
 // Control frame, never a model-visible device action. A scoped stop also
 // cancels cooperative SDK hooks in the other drivers it physically affects.
-export async function interruptServing(cwd: string, name: string): Promise<void> {
+export async function interruptServing(cwd: string, name: string, requestID?: string): Promise<void> {
   const entry = serving().get(await CalibrationStore.deviceDir(cwd, name))
   if (!entry || entry.stopping || entry.proc.exitCode !== null) return
   const id = crypto.randomUUID()
@@ -122,7 +122,7 @@ export async function interruptServing(cwd: string, name: string): Promise<void>
   entry.pending.set(id, response)
   const timer = setTimeout(() => failServing(entry, new DriverError("driver interrupt timed out")), 1000)
   try {
-    entry.proc.stdin.write(JSON.stringify({ id, interrupt: true }) + "\n")
+    entry.proc.stdin.write(JSON.stringify({ id, interrupt: requestID ?? true }) + "\n")
     void Promise.resolve(entry.proc.stdin.flush()).catch(error => failServing(entry, error))
     const result = await response.promise
     if (result.ok !== true) throw new DriverError(`driver interrupt failed: ${String(result.error)}`)
@@ -196,20 +196,26 @@ async function runServe(
   const id = crypto.randomUUID()
   const response = Promise.withResolvers<Record<string, unknown>>()
   entry.pending.set(id, response)
-  const abort = () => failServing(entry, signal?.reason ?? new DriverError("driver request aborted"))
+  const abort = () => {
+    if (action === "wait") void interruptServing(cwd, device.name, id).catch(error => failServing(entry, error))
+    else failServing(entry, signal?.reason ?? new DriverError("driver request aborted"))
+  }
   signal?.addEventListener("abort", abort, { once: true })
   const interrupt = () => { void interruptServing(cwd, device.name).catch(error => failServing(entry, error)) }
   admission?.interrupted?.addEventListener("abort", interrupt, { once: true })
   if (admission?.interrupted?.aborted) interrupt()
   const timer = setTimeout(() => failServing(entry, new DriverError("persistent driver timed out")), timeoutMs(device))
   const payload = await (async () => {
-    if (signal?.aborted) abort()
-    else {
+    if (signal?.aborted) {
+      entry.pending.delete(id)
+      response.reject(signal.reason)
+    } else {
       entry.proc.stdin.write(JSON.stringify({ id, action, args }) + "\n")
       void Promise.resolve(entry.proc.stdin.flush()).catch(error => failServing(entry, error))
     }
     return response.promise
   })().catch(async (error: unknown) => {
+    if (action === "wait" && signal?.aborted) throw error
     failServing(entry, error)
     await terminate(entry)
     if (serving().get(key) === entry) serving().delete(key)

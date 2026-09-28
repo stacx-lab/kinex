@@ -29,8 +29,8 @@ def planning_limits(joints, max_velocity=None, max_acceleration=None):
     return result
 
 
-def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None):
-    """Sample synchronized quintic references from a measured resting state."""
+def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, duration_s=None):
+    """Sample synchronized quintic joint references."""
     start = joint_target(start, joints)
     target = joint_target(target, joints)
     if not math.isfinite(period_s) or period_s <= 0 or not 0 < fraction <= 1:
@@ -45,17 +45,15 @@ def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None,
         # Exact extrema of 10s^3 - 15s^4 + 6s^5 and its derivatives.
         duration = max(duration, 1.875 * abs(distance) / (velocity * fraction),
                        math.sqrt(10 / math.sqrt(3) * abs(distance) / (acceleration * fraction)))
-    count = math.ceil(duration / period_s)
+    window = duration if duration_s is None else number(duration_s, "duration_s")
+    if window <= 0:
+        raise ValueError("duration_s must be positive")
+    count = math.ceil(window / period_s)
     if count > 1_000_000:
         raise ValueError("trajectory exceeds one million references")
     result = []
     for tick in range(1, count + 1):
-        t = tick / count
+        t = min(1.0, tick * window / count / duration)
         scale = t ** 3 * (10 + t * (-15 + 6 * t))
         result.append(joint_target([a + d * scale for a, d in zip(start, delta)], joints))
     return result
-
-
-def at_rest(state, width, tolerance):
-    velocities = vector(state.get("velocities"), width, "measured velocities")
-    return all(abs(v) <= limit for v, limit in zip(velocities, tolerance))

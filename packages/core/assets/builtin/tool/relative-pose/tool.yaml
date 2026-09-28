@@ -1,74 +1,47 @@
 name: relative_pose
 kind: perception
 description: >-
-  Express a child device frame in a parent frame, optionally transforming a point.
-  References use device or device:frame. Resolves mounts, fixed intrinsics.frames
-  and measured poses; world is optional. Reads each needed device once. Returns
-  translation in metres, unit xyzw rotation, ordered path and estimated_links count.
-  Convention: p_parent = R * p_child + t. Optional call-local estimates connect
-  otherwise disconnected frames in either direction. Paths minimize estimated
-  links first, then total edges. Ties select the same route for reverse queries
-  with the same inputs. Each path entry has from, to, kind and inverse;
-  estimated edges also include zero-based estimate_index.
-  Only selected edges read devices; read failures are errors.
-  Fails when no usable path exists; never invents connections or persists estimates.
+  Express a frame-attached child pose in a frame-attached parent pose.
+  Local poses are [x,y,z,qx,qy,qz,qw], metres and unit quaternion xyzw;
+  omitted poses are identity. Returns translation, rotation, pose, path and
+  estimated_links. Resolves calibrated/live frames and optional call-local
+  estimates; never invents missing connections or persists estimates.
 parameters:
   type: object
+  additionalProperties: false
   properties:
-    child:
-      type: string
-      description: frame whose pose is asked for, "device" or "device:frame" (e.g. wrist_cam, arm:flange)
-    parent:
-      type: string
-      description: frame to express it in (e.g. base_cam, arm, world)
-    point:
-      type: array
-      items:
-        type: number
-      minItems: 3
-      maxItems: 3
-      description: optional [x, y, z] point in the child frame to express in the parent frame
+    child: &endpoint
+      type: object
+      additionalProperties: false
+      properties:
+        frame: {type: string, description: "Device or device:frame."}
+        pose:
+          type: array
+          items: {type: number}
+          minItems: 7
+          maxItems: 7
+          default: [0, 0, 0, 0, 0, 0, 1]
+      required: [frame]
+    parent: *endpoint
     estimates:
       type: array
-      description: >-
-        Caller-supplied relative poses, e.g. from perception, used only for this call.
-        Each pose expresses its child in its parent; references use device or device:frame.
-        These links can be traversed in either direction and never override a usable
-        path with fewer estimated links. Rotations must be unit quaternions in xyzw order.
+      description: Temporary frame relations; paths prefer fewer estimated edges, then fewer total edges.
       items:
         type: object
         additionalProperties: false
         properties:
-          child:
-            type: string
-            minLength: 1
-          parent:
-            type: string
-            minLength: 1
-          translation_m:
-            type: array
-            items: {type: number}
-            minItems: 3
-            maxItems: 3
-          rotation_xyzw:
-            type: array
-            items: {type: number}
-            minItems: 4
-            maxItems: 4
+          child: {type: string, minLength: 1}
+          parent: {type: string, minLength: 1}
+          translation_m: {type: array, items: {type: number}, minItems: 3, maxItems: 3}
+          rotation_xyzw: {type: array, items: {type: number}, minItems: 4, maxItems: 4}
         required: [child, parent, translation_m, rotation_xyzw]
   required: [child, parent]
 timeout_s: 60
 devices: []
 device_inputs:
-  child:
+  child.frame: &frame
     frame: true
     types: [velocity, joint, gripper, dexterous_hand, suction, rgb, rgbd, force_torque, imu, world, other]
-  parent:
-    frame: true
-    types: [velocity, joint, gripper, dexterous_hand, suction, rgb, rgbd, force_torque, imu, world, other]
-  estimates[].child:
-    frame: true
-    types: [velocity, joint, gripper, dexterous_hand, suction, rgb, rgbd, force_torque, imu, world, other]
-  estimates[].parent:
-    frame: true
-    types: [velocity, joint, gripper, dexterous_hand, suction, rgb, rgbd, force_torque, imu, world, other]
+  parent.frame: *frame
+  estimates[].child: *frame
+  estimates[].parent: *frame

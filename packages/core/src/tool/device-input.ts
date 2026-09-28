@@ -2,7 +2,7 @@ import { z } from "zod"
 
 const object = z.record(z.string(), z.unknown())
 
-// A manifest path selects string leaves, e.g. observe[] or commands[].device.
+// A manifest path selects string leaves, e.g. devices[] or child.frame.
 export function deviceInputSchema(schema: unknown, selector: string): unknown {
   return selector.split(".").reduce<unknown>((node, part) => {
     const properties = object.safeParse(object.safeParse(node).data?.["properties"]).data

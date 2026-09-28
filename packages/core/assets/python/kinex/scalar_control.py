@@ -1,45 +1,47 @@
 """Profile-driven command and feedback handling for fixed end-effector contracts."""
 
-from kinex.validation import number, segment, segment_result
-from kinex.driver_protocol import check_cancelled
+from kinex.validation import number, segment
 
 import math
 
 
 def command(profile, args):
-    if "actions" in args:
-        if set(args) - {"actions", "freq_hz", "for_s"}:
-            raise ValueError("buffered write accepts actions, freq_hz and optional for_s")
-        frequency = number(args.get("freq_hz"), "freq_hz")
-        if frequency <= 0:
-            raise ValueError("freq_hz must be positive")
-        if not isinstance(args["actions"], list) or not args["actions"]:
-            raise ValueError("actions must be a nonempty sequence")
-        actions = [command(profile, {"target": target, "for_s": 1 / frequency})["target"] for target in args["actions"]]
-        if "for_s" in args and number(args["for_s"], "for_s") <= 0:
-            raise ValueError("for_s must be positive")
-        return {**args, "actions": actions}
-    if set(args) - {"target", "speedFraction", "for_s"}:
-        raise ValueError("write accepts only target, speedFraction, for_s")
+    if not isinstance(args, dict) or set(args) - {"actions", "speedFraction", "duration_s"}:
+        raise ValueError("write accepts only actions, speedFraction, duration_s")
+    actions = args.get("actions")
+    if not isinstance(actions, list) or not actions:
+        raise ValueError("actions must be a nonempty sequence of numbers")
     control = profile["intrinsics"]["control"]
     if not isinstance(control, dict) or control["mode"] == "none":
         raise ValueError("This tool has no calibrated command interface")
-    target = args.get("target")
-    if not isinstance(target, list) or len(target) != 1:
-        raise ValueError("target must contain exactly one command value")
-    value = number(target[0], "target")
+    result = segment(args, {"actions": [target(control, value) for value in actions]})
+    speed = control.get("speed") if control["mode"] == "position" else None
+    if speed is None:
+        if "speedFraction" in args:
+            raise ValueError("speedFraction is unsupported")
+        return result
+    if not isinstance(speed, dict):
+        raise ValueError("Speed support has not been calibrated")
+    fraction = number(args.get("speedFraction", speed["default_fraction"]), "speedFraction")
+    if not 0 < fraction <= 1:
+        raise ValueError("speedFraction must be in (0,1]")
+    limits = speed["native_bounds"]
+    native = limits["max"] * fraction
+    if speed["native_resolution"] is not None:
+        native = round(native / speed["native_resolution"]) * speed["native_resolution"]
+    return {**result, "native_speed": max(limits["min"], min(limits["max"], native))}
+
+
+def target(control, value):
+    value = number(value, "action")
     if control["mode"] == "binary":
         if value not in (control["off_target"], control["on_target"]):
             raise ValueError("target must equal off_target or on_target")
-        if "speedFraction" in args:
-            raise ValueError("speedFraction is unsupported")
-        return segment(args, {"target": [value]})
+        return value
     if control["mode"] == "direction":
         if not -1 <= value <= 1:
             raise ValueError("direction target must be in [-1, 1]")
-        if "speedFraction" in args:
-            raise ValueError("speedFraction is unsupported")
-        return segment(args, {"target": [0 if value == 0 else math.copysign(1, value)]})
+        return 0 if value == 0 else math.copysign(1, value)
     if control["mode"] != "position":
         raise ValueError("Unknown end-effector control mode")
     bounds = control["bounds"]
@@ -50,51 +52,7 @@ def command(profile, args):
         value = round(value / resolution) * resolution
     if not bounds["min"] <= value <= bounds["max"]:
         raise ValueError("quantized target exceeds profile command bounds")
-    speed = control["speed"]
-    if speed is None:
-        if "speedFraction" in args:
-            raise ValueError("speedFraction is unsupported")
-        return segment(args, {"target": [value]})
-    if not isinstance(speed, dict):
-        raise ValueError("Speed support has not been calibrated")
-    fraction = number(args.get("speedFraction", speed["default_fraction"]), "speedFraction")
-    if not 0 < fraction <= 1:
-        raise ValueError("speedFraction must be in (0,1]")
-    limits = speed["native_bounds"]
-    native = limits["max"] * fraction
-    if speed["native_resolution"] is not None:
-        native = round(native / speed["native_resolution"]) * speed["native_resolution"]
-    return segment(args, {"target": [value], "native_speed": max(limits["min"], min(limits["max"], native))})
-
-
-def write_buffer(profile, value, send, halt):
-    """Execute a validated end-effector buffer beside the vendor SDK."""
-    period = 1 / value["freq_hz"]
-    budget = value.get("for_s", len(value["actions"]) * period)
-    elapsed, completed, state = 0.0, 0, None
-    try:
-        for target in value["actions"]:
-            check_cancelled()
-            duration = min(period, budget - elapsed)
-            if duration <= 0:
-                break
-            result = segment_result(send(command(profile, {"target": target, "for_s": duration})))
-            state = reading(profile, result["state"])
-            elapsed += result["elapsed_s"]
-            if state["faults"] or elapsed > budget + 1e-8 or result["elapsed_s"] < duration - 1e-8:
-                raise RuntimeError("invalid or faulted buffer execution")
-            if duration < period - 1e-8:
-                break
-            completed += 1
-        check_cancelled()
-        timeout = completed < len(value["actions"])
-        if timeout:
-            halt()
-        return {"completed_actions": completed, "elapsed_s": elapsed, "state": state,
-                "terminated_by": "timeout" if timeout else "completed"}
-    except BaseException:
-        halt()
-        raise
+    return value
 
 
 def reading(profile, sample):

@@ -2,7 +2,7 @@
 
 from contextlib import contextmanager
 
-from kinex import call, device, stop_owned
+from kinex import device, stop_owned
 
 
 def read(name):
@@ -39,8 +39,3 @@ def stop_on_error(names=None):
         except Exception as cleanup:
             error.add_note(str(cleanup))
         raise
-
-
-def predicate(until):
-    result = call(until["tool"], **(until.get("args") or {}))
-    return "until:" + until["tool"] if result.get(until.get("key", "done")) else None

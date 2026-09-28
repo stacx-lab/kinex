@@ -21,23 +21,18 @@ def joint_model(profile, directory=None):
 
 
 def command(profile, args, model=None):
-    from kinex.validation import number
+    from kinex.validation import segment
     if not isinstance(args, dict):
         raise ValueError("joint command must be an object")
     joints = (model or joint_model(profile))["joints"]
-    if set(args) - {"actions", "freq_hz", "for_s"} or not {"actions", "freq_hz"} <= set(args):
-        raise ValueError("write requires actions, freq_hz and optional for_s")
+    if set(args) != {"actions", "duration_s"}:
+        raise ValueError("write requires actions and duration_s")
     actions = args["actions"]
     if not isinstance(actions, list) or not actions:
         raise ValueError("actions must be a nonempty sequence")
     for target in actions:
         joint_target(target, joints)
-    frequency = number(args["freq_hz"], "freq_hz")
-    if frequency <= 0:
-        raise ValueError("freq_hz must be positive")
-    if "for_s" in args and number(args["for_s"], "for_s") <= 0:
-        raise ValueError("for_s must be positive")
-    return dict(args)
+    return segment(args, {"actions": actions})
 
 
 class Arrival:

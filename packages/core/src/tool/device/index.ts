@@ -1,4 +1,5 @@
 import type { Def } from "../tool.ts"
+import { DevicesTool } from "./devices.ts"
 import { DeviceTool } from "./device.ts"
 import { DeviceStopTool } from "./device_stop.ts"
 import { DeviceCalibrateTool } from "./device_calibrate.ts"
@@ -12,6 +13,7 @@ import { CalibPlanTool } from "./calib_plan.ts"
 // always-permitted safety stop; the calib_* tools manage the profiles.
 export const DeviceTools: Def[] = [
   DeviceTool,
+  DevicesTool,
   DeviceStopTool,
   DeviceCalibrateTool,
   CalibSampleTool,

@@ -45,9 +45,9 @@ Contact rules: NEVER command motion while the tool is in contact; the contact ap
 interactive because only the user can report "touching". Per sample:
 1. The user brings the tip EXACTLY onto the point from a substantially different orientation
    (≥ 20° from every kept sample — aim higher). Free-drive: hand-guided. Otherwise: retract
-   10 cm, use `move_to` pose goals in `<arm>` for the new orientation, then
+   10 cm, use `servo` pose goals in `<arm>` for the new orientation, then
    approach in user-confirmed ~5 mm steps until "touching". Direct writes accept joint
-   reference sequences only. Use move_to planning rates and speedFraction to slow contact approaches.
+   reference sequences only. Use servo planning rates and speedFraction to slow contact approaches.
 2. `calib_sample deviceID=<arm> routine=calibrate-tcp-offset settle={...}
    note="touch N, <orientation description>"`.
 3. **Validate as you go**: check the new quaternion's angular distance to every kept sample

@@ -35,7 +35,7 @@ scaffolding. A concrete instance such as SAM3 may also have a substantial setup.
    command settings come from the actual sibling profile.yaml. The harness puts
    its kinex Python helpers and workspace lib/ on PYTHONPATH. Direct test
    invocations need those paths explicitly. Shared vendor clients belong in lib/.
-   World needs no driver. Remote models need only a thin client;
+   World needs a clock driver for read/wait. Remote models need only a thin client;
    local model artifacts are provisioned at their declared paths before loading.
 4. Write the starter profile plus known instance facts through calib_write. Set
    all implemented driver actions; omit interpreter for Kinex core Python, or set
@@ -76,6 +76,7 @@ hold a lock needed by reads or halt throughout a motion wait. Check
 Stop cancels active and queued writes before invoking halt; new writes wait for
 stop completion. The runner also accepts the internal `{id,interrupt:true}` control
 frame to cancel hooks when a different driver's stop affects this device.
+World drivers accept `{id,interrupt:request_id}` to cancel one wait.
 Camera hooks must return consistent snapshots; file paths must identify immutable
 per-response artifacts. The camera templates serialize SDK acquisition and copy
 reused buffers. Recorder shutdown must finish before disconnecting its source.
@@ -95,7 +96,7 @@ Read/status report actual state; acquisition timestamps identify samples, not
 polling. Drivers adapt native units/axes and transport; shared helpers implement
 common validation/conversion. Force/IMU drivers return raw SI measurements;
 the harness applies profile bias once. Actuated writes validate before effects,
-require positive for_s and replace goals without restarting identical targets.
+require positive duration_s and replace goals without restarting identical targets.
 Execute within that device-clock budget and return accepted, elapsed_s, reached
 and the resulting state; an acknowledgment alone is insufficient. SDK hooks in
 the shipped wrappers must return that report. Honor arrive when supplied and
@@ -116,8 +117,8 @@ server. For a device such as a YAM arm, implement control-service startup and
 readiness in connect, and owned-service shutdown in disconnect. Starting the
 service must not move the arm, home it or clear faults.
 
-Every type supports load/unload/status. World has no driver and these operations
-are no-ops apart from its activation flag. Ping never spawns a process. The agent
+Every type supports load/unload/status. World loads its clock driver.
+Ping never spawns a process. The agent
 can load/unload through the device tool with device_act permission; Python tools
 cannot change lifecycle. Verify repeated load/unload, failed startup, cleanup
 failures and process exit with fake SDKs before testing hardware.

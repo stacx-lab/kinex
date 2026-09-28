@@ -2,13 +2,14 @@
 
 import sys
 import threading
-import uuid
+import time
+
+from kinex.buffer import Buffer
 
 from pathlib import Path
 
 from kinex.driver_protocol import run, release, check_cancelled
 from kinex.joints import JointDevice, settings
-from kinex.validation import number
 
 
 class Driver:
@@ -19,6 +20,7 @@ class Driver:
         self.serving = "--serve" in sys.argv
         self.recorder = None
         self._model = None
+        self.buffer = None
         self.sample_lock = threading.RLock()
 
     def connect(self):
@@ -30,18 +32,12 @@ class Driver:
     def read_state(self, handle):
         raise NotImplementedError("read positions/velocities/efforts/faults, acquisition time and reported_pose")
 
-    def servo(self, handle, target, period_s):
-        raise NotImplementedError("Send one absolute reference for period_s; return elapsed_s and measured state. Honor SDK cadence, allow read/stop, and do not interpolate.")
+    @property
+    def period_s(self):
+        raise NotImplementedError("Return the hardware control period")
 
-    def motion_result(self, result):
-        if not isinstance(result, dict) or number(result.get("elapsed_s"), "elapsed_s") < 0:
-            raise ValueError("motion must report nonnegative elapsed_s")
-        if not isinstance(result.get("state"), dict):
-            raise ValueError("motion must report measured state")
-        state = self.model().reading(result["state"])
-        if state["faults"]:
-            raise RuntimeError(f"joint device fault: {state['faults']}")
-        return {**result, "state": state}
+    def set_target(self, handle, target):
+        raise NotImplementedError("Set one absolute reference without waiting")
 
     def stop_motion(self, handle):
         try:
@@ -50,60 +46,20 @@ class Driver:
             error.code = "stop_failed"
             raise
 
-    def reference(self, handle, target, period):
-        result = self.motion_result(self.servo(handle, target, period))
-        if result["elapsed_s"] + 1e-8 < period:
-            raise ValueError("servo returned before its action period elapsed")
-        return result
-
     def motion(self, args):
+        if not self.serving:
+            raise ValueError("local buffers require a persistent driver")
         command = self.model().command(args)
-        for_s = command.get("for_s")
         handle = self.connection()
-        elapsed, completed, state = 0.0, 0, None
-        stop_attempted = False
-
-        def stop():
-            nonlocal stop_attempted
-            if not stop_attempted:
-                stop_attempted = True
-                self.stop_motion(handle)
-
-        try:
-            check_cancelled()
-            period = 1 / command["freq_hz"]
-            for target in command["actions"]:
-                check_cancelled()
-                duration = period if for_s is None else min(period, for_s - elapsed)
-                if duration <= 0:
-                    break
-                result = self.reference(handle, target, duration)
-                elapsed += result["elapsed_s"]
-                state = result["state"]
-                if for_s is not None and elapsed > for_s + 1e-8:
-                    raise ValueError("servo exceeded sequence budget")
-                if duration + 1e-8 < period:
-                    break
-                completed += 1
-            check_cancelled()
-            timeout = completed < len(command["actions"])
-            stepped = self.profile["intrinsics"]["control"].get("execution", "realtime") == "stepped"
-            if timeout or stepped:
-                stop()
-                state = self.sample()
-            return {"completed_actions": completed, "elapsed_s": elapsed, "state": state,
-                    "execution_id": uuid.uuid4().hex,
-                    "terminated_by": "timeout" if timeout else "completed",
-                    "reference_state": "stopped" if stop_attempted else "target"}
-        except BaseException as error:
-            error.details = {"completed_actions": completed, "elapsed_s": elapsed, "state": state}
-            try:
-                stop()
-            except Exception as stop_error:
-                stop_error.code = "stop_failed"
-                stop_error.add_note(f"motion failed: {error}")
-                raise stop_error from error
-            raise
+        if self.buffer is None:
+            self.buffer = Buffer(self.period_s, lambda target: self.set_target(handle, target),
+                                 lambda: self.stop_motion(handle))
+        check_cancelled()
+        start = time.monotonic()
+        identity = self.buffer.submit(command["actions"], command["duration_s"])
+        state = self.sample()
+        return {"execution_id": identity, "elapsed_s": time.monotonic() - start,
+                "state": state}
 
     def halt(self, handle):
         raise NotImplementedError("perform the declared stop behavior and scope")
@@ -130,7 +86,10 @@ class Driver:
 
     def sample(self):
         with self.sample_lock:
-            return self.model().reading(self.read_state(self.connection()))
+            state = self.model().reading(self.read_state(self.connection()))
+            if self.buffer is not None and self.buffer.error:
+                state["faults"].append({"code": "buffer_failed"})
+            return state
 
     def execute(self, action, args):
         if action == "load":
@@ -157,7 +116,10 @@ class Driver:
             stop = self.profile["intrinsics"]["stop"]
             if self.profile["name"] not in stop["affected_devices"]:
                 raise ValueError("stop scope must include this device")
-            self.stop_motion(self.connection())
+            if self.buffer is not None:
+                self.buffer.stop()
+            else:
+                self.stop_motion(self.connection())
             return {"stopped": True, **stop}
         if action == "fk":
             if set(args) != {"joints"}:
@@ -199,6 +161,9 @@ class Driver:
         def disconnect():
             if self.recorder is not None and self.recorder.running:
                 raise RuntimeError("capture still uses the connection; process teardown is required")
+            if self.buffer is not None:
+                self.buffer.close()
+                self.buffer = None
             handle, self.handle = self.handle, None
             release(lambda: self.stop_motion(handle) if handle is not None and (self.serving if stop is None else stop) else None,
                     lambda: self.disconnect(handle) if handle is not None else None)

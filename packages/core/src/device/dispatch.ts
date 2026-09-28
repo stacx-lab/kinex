@@ -1,3 +1,4 @@
+import { worldCommand, worldResult } from "./world.ts"
 import { claimMotion, ownsMotion, ownedMotions } from "./ownership.ts"
 import { isCommandAction } from "./interface.ts"
 import { scheduleDevice, type CommandAdmission } from "./scheduler.ts"
@@ -23,8 +24,6 @@ import { NamedError } from "../util/error.ts"
 // recorder, and the lifecycle helpers below.
 export function route(cwd: string, device: Device, action: string, args: Record<string, unknown>, signal?: AbortSignal, admission?: CommandAdmission): Promise<DeviceReading> {
   admission?.check()
-  if (device.type === "world" && ["load", "unload", "status"].includes(action))
-    return Promise.resolve({ deviceID: device.name, kind: device.type, data: { loaded: action === "load" || (action === "status" && device.loaded), noop: true } })
   const access = device.access
   const kind = access && known(access.connection) ? access.connection.kind : undefined
   if (access?.driver) return runDriver(cwd, device, action, args, signal, admission)
@@ -72,9 +71,10 @@ function dispatchInWorkspace(workspace: string, device: Device, action: string, 
   const operation = modelOperation(device, action)
   args = modelInput(operation, args)
   if (action === "write") args = writeCommand(device, args)
+  if (device.type === "world") args = worldCommand(action, args)
   if (action === "stop" && origin && !ownsMotion(key, origin))
     return Promise.resolve({ deviceID: device.name, kind: device.type, data: { stopped: false, terminated_by: "replaced" } })
-  if (isCommandAction(device, action) && !["load", "unload", "stop"].includes(action))
+  if (isCommandAction(device, action) && !["load", "unload", "stop", "wait"].includes(action))
     claimMotion(key, origin)
   if (action === "load") inactive().add(key)
   const wall = Date.now()
@@ -95,12 +95,13 @@ function dispatchInWorkspace(workspace: string, device: Device, action: string, 
     if (action === "load") inactive().delete(key)
     if (isJoint(device) && action === "write") {
       try {
-        return jointResult(device, args, reading)
+        return jointResult(device, reading)
       } catch (error) {
         await route(workspace, device, "stop", {})
         throw error
       }
     }
+    if (device.type === "world" && ["read", "wait"].includes(action)) return worldResult(action, reading)
     return action === "read" ? validateReading(device, reading) : modelOutput(operation, reading)
   }
   const stop = "stop" in device.intrinsics ? device.intrinsics.stop : undefined

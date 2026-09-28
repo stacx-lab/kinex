@@ -1,0 +1,51 @@
+name: servo
+kind: controller
+description: "Plan and submit one joint trajectory segment. Returns immediately; use world.wait to allow execution."
+parameters:
+  type: object
+  additionalProperties: false
+  properties: &fields
+    device:
+      type: string
+      description: "Device name."
+    joints:
+      type: array
+      items: {type: number}
+      description: absolute configuration in resolved model joint order; radians or metres by joint type
+    pose:
+      type: array
+      minItems: 7
+      maxItems: 7
+      items: {type: number}
+      description: pose [x,y,z,qx,qy,qz,qw] of kinematics.frame, in the device canonical frame unless frame is given; requires declared IK
+    frame:
+      type: string
+      description: "Pose source frame: device or device:frame; defaults to the device canonical frame."
+    speedFraction:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 1
+      description: "Fraction of resolved planning velocity and acceleration rates."
+    max_velocity:
+      oneOf:
+      - {type: number, exclusiveMinimum: 0}
+      - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
+      description: "Planning rate in model order; defaults to 1 rad/s or 0.1 m/s, capped by known limits."
+    max_acceleration:
+      oneOf:
+      - {type: number, exclusiveMinimum: 0}
+      - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
+      description: "Planning rate in model order; defaults to 3 rad/s² or 0.3 m/s², capped by known limits. Defaults are tool policy, not hardware ratings."
+    duration_s:
+      type: number
+      exclusiveMinimum: 0
+      description: "Trajectory segment duration in world seconds."
+  required: [device, duration_s]
+  oneOf:
+  - {type: object, additionalProperties: false, properties: *fields, required: [device, duration_s, joints]}
+  - {type: object, additionalProperties: false, properties: *fields, required: [device, duration_s, pose]}
+timeout_s: 600
+device_inputs:
+  device:
+    types: [joint]
+devices: []

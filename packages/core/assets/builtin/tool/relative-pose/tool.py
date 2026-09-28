@@ -1,26 +1,20 @@
 #!/usr/bin/env python3
-"""Relative pose between two device frames, from the calibrated frame graph.
-
-A thin agent-facing wrapper over kinex.frames: mount chains and fixed or live
-frames, optionally bridged by caller-supplied pose estimates.
-The pose direction is the documented transform convention — child expressed in
-parent, p_parent = R·p_child + t, quaternion xyzw.
-"""
+"""Express one frame-attached pose in another."""
 
 from kinex import args, finish, frames
-from kinex.geometry import apply_rt, pose_to_rt
+from kinex.geometry import compose_rt, invert_rt, pose_to_rt, rt_to_pose, xyzq_to_rt
+from kinex.motion import pose
 
 
-def main():
-    a = args()
-    result = frames.pose(a["child"], a["parent"], estimates=a.get("estimates"))
-    point = a.get("point")
-    if point is not None:
-        moved = apply_rt(pose_to_rt(result), [float(v) for v in point])
-        result["point_in_parent"] = [round(v, 6) for v in moved]
-    result["translation"] = [round(v, 6) for v in result["translation"]]
-    result["rotation"] = [round(v, 6) for v in result["rotation"]]
-    finish(result)
+def relative(a):
+    child, parent = a["child"], a["parent"]
+    identity = [0, 0, 0, 0, 0, 0, 1]
+    local_child = xyzq_to_rt(pose(child.get("pose", identity), "child.pose"))
+    local_parent = xyzq_to_rt(pose(parent.get("pose", identity), "parent.pose"))
+    relation = frames.pose(child["frame"], parent["frame"], estimates=a.get("estimates"))
+    result = rt_to_pose(compose_rt(invert_rt(local_parent), compose_rt(pose_to_rt(relation), local_child)))
+    return {**relation, **result, "pose": result["translation"] + result["rotation"]}
 
 
-main()
+if __name__ == "__main__":
+    finish(relative(args()))

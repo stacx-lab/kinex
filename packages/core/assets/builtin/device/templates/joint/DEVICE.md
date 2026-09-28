@@ -6,13 +6,12 @@ description: joint control and observation contract.
 
 ## Use
 
-`write({actions, freq_hz})` executes absolute joint vectors in model order
-(radians/metres). The device owns timing and resampling; write does not plan or
-wait for arrival. Optional `for_s` limits the execution duration.
-
-New commands replace older motion. Completed write holds measured state in stepped execution and retains its last reference
-in realtime execution. Timeout, cancellation, faults and `stop` terminate motion.
-Reads never advance physics.
+`write({actions, duration_s})` submits absolute joint vectors in model order
+(radians/metres). The driver consumes the buffer at its fixed control cadence.
+The last reference remains active after the buffer completes.
+New valid writes replace pending actions without stopping. Results contain
+`execution_id`, actual `elapsed_s` and measured `state`.
+Use `world.wait({duration_s})` to wait for execution. Stop clears the buffer.
 
 ## Setup
 

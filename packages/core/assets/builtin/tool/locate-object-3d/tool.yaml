@@ -7,7 +7,7 @@ description: >-
   Returns a representative point in metres, pixel, detection_score, depth_samples,
   and reference (visible_surface or box_region). Box estimates may include background.
   rotation_xyzw is null. No mount calibration is needed; convert frames with
-  relative_pose(child=frame, parent=target, point=point).
+  relative_pose after constructing a full local pose with an explicit orientation.
 parameters:
   type: object
   additionalProperties: false

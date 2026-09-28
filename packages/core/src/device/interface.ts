@@ -8,7 +8,7 @@ import { isModel, isActuated, known, type Device } from "./profile/schema.ts"
 export { lifecycle as LIFECYCLE_ACTIONS } from "./profile/common.ts"
 
 export function requiredActions(device: Device): string[] {
-  if (device.type === "world") return []
+  if (device.type === "world") return ["read", "wait", ...lifecycle]
   const base = ["read", ...lifecycle]
   if (device.type === "joint" || device.type === "dexterous_hand") {
     const k = device.intrinsics.kinematics
@@ -52,6 +52,7 @@ const READ_ACTIONS = new Set(["read", "status", "ik", "fk", ...streamActions])
 // On an actuated device every verb outside the read set is a command (write,
 // stop, any custom verb); a non-actuated device cannot be commanded at all.
 export function isCommandAction(device: Device, action: string): boolean {
+  if (device.type === "world") return action === "wait"
   if (!isActuated(device)) return false
   return !READ_ACTIONS.has(action)
 }

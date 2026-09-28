@@ -1,100 +1,41 @@
 #!/usr/bin/env python3
-"""End-effector driver: complete the vendor hooks; constants live in profile.yaml."""
+"""Complete the vendor hooks for an asynchronous scalar actuator."""
 
-import sys
 from pathlib import Path
-from kinex.driver_protocol import run, release
-from kinex.scalar_control import command, reading, stopped, write_buffer
-from kinex.validation import settings, segment_result
-
-HERE = Path(__file__).parent
-HANDLE = None
-PROFILE = None
+from kinex.velocity_driver import Driver
+from kinex.scalar_control import command, reading
 
 
-# Vendor hooks. Lifecycle and reads must not command motion.
-def connect(profile):
-    raise NotImplementedError("Start owned services and connect using access.connection; wait for readiness and roll back failed startup")
+class ScalarDriver(Driver):
+    def command(self, args):
+        return command(self.profile, args)
 
+    def reading(self, state):
+        return reading(self.profile, state)
 
-def disconnect(handle):
-    raise NotImplementedError("Release the connection and owned services; leave shared external services running")
+    def references(self, value):
+        speed = {"native_speed": value["native_speed"]} if "native_speed" in value else {}
+        return [{"target": target, **speed} for target in value["actions"]]
 
+    def connect(self):
+        raise NotImplementedError("Connect using access.connection")
 
-def read_state(handle, profile):
-    raise NotImplementedError("Return positions, velocities, faults, acquisition time and supported sensors")
+    def disconnect(self, handle):
+        raise NotImplementedError("Release the connection and owned services")
 
+    @property
+    def period_s(self):
+        raise NotImplementedError("Return the hardware control period")
 
-def send_target(handle, value, profile):
-    # value contains validated/quantized target and, when supported, native_speed.
-    # Execute the goal for for_s of your own clock, then report elapsed_s,
-    # reached and the resulting state. Check driver_protocol.check_cancelled()
-    # between native operations; reads and halt must run while motion waits.
-    raise NotImplementedError("Execute for value.for_s; return accepted, elapsed_s, reached and state")
+    def read_state(self, handle):
+        raise NotImplementedError("Read measured feedback and faults")
 
+    def set_target(self, handle, command):
+        raise NotImplementedError("Set target and optional native_speed without waiting")
 
-def halt(handle, profile):
-    raise NotImplementedError("Perform exactly the stop behavior/scope declared in the profile")
-
-
-def ensure_handle(profile):
-    global HANDLE, PROFILE
-    if HANDLE is None:
-        HANDLE = connect(profile)
-        if HANDLE is None:
-            raise RuntimeError("connect must return a ready handle")
-        PROFILE = profile
-    return HANDLE
-
-
-def close(stop=True):
-    global HANDLE, PROFILE
-    handle, HANDLE = HANDLE, None
-    profile, PROFILE = PROFILE, None
-    if handle is not None:
-        release(lambda: halt(handle, profile) if stop else None, lambda: disconnect(handle))
-
-
-def execute(action, args):
-    if action == "unload":
-        if HANDLE is None and "--serve" not in sys.argv:
-            ensure_handle(settings(HERE))
-        close()
-        return {"unloaded": True}
-    if action == "status":
-        return {"connected": HANDLE is not None}
-    profile = PROFILE if PROFILE is not None else settings(HERE)
-    if action == "load":
-        ensure_handle(profile)
-        return {"loaded": True}
-    if action == "read":
-        return reading(profile, read_state(ensure_handle(profile), profile))
-    if action == "write":
-        value = command(profile, args)
-        if "actions" in value:
-            handle = ensure_handle(profile)
-            return write_buffer(profile, value,
-                lambda point: send_target(handle, point, profile),
-                lambda: halt(handle, profile))
-        result = segment_result(send_target(ensure_handle(profile), value, profile))
-        return {**result, "state": reading(profile, result["state"])}
-    if action == "stop":
-        result = stopped(profile)
-        halt(ensure_handle(profile), profile)
-        return result
-    raise ValueError(f"Unsupported end-effector action: {action}")
-
-
-def handle(action, args):
-    try:
-        return {"ok": True, **execute(action, args)}
-    except Exception as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-
-
-def main():
-    run(handle, lambda: close(stop="--serve" in sys.argv))
+    def halt(self, handle, target):
+        raise NotImplementedError("Perform the declared stop behavior")
 
 
 if __name__ == "__main__":
-    main()
+    ScalarDriver(Path(__file__).parent).main()

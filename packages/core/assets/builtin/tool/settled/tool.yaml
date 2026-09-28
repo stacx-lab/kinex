@@ -1,0 +1,34 @@
+name: settled
+kind: perception
+description: Check quiet joint arrival and optional world-time timeout for track.until.
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    context:
+      type: object
+    state:
+      type: [object, 'null']
+    device:
+      type: string
+    joints:
+      type: array
+      items: {type: number}
+    joint_tolerance:
+      oneOf:
+      - {type: number, exclusiveMinimum: 0}
+      - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
+    quiet_velocity:
+      oneOf:
+      - {type: number, exclusiveMinimum: 0}
+      - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
+    stable_s:
+      type: number
+      exclusiveMinimum: 0
+      default: 0.1
+    timeout_s:
+      type: number
+      exclusiveMinimum: 0
+  required: [context]
+timeout_s: 60
+devices: []

@@ -1,52 +1,59 @@
 name: track
 kind: controller
-description: "Repeat perceive → process → control until a predicate or round/miss limit. Each controller call owns its time bounds. Stops owned motion on misses and exit."
+description: Compose tools or inline Python for perceive, process, control and until, with world-time waits. Stops owned motion on misses and exit.
 parameters:
   type: object
   additionalProperties: false
   properties:
+    world: {type: string, description: World clock device.}
+    wait_s: {type: number, exclusiveMinimum: 0, description: World seconds to wait after each control call.}
+    stop_after_control: {type: boolean, default: false, description: Stop owned motion after each wait.}
     perceive:
-      type: object
-      additionalProperties: false
-      properties:
-        tool: {type: string}
-        args: {type: object}
-      required: [tool]
+      oneOf: &call
+        - type: object
+          additionalProperties: false
+          properties:
+            tool: &tool {type: string, minLength: 1}
+            args: {type: object}
+          required: [tool]
+        - type: object
+          additionalProperties: false
+          properties:
+            python: &python {type: string, minLength: 1, description: 'Python lambda or source defining main; called with keyword arguments, returns JSON data. Supports imports. Each call uses a fresh process; only inline control may command devices.'}
+            args: {type: object}
+          required: [python]
     process:
-      type: object
-      additionalProperties: false
-      properties:
-        tool: {type: string}
-        args: {type: object}
-      required: [tool]
-      description: "Receives perception as observation, overriding configured observation. Returns {args: object} to overlay control.args, or {args: null} to skip control and count a miss."
+      oneOf: &stage
+        - type: object
+          additionalProperties: false
+          properties:
+            tool: *tool
+            args: {type: object}
+            inputs: &inputs
+              type: object
+              propertyNames: {type: string, pattern: '^/'}
+              additionalProperties: {type: string, pattern: '^(?:/|$)'}
+              description: Destination argument JSON Pointer to previous result JSON Pointer. Selected values override args. Null values skip the round; missing paths are errors.
+          required: [tool]
+        - type: object
+          additionalProperties: false
+          properties:
+            python: *python
+            args: {type: object}
+            inputs: *inputs
+          required: [python]
+      description: Receives observation by default. With inputs, receives only mapped fields and static args. Returns a dict or null to skip control.
     control:
-      type: object
-      additionalProperties: false
-      properties:
-        tool: {type: string}
-        args: {type: object}
-      required: [tool]
-      description: "Bounded controller call. Results are returned as last, not interpreted; failures must raise errors."
+      oneOf: *stage
+      description: Process fields override args by default; inputs selects fields explicitly. Result is passed to until.
     until:
-      type: object
-      additionalProperties: false
-      description: "Predicate checked before the first round and after every round; a truthy key ends tracking."
-      properties:
-        tool: {type: string}
-        args: {type: object}
-        key: {type: string, description: "Result key to test (default: done)."}
-      required: [tool]
-    max_misses:
-      type: integer
-      minimum: 1
-      default: 3
-      description: "Consecutive processing misses before stopping."
-    max_rounds:
-      type: integer
-      minimum: 1
-      default: 200
-      description: "Maximum perceive/process/control rounds."
-  required: [perceive, process, control]
+      oneOf: *call
+      description: Receives context and previous state; returns done, state and optional reason. Checked before the first round and after each wait.
+    max_misses: {type: integer, minimum: 1, default: 3}
+    max_rounds: {type: integer, minimum: 1, default: 200}
+  required: [perceive, process, control, until, world, wait_s]
 timeout_s: 900
+device_inputs:
+  world:
+    types: [world]
 devices: []

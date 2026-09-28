@@ -37,7 +37,7 @@ export const OtherConnection = z.discriminatedUnion("kind", [Tcp, Url, Serial, S
 ])
 
 // Scalar and velocity writes hold a command for a bounded device-time duration.
-export const segmentFields = { for_s: z.number().positive() }
+export const segmentFields = { duration_s: z.number().positive() }
 
 export const lifecycle = ["load", "unload", "status"] as const
 export const observationActions = ["read", ...lifecycle] as const

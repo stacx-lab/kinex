@@ -8,3 +8,10 @@ test('shipped executor and trajectory generator obey motion contracts', () => {
     encoding: 'utf8',
   })
 })
+
+test('hardware buffers and world waits support replacement and independent cancellation', () => {
+  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./driver_contract.py', import.meta.url))], {
+    env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) },
+    encoding: 'utf8',
+  })
+})

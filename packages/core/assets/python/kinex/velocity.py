@@ -18,7 +18,7 @@ def command(profile, args):
     control = intrinsics(profile)["control"]
     if not isinstance(control, dict) or control.get("mode") != "motion":
         raise ValueError("Base control is unresolved")
-    if not isinstance(args, dict) or set(args) - {"mode", "velocity", "posture", "for_s"}:
+    if not isinstance(args, dict) or set(args) - {"mode", "velocity", "posture", "duration_s"}:
         raise ValueError("Expected mode with velocity and/or posture")
     name = args.get("mode")
     if not isinstance(name, str) or name not in control["modes"]:

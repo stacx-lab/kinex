@@ -14,8 +14,12 @@ class JointDeviceDriver(Driver):
     def read_state(self, handle):
         raise NotImplementedError("Read positions, velocities, efforts, faults, acquisition time and declared frame poses")
 
-    def servo(self, handle, target, period_s):
-        raise NotImplementedError("Send one reference for period_s using SDK cadence; return elapsed_s and measured state; no planning or interpolation")
+    @property
+    def period_s(self):
+        raise NotImplementedError("Return the hardware control period")
+
+    def set_target(self, handle, target):
+        raise NotImplementedError("Set one absolute reference without waiting")
 
     def halt(self, handle):
         raise NotImplementedError("Perform self.profile['intrinsics']['stop'] behavior")

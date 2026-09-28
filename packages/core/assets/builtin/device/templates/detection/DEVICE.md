@@ -19,7 +19,8 @@ Drivers undo resizing/cropping and never capture another camera frame.
 
 locate_object_3d uses supplied masks exclusively; without a mask it estimates
 from the box's central region, which may contain background. It returns a
-camera-relative point; relative_pose converts it to another frame.
+camera-relative point. Supply an orientation to form a full local pose before
+converting it with relative_pose.
 The resolved intrinsics.operations contains the canonical detect contract and
 any additional declared operations. The harness validates inputs and outputs.
 

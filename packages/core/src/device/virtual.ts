@@ -17,28 +17,11 @@ interface MockState {
   posture: Record<string, number>
   stopped: boolean
   clock: number
-}
-
-// The mock has no physics and no clock of the world's, so it keeps a synthetic
-// one: an actuated mock advances it by a notional control period per write and
-// arrives at once, while a sensor mock has nothing to advance and reads wall time.
-const MOCK_INTERVAL_S = 0.02
-const advancesOnWrite = (device: Device) => isJoint(device) || isVelocity(device) || device.type === "gripper" || device.type === "suction"
-
-const sampleTime = (device: Device, state: MockState) =>
-  advancesOnWrite(device) ? state.clock : performance.now() / 1000
-
-// What a write reports back: the device pursued the goal and spent this much of
-// its own clock doing it. The mock reaches instantly, so one interval, bounded
-// by whatever budget the caller allowed.
-function segment(state: MockState, args: Record<string, unknown>, read: () => DeviceReading) {
-  const budget = z.number().positive().parse(args["for_s"])
-  const spent = Math.min(MOCK_INTERVAL_S, budget)
-  state.clock += spent
-  return { accepted: true, elapsed_s: spent, reached: true, state: read().data }
+  pending?: { actions: number[][]; start: number; duration: number }
 }
 
 const mocks = scoped(() => new Map<string, MockState>())
+const clocks = scoped(() => new Map<string, number>())
 
 function mockState(workspace: string, device: Device): MockState {
   const key = `${workspace}/${device.name}`
@@ -51,7 +34,7 @@ function mockState(workspace: string, device: Device): MockState {
     posture: isVelocity(device) && known(device.intrinsics.control)
       ? Object.fromEntries((Object.values(device.intrinsics.control.modes)[0]?.posture?.components ?? []).map((c) => [c.axis, c.default])) : {},
     stopped: false,
-    clock: 0,
+    clock: clocks().get(workspace) ?? 0,
   }
   mocks().set(key, created)
   return created
@@ -59,6 +42,7 @@ function mockState(workspace: string, device: Device): MockState {
 
 function mockRead(workspace: string, device: Device): DeviceReading {
   const state = mockState(workspace, device)
+  if (device.type === "world") return { deviceID: device.name, kind: device.type, data: { time_s: clocks().get(workspace) ?? 0 } }
   const frames = "frames" in device.intrinsics ? device.intrinsics.frames : {}
   const poses = Object.fromEntries(Object.keys(frames).filter((name) => frames[name] === null).map((name) => [name, [0, 0, 0, 0, 0, 0, 1]]))
   if (isVelocity(device) && known(device.intrinsics.feedback)) return {
@@ -66,7 +50,7 @@ function mockRead(workspace: string, device: Device): DeviceReading {
     data: { pose: device.intrinsics.feedback.pose_frame === null ? null : { translation_m: [0, 0, state.posture.height ?? 0], rotation_xyzw: [0, 0, 0, 1] },
       velocities: known(device.intrinsics.feedback.velocity_components) ? device.intrinsics.feedback.velocity_components.map(() => 0) : [],
       frame_poses: poses,
-      faults: [], sample_time_s: sampleTime(device, state), note: "synthetic stationary mock, no balance simulation" },
+      faults: [], sample_time_s: state.clock, note: "synthetic stationary mock, no balance simulation" },
   }
   return {
     deviceID: device.name,
@@ -79,7 +63,7 @@ function mockRead(workspace: string, device: Device): DeviceReading {
       frame_poses: poses,
       faults: [],
       stopped: state.stopped,
-      sample_time_s: sampleTime(device, state),
+      sample_time_s: state.clock,
     },
   }
 }
@@ -92,70 +76,40 @@ export function mockAct(
 ): DeviceReading {
   const state = mockState(workspace, device)
   if (action === "stop") {
+    state.pending = undefined
     state.stopped = true
     return { deviceID: device.name, kind: device.type, data: { stopped: true } }
   }
   if (action === "read") return mockRead(workspace, device)
   if (action === "status") return { deviceID: device.name, kind: device.type, data: { loaded: device.loaded, mock: true } }
   if (action === "load" || action === "unload") return { deviceID: device.name, kind: device.type, data: { done: action } }
-  if (isJoint(device) && action === "write") {
-    const control = device.intrinsics.control
-    if (!known(control)) throw new NamedError("DeviceCommandError", "joint control unresolved")
-    const actions = z.array(z.array(z.number())).parse(args.actions)
-    const period = 1 / z.number().positive().parse(args.freq_hz)
-    const required = actions.length * period
-    const elapsed = Math.min(required, args.for_s === undefined ? required : z.number().positive().parse(args.for_s))
-    if (elapsed > 0) state.positions = [...actions[Math.min(Math.ceil(elapsed / period) - 1, actions.length - 1)]!]
-    state.clock += elapsed
-    const completed = Math.min(Math.floor(elapsed / period + 1e-8), actions.length)
-    const reached = elapsed === required
-    state.stopped = !reached || control.execution !== "realtime"
-    return { deviceID: device.name, kind: device.type, data: { elapsed_s: elapsed,
-      completed_actions: completed,
-      terminated_by: !reached ? "timeout" : "completed",
-      reference_state: state.stopped ? "stopped" : "target", execution_id: crypto.randomUUID(),
-      state: mockRead(workspace, device).data } }
-  }
-  if (action === "write" && args.actions !== undefined && (device.type === "gripper" || device.type === "suction")) {
-    const actions = z.array(z.array(z.number())).parse(args.actions)
-    const period = 1 / z.number().positive().parse(args.freq_hz)
-    const elapsed = Math.min(actions.length * period, args.for_s === undefined ? Infinity : z.number().positive().parse(args.for_s))
-    const completed = Math.floor(elapsed / period + 1e-8)
-    if (elapsed > 0) state.positions = [...actions[Math.min(Math.ceil(elapsed / period) - 1, actions.length - 1)]!]
-    state.clock += elapsed
-    state.stopped = true
-    return { deviceID: device.name, kind: device.type, data: { elapsed_s: elapsed, completed_actions: completed,
-      terminated_by: completed === actions.length ? "completed" : "timeout", state: mockRead(workspace, device).data } }
+  if (device.type === "world" && action === "wait") {
+    const duration = z.number().nonnegative().parse(args.duration_s)
+    const time = (clocks().get(workspace) ?? 0) + duration
+    clocks().set(workspace, time)
+    for (const [key, peer] of mocks()) {
+      if (!key.startsWith(`${workspace}/`)) continue
+      peer.clock = time
+      const pending = peer.pending
+      if (!pending) continue
+      const elapsed = time - pending.start
+      const index = Math.min(Math.max(0, Math.ceil(elapsed * pending.actions.length / pending.duration) - 1), pending.actions.length - 1)
+      if (elapsed > 0 && pending.actions[index]) peer.positions = [...pending.actions[index]!]
+      if (elapsed >= pending.duration) peer.pending = undefined
+    }
+    return { deviceID: device.name, kind: device.type, data: { time_s: time, elapsed_s: duration } }
   }
   if (action === "write") {
-    if (isVelocity(device)) {
-      const target = args.posture === undefined ? {} : z.record(z.string(), z.number()).parse(args.posture)
-      if (known(device.intrinsics.control)) state.posture = Object.fromEntries(
-        (device.intrinsics.control.modes[z.string().parse(args.mode)]?.posture?.components ?? []).map((c) => [c.axis, target[c.axis] ?? c.default]),
-      )
-      state.stopped = false
-      return { deviceID: device.name, kind: device.type,
-        data: segment(state, args, () => mockRead(workspace, device)) }
-    }
-    const target = z.array(z.number()).parse(args["target"])
-    const joints = deviceJoints(device)
-    if (isJoint(device) && target.length !== joints.length)
-      throw new NamedError("DeviceTargetError", "joint target dimension differs from joints")
-    const limited = target.map((value, index) => {
-      const limits = joints[index]?.limits
-      if (!limits || !known(limits)) return value
-      if (isJoint(device) && (value < limits.min || value > limits.max))
-        throw new NamedError("DeviceTargetError", "target outside joint limits")
-      return Math.min(Math.max(value, limits.min), limits.max)
-    })
-    state.positions = limited
+    const duration = z.number().positive().parse(args.duration_s)
+    const actions = isVelocity(device) ? [] : isJoint(device)
+      ? z.array(z.array(z.number())).parse(args.actions) : z.array(z.number()).parse(args.actions).map(value => [value])
+    if (isVelocity(device) && args.posture !== undefined)
+      state.posture = z.record(z.string(), z.number()).parse(args.posture)
+    state.pending = { actions, start: clocks().get(workspace) ?? 0, duration }
     state.stopped = false
-    return {
-      deviceID: device.name,
-      kind: device.type,
-      data: { ...segment(state, args, () => mockRead(workspace, device)),
-        moved: limited.map((value) => Number(value.toFixed(4))) },
-    }
+    return { deviceID: device.name, kind: device.type, data: {
+      execution_id: crypto.randomUUID(), elapsed_s: 0, state: mockRead(workspace, device).data,
+    } }
   }
   throw new NamedError("DeviceActionError", `unsupported mock device action "${action}"`)
 }

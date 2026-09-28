@@ -15,12 +15,12 @@ test('important tools show action and target, including streamed arguments and a
   for (const [name, args, expected] of [
     ['device', { deviceID: 'arm', action: 'write', args: { target: [1, 2] } }, 'device write arm'],
     ['device', { deviceID: 'camera' }, 'device read camera'],
+    ['devices', { calls: [{ deviceID: 'arm' }, { deviceID: 'camera' }] }, 'devices 2 calls'],
     ['record', { action: 'start', devices: { arm: 10, camera: 2 } }, 'record start arm=10Hz camera=2Hz'],
     ['record', { action: 'snap', devices: ['arm', 'camera'] }, 'record snap arm, camera'],
     ['device_stop', {}, 'device_stop all'],
-    ['move_to', { device: 'arm', joints: [1, 2] }, 'move_to arm joints'],
-    ['drive', { device: 'base', mode: 'walk' }, 'drive base walk'],
-    ['track', { control: { args: { device: 'arm' } }, perceive: { tool: 'observe' } }, 'track arm observe'],
+    ['servo', { device: 'arm', joints: [1, 2] }, 'servo arm joints'],
+    ['track', { control: { args: { device: 'arm' } }, perceive: { tool: 'devices' } }, 'track arm devices'],
   ]) assert.equal(plain(toolRenderers(name).renderCall(args, theme, context)), expected)
   for (const args of [undefined, null, {}, { devices: { arm: null } }]) {
     assert.doesNotThrow(() => plain(toolRenderers('record').renderCall(args, theme, context)))
@@ -37,7 +37,7 @@ test('important tools show action and target, including streamed arguments and a
 test('all Kinex tools share JSON result formatting regardless of argument-summary support', () => {
   const value = { observation: { pose: { position: [1, 2, 3] } } }
   const expected = '{\n  "observation": {\n    "pose": {"position":[1,2,3]}\n  }\n}'
-  for (const name of ['observe', 'relative_pose', 'locate_object_3d', 'run_policy', 'workspace_tool']) {
+  for (const name of ['devices', 'relative_pose', 'locate_object_3d', 'run_policy', 'workspace_tool']) {
     const result = { content: [{ type: 'text', text: JSON.stringify(value, null, 4) }] }
     assert.equal(plain(toolRenderers(name).renderResult(result, { expanded: true }, theme, context)).split('\n').map(line => line.trimEnd()).join('\n'), expected)
     assert.equal(plain(toolRenderers(name).renderResult({ content: [{ type: 'text', text: 'plain text result' }] }, { expanded: true }, theme, context)), 'plain text result')
@@ -46,10 +46,10 @@ test('all Kinex tools share JSON result formatting regardless of argument-summar
 
 test('tool expansion reveals arguments and results, while collapsed views bound visual lines', async t => {
   const renderers = toolRenderers('device')
-  const args = { action: 'write', deviceID: 'arm', args: { target: [0, 1, 2], for_s: 1 } }
+  const args = { action: 'write', deviceID: 'arm', args: { target: [0, 1, 2], duration_s: 1 } }
   const expanded = plain(renderers.renderCall(args, theme, { ...context, expanded: true }))
   assert.match(expanded, /"target": \[0,1,2\]/)
-  assert.match(expanded, /"for_s": 1/)
+  assert.match(expanded, /"duration_s": 1/)
   const narrow = renderers.renderCall({ deviceID: 'camera'.repeat(10) }, theme, context).render(20)
   assert.equal(narrow.length, 1)
   assert.ok(visibleWidth(narrow[0]) <= 20)
