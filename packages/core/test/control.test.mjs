@@ -72,7 +72,11 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
       if (action === 'read') return { ok: true, data: device.read() }
       if (action === 'write') { owned.add(device); return { ok: true, data: device.write(args) } }
       if (action === 'stop') return { ok: true, data: device.stop() }
-      if (action === 'ik') { device.ikArgs = args; return { ok: true, data: { joints: typeof device.ik === 'function' ? device.ik(args) : device.ik } } }
+      if (action === 'ik') {
+        device.ikArgs = args
+        try { return { ok: true, data: { joints: typeof device.ik === 'function' ? device.ik(args) : device.ik } } }
+        catch (error) { return { ok: false, error: error.message } }
+      }
       if (action === 'fk') return { ok: true, data: { pose: [0, 0, 0, 0, 0, 0, 1] } }
       if (action === 'infer') return { ok: true, data: device.infer(args) }
       return { ok: false, error: `no action ${action}` }
@@ -173,6 +177,45 @@ test('policy accumulates Cartesian deltas, removes tool offset and seeds buffere
   assert.deepEqual(model.seen, [{ obs: {}, task: 'move', seed: 7 }])
 })
 
+test('policy caps the execution horizon before splitting actions or solving IK', async () => {
+  const self = cartesianArm(), submitted = []
+  const gripper = {
+    profile: () => ({ type: 'gripper', intrinsics: { control: {
+      mode: 'position', bounds: { min: 0, max: 1 }, resolution: null, speed: null,
+    } } }),
+    write: args => { submitted.push(args); return { execution_id: 'gripper', elapsed_s: 0, state: { faults: [] } } },
+    stop: () => ({}),
+  }
+  const { result, stderr } = await dialog(tool('run-policy'), {
+    model: 'policy', observation: {}, max_actions: 2, action_hz: 20,
+    command: [{ device: 'arm', space: 'pose_delta' }, { device: 'gripper' }],
+  }, { arm: self, gripper, policy: policy([{ actions: [
+    [.1, 0, 0, 0, 0, 0, .2], [.1, 0, 0, 0, 0, 0, .4],
+    [99, 0, 0, 0, 0, 0, 99], [],
+  ] }]) })
+  assert.ok(result, stderr)
+  assert.equal(result.actions_submitted, 2)
+  assert.equal(result.duration_s, .1)
+  assert.equal(result.ik_failure, null)
+  assert.equal(self.solves.length, 2)
+  assert.deepEqual(self.pending, { actions: [[.1, 0], [.2, 0]], duration_s: .1 })
+  assert.deepEqual(submitted, [{ actions: [.2, .4], duration_s: .1 }])
+})
+
+test('policy execution horizon accepts shorter chunks and single-action inference', async () => {
+  for (const chunk of [{ actions: [[.1, .2], [.2, .3]] }, { action: [.1, .2] }]) {
+    const self = arm({}), actions = chunk.actions ?? [chunk.action]
+    const { result, stderr } = await dialog(tool('run-policy'), {
+      model: 'policy', observation: {}, max_actions: 10, action_hz: 20,
+      command: [{ device: 'arm' }],
+    }, { arm: self, policy: policy([chunk]) })
+    assert.ok(result, stderr)
+    assert.equal(result.actions_submitted, actions.length)
+    assert.equal(result.duration_s, actions.length / 20)
+    assert.deepEqual(self.pending, { actions, duration_s: actions.length / 20 })
+  }
+})
+
 test('policy rotates about the tool origin and converts absolute Cartesian goals', async () => {
   for (const space of ['pose_delta', 'pose']) {
     const self = cartesianArm()
@@ -187,16 +230,86 @@ test('policy rotates about the tool origin and converts absolute Cartesian goals
   }
 })
 
-test('policy rejects a failed later IK solution before admitting any writes', async () => {
-  const self = cartesianArm()
-  self.ik = args => { self.solves.push(args); return self.solves.length === 2 ? null : [0.1, 0] }
+test('policy submits the valid prefix on rejected, malformed or out-of-limits IK results', async () => {
+  for (const failure of ['rejected', 'malformed', 'limits']) {
+    for (const space of ['pose', 'pose_delta']) {
+      const self = cartesianArm()
+      self.ik = args => {
+        self.solves.push(args)
+        if (self.solves.length === 2) {
+          if (failure === 'rejected') throw new Error('No IK solution found')
+          return failure === 'malformed' ? null : [99, 0]
+        }
+        return [0.1, 0]
+      }
+      const action = space === 'pose' ? [0.1, 0, 0, 0, 0, 0, 1] : [0.1, 0, 0, 0, 0, 0]
+      const { result, stderr } = await dialog(tool('run-policy'), {
+        model: 'policy', observation: {}, command: [{ device: 'arm', space }], action_hz: 20,
+      }, { arm: self, policy: policy([{ actions: Array(3).fill(action) }]) })
+      assert.ok(result, stderr)
+      assert.equal(result.actions_submitted, 1)
+      assert.equal(result.duration_s, .05)
+      assert.equal(result.ik_failure.device, 'arm')
+      assert.equal(result.ik_failure.action_index, 1)
+      assert.match(result.ik_failure.error, /No IK solution|joint target|joint limits/)
+      assert.deepEqual(self.pending, { actions: [[.1, 0]], duration_s: .05 })
+      assert.equal(self.solves.length, 2)
+      assert.equal(self.writes, 1)
+      assert.equal(self.stops, 0)
+    }
+  }
+})
+
+test('policy trims all devices to the earliest IK failure and preserves action cadence', async () => {
+  const left = cartesianArm(), right = cartesianArm(), submitted = []
+  const rightProfile = right.profile
+  right.profile = () => ({ ...rightProfile(), name: 'right' })
+  for (const [device, failureIndex] of [[left, 3], [right, 1]]) {
+    device.ik = args => {
+      device.solves.push(args)
+      if (device.solves.length === failureIndex + 1) throw new Error('unreachable')
+      return [.1 * device.solves.length, 0]
+    }
+  }
+  const gripper = {
+    profile: () => ({ type: 'gripper', intrinsics: { control: {
+      mode: 'position', bounds: { min: 0, max: 1 }, resolution: null, speed: null,
+    } } }),
+    write: args => { submitted.push(args); return { execution_id: 'gripper', elapsed_s: 0, state: { faults: [] } } },
+    stop: () => ({}),
+  }
   const { result, stderr } = await dialog(tool('run-policy'), {
-    model: 'policy', observation: {}, command: [{ device: 'arm', space: 'pose_delta' }],
-  }, { arm: self, policy: policy([{ actions: Array(2).fill([0.1, 0, 0, 0, 0, 0]) }]) })
-  assert.equal(result, undefined)
-  assert.match(stderr, /IK result/)
+    model: 'policy', observation: {}, action_hz: 20,
+    command: [{ device: 'gripper' }, { device: 'arm', space: 'pose_delta' }, { device: 'right', space: 'pose_delta' }],
+  }, { arm: left, right, gripper, policy: policy([{ actions: [.2, .4, .6, .8, 1].map(g => [g, .1, 0, 0, 0, 0, 0, .1, 0, 0, 0, 0, 0]) }]) })
+  assert.ok(result, stderr)
+  assert.equal(result.actions_submitted, 1)
+  assert.equal(result.duration_s, .05)
+  assert.deepEqual(result.ik_failure, { device: 'right', action_index: 1, error: 'unreachable' })
+  assert.deepEqual(submitted, [{ actions: [.2], duration_s: .05 }])
+  for (const device of [left, right]) {
+    assert.deepEqual(device.pending, { actions: [[.1, 0]], duration_s: .05 })
+    assert.equal(device.writes, 1)
+  }
+  assert.equal(left.solves.length, 4)
+  assert.equal(right.solves.length, 2)
+})
+
+test('policy returns normally and preserves existing buffers when the first IK action fails', async () => {
+  const self = cartesianArm(), peer = arm({})
+  const pending = { actions: [[.2, .1]], duration_s: 1 }
+  self.pending = pending
+  self.ik = () => { throw new Error('unreachable') }
+  const { result, stderr } = await dialog(tool('run-policy'), {
+    model: 'policy', observation: {}, command: [{ device: 'peer' }, { device: 'arm', space: 'pose_delta' }],
+  }, { peer, arm: self, policy: policy([{ actions: Array(2).fill([.1, .2, .1, 0, 0, 0, 0, 0]) }]) })
+  assert.deepEqual(result, { actions_submitted: 0, duration_s: 0, writes: {},
+    ik_failure: { device: 'arm', action_index: 0, error: 'unreachable' } }, stderr)
   assert.equal(self.writes, 0)
+  assert.equal(peer.writes, 0)
   assert.equal(self.stops, 0)
+  assert.equal(peer.stops, 0)
+  assert.equal(self.pending, pending)
 })
 
 test('policy rotation deltas use reference axes rather than rotating tool axes', async () => {
@@ -265,6 +378,79 @@ test('track waits after submission and optionally stops before until', async () 
     assert.ok(Math.abs(world.time - .3) < 1e-9)
     assert.deepEqual(observed.map(row => row[2]), stop_after_control ? [0, 1, 2, 3] : [0, 0, 0, 0])
   }
+})
+
+test('track continues through partial and empty policy prefixes without interpreting IK diagnostics', async () => {
+  const armDevice = cartesianArm(), world = clock(armDevice), observed = []
+  world.profile = () => ({ name: 'world', type: 'world', intrinsics: { frames: {} } })
+  const model = policy([{ actions: Array(3).fill([.1, 0, 0, 0, 0, 0]) }])
+  armDevice.ik = args => {
+    armDevice.solves.push(args)
+    if (model.calls === 2 || model.calls === 1 && armDevice.solves.length === 2) throw new Error('unreachable')
+    return [.1 * model.calls, 0]
+  }
+  const { result, stderr } = await dialog(tool('track'), {
+    ...tracking,
+    control: { tool: 'run_policy', args: { model: 'policy', action_hz: 10,
+      command: [{ device: 'arm', space: 'pose_delta' }] } },
+  }, { arm: armDevice, world, policy: model }, {
+    target: () => ({}), process: ({ observation }) => ({ observation }),
+    done: ({ context }) => {
+      if (context.round) observed.push({ ...context.control_result,
+        pending: armDevice.pending, positions: [...armDevice.positions], stops: armDevice.stops })
+      return { done: false }
+    },
+  })
+  assert.ok(result, stderr)
+  assert.equal(result.terminated_by, 'max_rounds')
+  assert.equal(result.rounds, 3)
+  assert.equal(result.perception_misses, 0)
+  assert.equal(model.calls, 3)
+  assert.deepEqual(observed.map(row => row.actions_submitted), [1, 0, 3])
+  assert.deepEqual(observed.map(row => row.ik_failure?.action_index ?? null), [1, 0, null])
+  assert.deepEqual(observed.map(row => row.stops), [0, 0, 0])
+  assert.equal(observed[0].positions[0], .1)
+  assert.equal(observed[1].pending, observed[0].pending)
+  assert.deepEqual(observed[1].writes, {})
+  assert.equal(armDevice.writes, 2)
+  assert.equal(armDevice.stops, 1)
+  assert.ok(Math.abs(world.time - .3) < 1e-9)
+})
+
+test('track replans each capped policy horizon from a fresh observation', async () => {
+  const self = arm({}), world = clock(self), observations = [], submissions = []
+  const chunks = [
+    { actions: [[.1, 0], [.2, 0], [99, 0]] },
+    { actions: [[.3, 0], [.4, 0], [99, 0]] },
+    { actions: [[.5, 0], [.6, 0], [99, 0]] },
+  ]
+  const model = policy(chunks)
+  const { result, stderr } = await dialog(tool('track'), {
+    ...tracking, wait_s: .1,
+    control: { tool: 'run_policy', args: { model: 'policy', max_actions: 2,
+      action_hz: 20, command: [{ device: 'arm' }] } },
+  }, { arm: self, world, policy: model }, {
+    target: () => {
+      const observation = { time_s: world.time, positions: [...self.positions] }
+      observations.push(observation)
+      return observation
+    },
+    process: ({ observation }) => ({ observation }),
+    done: ({ context }) => {
+      if (context.round) submissions.push(context.control_result)
+      return { done: false }
+    },
+  })
+  assert.ok(result, stderr)
+  assert.equal(result.rounds, 3)
+  assert.equal(model.calls, 3)
+  assert.deepEqual(model.seen, observations.map(obs => ({ obs })))
+  assert.deepEqual(observations.map(obs => obs.time_s), [0, .1, .2])
+  assert.deepEqual(observations.map(obs => obs.positions[0]), [0, .1, .2])
+  assert.deepEqual(self.history, chunks.flatMap(chunk => chunk.actions.slice(0, 2)))
+  assert.deepEqual(submissions.map(out => out.actions_submitted), [2, 2, 2])
+  assert.deepEqual(submissions.map(out => out.duration_s), [.1, .1, .1])
+  assert.equal(self.writes, 3)
 })
 
 test('track waits on misses, resets consecutive misses and propagates predicate state', async () => {
@@ -345,6 +531,7 @@ test('run_policy submits complete chunks without advancing time', async () => {
   assert.ok(result, stderr)
   assert.equal(result.actions_submitted, 2)
   assert.equal(result.duration_s, .1)
+  assert.equal(result.ik_failure, null)
   assert.equal(armDevice.clock, 0)
   assert.equal(armDevice.stops, 0)
 })

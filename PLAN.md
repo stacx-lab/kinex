@@ -6,6 +6,8 @@
 - [x] Use flat gripper/suction sequences in drivers and policy submission.
 - [x] Update RoboEnv catalogs and the LIBERO workspace, retaining FastWAM.
 - [x] Slim RoboEnv tests and validate the plugin snapshot.
+- [x] Return policy IK truncation as normal results, including empty prefixes, while keeping track controller-agnostic.
+- [x] Document and cover max_actions execution horizons and fresh-observation replanning through track.
 
 ## Final review
 
@@ -13,10 +15,15 @@
 - [x] Simplify local control code without changing runtime behavior.
 - [x] Run core, standalone, RoboEnv and packaging checks.
 
-Validation: Kinex typecheck, 83 core tests, 53 standalone tests, build and tarball
+Validation: Kinex typecheck, 89 core tests, 53 standalone tests, build and tarball
 checks passed. RoboEnv: 756 passed, 37 skipped; the existing IsaacLab CloudXR
 failure was reproduced separately and excluded. Lint, privacy, wheels and all
 catalog driver copies passed. Third-party checkout edits remain untouched.
+
+Policy validation on Node 22.19.0: typecheck, all 53 standalone tests and all
+89 core tests passed, including partial/empty-prefix tracking, capped execution
+horizons, fresh-observation replanning and package installation/relocation.
+No empty-prefix retry limit was added.
 
 ## Other remaining work
 

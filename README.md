@@ -172,6 +172,22 @@ Replace perception/processing with live observation tools for closed-loop contro
 owned motion on exit. `settled` checks measured joint error and quiet velocity
 for a stable interval, using world time for its optional timeout.
 
+`run_policy` infers once and submits an action chunk. If IK fails partway through,
+all commanded devices receive the shared valid prefix at the original `action_hz`.
+The result includes `ik_failure` with `device`, zero-based `action_index` and
+`error`, or null when no IK failure occurred. IK rejection returns normally, so
+`track` waits and continues. An empty prefix submits nothing and leaves existing
+buffers intact.
+
+For receding horizon control, set `run_policy.max_actions` to the maximum number
+of actions to execute from each inference. The remaining predictions are discarded
+before validation and IK; each call infers a new chunk. Omit `max_actions` to use
+the whole chunk. For example, `max_actions: 10` and `action_hz: 20` submit at most
+0.5 seconds of actions. Compose this controller with fresh observations in `track`
+and `wait_s: 0.5` to replan after that window. A shorter wait replaces pending
+actions sooner; IK rejection or a shorter inferred chunk can reduce the submitted
+duration without changing `track.wait_s`.
+
 ## Headless
 
 ```sh

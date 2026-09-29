@@ -5,7 +5,7 @@ import math
 from kinex import device
 from kinex.frames import pose as frame_pose
 from kinex.geometry import compose_rt, invert_rt, pose_to_rt, xyzq_to_rt
-from kinex.motion import flat, pose
+from kinex.motion import flat, joint_target, pose
 from kinex.validation import vector
 
 
@@ -35,7 +35,7 @@ def joint_sequence(entry, actions):
     """Resolve one frozen frame snapshot; seed every IK solve from its predecessor."""
     spec, prof, name = entry["spec"], entry["profile"], entry["name"]
     if spec.get("space", "device") == "device":
-        return actions
+        return actions, None
     ik_frame = f"{name}:{prof['intrinsics']['kinematics']['frame']}"
     target = spec.get("target_frame", ik_frame)
     reference = spec.get("frame", name)
@@ -55,7 +55,10 @@ def joint_sequence(entry, actions):
     for action in actions:
         current = delta_pose(current, action) if spec["space"] == "pose_delta" else xyzq_to_rt(pose(action))
         goal = flat(compose_rt(compose_rt(reference_to_base, current), target_to_ik))
-        solved = device(name, "ik", pose=goal, seed=seed).get("data") or {}
-        seed = vector(solved.get("joints"), len(seed), "IK result")
+        try:
+            solved = device(name, "ik", pose=goal, seed=seed).get("data") or {}
+            seed = joint_target(solved.get("joints"), entry["model"]["joints"])
+        except (RuntimeError, ValueError) as error:
+            return result, {"device": name, "action_index": len(result), "error": str(error)}
         result.append(seed)
-    return result
+    return result, None

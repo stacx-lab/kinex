@@ -86,8 +86,15 @@ contract; extraction and a shared default composition module remain deferred.
   optional world-time timeout. `device` and `devices` share execution; batches
   authorize before dispatch, preserve result order and report per-entry failures.
   Python composition retains capability restrictions and forbids lifecycle changes.
-  `run_policy` infers once, validates the selected chunk, converts Cartesian
-  actions using frozen frames and seeded IK, and submits device buffers concurrently.
+  `run_policy` infers once, converts Cartesian actions using frozen frames and
+  seeded IK, and validates device buffers before submitting them concurrently.
+  Optional `max_actions` caps the execution horizon before action validation and
+  IK, discarding the remainder; each call infers anew. `track` supplies repeated
+  observations and world waits for receding horizon control.
+  IK failure truncates all buffers to the shared valid prefix, preserving action
+  cadence and reporting the failed device, zero-based action index and error.
+  IK rejection returns normally, including an empty prefix that leaves existing
+  buffers intact. `track` treats controller results as opaque data.
   It returns submission information without waiting or claiming arrival.
   Core prepares `.kinex/python` with uv only when its interpreter is missing.
   Existing environments execute without dependency synchronization; dependency

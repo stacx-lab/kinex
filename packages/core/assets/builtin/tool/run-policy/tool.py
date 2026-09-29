@@ -68,19 +68,31 @@ def control(a):
     if a.get("max_actions") is not None:
         actions = actions[:a["max_actions"]]
 
-    duration = len(actions) / a.get("action_hz", 10)
     split = [share(action, plan) for action in actions]
-    sequences = {}
-    # Validate the entire chunk before admitting its first action.
+    sequences, count, ik_failure = {}, len(split), None
     for entry in plan:
-        samples = [action[entry["name"]] for action in split]
+        samples = [action[entry["name"]] for action in split[:count]]
         if entry["model"] is not None:
-            sequence = joint_sequence(entry, samples)
-            joint_command(entry["profile"], {"actions": sequence, "duration_s": duration}, entry["model"])
+            sequence, failure = joint_sequence(entry, samples)
+            if failure is not None:
+                count, ik_failure = len(sequence), failure
+                if count == 0:
+                    return {"actions_submitted": 0, "duration_s": 0,
+                            "writes": {}, "ik_failure": ik_failure}
         else:
             sequence = [action[0] for action in samples]
-            scalar_command(entry["profile"], {"actions": sequence, "duration_s": duration})
         sequences[entry["name"]] = sequence
+
+    duration = count / a.get("action_hz", 10)
+    # Validate the shared prefix before submitting any device.
+    for entry in plan:
+        name = entry["name"]
+        sequences[name] = sequences[name][:count]
+        command = {"actions": sequences[name], "duration_s": duration}
+        if entry["model"] is not None:
+            joint_command(entry["profile"], command, entry["model"])
+        else:
+            scalar_command(entry["profile"], command)
     with stop_on_error(names):
         results = devices([{"device": name, "action": "write", "args": {
             "actions": sequences[name], "duration_s": duration}} for name in names])
@@ -90,8 +102,8 @@ def control(a):
             if (result.get("data") or {}).get("state", {}).get("faults"):
                 raise RuntimeError("policy write reported device faults")
         outcomes = {name: result["data"] for name, result in zip(names, results)}
-        return {"actions_submitted": len(split), "duration_s": duration,
-                "writes": outcomes}
+        return {"actions_submitted": count, "duration_s": duration,
+                "writes": outcomes, "ik_failure": ik_failure}
 
 
 if __name__ == "__main__":
