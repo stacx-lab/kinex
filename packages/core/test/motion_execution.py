@@ -50,6 +50,35 @@ class MotionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     velocity(base, {**args, "velocity": {"vx": value}})
 
+    def test_near_unit_pose_quaternions_are_normalized_for_ik(self):
+        from kinex.joints import JointDevice
+        from kinex.motion import pose
+
+        # A live worker rounded its goal quaternion to three decimals: |q| = 1.000068.
+        rounded = [0.2, 0, 0.95, 0.964, 0.264, 0.032, 0.011]
+        norm = math.hypot(*rounded[3:])
+        normalized = pose(rounded)
+        self.assertEqual(normalized[:3], rounded[:3])
+        self.assertAlmostEqual(math.hypot(*normalized[3:]), 1, places=12)
+        for scaled, component in zip(normalized[3:], rounded[3:]):
+            self.assertAlmostEqual(scaled * norm, component, places=12)
+        self.assertAlmostEqual(math.hypot(*pose([0, 0, 0, 0.71, 0, 0, 0.71])[3:]), 1, places=12)
+        for bad, got in (([0] * 7, "0"), ([0, 0, 0, 0, 0, 1.57, 0], "1.57"),
+                         ([0, 0, 0, 0.1, 0.2, 0.3, 0.9], "0.974679")):
+            with self.assertRaisesRegex(ValueError, rf"^goal requires a unit quaternion \[qx, qy, qz, qw\] \(xyzw\); got norm {got} \(norms within 0.01 of 1 are normalized\)$"):
+                pose(bad, "goal")
+
+        joint = {"name": "j", "type": "revolute", "limits": {"min": -2, "max": 2}, "max_velocity": 1, "max_effort": None}
+        arm = JointDevice({"type": "joint", "intrinsics": {
+            "model": {"format": "joints", "joints": [joint], "chain": [
+                {"origin": [0, 0, 0, 0, 0, 0, 1], "joint": 0, "axis": [0, 0, 1], "anchor": [0, 0, 0], "reference": 0},
+                {"origin": [1, 0, 0, 0, 0, 0, 1]}]},
+            "home": None, "kinematics": {"frame": "tip", "fk": "numerical", "feedback": "fk", "ik": {
+                "backend": "numerical", "max_iterations": 100, "damping": 1e-3,
+                "position_tolerance_m": 1e-3, "rotation_tolerance_rad": 1e-3}}}})
+        # FK at 0.5 rad rounded to three decimals; the residual check uses the normalized goal.
+        self.assertAlmostEqual(arm.ik([0.878, 0.479, 0, 0, 0, 0.247, 0.969], [0])["joints"][0], 0.5, delta=2e-3)
+
     def test_duration_truncates_without_speeding_up_and_pads_goal(self):
         joints = PROFILE["intrinsics"]["model"]["joints"]
         short = trajectory(joints, [0], [1], .01, duration_s=.13)

@@ -1,10 +1,9 @@
 """Call-local frame forests with optional estimated bridges and lazy live reads."""
 
-import math
-
 from kinex import device, fail, profile
 from kinex.frame_path import Edge, compose_path, label, select_path
 from kinex.geometry import mount_to_rt, pose_to_rt, rt_to_pose, xyzq_to_rt
+from kinex.motion import quaternion
 from kinex.validation import vector
 
 
@@ -144,9 +143,7 @@ class _Resolver:
             if not isinstance(estimate, dict) or set(estimate) != {"child", "parent", "translation_m", "rotation_xyzw"}:
                 raise ValueError(f"{prefix} needs child, parent, translation_m and rotation_xyzw")
             translation = vector(estimate["translation_m"], 3, f"{prefix}.translation_m")
-            rotation = vector(estimate["rotation_xyzw"], 4, f"{prefix}.rotation_xyzw")
-            if abs(math.hypot(*rotation) - 1) >= 1e-6:
-                raise ValueError(f"{prefix}.rotation_xyzw must be a unit quaternion")
+            rotation = quaternion(estimate["rotation_xyzw"], f"{prefix}.rotation_xyzw")
             child, parent = (self.discover(estimate[key]) for key in ("child", "parent"))
             rt = pose_to_rt({"translation": translation, "rotation": rotation})
             edges.append(Edge(child, parent, "estimated", lambda rt=rt: rt, estimate_index=index))

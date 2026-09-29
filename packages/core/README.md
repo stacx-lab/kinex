@@ -101,6 +101,9 @@ reference; velocity devices expire to zero velocity while retaining posture.
   is `[x,y,z,qx,qy,qz,qw]` in metres with a unit quaternion, defaulting to identity.
   Both local transforms participate. The result expresses child in parent and
   includes `translation`, `rotation`, `pose`, `path` and `estimated_links`.
+  Poses for shipped joint IK, `servo`, `run_policy` and `relative_pose` (including
+  estimates) use xyzw quaternions; norms within 0.01 of 1 are normalized, others
+  are rejected with the norm received.
 - `track` composes perceive → process → control → world.wait → optional stop → until.
   Process receives `observation` and returns a dict that overrides `control.args`.
   Optional `inputs` on process/control maps destination argument JSON Pointers
