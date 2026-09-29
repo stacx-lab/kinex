@@ -69,8 +69,10 @@ contract; extraction and a shared default composition module remain deferred.
   joint positions and submits a trajectory segment for `duration_s`, without
   stopping, settling or arrival checks. Planning rates default to 1 rad/s and
   3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints, capped by known limits.
-  Short windows truncate the trajectory; long windows hold the goal. Planning
-  does not promise collision avoidance.
+  `duration_s` stays the caller's window: a window shorter than the plan ends
+  the segment part-way along the path, and a longer one holds the goal. Results
+  report `planned_duration_s`, `reaches_goal` and the last submitted reference
+  `end_joints`. Planning does not promise collision avoidance.
   `track` composes perceive → process → control → world.wait → optional stop → until.
   Each stage references a tool or supplies inline Python: a lambda or source
   defining `main`, called with keyword arguments and returning JSON data.

@@ -22,7 +22,8 @@ profiles. Install missing dependencies in the prepared runtime within the user's
 authorization. Ask for physical setup, contact reports and missing measurements,
 without duplicating tool permission prompts.
 
-Use the skill's motion speed. servo scales planning rates with speedFraction. calib_sample reads measured state; settling
+Use the skill's motion speed. servo scales planning rates with speedFraction, which lengthens
+planned_duration_s; a shorter duration_s stops part-way (reaches_goal false). calib_sample reads measured state; settling
 requires measured velocities and fresh timestamps. Without that feedback, collect
 an ordinary sample after the procedure's independent stationary confirmation.
 

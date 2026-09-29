@@ -13,7 +13,7 @@ frame; the procedure runs on the color stream). One pure-numpy Tsai–Lenz solve
   offset need not be measured; the solver absorbs it) → T_base_camera.
 
 Choose the variant from the recorded mount; ask only if the physical arrangement is unclear.
-Use servo with speedFraction ≤ 0.15 for the loop. Anyone steadying the board keeps hands clear. Scratch: `.kinex/calib/calibrate-camera-extrinsics/`.
+Use servo with speedFraction ≤ 0.15 for the loop, and duration_s ≥ the planned_duration_s it reports (reaches_goal false means the segment stopped short). Anyone steadying the board keeps hands clear. Scratch: `.kinex/calib/calibrate-camera-extrinsics/`.
 
 In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
 Scratch paths are workspace-relative; pass absolute evidence paths to scripts.

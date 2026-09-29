@@ -29,8 +29,8 @@ def planning_limits(joints, max_velocity=None, max_acceleration=None):
     return result
 
 
-def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, duration_s=None, check_limits=True):
-    """Sample synchronized quintic joint references."""
+def _plan(joints, start, target, period_s, fraction, max_velocity, max_acceleration, check_limits):
+    """Validate endpoints; return the start, per-joint travel and synchronized quintic duration."""
     start = joint_target(start, joints, check_limits=check_limits)
     target = joint_target(target, joints, check_limits=check_limits)
     if not math.isfinite(period_s) or period_s <= 0 or not 0 < fraction <= 1:
@@ -45,6 +45,17 @@ def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None,
         # Exact extrema of 10s^3 - 15s^4 + 6s^5 and its derivatives.
         duration = max(duration, 1.875 * abs(distance) / (velocity * fraction),
                        math.sqrt(10 / math.sqrt(3) * abs(distance) / (acceleration * fraction)))
+    return start, delta, duration
+
+
+def planned_duration(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, check_limits=True):
+    """Return the quintic's own duration: shorter trajectory windows end part-way along the path."""
+    return _plan(joints, start, target, period_s, fraction, max_velocity, max_acceleration, check_limits)[2]
+
+
+def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, duration_s=None, check_limits=True):
+    """Sample synchronized quintic joint references over duration_s, defaulting to the planned duration."""
+    start, delta, duration = _plan(joints, start, target, period_s, fraction, max_velocity, max_acceleration, check_limits)
     window = duration if duration_s is None else number(duration_s, "duration_s")
     if window <= 0:
         raise ValueError("duration_s must be positive")

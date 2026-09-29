@@ -105,7 +105,9 @@ Writes submit an action buffer with `duration_s` and return immediately.
 Gripper and suction use flat `actions: [value, ...]`; joint devices and dexterous
 hands use `actions: [[joint1, joint2, ...], ...]`. A single command uses one action.
 Use `device("world", "wait", duration_s=...)` for delays in the driver's clock.
-`servo` plans and submits a joint trajectory. `track` composes perception,
+`servo` plans and submits a joint trajectory; its result reports
+`planned_duration_s`, whether the `duration_s` window `reaches_goal`, and the
+final reference `end_joints`. `track` composes perception,
 processing, control and an `until` predicate, waiting `wait_s` each round.
 
 `device` calls one device; `devices` accepts a batch of calls:

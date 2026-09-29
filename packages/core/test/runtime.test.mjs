@@ -543,6 +543,7 @@ test('servo submits through the runtime and world.wait executes its buffer', asy
   assert.ok(!response.isError, response.output)
   const result = JSON.parse(response.output)
   assert.deepEqual(result.joints, [.2])
+  assert.equal(result.reaches_goal, true)
   assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, [0])
   await runtime.devices.dispatch('world', 'wait', { duration_s: 3 })
   assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, [.2])

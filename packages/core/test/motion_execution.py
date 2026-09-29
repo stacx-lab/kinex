@@ -4,7 +4,7 @@ import copy
 import math
 import unittest
 
-from kinex.trajectory import trajectory, planning_limits
+from kinex.trajectory import trajectory, planned_duration, planning_limits
 
 
 PROFILE = {
@@ -52,6 +52,13 @@ class MotionTests(unittest.TestCase):
 
     def test_duration_truncates_without_speeding_up_and_pads_goal(self):
         joints = PROFILE["intrinsics"]["model"]["joints"]
+        planned = planned_duration(joints, [0], [1], .01)
+        self.assertEqual(planned, 3.75)
+        self.assertEqual(planned_duration(joints, [0], [1], .01, .5), 7.5)
+        self.assertEqual(planned_duration(joints, [0], [0], .01), .01)
+        self.assertEqual(len(trajectory(joints, [0], [1], .01)), 375)
+        self.assertEqual(trajectory(joints, [0], [1], .01, duration_s=planned)[-1], [1])
+        self.assertLess(trajectory(joints, [0], [1], .01, duration_s=planned - .01)[-1][0], 1)
         short = trajectory(joints, [0], [1], .01, duration_s=.13)
         self.assertEqual(len(short), 13)
         self.assertLess(short[-1][0], 1)

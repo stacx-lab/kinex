@@ -1,6 +1,6 @@
 name: servo
 kind: controller
-description: "Plan and submit one joint trajectory segment. Returns immediately; use world.wait to allow execution."
+description: "Plan and submit one joint trajectory segment. Returns immediately with planned_duration_s, reaches_goal and end_joints; use world.wait to allow execution."
 parameters:
   type: object
   additionalProperties: false
@@ -25,7 +25,7 @@ parameters:
       type: number
       exclusiveMinimum: 0
       maximum: 1
-      description: "Fraction of resolved planning velocity and acceleration rates."
+      description: "Fraction of resolved planning velocity and acceleration rates. Lower fractions lengthen planned_duration_s."
     max_velocity:
       oneOf:
       - {type: number, exclusiveMinimum: 0}
@@ -39,7 +39,7 @@ parameters:
     duration_s:
       type: number
       exclusiveMinimum: 0
-      description: "Trajectory segment duration in world seconds."
+      description: "Write window in world seconds; it is not stretched to fit the plan. The plan's own duration follows from distance, planning rates and speedFraction and is returned as planned_duration_s. A shorter duration_s ends the segment part-way along the path: reaches_goal is false and end_joints is the last submitted reference, where the arm stops. A longer one holds the goal. Use duration_s >= planned_duration_s to reach the goal."
   required: [device, duration_s]
   oneOf:
   - {type: object, additionalProperties: false, properties: *fields, required: [device, duration_s, joints]}

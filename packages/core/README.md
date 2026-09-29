@@ -88,9 +88,11 @@ reference; velocity devices expire to zero velocity while retaining posture.
 `world.read` returns `time_s`; `world.wait(duration_s)` waits on the driver's clock.
 
 - `servo` plans and submits a joint trajectory segment from measured state. It
-  accepts joints or a pose, without waiting for arrival. Short durations truncate
-  the trajectory; longer durations hold the goal. Planning defaults are 1 rad/s
-  and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints, capped by known limits.
+  accepts joints or a pose, without waiting for arrival. `duration_s` is the write
+  window: shorter than the returned `planned_duration_s`, the segment ends part-way
+  along the path with `reaches_goal: false` and the last reference in `end_joints`;
+  longer, it holds the goal. Planning defaults are 1 rad/s and 3 rad/s², or
+  0.1 m/s and 0.3 m/s² for linear joints, capped by known limits.
 - `run_policy` infers once, splits the selected chunk across devices, and submits
   buffers concurrently. Cartesian `pose` and `pose_delta` actions use frozen
   reference frames and seeded IK; `target_frame` must be rigidly attached to the

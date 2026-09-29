@@ -6,7 +6,7 @@ from kinex.control import read
 from kinex.frames import pose as frame_pose
 from kinex.geometry import compose_rt, pose_to_rt, xyzq_to_rt
 from kinex.motion import flat, pose as unit_pose
-from kinex.trajectory import trajectory, planning_limits
+from kinex.trajectory import planned_duration, planning_limits, trajectory
 
 
 def canonical(pose, frame, name):
@@ -44,12 +44,15 @@ def control(a):
     goal = goal_joints(a, name, prof)
     limits = planning_limits(joints, a.get("max_velocity"), a.get("max_acceleration"))
     state = read(name)
-    actions = trajectory(joints, state["positions"], goal, 0.01,
-                         a.get("speedFraction", 1.0), *limits, duration_s=a["duration_s"],
-                         check_limits=prof["intrinsics"]["control"].get("limit_handling") != "native")
+    plan = (joints, state["positions"], goal, 0.01, a.get("speedFraction", 1.0), *limits)
+    check = prof["intrinsics"]["control"].get("limit_handling") != "native"
+    planned = planned_duration(*plan, check_limits=check)
+    actions = trajectory(*plan, duration_s=a["duration_s"], check_limits=check)
     outcome = device(name, "write", actions=actions, duration_s=a["duration_s"])["data"]
+    # A window shorter than the plan ends part-way along the path; report where.
     return {"device": name, "joints": goal, "duration_s": a["duration_s"],
-            "actions_submitted": len(actions), "write": outcome}
+            "planned_duration_s": planned, "reaches_goal": a["duration_s"] >= planned,
+            "end_joints": actions[-1], "actions_submitted": len(actions), "write": outcome}
 
 
 if __name__ == "__main__":

@@ -344,7 +344,7 @@ const tracking = { world: 'world', wait_s: 0.1, max_rounds: 3,
   until: { tool: 'done' } }
 const stages = { target: () => ({ joints: [0.2, 0.1] }), process: ({ observation }) => observation, done: () => ({ done: false }) }
 
-test('servo submits a bounded trajectory without waiting or stopping', async () => {
+test('servo submits a bounded trajectory without waiting or stopping and reports where a short window ends', async () => {
   const armDevice = arm({})
   const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], duration_s: .13 }, { arm: armDevice })
   assert.ok(result, stderr)
@@ -354,6 +354,9 @@ test('servo submits a bounded trajectory without waiting or stopping', async () 
   assert.equal(armDevice.history.length, 13)
   assert.ok(armDevice.history.at(-1)[0] < 2)
   assert.deepEqual(result.joints, [2, 1])
+  assert.equal(result.planned_duration_s, 3.75)
+  assert.equal(result.reaches_goal, false)
+  assert.deepEqual(result.end_joints, armDevice.history.at(-1))
 })
 
 test('servo resolves pose targets through IK and pads short moves', async () => {
@@ -362,6 +365,9 @@ test('servo resolves pose targets through IK and pads short moves', async () => 
   assert.ok(result, stderr)
   assert.deepEqual(armDevice.history.at(-1), [.01, .02])
   assert.equal(armDevice.history.length, 200)
+  assert.ok(Math.abs(result.planned_duration_s - Math.sqrt(10 / Math.sqrt(3) * .02 / 3)) < 1e-12)
+  assert.equal(result.reaches_goal, true)
+  assert.deepEqual(result.end_joints, [.01, .02])
 })
 
 test('track waits after submission and optionally stops before until', async () => {
