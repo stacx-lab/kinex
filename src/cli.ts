@@ -33,7 +33,7 @@ async function main(): Promise<void> {
     "enable-recording": { type: "boolean" }, record: { type: "string" }, seed: { type: "string" }, json: { type: "boolean" },
   } })
   if (values.help) { console.log(help); return }
-  if (values.version) { console.log("0.8.2"); return }
+  if (values.version) { console.log("0.9.0"); return }
   if (values.auto && values.yolo) throw new Error("Choose --auto or --yolo")
   const thinking = values.thinking ?? values.effort
   if (thinking !== undefined && thinking !== "off" && thinking !== "minimal" && thinking !== "low" && thinking !== "medium" && thinking !== "high" && thinking !== "xhigh") throw new Error("Invalid thinking level")

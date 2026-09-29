@@ -310,8 +310,8 @@ npm run pack -- /tmp/kinex-release
 Until registry publication, install standalone with its core dependency:
 
 ```sh
-npm install /tmp/kinex-release/kinex-core-0.8.2.tgz \
-  /tmp/kinex-release/kinex-0.8.2.tgz
+npm install /tmp/kinex-release/kinex-core-0.9.0.tgz \
+  /tmp/kinex-release/kinex-0.9.0.tgz
 ```
 
 GitHub CI checks types, core and standalone, including PTY interaction and package
