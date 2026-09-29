@@ -5,16 +5,30 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIR=""
 COMPUTE="cpu"
+TORCH="2.6.0"
+TORCHVISION=""
+INDEX_URL=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --dir) DIR="${2:?--dir needs a path}"; shift 2 ;;
         --compute) COMPUTE="${2:?--compute needs cpu or cuda:N}"; shift 2 ;;
-        -h|--help) echo "usage: setup.sh --dir <device-dir> [--compute cpu|cuda:N]"; exit 0 ;;
+        --torch) TORCH="${2:?--torch needs a version}"; shift 2 ;;
+        --torchvision) TORCHVISION="${2:?--torchvision needs a version}"; shift 2 ;;
+        --index-url) INDEX_URL="${2:?--index-url needs a URL}"; shift 2 ;;
+        -h|--help) echo "usage: setup.sh --dir <device-dir> [--compute cpu|cuda:N] [--torch X.Y.Z] [--torchvision X.Y.Z] [--index-url URL]"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 1 ;;
     esac
 done
 [[ -n "$DIR" ]] || { echo "--dir is required" >&2; exit 1; }
 [[ "$COMPUTE" =~ ^(cpu|cuda:[0-9]+)$ ]] || { echo "compute must be cpu or cuda:N" >&2; exit 1; }
+[[ "$TORCH" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(\+[a-z0-9]+)?$ ]] || { echo "invalid --torch version: $TORCH" >&2; exit 1; }
+if [[ -z "$TORCHVISION" ]]; then
+    # torch 2.N pairs with torchvision 0.(N+15); pip picks the patch that matches torch.
+    [[ "$TORCH" =~ ^2\.([0-9]+) ]] || { echo "cannot match torchvision for torch $TORCH; pass --torchvision" >&2; exit 1; }
+    TORCHVISION="0.$((BASH_REMATCH[1] + 15)).*"
+fi
+[[ "$TORCHVISION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(\+[a-z0-9]+|\.\*)?$ ]] || { echo "invalid --torchvision version: $TORCHVISION" >&2; exit 1; }
+[[ -z "$INDEX_URL" || "$INDEX_URL" =~ ^https?:// ]] || { echo "--index-url must be an http(s) URL" >&2; exit 1; }
 mkdir -p "$DIR"
 DIR="$(cd "$DIR" && pwd)"
 export HF_HOME="$DIR/hf-cache" XDG_CACHE_HOME="$DIR/cache" TORCH_HOME="$DIR/torch-cache"
@@ -28,7 +42,10 @@ if ! "$PY" -m pip --version >/dev/null 2>&1; then
         python3 -m venv "$DIR/venv"
     fi
 fi
-"$PY" -m pip install 'torch==2.6.0' 'torchvision==0.21.0' 'transformers==4.57.6' pillow pyyaml
+TORCH_ARGS=()
+[[ -n "$INDEX_URL" ]] && TORCH_ARGS=(--index-url "$INDEX_URL")
+"$PY" -m pip install "${TORCH_ARGS[@]}" "torch==$TORCH" "torchvision==$TORCHVISION"
+"$PY" -m pip install 'transformers==4.57.6' pillow pyyaml
 "$PY" - "$DIR" "$COMPUTE" <<'PY'
 import pathlib
 import sys
@@ -45,7 +62,8 @@ snapshot_download(
     allow_patterns=['*.json', 'vocab.txt', 'model.safetensors'],
 )
 AutoProcessor.from_pretrained(directory / 'weights', local_files_only=True, use_fast=False)
-print(f'Compute verified: {compute}; model artifacts ready')
+import torchvision
+print(f'torch {torch.__version__}; torchvision {torchvision.__version__}; compute verified: {compute}; model artifacts ready')
 PY
 if [[ "$HERE" != "$DIR" ]]; then cp "$HERE/driver.py" "$DIR/driver.py"; fi
 echo "interpreter: $PY"

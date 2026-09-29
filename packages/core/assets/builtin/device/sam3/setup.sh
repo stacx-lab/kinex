@@ -75,9 +75,11 @@ else
 fi
 
 step "sam3 runtime deps (sam3 itself installs --no-deps)"
-$PIP install --no-cache-dir "huggingface_hub[cli]" iopath transformers \
+# huggingface_hub<2: 2.x fits no recent transformers, so pip falls back to
+# transformers 4.12 + tokenizers 0.10 (source-only, needs a Rust compiler).
+$PIP install --no-cache-dir "huggingface_hub[cli]<2" iopath transformers \
     einops "timm>=1.0.17" "ftfy==6.1.1" regex decord pycocotools psutil \
-    pillow numpy pyyaml
+    pillow numpy pyyaml "setuptools<81"  # sam3 imports pkg_resources (removed in 81)
 
 step "sam3 checkout @ ${SAM3_SHA:0:8}"
 if [ -d "$DIR/sam3/.git" ] && [ "$(git -C "$DIR/sam3" rev-parse HEAD)" = "$SAM3_SHA" ]; then
