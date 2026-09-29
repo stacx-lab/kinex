@@ -29,6 +29,11 @@ class PyToolError extends NamedError {
 }
 
 const MAX_DEPTH = 8
+// Tools receive their JSON arguments as argv[1]. Linux rejects one argv string
+// over 128 KiB (spawn E2BIG), POSIX systems cap argv plus environment and Windows
+// caps the command line near 32K characters, so larger arguments (such as
+// base64 images carried by track context) arrive as the first stdin line instead.
+const ARGV_ARGUMENTS_LIMIT = 16 * 1024
 
 // The manifest's `devices:` gate — device TYPES that must have a loaded
 // instance before the tool may run. Checked before the permission ask (never
@@ -177,13 +182,17 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
   signal.throwIfAborted()
   const runtime = await pythonLaunch(cwd, "tool", info.interpreter, signal)
   signal.throwIfAborted()
-  const proc = spawnProcess([runtime.executable, ...info.entry, JSON.stringify(args)], {
+  const payload = JSON.stringify(args)
+  const spilled = Buffer.byteLength(payload) > ARGV_ARGUMENTS_LIMIT
+  const proc = spawnProcess([runtime.executable, ...info.entry, ...(spilled ? [] : [payload])], {
     cwd: info.directory,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: runtime.env,
+    env: spilled ? { ...runtime.env, KINEX_TOOL_ARGS: "stdin" } : runtime.env,
   })
+  // Spilled arguments precede every dialog response; kinex reads them on import.
+  if (spilled) proc.stdin.write(payload + "\n")
   const onAbort = () => proc.kill()
   signal.addEventListener("abort", onAbort, { once: true })
   if (signal.aborted) onAbort()

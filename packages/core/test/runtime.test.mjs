@@ -143,6 +143,20 @@ test('Python tools use the packaged client and drain noisy stderr', async t => {
   assert.equal(JSON.parse(result.output).identity.id, 'node-test')
 })
 
+test('Python tool arguments too large for argv keep the dialog aligned', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  const dir = path.join(directory, '.kinex', 'tool', 'echo_size')
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, 'tool.yaml'), 'name: echo_size\nkind: perception\ndescription: test\nparameters: {type: object}\ninterpreter: python3\n')
+  // A dialog request precedes args(), so spilled arguments must not be read as its response.
+  await writeFile(path.join(dir, 'tool.py'), 'import sys\nfrom kinex import args, robot, finish\nidentity = robot()["identity"]["id"]\na = args()\nfinish({"robot": identity, "size": len(a["blob"]), "argv": len(sys.argv)})\n')
+  for (const [size, argv] of [[10, 2], [3 * 1024 * 1024, 1]]) {
+    const result = await runtime.tools.call('echo_size', { blob: 'x'.repeat(size) }, { sessionID: 's' })
+    assert.ok(!result.isError, result.output)
+    assert.deepEqual(JSON.parse(result.output), { robot: 'node-test', size, argv })
+  }
+})
+
 test('recording works concurrently in two runtimes and finalizes on disposal', async t => {
   const { runtime: a, directory: dirA } = await fixture(t, { host, enableRecording: true })
   const { runtime: b, directory: dirB } = await fixture(t, { host, enableRecording: true })
@@ -850,6 +864,20 @@ def main(measurement, unused):
   assert.equal(events.filter(e => e.action === 'wait').length, 2)
   assert.deepEqual(await readdir(path.join(directory, '.kinex/tool'), { recursive: true }), files)
   for (const name of ['arm', 'hand']) assert.equal((await runtime.devices.dispatch(name, 'read')).data.stopped, true)
+})
+
+test('inline stages pass large observations through context without exceeding argv limits', async t => {
+  const { runtime, args } = await trackingFixture(t)
+  const result = await runtime.tools.call('track', { ...args, max_rounds: 1,
+    perceive: { python: `lambda: {'image': 'A' * 300000}` },
+    process: { python: 'lambda observation: observation' },
+    control: { python: 'lambda **kwargs: {"size": len(kwargs["image"])}' },
+    until: { python: `lambda context, state=None: {'done': False, 'state': len((context['observation'] or {}).get('image', ''))}` },
+  }, { sessionID: 's' })
+  assert.ok(!result.isError, result.output)
+  assert.deepEqual(JSON.parse(result.output), {
+    terminated_by: 'max_rounds', rounds: 1, perception_misses: 0, last: { size: 300000 }, until_state: 300000,
+  })
 })
 
 test('inline control composes tools and preserves owned cleanup on nulls and failures', async t => {

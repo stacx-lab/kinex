@@ -1,10 +1,9 @@
 """Execute an inline lambda or a module defining main."""
 
 import ast
-import json
 import sys
 
-from kinex import finish
+from kinex import args, finish
 
 
 def run(source, values):
@@ -21,4 +20,6 @@ def run(source, values):
 
 
 if __name__ == "__main__":
-    finish(run(sys.argv[1], json.loads(sys.argv[2])))
+    # The source precedes the values, which args() reads from argv or stdin.
+    source = sys.argv.pop(1)
+    finish(run(source, args()))

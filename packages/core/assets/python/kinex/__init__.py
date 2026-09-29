@@ -2,7 +2,9 @@
 
 A python tool is spawned as   <interpreter> tool.py '<json args>'   and holds a
 JSON-lines dialog with the harness: one request object per stdout line, one
-response object per stdin line, strictly sequential. This module owns that
+response object per stdin line, strictly sequential. Arguments too large for a
+command line arrive instead as the first stdin line, marked by
+KINEX_TOOL_ARGS=stdin; args() reads either form. This module owns that
 protocol so tool code stays plain python:
 
     from kinex import args, device, call, profile, robot, finish, fail
@@ -33,9 +35,14 @@ import time
 # Outside a dialog (a skill script or driver importing kinex.geometry) the
 # import stays side-effect-free and any protocol call raises instead.
 _out = None
+# Spilled arguments precede every response, so read them before any request.
+# Unset the marker so child processes never consume their own stdin for it.
+_stdin_args = None
 if os.environ.get("KINEX_TOOL_DIALOG") == "1":
     _out = os.fdopen(os.dup(sys.stdout.fileno()), "w")
     sys.stdout = sys.stderr
+    if os.environ.pop("KINEX_TOOL_ARGS", None) == "stdin":
+        _stdin_args = sys.stdin.readline()
 
 
 def _emit(payload):
@@ -58,7 +65,9 @@ def _rpc(payload):
 
 
 def args():
-    """The tool's arguments, parsed from argv."""
+    """The tool's arguments, parsed from argv or, when too large for argv, stdin."""
+    if _stdin_args is not None:
+        return json.loads(_stdin_args)
     return json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
 
 
