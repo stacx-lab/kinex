@@ -340,8 +340,8 @@ export function deviceActions(device: Device): DeviceAction[] {
     const { control } = device.intrinsics
     if (!known(control)) return []
     return Object.entries(control.modes).flatMap(([mode, capabilities]) => [
-      ...(capabilities.velocity?.components ?? []).map((c) => ({ component: `${mode}.velocity.${c.axis}`, units: c.units, ...(known(c.bounds) ? { bounds: c.bounds } : {}) })),
-      ...(capabilities.posture?.components ?? []).map((c) => ({ component: `${mode}.posture.${c.axis}`, units: c.units, bounds: c.bounds })),
+      ...(capabilities.velocity?.components ?? []).map((c) => ({ component: `${mode}.velocity.${c.axis}`, units: c.units, ...(known(c.bounds) && c.bounds !== null ? { bounds: c.bounds } : {}) })),
+      ...(capabilities.posture?.components ?? []).map((c) => ({ component: `${mode}.posture.${c.axis}`, units: c.units, ...(c.bounds !== null ? { bounds: c.bounds } : {}) })),
     ])
   }
   if (isJoint(device)) return deviceJoints(device).map((j) => ({

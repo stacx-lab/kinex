@@ -18,6 +18,38 @@ PROFILE = {
 
 
 class MotionTests(unittest.TestCase):
+    def test_native_commands_pass_raw_targets_and_still_validate_structure(self):
+        from kinex.joint_control import command
+        from kinex.scalar_control import command as scalar
+        from kinex.velocity import command as velocity
+
+        profile = copy.deepcopy(PROFILE)
+        args = {"actions": [[100]], "duration_s": .1}
+        with self.assertRaises(ValueError):
+            command(profile, args)
+        profile["intrinsics"]["control"]["limit_handling"] = "native"
+        self.assertEqual(command(profile, args), args)
+        for target in ([True], [math.nan], [math.inf], [], [1, 2]):
+            with self.assertRaises(ValueError):
+                command(profile, {**args, "actions": [[0], target]})
+        joints = profile["intrinsics"]["model"]["joints"]
+        self.assertTrue(trajectory(joints, [2.001], [100], .01, duration_s=.1, check_limits=False))
+        tool = {"intrinsics": {"control": {"mode": "position", "bounds": {"min": 0, "max": 1},
+            "resolution": None, "speed": None}}}
+        self.assertEqual(scalar(tool, {"actions": [0, 1], "duration_s": .1})["actions"], [0, 1])
+        for value in (-.001, 1.001, True, math.nan, math.inf):
+            with self.assertRaises(ValueError):
+                scalar(tool, {"actions": [0, value], "duration_s": .1})
+        for bounds in ({"min": -1, "max": 1}, None):
+            base = {"type": "velocity", "intrinsics": {"control": {"mode": "motion", "limit_handling": "native",
+                "modes": {"drive": {"velocity": {"components": [
+                    {"axis": "vx", "units": "m/s", "bounds": bounds}]}, "posture": None}}}}}
+            args = {"mode": "drive", "velocity": {"vx": 100}, "duration_s": .1}
+            self.assertEqual(velocity(base, args), args)
+            for value in (True, math.nan, math.inf):
+                with self.assertRaises(ValueError):
+                    velocity(base, {**args, "velocity": {"vx": value}})
+
     def test_duration_truncates_without_speeding_up_and_pads_goal(self):
         joints = PROFILE["intrinsics"]["model"]["joints"]
         short = trajectory(joints, [0], [1], .01, duration_s=.13)

@@ -35,3 +35,14 @@ No empty-prefix retry limit was added.
   See [FEATURE_PARITY.md](FEATURE_PARITY.md).
 - [ ] Address lower-priority command/UI/export/statistics gaps and standalone
   Node releases. See [CONTEXT_AUDIT.md](CONTEXT_AUDIT.md).
+
+## Native simulator limits
+
+Simulator joint and velocity profiles can opt into `control.limit_handling: native`: preflight and
+Python command helpers retain structure/finite checks while delegating numeric
+range handling. Nullable continuous bounds represent unspecified command bounds.
+Other profiles keep existing range checks. Servo retains planning rates and
+accepts explicit targets or measured overshoot for native profiles; physical
+model geometry and IK constraints remain available.
+Scalar grippers keep existing bounds and rejection behavior; no native-limit
+option or nullable bounds were added to their schema or Python helper.

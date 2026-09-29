@@ -583,3 +583,17 @@ test('relative_pose bridges disconnected frames only with supplied estimates', a
   assert.equal(result.estimated_links, 1)
   assert.equal(result.path[0].kind, 'estimated')
 })
+
+
+test('native servo accepts measured overshoot and explicit targets beyond model bounds', async () => {
+  const device = arm({}), original = device.profile
+  device.profile = () => { const value = original(); value.intrinsics.control.limit_handling = 'native'; return value }
+  device.positions = [3.201, 0]
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [4, 0], duration_s: .1 }, { arm: device })
+  assert.ok(result, stderr)
+  assert.equal(device.writes, 1)
+  assert.deepEqual(result.joints, [4, 0])
+  const checked = await dialog(tool('settled'), { context: { time_s: 0, control_result: result } }, { arm: device })
+  assert.ok(checked.result, checked.stderr)
+  assert.equal(checked.result.done, false)
+})

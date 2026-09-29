@@ -25,7 +25,7 @@ def check(a):
         return {"done": False, "state": state}
     prof = profile(name)
     joints = prof["resolved_model"]["joints"]
-    goal = joint_target(goal, joints)
+    goal = joint_target(goal, joints, check_limits=prof["intrinsics"]["control"].get("limit_handling") != "native")
     if not prof["intrinsics"]["feedback"]["velocities"]:
         raise ValueError("settled requires measured velocities")
 

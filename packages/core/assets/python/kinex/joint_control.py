@@ -31,7 +31,7 @@ def command(profile, args, model=None):
     if not isinstance(actions, list) or not actions:
         raise ValueError("actions must be a nonempty sequence")
     for target in actions:
-        joint_target(target, joints)
+        joint_target(target, joints, check_limits=profile["intrinsics"]["control"].get("limit_handling") != "native")
     return segment(args, {"actions": actions})
 
 

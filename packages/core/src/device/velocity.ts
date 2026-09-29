@@ -24,7 +24,7 @@ export function velocityCommand(device: Extract<Device, { type: "velocity" }>, a
     for (const component of capabilities.components) {
       const value = target[component.axis]
       const bounds = component.bounds
-      if (value === undefined || !known(bounds) || value < bounds.min || value > bounds.max)
+      if (value === undefined || !known(bounds) || (control.limit_handling !== "native" && bounds !== null && (value < bounds.min || value > bounds.max)))
         throw new NamedError("VelocityCommandError", `${channel}.${component.axis} is missing or outside bounds`)
     }
   }

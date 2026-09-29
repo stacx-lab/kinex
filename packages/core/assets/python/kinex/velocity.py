@@ -40,16 +40,20 @@ def command(profile, args):
         for component in components:
             axis = component["axis"]
             value = number(target[axis])
-            low, high = number(component["bounds"]["min"]), number(component["bounds"]["max"])
-            if not low < high or not low <= value <= high:
-                raise ValueError(f"{channel}.{axis} exceeds bounds")
+            bounds = component["bounds"]
+            if bounds is not None:
+                low, high = number(bounds["min"]), number(bounds["max"])
+                if not low < high:
+                    raise ValueError("Invalid command bounds")
+                if control.get("limit_handling") != "native" and not low <= value <= high:
+                    raise ValueError(f"{channel}.{axis} exceeds bounds")
             if channel == "velocity":
                 units = "m/s" if axis.startswith("v") else "rad/s"
-                if axis not in AXES or not low <= 0 <= high or component["units"] not in {units, "normalized"}:
+                if axis not in AXES or component["units"] not in {units, "normalized"} or (bounds is not None and not low <= 0 <= high):
                     raise ValueError("Invalid velocity capability")
             if channel == "posture":
                 units = "m" if axis == "height" else "rad"
-                if axis not in POSTURE_AXES or component["units"] != units or (axis == "height" and low <= 0):
+                if axis not in POSTURE_AXES or component["units"] != units or (bounds is not None and axis == "height" and low <= 0):
                     raise ValueError("Invalid posture capability")
             result[channel][axis] = value
     return segment(args, result)

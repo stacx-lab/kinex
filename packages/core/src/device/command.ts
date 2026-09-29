@@ -37,7 +37,7 @@ function jointCommand(device: Device, args: Record<string, unknown>): Record<str
   const target = z.array(z.number()).length(dimensions.length).superRefine((values, ctx) => {
     for (const [i, value] of values.entries()) {
       const bounds = dimensions[i]!.bounds
-      if (bounds && (value < bounds.min || value > bounds.max))
+      if (device.intrinsics.control !== "???" && device.intrinsics.control.limit_handling !== "native" && bounds && (value < bounds.min || value > bounds.max))
         ctx.addIssue({ code: "custom", path: [i], message: "target exceeds joint limits" })
     }
   })

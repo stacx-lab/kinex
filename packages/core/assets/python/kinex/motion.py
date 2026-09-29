@@ -28,12 +28,12 @@ def pose_error(goal, current):
             "rotation_rad": 2 * math.atan2(math.hypot(*q[:3]), abs(q[3]))}
 
 
-def joint_target(value, joints):
+def joint_target(value, joints, *, check_limits=True):
     if not joints:
         raise ValueError("joint metadata is required")
     vector(value, len(joints), "joint target")
     for position, joint in zip(value, joints):
         limits = joint.get("limits")
-        if limits is not None and not limits["min"] <= position <= limits["max"]:
+        if check_limits and limits is not None and not limits["min"] <= position <= limits["max"]:
             raise ValueError(f"target outside joint limits: {joint['name']}")
     return value

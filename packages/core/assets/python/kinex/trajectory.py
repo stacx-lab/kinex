@@ -29,10 +29,10 @@ def planning_limits(joints, max_velocity=None, max_acceleration=None):
     return result
 
 
-def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, duration_s=None):
+def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, duration_s=None, check_limits=True):
     """Sample synchronized quintic joint references."""
-    start = joint_target(start, joints)
-    target = joint_target(target, joints)
+    start = joint_target(start, joints, check_limits=check_limits)
+    target = joint_target(target, joints, check_limits=check_limits)
     if not math.isfinite(period_s) or period_s <= 0 or not 0 < fraction <= 1:
         raise ValueError("invalid trajectory period or speed fraction")
     delta, duration = [], period_s
@@ -55,5 +55,5 @@ def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None,
     for tick in range(1, count + 1):
         t = min(1.0, tick * window / count / duration)
         scale = t ** 3 * (10 + t * (-15 + 6 * t))
-        result.append(joint_target([a + d * scale for a, d in zip(start, delta)], joints))
+        result.append(joint_target([a + d * scale for a, d in zip(start, delta)], joints, check_limits=check_limits))
     return result

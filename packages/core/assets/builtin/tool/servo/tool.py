@@ -45,7 +45,8 @@ def control(a):
     limits = planning_limits(joints, a.get("max_velocity"), a.get("max_acceleration"))
     state = read(name)
     actions = trajectory(joints, state["positions"], goal, 0.01,
-                         a.get("speedFraction", 1.0), *limits, duration_s=a["duration_s"])
+                         a.get("speedFraction", 1.0), *limits, duration_s=a["duration_s"],
+                         check_limits=prof["intrinsics"]["control"].get("limit_handling") != "native")
     outcome = device(name, "write", actions=actions, duration_s=a["duration_s"])["data"]
     return {"device": name, "joints": goal, "duration_s": a["duration_s"],
             "actions_submitted": len(actions), "write": outcome}
