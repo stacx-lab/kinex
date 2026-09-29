@@ -7,7 +7,8 @@ description: World clock and optional spatial reference.
 ## Use
 
 `read()` returns `{time_s}`. `wait({duration_s})` waits in world time and returns
-`{time_s, elapsed_s}`. Waits are concurrent and individually cancellable.
+`{time_s, elapsed_s}`. Both add `budget` (`{used, max, unit}`) when the world bounds its
+episode; waiting spends it like motion does. Waits are concurrent and individually cancellable.
 The driver abstracts the clock; callers do not select an execution mode.
 
 World geometry is optional. Bounds and posed surfaces are informational;

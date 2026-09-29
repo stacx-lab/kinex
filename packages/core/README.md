@@ -85,7 +85,8 @@ or controller capabilities.
 Actuator writes submit validated buffers with `duration_s` and return immediately.
 Devices consume them at their fixed cadence. Position devices retain the last
 reference; velocity devices expire to zero velocity while retaining posture.
-`world.read` returns `time_s`; `world.wait(duration_s)` waits on the driver's clock.
+`world.read` returns `time_s`; `world.wait(duration_s)` waits on the driver's clock. Both carry the episode's
+`budget` (`{used, max, unit}`) when the world reports one.
 
 - `servo` plans and submits a joint trajectory segment from measured state. It
   accepts joints or a pose, without waiting for arrival. Short durations truncate

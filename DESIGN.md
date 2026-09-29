@@ -51,7 +51,8 @@ contract; extraction and a shared default composition module remain deferred.
   remain visible through reads. Ownership outlives write calls; cleanup cannot
   stop a replacement owned by another invocation.
   `world.read` returns `time_s`; `world.wait(duration_s)` returns `time_s` and
-  actual `elapsed_s`. Drivers abstract physical and simulated clocks. Concurrent
+  actual `elapsed_s`. Both carry the episode's `budget` ({used, max, unit}) when
+  the world reports one. Drivers abstract physical and simulated clocks. Concurrent
   waits share world time and support individual cancellation. Reads never advance
   time. Uncertain writes are never retried automatically.
 - **Frames and calibration.** Frames form a forest; world is optional and missing

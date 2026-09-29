@@ -7,8 +7,11 @@ export function worldCommand(action: string, args: Record<string, unknown>): Rec
     : z.strictObject({}).parse(args)
 }
 
+// A world may report its episode's budget with its clock (RoboEnv does): an agent paces itself with it.
+const budget = z.strictObject({ used: z.number().nonnegative(), max: z.number().positive().nullable(), unit: z.string().min(1) })
+
 export function worldResult(action: string, reading: DeviceReading): DeviceReading {
-  const shape = { time_s: z.number().nonnegative() }
+  const shape = { time_s: z.number().nonnegative(), budget: budget.optional() }
   const data = (action === "wait"
     ? z.object({ ...shape, elapsed_s: z.number().nonnegative() })
     : z.object(shape)).parse(reading.data)
