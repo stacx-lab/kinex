@@ -3,6 +3,10 @@
 Kinex's robotics runtime for Node >=22.19. The standalone Kinex agent
 uses this package directly; external host adapters can consume the same API.
 It contains no model provider, agent loop, session store, terminal UI or MCP server.
+Core operates configured device inventories independently of `@kinex/setup`: lifecycle,
+control, perception, kinematics, recording and runtime Python remain available.
+Onboarding, provisioning, unregister and calibration procedures live in
+[`@kinex/setup`](../setup/README.md).
 
 ```ts
 import { createKinexRuntime } from "@kinex/core"
@@ -59,7 +63,7 @@ interface, not a second runtime or a dynamic extension loader.
 ```ts
 import { coreContribution, composeContributions } from "@kinex/core/integration"
 const capabilities = composeContributions([coreContribution(runtime)])
-// Future: add a real-world contribution here, borrowing the same runtime.
+// Add setup explicitly when provisioning/calibration is needed; see @kinex/setup.
 const catalog = await capabilities.tools.list()
 const state = await capabilities.context() // stable instructions + source.section keys
 ```
@@ -179,10 +183,10 @@ Device writes and `run_policy` retain their existing duration contracts.
   have changed. Explicit `prepare()` always synchronizes. Concurrent first use within
   a process waits for preparation; failed bootstraps can retry without accepting a partial environment.
   Preparation returns the interpreter and child-process environment.
-- `devices.list()/templates()/load()/reload()/unload()/ping()/unregister()` implement
+- `devices.list()/load()/reload()/unload()/ping()` implement
   user device commands. Load/reload returns `{device, activating, ready}`; await
   `ready` for background initialization. `devices.dispatch()` is a trusted driver API.
-- `profiles.snapshot()/writeManifest()/writeDevice()` and `calibration.plan()` expose
+- `profiles.snapshot()/writeManifest()/writeDevice()` and `readiness()` expose
   workspace state. Profile writes validate using the existing schemas.
 - `recording.start()/snap()/stop()/status()/recent()` manage recording products.
 - `subscribe()` observes device, tool execution and recording events and returns an
@@ -205,19 +209,31 @@ Standalone and extension integrations should prefer bound runtime methods.
 Exported subpaths support internal Kinex consumers; the root runtime API
 is the intended integration surface.
 
-`@kinex/core/workflows/index` exports shared `onboarding`, `register` and `calibrate`
-prompt templates in `workflows`. Hosts substitute `$ARGUMENTS` and translate slash
-command references to their own command namespace.
+Setup workflows, template discovery and unregister are no longer core exports.
+Use `createKinexSetup(runtime)` and `setupContribution(setup)` from `@kinex/setup`.
+`runtime.readiness()` retains profile completeness and prerequisite evaluation,
+without procedural setup guidance. Direct profile writes still validate marker clears.
+
+`runtime.operation(fn, signal?)` tracks a trusted feature operation in the runtime's
+scope and supplies a combined cancellation signal. `runtime.tools.execute(def, input,
+invocation)` runs a feature tool through validation, permissions, cancellation and
+recording attribution. These are trusted host composition APIs, not model tools.
+Invocation permission/question callbacks take precedence over runtime host defaults.
+`Def.recordingOrigin: "agent"` identifies direct device traffic for the recorder;
+other tool traffic retains its tool name.
 
 ## Assets and discovery
 
-`assets/` is the authoritative copy of device guides, built-in skills, Python tools,
+`assets/` is the authoritative copy of runtime Use conventions, Python tools,
 and the Python client/bridge scripts. It ships in the npm package and resolves
-relative to the package, never the caller's working directory. Standalone release
-archives include the same package assets beside its built modules.
+relative to the package, never the caller's working directory. Setup owns
+provisioning guides, example drivers and packaged setup skills.
 
 Discovery preserves workspace/project → parent projects → global → built-in
-precedence. TypeScript and JavaScript custom tools reload on discovery through
+precedence. `RuntimeOptions.builtinSkillRoots` appends feature-package skill roots
+to the builtin tier; discovery scans local/global roots only once.
+`RuntimeOptions.reservedToolNames` keeps feature builtin names ahead of discovered
+custom tools, reporting conflicts. TypeScript and JavaScript custom tools reload on discovery through
 Jiti. Tools can retain Zod schemas; Python tools keep raw JSON Schema parameters. Workspaces supply any dependencies imported by custom
 tools. This code is trusted executable workspace content, like standalone Kinex.
 
@@ -255,7 +271,7 @@ npm run build:core    # Node ESM + declarations, including text modules
 npm run test:core     # real Node tests and npm tarball installed outside the repo
 npm run typecheck
 npm test             # standalone regression suite
-npm run build        # standalone, core and host adapters
+npm run build        # core, setup and standalone
 ```
 
 Node loads `dist/`. Build the core before

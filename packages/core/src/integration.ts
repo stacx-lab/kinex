@@ -33,13 +33,13 @@ export function coreContribution(runtime: KinexRuntime): KinexContribution {
   return {
     id: "core", tools: {
       list: () => runtime.tools.list(),
-      call: (name, input, call) => runtime.tools.call(name, input, { sessionID: call.sessionID, callID: call.callID, signal: call.abort }),
+      call: (name, input, call) => runtime.tools.call(name, input, { sessionID: call.sessionID, callID: call.callID, signal: call.abort, ask: call.ask, questions: call.questions }),
     },
     skills: runtime.skills,
     commands: roboticsCommands.map(command => ({
       ...command, interrupt: command.name === "stop",
-      choices: ["load", "unload", "reload", "ping", "stop", "unregister"].includes(command.name)
-        ? async () => [...(await runtime.devices.list()).map(device => device.name), ...(["stop", "unregister"].includes(command.name) ? [] : ["all"])] : undefined,
+      choices: ["load", "unload", "reload", "ping", "stop"].includes(command.name)
+        ? async () => [...(await runtime.devices.list()).map(device => device.name), ...(command.name === "stop" ? [] : ["all"])] : undefined,
       execute: (args, context) => executeRoboticsCommand(runtime, command.name, args, context),
     })),
     async context() {

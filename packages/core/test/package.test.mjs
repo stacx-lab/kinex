@@ -16,8 +16,7 @@ test('packed package runs in an unrelated directory without Bun or repository as
   const packed = await exec('npm', ['pack', '--json', '--pack-destination', directory], { cwd: root })
   const [pack] = JSON.parse(packed.stdout)
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
-  for (const name of ['driver.py', 'setup.sh', 'provision.py', 'fastwam_config.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
-    assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
+  assert.ok(!pack.files.some(file => /builtin\/(skill|device\/fastwam)/.test(file.path)))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/policy.py'))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
   await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(directory, pack.filename), '@types/node@22'], { cwd: directory })
@@ -45,14 +44,14 @@ test('packed package runs in an unrelated directory without Bun or repository as
     const runtime = createKinexRuntime({directory: process.cwd()})
     assert.deepEqual(count(), before)
     try {
-      const skill = await runtime.skills.load('setup-device')
-      assert.ok(skill.info.file.startsWith(path.join(process.cwd(), 'node_modules')))
-      assert.ok((await readFile(skill.info.file, 'utf8')).includes('Setup'))
-      const python = path.resolve(skill.info.directory, '../../../python')
-      execFileSync('python3', ['-c', 'import kinex; import kinex.driver_protocol; import kinex.stream'], {
+      assert.equal(await runtime.skills.load('setup-device'), undefined)
+      assert.equal(runtime.devices.templates, undefined)
+      assert.equal(runtime.devices.unregister, undefined)
+      assert.equal(runtime.calibration, undefined)
+      const python = (await runtime.context()).python.library
+      execFileSync('python3', ['-c', 'import kinex; import kinex.driver_protocol; import kinex.stream; import kinex.policy; import kinex.kinematics'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
-      assert.ok((await runtime.devices.templates()).length > 5)
       const tools = await runtime.tools.list()
       assert.ok(tools.tools.some(tool => tool.name === 'device'))
       await mkdir('.kinex/tool', {recursive:true})

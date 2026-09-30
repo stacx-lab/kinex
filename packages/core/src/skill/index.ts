@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { glob } from "tinyglobby"
 import path from "node:path"
 import { contentRoots } from "../config/content.ts"
+import { currentScope } from "../scope.ts"
 import { Assets } from "../installation/assets.ts"
 import { exists } from "../util/filesystem.ts"
 
@@ -43,7 +44,7 @@ export function parseFrontmatter(text: string): { meta: Record<string, string>; 
 export async function listSkills(cwd: string): Promise<SkillInfo[]> {
   const skills: SkillInfo[] = []
   const seen = new Set<string>()
-  for (const skillDir of await contentRoots(cwd, "skill", builtinDir())) {
+  for (const skillDir of [...await contentRoots(cwd, "skill", builtinDir()), ...(currentScope().builtinSkillRoots ?? [])]) {
     if (!(await exists(skillDir))) continue
     const pattern = "**/SKILL.md"
     for (const entry of (await glob(pattern, { cwd: skillDir, dot: true })).sort()) {

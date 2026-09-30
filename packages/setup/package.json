@@ -1,0 +1,38 @@
+{
+  "name": "@kinex/setup",
+  "version": "0.9.0",
+  "description": "Host-independent device provisioning and calibration for Kinex",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "assets/**/*.md",
+    "assets/**/*.py",
+    "assets/**/*.sh",
+    "assets/**/*.yaml",
+    "assets/**/*.json",
+    "assets/**/*.txt",
+    "README.md"
+  ],
+  "dependencies": {
+    "@kinex/core": "0.9.0",
+    "zod": "^4.4.3",
+    "tinyglobby": "0.2.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0"
+  }
+}

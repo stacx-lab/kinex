@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:core
+      - run: npm run test:setup
       # Build and test standalone, including PTY and relocated package checks.
       - run: npm test
       - run: node script/release.mjs --check

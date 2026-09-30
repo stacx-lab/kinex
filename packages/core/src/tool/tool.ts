@@ -30,6 +30,7 @@ export interface Result {
 
 export interface Def<Args extends z.ZodType = z.ZodType> {
   id: string
+  recordingOrigin?: "agent"
   description: string
   parameters: Args
   // Raw JSON Schema sent to the model instead of z.toJSONSchema(parameters) —

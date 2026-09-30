@@ -6,7 +6,7 @@ export type PermissionAction = z.infer<typeof PermissionAction>
 export const PermissionRules = z.record(z.string(), PermissionAction)
 export const kinexPermissionPolicy = {
   alwaysAllow: ["device_stop"],
-  defaults: { device_act: "ask", device_read: "ask", device_calibrate: "ask", calib_write: "allow", record: "ask" },
+  defaults: { device_act: "ask", device_read: "ask", record: "ask" },
 } satisfies { alwaysAllow: string[]; defaults: Record<string, PermissionAction> }
 
 // Preserve valid rules even if another entry is malformed. An invalid explicit
@@ -23,8 +23,8 @@ export async function loadPermissionRules(cwd: string) {
   return permissionRules((await loadRawConfig(cwd)).permission)
 }
 
-export function kinexPermissionAction(permission: string, rules: Record<string, PermissionAction>): PermissionAction {
+export function kinexPermissionAction(permission: string, rules: Record<string, PermissionAction>, featureDefaults: Record<string, PermissionAction> = {}): PermissionAction {
   if (kinexPermissionPolicy.alwaysAllow.includes(permission)) return "allow"
   const defaults: Record<string, PermissionAction> = kinexPermissionPolicy.defaults
-  return rules[permission] ?? defaults[permission] ?? "ask"
+  return rules[permission] ?? featureDefaults[permission] ?? defaults[permission] ?? "ask"
 }

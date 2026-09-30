@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { define } from "./tool.ts"
 import { loadSkill } from "../skill/index.ts"
-import { calibrationPlan, itemSelector } from "../calibration/dag.ts"
+import { readinessPlan, itemSelector } from "../device/profile/readiness.ts"
 import DESCRIPTION from "./skill.txt"
 
 // A `requires` selector is met when some DONE plan item matches it — by exact
@@ -10,7 +10,7 @@ import DESCRIPTION from "./skill.txt"
 // stay loadable on an uncalibrated robot.
 async function unmetRequires(cwd: string, requires: string | undefined): Promise<string[]> {
   if (!requires) return []
-  const plan = await calibrationPlan(cwd)
+  const plan = await readinessPlan(cwd)
   const done = plan.items.filter((item) => item.status === "done")
   return requires
     .split(",")
@@ -31,7 +31,7 @@ export const SkillTool = define("skill", {
     const output = [
       ...(unmet.length > 0
         ? [
-            `WARNING: this skill requires calibration items that are not done yet: ${unmet.join(", ")} — resolve them first (see calib_plan) or expect it to fail.`,
+            `WARNING: this skill requires calibration items that are not done yet: ${unmet.join(", ")} — resolve them before relying on the result.`,
           ]
         : []),
       `<skill_content name="${args.name}">`,

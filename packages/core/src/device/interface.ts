@@ -3,7 +3,7 @@ import { isModel, isActuated, known, type Device } from "./profile/schema.ts"
 
 // Required driver actions gate access readiness in calib_plan. Hardware and
 // simulators use this same contract; only the in-memory mock bypasses drivers.
-// Setup and wire examples live in assets/builtin/skill/setup-device/SKILL.md.
+// Setup and wire examples live in @kinex/setup assets.
 
 export { lifecycle as LIFECYCLE_ACTIONS } from "./profile/common.ts"
 
@@ -40,7 +40,7 @@ export function streamRefusal(device: Device): string | undefined {
   if (!driver.persistent) return "driver is not persistent — set access.driver.persistent: true so the capture thread outlives a call"
   const actions: readonly string[] = driver.actions
   const missing = streamActions.filter((action) => !actions.includes(action))
-  if (missing.length > 0) return `driver lacks ${missing.join("/")} (wire kinex.stream into the driver, see setup-device)`
+  if (missing.length > 0) return `driver lacks ${missing.join("/")} (the driver must implement the kinex.stream interface)`
   return undefined
 }
 

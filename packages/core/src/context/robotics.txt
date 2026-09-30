@@ -6,12 +6,11 @@ Kinex device APIs for lifecycle, readings and commands.
 
 Perception tools read and compute; controller tools command devices and run feedback
 loops. Prefer servo, track or run_policy over manual control loops. Skills
-supply procedures that require judgment. Load setup-device when adding or repairing
-a device; use /onboarding when no robot is configured.
+supply procedures that require judgment.
 
 Follow the profiles' units, limits and declared safety constraints. Read state before
-motion, use small/slow motions when uncertain, and record missing facts as calibration
-requests through calib_write. /calibrate resolves those requests. Command acceptance
+motion, use small/slow motions when uncertain, and do not assume missing profile
+facts. Command acceptance
 or arrival does not establish task success.
 
 On faults, unexpected contact or lost feedback, call device_stop before diagnosing.

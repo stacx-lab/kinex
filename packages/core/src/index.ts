@@ -1,4 +1,4 @@
-export { createKinexRuntime, type KinexRuntime, type RuntimeOptions, type RuntimeEvent } from "./runtime.ts"
+export { createKinexRuntime, type KinexRuntime, type RuntimeOptions, type ToolInvocation, type RuntimeEvent } from "./runtime.ts"
 export type { Context, Def, Result, Attachment } from "./tool/tool.ts"
 export { define } from "./tool/tool.ts"
 export { NamedError } from "./util/error.ts"

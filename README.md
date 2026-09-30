@@ -97,7 +97,9 @@ The device tool's `compact` option still requests single-line JSON.
 
 Direct operations run without a model round trip. Only onboarding, registration
 and calibration submit workflows to the model. Their implementation and help live
-in feature contributions shared with the Pi and OpenCode adapters.
+in @kinex/setup contributions; standalone composes these with @kinex/core.
+Unregister is also a setup command. Core alone operates existing device inventories,
+including loading, unloading, control, perception and recording.
 
 ## Control and world time
 
@@ -312,6 +314,7 @@ See [DESIGN.md](DESIGN.md), [the core API](packages/core/README.md) and the
 npm run typecheck
 npm test                         # fake provider, CLI/package, real Linux/macOS PTY
 npm run test:core                # core and independent npm consumption
+npm run test:setup               # provisioning/calibration and setup removal
 npm run test:tui                 # after build
 ```
 
@@ -320,29 +323,30 @@ PTY tests need Python 3 and a POSIX host. Do not rebuild core while consumer tes
 are running. Live provider cache rates and real robot task success require separate
 environment-specific validation.
 
-After building, pack standalone and core with:
+After building, pack standalone, core and setup with:
 
 ```sh
 npm run pack -- /tmp/kinex-release
 ```
 
-Until registry publication, install standalone with its core dependency:
+Until registry publication, install standalone with both package dependencies:
 
 ```sh
 npm install /tmp/kinex-release/kinex-core-0.9.0.tgz \
+  /tmp/kinex-release/kinex-setup-0.9.0.tgz \
   /tmp/kinex-release/kinex-0.9.0.tgz
 ```
 
 GitHub CI checks types, core and standalone, including PTY interaction and package
 relocation. CI uses `.nvmrc` and Python 3.12; no physical devices or paid models.
 
-A `v*` tag must match the standalone and core versions and their exact dependency.
-Before tagging, update both package manifests, the exact `@kinex/core` dependency,
+A `v*` tag must match the standalone, core and setup versions and their exact dependencies.
+Before tagging, update all three package manifests, exact internal dependencies,
 lockfile, CLI version and installation examples. Run
 `node script/release.mjs --check --tag v0.9.0`, complete the checks above, and commit
 the version changes before creating the tag. Release CI reads the tagged commit;
 rerunning an existing tag does not pick up later commits.
-Release CI publishes two npm tarballs plus `SHA256SUMS` as GitHub assets. It does
+Release CI publishes three npm tarballs plus `SHA256SUMS` as GitHub assets. It does
 not publish to npm or bundle Node. Routine builds/tests publish nothing.
 
 ## Use Kinex in another harness
@@ -355,6 +359,9 @@ updated explicitly; robotics code is maintained only in this repository.
 
 `@kinex/core/integration` defines feature contributions for tools, skills, commands
 and namespaced context. Host adapters consume contributions; product entrypoints
-explicitly compose them around a shared runtime. A future `@kinex/real-world` can
-provide onboarding independently without rewriting the host adapters. This release
-does not split that package, add a dynamic feature loader, or change plugin host integrations.
+explicitly compose them around a shared runtime. Standalone explicitly includes
+`@kinex/setup` for onboarding, registration, unregister
+and calibration. The setup package depends on core; core can be installed alone for
+operating a configured inventory. See [setup composition and API migration](packages/setup/README.md).
+Native plugins still use their existing packed snapshots; adopting these new APIs
+and packaging setup is a separate update in that project.

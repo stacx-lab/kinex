@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs/promises"
-import { CalibrationStore } from "../calibration/store.ts"
-import { deviceModel } from "../calibration/device-model.ts"
+import { ProfileStore } from "../device/profile/store.ts"
+import { deviceModel } from "../device/device-model.ts"
 import { exists, readJson, writeJson } from "../util/filesystem.ts"
 import { RecordingManifest } from "./schema.ts"
 
@@ -9,7 +9,7 @@ import { RecordingManifest } from "./schema.ts"
 //   .kinex/recordings/<recording-id>/
 
 export async function recordingsDir(cwd: string): Promise<string> {
-  return path.join(await CalibrationStore.workspaceDir(cwd), "recordings")
+  return path.join(await ProfileStore.workspaceDir(cwd), "recordings")
 }
 
 export const manifestFile = (dir: string) => path.join(dir, "recording.json")
@@ -48,13 +48,13 @@ export async function listRecordings(cwd: string): Promise<RecordingManifest[]> 
 // devices/<name>/profile.yaml (a few KB — analysis scripts can diff them
 // against the live profiles later).
 export async function snapshotProfiles(cwd: string, dir: string): Promise<void> {
-  const robotDir = await CalibrationStore.workspaceDir(cwd)
+  const robotDir = await ProfileStore.workspaceDir(cwd)
   const target = profileDir(dir)
   await fs.mkdir(target, { recursive: true })
   const workspace = path.join(robotDir, "workspace.yaml")
   if (await exists(workspace)) await fs.copyFile(workspace, path.join(target, "workspace.yaml"))
-  for (const device of await CalibrationStore.listDevices(cwd)) {
-    const file = await CalibrationStore.deviceFile(cwd, device.name)
+  for (const device of await ProfileStore.listDevices(cwd)) {
+    const file = await ProfileStore.deviceFile(cwd, device.name)
     if (!(await exists(file))) continue
     const out = path.join(target, "devices", device.name, "profile.yaml")
     await fs.mkdir(path.dirname(out), { recursive: true })

@@ -1,13 +1,15 @@
 # Design
 
-Kinex combines one robotics core with standalone and native-host entrypoints.
+Kinex combines an operational robotics core and optional setup features with
+standalone and native-host entrypoints.
 Hardware and simulators share the same device contracts.
 
 ## Structure
 
 | Location | Owns |
 | --- | --- |
-| `packages/core/src`, `packages/core/assets` | Robotics runtime, business rules and shipped content; no agent/UI dependencies. |
+| `packages/core/src`, `packages/core/assets` | Configured-device runtime, schemas, validation, operational Python/tools and Use conventions; no setup/agent/UI dependencies. |
+| `packages/setup` | Provisioning, onboarding, registration/unregister, calibration tools, procedures and assets; depends on core. |
 | `src` | Standalone CLI, isolated coding storage and product policy; published Pi SDKs supply the coding harness and TUI. |
 | `src/integration` | Standalone Pi integration and product policy, independent of native plugins. |
 | `../kinex-plugins` (separate project) | Native Pi, OpenCode and Codex integrations consuming a packed core snapshot. |
@@ -15,8 +17,13 @@ Hardware and simulators share the same device contracts.
 `KinexContribution` exposes tools, skills, commands and context. Products explicitly
 compose contributions; adapters translate host APIs. Compatible feature changes
 flow through these catalogs without per-feature adapter code. New interaction or
-lifecycle semantics still require adaptation. Future `real-world` can use this
-contract; extraction and a shared default composition module remain deferred.
+lifecycle semantics still require adaptation. Standalone composes core and setup by
+default. Core-only consumers retain all
+utilities needed to operate a configured inventory, including lifecycle, transforms,
+kinematics, perception, control, recording and lazy Python preparation. Setup borrows
+the runtime through tracked operations/tool execution; the runtime owns cancellation,
+recording attribution and disposal. Unregister lives in setup and holds core's device
+transition fence through deactivation and deletion.
 
 ## Core contracts
 
@@ -138,8 +145,11 @@ project; core remains host-independent.
 
 ## Delivery
 
-This npm workspace releases standalone and core with aligned versions and an exact
-internal dependency. Node >=22.19; standalone uses Pi SDK 0.87.1. Native plugins
+This npm workspace releases standalone, core and setup with aligned versions and
+exact internal dependencies. Setup imports core package exports; core never imports
+setup. Provisioning copies runtime driver support into the workspace so configured
+devices continue operating after setup is uninstalled. Node >=22.19; standalone uses
+Pi SDK 0.87.1. Native plugins
 have independent versions and SDK dependencies in `kinex-plugins`. They import
 `@kinex/core` through its package exports, consuming a checked-in tarball snapshot
 with checksum and source provenance; no core source is maintained in that project.
@@ -147,5 +157,5 @@ Standalone and the native Pi plugin own separate host glue so their SDK upgrades
 are independent. Core does not import either host integration.
 
 CI checks core, standalone, real PTY behavior and relocated packages before
-producing two tarballs. See [core API](packages/core/README.md),
-[usage](README.md) and [progress](PLAN.md).
+producing three tarballs. See [core API](packages/core/README.md),
+[setup API](packages/setup/README.md), [usage](README.md) and [progress](PLAN.md).

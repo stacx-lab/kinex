@@ -145,12 +145,12 @@ test('core discovery and context contain robotics tools and packaged assets', as
   const { tools, problems } = await runtime.tools.list()
   assert.deepEqual(problems, [])
   assert.ok(tools.some(tool => tool.name === 'device'))
-  for (const name of ['shell', 'read', 'write', 'edit', 'todo', 'record']) assert.ok(!tools.some(tool => tool.name === name))
-  const skill = await runtime.skills.load('setup-device')
-  assert.ok(skill.content.length > 100)
-  assert.ok((await runtime.devices.templates()).some(entry => entry.type === 'rgb'))
+  for (const name of ['shell', 'read', 'write', 'edit', 'todo', 'record', 'calib_plan', 'calib_write', 'calib_sample', 'device_calibrate']) assert.ok(!tools.some(tool => tool.name === name))
+  assert.equal(await runtime.skills.load('setup-device'), undefined)
+  assert.equal(runtime.devices.templates, undefined)
+  assert.equal(runtime.devices.unregister, undefined)
   assert.ok((await runtime.context()).robotics.includes('sensor'))
-  assert.ok((await runtime.calibration.plan()).items)
+  assert.ok((await runtime.readiness()).items)
 })
 
 test('two runtimes isolate mock state and observers even in the same workspace', async t => {
@@ -913,7 +913,18 @@ test('cancelling one world wait leaves concurrent waits and the driver usable', 
       interpreter: 'python3', persistent: true, actions: ['read', 'wait', 'load', 'unload', 'status'],
     } } })
   await writeFile(path.join(directory, '.kinex/devices/world/driver.py'),
-    await readFile(new URL('../assets/builtin/device/templates/world/driver.py', import.meta.url)))
+    `import time
+from kinex.driver_protocol import run, check_cancelled
+def dispatch(action, args):
+    start = time.monotonic()
+    if action == 'wait':
+        while time.monotonic() - start < args['duration_s']:
+            check_cancelled()
+            time.sleep(.005)
+        return {'time_s': time.monotonic(), 'elapsed_s': time.monotonic() - start}
+    return {'ok': True, 'time_s': time.monotonic()}
+run(dispatch, lambda: None)
+`)
   await (await runtime.devices.load('world')).ready
   const cancelled = new AbortController()
   const long = runtime.devices.dispatch('world', 'wait', { duration_s: 5 }, cancelled.signal)

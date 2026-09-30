@@ -6,8 +6,11 @@ in git.
 
 ## Ownership
 
-- `packages/core/src` owns robotics; `packages/core/assets` owns shipped Python,
-  tools, skills and device guides. Core must not import a host agent or UI.
+- `packages/core/src` owns operation of configured devices; core assets own runtime
+  Python, tools and Use conventions. Core must not import setup, a host agent or UI.
+- `packages/setup` owns onboarding, registration/unregister, provisioning and
+  calibration procedures/assets. It borrows core runtime resources and imports
+  core only through package exports.
 - `src` composes standalone with published Pi SDKs; `src/integration` owns its
   product policy. Do not fork/reimplement providers, coding tools, loops or TUI.
 - Native Pi, OpenCode and Codex plugins live in the separate `../kinex-plugins`
@@ -33,9 +36,9 @@ in git.
 TypeScript ESM, Node APIs, npm and Zod v4. Prefer small functions, named imports,
 early returns and async/await. Avoid `any`, unnecessary casts/catches and obsolete
 compatibility layers; retain typed errors (`NamedError`). Imported prose belongs
-in sibling `.txt` files; discovered content belongs in core assets.
+in sibling `.txt` files; discovered content belongs in its owning package assets.
 
-- Integration: `npm run typecheck`, `npm test`, `npm run test:core`.
+- Integration: `npm run typecheck`, `npm test`, `npm run test:core`, `npm run test:setup`.
 - Build/package: `npm run build`, then `npm run pack -- OUTPUT_DIRECTORY`.
 
 Builds replace output: never rebuild packages concurrently with consumer tests.

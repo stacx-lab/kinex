@@ -3,31 +3,23 @@
 `dev` is the long-lived integration branch for combined fixes. Its PR to `main`
 collects those changes; individual fix branches integrate into `dev`.
 
-- [x] Make servo submit full planned trajectories and report computed duration.
-- [x] Expose optional `budget: {elapsed_s, max_s}` in seconds on world reads only.
-- [x] Migrate callers and documentation; cover execution, interruption, budget
-  validation and model-visible results with regression tests.
-- [x] Validate the combined changes with typecheck, standalone tests and core tests.
-- [x] Move tool arguments, inline source and one-shot driver requests to stdin.
-- [x] Cover large payloads, startup ordering, image references and interruption.
-- [x] Normalize near-unit pose quaternions and frame estimates within 0.001;
-  test boundaries, invalid inputs, IK, frame consumers and strict profile checks.
-- [x] Trim agent-facing world usage to clock, budget and geometry essentials.
-- [x] Report headless recording refusals and add source-preserving CLI HTML export.
-- [x] Verify export aliases, older sessions, errors, interruption and packaging.
-- [x] Build and pack the combined changes.
+- [x] Separate core profile/readiness/model foundations from setup procedures.
+- [x] Add @kinex/setup for onboarding, provisioning, calibration and unregister.
+- [x] Retain core-only lifecycle, perception/control tools, recording and Python.
+- [x] Split setup assets from runtime Use conventions and Python helpers.
+- [x] Compose both packages in standalone with shared permissions and disposal.
+- [x] Extend build, packaging and CI to three aligned packages.
+- [x] Document explicit composition and breaking setup API migration.
+- [x] Summarize implemented package ownership and shared runtime contracts in SEPARATION.md.
+- [x] Validate core-only and setup consumers, lifecycle fences and setup removal.
+- [x] Complete standalone, core and setup tests, typecheck, build and packaging.
 
-Combined validation passed: typecheck, 69 standalone tests and 115 core tests,
-including 12 Python motion tests. Standalone/core build and local release
-packaging also passed.
-Execution tests used mock devices and temporary Python drivers.
-Local runtime benchmarks showed no noticeable latency regression for 1 KiB and
-32 KiB requests. Transport documentation stays in developer references; no new
-model-facing instructions were added.
+Workspace formats stay unchanged. Native plugin snapshots are updated separately
+in kinex-plugins; no plugin implementation or release publication is part of this work.
 
-Servo returns immediately; physical arrival still requires measured feedback.
-RoboEnv must report budget values already converted to seconds; Kinex does not
-convert legacy count/unit budgets or enforce the allowance. Provider changes and
-native plugin snapshots remain separate updates.
-Custom Python tools/drivers reading request payloads from argv must migrate to
-`kinex.args()` or `kinex.driver_protocol.run`; images remain file references.
+Validation passed on Node 22.19: typecheck, 69 standalone tests (including PTY and
+relocation), 114 core tests and 14 setup tests. The final build and three-package
+packing passed; artifacts are in /tmp/kinex-setup-release with SHA256SUMS.
+The installed-package test removes setup and verifies core-only lifecycle,
+recording, runtime conventions and URDF model resolution. Tests use mock devices
+and temporary Python drivers; no physical hardware or paid models were used.

@@ -25,8 +25,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:core
+      - run: npm run test:setup
       - run: npm test
-      - name: Pack standalone and core
+      - name: Pack standalone, core and setup
         run: node script/release.mjs "$RUNNER_TEMP/kinex-release" --tag "$GITHUB_REF_NAME"
       - uses: actions/upload-artifact@v4
         with:

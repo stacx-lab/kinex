@@ -16,31 +16,3 @@ individually cancellable.
 
 Optional bounds and surfaces are informational: they do not constrain motion
 or establish transforms between disconnected frame trees.
-
-## Setup
-
-The supplied driver uses a real-world monotonic clock. Remote environments supply
-their own driver. Configure access and load the device before read/wait.
-
-```yaml
-name: world
-type: world
-loaded: false
-access:
-  connection: {kind: process}
-  driver:
-    entry: driver.py
-    persistent: true
-    actions: [read, wait, load, unload, status]
-intrinsics:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  frames: {}
-  bounds: null
-  surfaces: []
-```
-
-Bounds are `{min: [x,y,z], max: [x,y,z]}` in metres; null bounds impose no box,
-null sides are open, and `???` means unresolved. Surfaces have a unique name,
-world pose and rectangle, polygon or unbounded extent. Use only measured geometry.
