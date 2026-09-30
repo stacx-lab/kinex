@@ -13,7 +13,7 @@ setup-device for service ownership, partial-startup rollback and exit cleanup.
 
 Copy the starter profile below under the user's device name. Determine which physical
 quantity is returned, the receiving body/frame, measured axes and torque
-reference point. Consult DEVICE.md#use for the closed contract. A foot contact
+reference point. Consult templates/force_torque/DEVICE.md in the core Device guide roots for the runtime contract. A foot contact
 sensor can provide contact_normal force on x/y/z with torque:null; a shaft torque
 sensor can provide transmitted torque on z with force:null.
 

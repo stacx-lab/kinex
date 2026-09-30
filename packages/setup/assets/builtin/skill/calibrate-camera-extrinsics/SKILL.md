@@ -43,7 +43,7 @@ consecutive orientations ≥ ~20° apart: hand-eye degenerates with pure transla
 2. `calib_sample deviceID=<arm> routine=calibrate-camera-extrinsics settle={...} note="pose N"`
    — the flange pose [x,y,z,qx,qy,qz,qw] lands in samples.json as `data.frame_poses.flange`;
 3. read the camera → frame path;
-4. `"<core-python>" scripts/detect_board.py --image PATH --profile .kinex/devices/<camera>/profile.yaml \
+4. `"<core-python>" scripts/detect_board.py --image PATH --profile /path/to/workspace/.kinex/devices/<camera>/profile.yaml \
       --board charuco --squares-x 7 --squares-y 5 \
       --square-mm <MEASURED> --marker-mm <MEASURED_MARKER> --dict DICT_4X4_50`
    → `{"ok": true, "rvec": [...], "tvec": [...], "reproj_px": 0.6, "corners": 31}`;

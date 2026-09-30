@@ -38,7 +38,7 @@ def main() -> None:
         import cv2
         import numpy as np
     except ImportError:
-        fail('missing deps — python3 -m pip install "opencv-python>=4.7" numpy')
+        fail('missing deps in the selected interpreter — for core Python use uv add --project <python.project> "opencv-python>=4.7" numpy')
 
     paths = sorted(glob.glob(args.images))
     if not paths:

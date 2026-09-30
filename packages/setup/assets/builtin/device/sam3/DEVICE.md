@@ -90,7 +90,8 @@ once on load, on the profile's `access.connection.compute`.
 The segmentation type supplies detect and its defaults (min_score 0.25, max_results 10);
 segment_point remains an additional declared operation.
 The driver explicitly opens the checkpoint artifact path with remote loading
-disabled. The segmentation type guide’s Use section applies to this instance.
+disabled. The segmentation Use guide from the core Device guide roots applies
+to this instance.
 
 ### Profile
 

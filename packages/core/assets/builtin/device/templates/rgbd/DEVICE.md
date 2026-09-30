@@ -1,7 +1,7 @@
 ---
 name: rgbd
 type: rgbd
-description: Register a RGBD camera with a fixed output profile and a source-specific driver.
+description: RGBD camera readings, image geometry, timestamps and runtime conventions.
 ---
 
 ## Use

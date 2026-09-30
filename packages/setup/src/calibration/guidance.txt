@@ -1,8 +1,8 @@
 {
-  "identity": "Run /onboarding for real hardware. Prepared simulator workspaces supply their manifest and device profiles.",
+  "identity": "Run /onboarding to prepare a workspace, or reuse a prepared simulator workspace's manifest and device profiles.",
   "devices-declared": "Enumerate control and observation endpoints and use /register to prepare unloaded device profiles.",
   "access": "Load setup-device, select an instance or type guide, configure the connection and implement the required driver actions. Activation uses /load or the permission-checked device tool.",
-  "intrinsics": "Use the type Setup guide. Inspect factory values, SDK metadata and device-owned models; retain unknown facts as ??? and queue calibration requests.",
+  "intrinsics": "Use the type guide from the Device setup guide roots. Inspect factory values, SDK metadata and device-owned models; retain unknown facts as ??? and queue calibration requests.",
   "extrinsics": "Record measured mounting transforms and their parent frames using xyzw quaternions. Load the matching calibration skill when measurements are needed.",
   "intrinsics:world": "Optionally record measured bounds and posed surfaces in world coordinates; null bounds and an empty surface list are valid.",
   "access:world": "Configure a world driver with read and wait.",

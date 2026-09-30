@@ -52,7 +52,7 @@ Every sweep step moves TOWARD AN UNKNOWN HARD STOP:
 recommended):
 1. **Free-drive recording**: the user pushes each joint by hand to both stops while you
    `calib_sample` (settle detection says when they hold still); record min/max per joint.
-2. **Guided sweep**: per joint from neutral, `device <arm> "write"` using the joint-type-specific increments and supported speed setting above, `calib_sample` after every step; stop the direction on fault,
+2. **Guided sweep**: per joint from neutral, use `servo` with the joint-type-specific increments and speedFraction above. Allow execution with world.wait and verify measured arrival before `calib_sample` after every step; stop the direction on fault,
    no-progress or user signal; back off by a small joint-type-appropriate margin → max; same negative → min; return to neutral.
 
 Persist measured limits in the device-owned model: update the referenced URDF
@@ -66,8 +66,8 @@ intrinsics.joints, dof, actions or home_joints fields.
 ## 2. Optional measured world geometry
 
 Only when world-referenced spatial information is needed, record independently
-measured bounds and surfaces using the world DEVICE.md guide from the discovered
-device guide roots. An AABB
+measured bounds and surfaces using templates/world/DEVICE.md from the Device
+setup guide roots. An AABB
 of reachable end-effector samples is not an environment measurement. Neither
 joint calibration nor task readiness requires a world profile.
 

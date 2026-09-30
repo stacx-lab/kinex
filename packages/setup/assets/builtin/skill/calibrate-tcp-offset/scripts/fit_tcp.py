@@ -47,7 +47,7 @@ def main() -> None:
     try:
         import numpy as np
     except ImportError:
-        fail("missing deps — python3 -m pip install numpy")
+        fail("missing deps in the selected interpreter — for core Python use uv add --project <python.project> numpy")
 
     try:
         samples = json.load(open(args.samples))

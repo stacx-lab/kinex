@@ -8,7 +8,7 @@ resolves: access:velocity,access:joint,access:gripper,access:dexterous_hand,acce
 
 ## Select the guide
 
-Use the ordered Device setup guide roots in the system prompt (workspace/project,
+Use the ordered Device setup guide roots in the current context (workspace/project,
 global, builtin). For the requested family/name, look for `<root>/<name>/DEVICE.md`
 in every root first. If no instance matches, use
 `<root>/templates/<type>/DEVICE.md` in the first root containing it. Establish
@@ -16,10 +16,11 @@ missing type/name information from existing configuration before asking the user
 Do not substitute a generic template for an available concrete instance.
 
 Read the selected guide's Setup section. Read its type's Use section from the
-core runtime Device guide roots; workspace/global guides may contain both sections. The starter
-profile is the single YAML block under Setup → Profile; copy that data, not the
-illustrative fragments elsewhere in the guide. Template driver.py is executable
-scaffolding. A concrete instance such as SAM3 may also have a substantial setup.sh.
+core runtime Device guide roots; workspace/global guides may contain both sections.
+Use the starter YAML under Setup → Profile, or the generated profile when the
+instance's setup script supplies one. Do not copy illustrative fragments elsewhere
+in the guide. Template driver.py is executable scaffolding. Concrete instances
+may also supply setup.sh and runtime support modules.
 
 ## Prepare and register
 
@@ -28,7 +29,8 @@ scaffolding. A concrete instance such as SAM3 may also have a substantial setup.
    remain ??? and calibration work is queued through calib_write kind=needed.
 2. Prepare the device directory under the workspace's devices/<name>/; keep device
    sources, caches, artifacts and outputs there. Use the shared Kinex core Python
-   by default and record SDK dependencies with `uv add --project .kinex/python PACKAGE`. Use a separate
+   by default and record SDK dependencies with `uv add --project <python.project> PACKAGE`,
+   using the project path from current context. Use a separate
    environment and an explicit interpreter only when required by a vendor/model
    stack or supplied by the user. Include imports used by helpers (for example
    PyYAML, numpy, Pillow). Store credentials in environment variables.
@@ -133,8 +135,10 @@ relative to the canonical device frame. Use `device:frame` references and
 separate device directory or driver.
 
 A reusable instance can be saved under a content root's device/<name>/ with
-DEVICE.md (Setup/Profile) and its driver. Type guides have Use and Setup sections;
-keep setup material out of Use, which is injected into normal task context.
+DEVICE.md (Setup/Profile) and its driver. Packaged type guides split Setup/Profile
+into @kinex/setup and Use into @kinex/core. Workspace/global type overrides may
+combine both sections; keep setup material out of Use, which is injected into
+normal task context for loaded devices.
 
 ### Gripper geometry
 

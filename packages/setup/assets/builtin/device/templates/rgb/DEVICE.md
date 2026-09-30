@@ -11,7 +11,8 @@ for readiness; status only observes. Unload stops active work according to the
 profile and releases every owned resource, even if a cleanup stage fails. Follow
 setup-device for service ownership, partial-startup rollback and exit cleanup.
 
-The Use section is automatically shown for loaded devices of this type.
+The core Use guide is automatically shown for loaded devices of this type.
+Before loading, find templates/rgb/DEVICE.md in the core Device guide roots.
 The profile is a strict schema, not a place for SDK prose or arbitrary options.
 
 ### Register and provision
@@ -20,11 +21,13 @@ The profile is a strict schema, not a place for SDK prose or arbitrary options.
    and frame rate. Read existing source configuration first. Obtain factory
    calibration or queue the camera calibration skills; never invent values.
 2. Provision the environment using the setup-device skill.
-   The device directory contains its venv, driver and out/ images. The harness
-   supplies the kinex Python library on PYTHONPATH during driver execution;
-   direct invocations need `<kinex-root>/python` on PYTHONPATH as well.
+   Keep the driver and out/ images in the device directory. Use shared core Python
+   unless the SDK needs a separate environment. The harness supplies its Python
+   library and workspace lib/ during driver execution; for direct invocations,
+   set PYTHONPATH to python.library and python.workspaceLibrary from current context.
 3. Merge the starter profile below with the user's name through calib_write. Set the
-   absolute venv interpreter. Keep loaded false; /load controls activation.
+   interpreter only for a separate environment, using its absolute path; omit it
+   for core Python. Keep loaded false; /load controls activation.
 4. Complete open_stream, grab, close_stream and introspect in driver.py.
    Read connection and active output settings using `settings(HERE)`; do not
    duplicate serials, URLs, geometry or scale as constants in driver code.
@@ -98,7 +101,7 @@ mount:
 ```
 
 This example is a fixed color-optical-frame mount. Whole mount, translation
-or rotation may be `???`. See DEVICE.md#use for axes and transform direction.
+or rotation may be `???`. See the core rgb Use guide for axes and transform direction.
 For hand-eye calibration use the actual named mounting link, not an assumed
 world frame. Parent motion is resolved through the frame graph.
 

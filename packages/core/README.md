@@ -36,7 +36,7 @@ try {
 
 The permission callback is the authorization boundary. It must resolve only when
 allowed and throw `PermissionDeniedError` when denied. With no host callbacks,
-permission requests are denied and questionnaires are declined. Model tools keep
+permission requests other than stop are denied and questionnaires are declined. Model tools keep
 the existing device permissions. The device tool supports load/unload through
 `device_act`; Python tools cannot change lifecycle. The `devices` lifecycle
 methods and `profiles` methods are trusted host operations: expose them through
@@ -47,11 +47,14 @@ model's recording tool; the host can use `recording` methods independently.
 
 The root exports `roboticsCommands`, `isRoboticsCommand()` and
 `executeRoboticsCommand(runtime, name, arguments, context)`. The catalog provides
-names, argument hints, descriptions and operation/workflow kinds. Execution returns
-either `{kind: "output", text, isError?}` or `{kind: "workflow", prompt}`. The host
-provides a session ID, deletion confirmation and optional progress notifications.
-Hosts own command registration, display, agent cancellation for stop, and submission
-of workflow prompts. This executor is a trusted user-command API, not a model tool.
+names, argument hints and descriptions for operational commands: devices, load,
+unload, reload, ping, stop and record. Execution returns
+`{kind: "output", text, isError?}`. Hosts provide a session ID, command context
+and optional progress notifications, and own registration, display and agent
+cancellation for stop. The shared CommandContext also carries a confirmation
+callback used by setup's unregister command. Setup contributes guided workflows
+returning `{kind: "workflow", prompt}` for the host to submit. This executor is
+a trusted user-command API, not a model tool.
 
 ## Feature contributions
 
@@ -203,6 +206,8 @@ handlers. Each runtime owns its driver connections, dispatch lanes, mock state,
 observers, model cache and recorder. Separate runtime instances isolate in-memory
 state even when device names match. Disk profiles remain shared when the directory
 is shared; use separate workspaces for independent persistent state.
+URDF parsing is shared within a runtime. Cancelling a caller releases its wait;
+runtime disposal cancels the shared parser and releases its process.
 
 `run()` binds low-level calls and their asynchronous work to a runtime scope.
 Standalone and extension integrations should prefer bound runtime methods.
@@ -240,9 +245,10 @@ tools. This code is trusted executable workspace content, like standalone Kinex.
 Python and uv remain external. Core owns `.kinex/python/{pyproject.toml,uv.lock,.venv}`
 per workspace; it never adopts the ordinary Python project. Default drivers/tools,
 URDF inspection and camera encoders use it; explicit interpreters are supported.
-Use `uv add --project .kinex/python PACKAGE` for driver dependencies. Host
-shells remain generic; standalone supplies prompt guidance for explicitly selecting
-core Python. Existing root environments are left untouched. Video encoding requires ffmpeg.
+Use `uv add --project <python.project> PACKAGE` for driver dependencies, substituting
+the discovered project path from context (including when working below the workspace
+root). Host shells remain generic; core context supplies guidance for selecting its
+Python explicitly. Existing root environments are left untouched. Video encoding requires ffmpeg.
 uv is not needed to execute an already prepared environment. Import/discovery needs
 neither Python nor uv. Missing packages report errors without automatic installation
 or replay of the failed tool.

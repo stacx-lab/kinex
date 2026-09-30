@@ -12,9 +12,9 @@ export interface SkillInfo {
   file: string
   directory: string
   // Calibration skills: comma-separated selectors this skill can resolve —
-  // exact calib_plan item ids (intrinsics:wrist_cam) or <section>:<device type>
-  // patterns (intrinsics:rgb). Surfaced in <available_skills> so /calibrate
-  // can match queue items without loading every skill.
+  // exact readiness item ids (intrinsics:wrist_cam) or <section>:<device type>
+  // patterns (intrinsics:rgb). Surfaced in <available_skills> so setup workflows
+  // can match requests without loading every skill.
   resolves?: string
   // Same selector grammar, opposite direction: calibration items that must be
   // DONE before this skill is usable. Advisory — the skill tool warns about

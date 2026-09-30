@@ -24,8 +24,9 @@ Each device has devices/<name>/profile.yaml under .kinex/:
 - access: connection and driver;
 - intrinsics: control/feedback facts, model or sensor calibration, and local frames;
 - extrinsics: mounting transform or measured pose reference.
-Models have no extrinsics. The world driver provides read/wait on its clock; its optional geometry contains spatial references,
-bounds and surfaces, with no access, driver or extrinsics.
+Models have no extrinsics. World has access and a driver for read/wait on its
+clock, plus optional intrinsics for spatial references, bounds and surfaces.
+World has no extrinsics.
 
 Address the canonical frame by device name and local frames as device:frame.
 intrinsics.frames values are fixed xyz+xyzw poses, null for moving transforms

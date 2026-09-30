@@ -5,6 +5,7 @@ It does not start a service or read hardware; the device tool load action or /lo
 If no workspace robot is configured, suggest /onboarding first.
 
 Load the setup-device skill. Follow its instance-first, then type-template lookup
-using the Device guide roots. Read only the selected Setup guide, its starter YAML
-and driver, plus the type's short Use contract. Reuse the user's supplied name and
-facts. Validate the prepared device statically, then report its name and /load.
+using the Device setup guide roots. Read the selected Setup guide, its starter
+profile or generated profile, and driver. Read the type's Use contract from the
+core Device guide roots. Reuse the user's supplied name and facts. Validate the
+prepared device statically, then report its name and /load.

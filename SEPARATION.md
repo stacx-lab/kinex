@@ -76,6 +76,9 @@ schema validation, invocation callbacks, cancellation and recording events. Tool
 implementations request permissions through those callbacks; the host decides
 whether to allow them. Disposal cancels and waits for tracked work, finalizes
 recordings and releases owned resources.
+URDF parsing is shared within that runtime. Each caller can cancel its own wait;
+runtime disposal cancels the shared parser, so cancelling setup work cannot fail
+another caller's model lookup.
 
 Trusted commands and model tools remain separate. The `/unregister` command asks
 for confirmation; the trusted setup API itself does not prompt. Unregister holds

@@ -156,6 +156,6 @@ with checksum and source provenance; no core source is maintained in that projec
 Standalone and the native Pi plugin own separate host glue so their SDK upgrades
 are independent. Core does not import either host integration.
 
-CI checks core, standalone, real PTY behavior and relocated packages before
+CI checks core, setup, standalone, real PTY behavior and relocated packages before
 producing three tarballs. See [core API](packages/core/README.md),
 [setup API](packages/setup/README.md), [usage](README.md) and [progress](PLAN.md).

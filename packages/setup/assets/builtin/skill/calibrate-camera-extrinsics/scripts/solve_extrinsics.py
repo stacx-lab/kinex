@@ -40,7 +40,7 @@ def main() -> None:
     try:
         import numpy as np
     except ImportError:
-        fail("missing deps — python3 -m pip install numpy")
+        fail("missing deps in the selected interpreter — for core Python use uv add --project <python.project> numpy")
 
     def skew(v):
         return np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])

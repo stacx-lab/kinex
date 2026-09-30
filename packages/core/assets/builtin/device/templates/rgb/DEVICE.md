@@ -1,7 +1,7 @@
 ---
 name: rgb
 type: rgb
-description: Register a RGB camera with a fixed output profile and a source-specific driver.
+description: RGB camera readings, image geometry, timestamps and runtime conventions.
 ---
 
 ## Use

@@ -15,7 +15,8 @@ Copy the starter profile below under the user's chosen device name. Determine wh
 are actually returned and whether acceleration is specific_force or
 gravity_removed. Record unsupported channels as null and unresolved facts as ???.
 Do not infer attitude, magnetic field, position or velocity from the device type.
-See DEVICE.md#use for the fixed profile and runtime contract.
+The starter profile is below. See templates/imu/DEVICE.md in the core Device
+guide roots for the runtime contract.
 
 Record the connection with its closed transport variant. Provision using
 the setup-device skill, and complete connect, disconnect

@@ -298,7 +298,7 @@ an explicit interactive confirmation. Tool approvals do not provide an OS sandbo
   Pi handles native tool additions where the model supports them; unsupported
   models and tool interface redefinitions can change the cached prefix. This is
   verified with local request fixtures, not measured live cache-hit rates.
-- A tool batch containing any core tool or question executes in order, including
+- A tool batch containing any core/setup tool or question executes in order, including
   mixed coding/robotics batches. Permission denial or cancellation stops later
   calls; completed work is not rolled back. Pure coding batches remain parallel.
 - Images enter SDK history as bytes; replacing the source file does not change
@@ -337,7 +337,7 @@ npm install /tmp/kinex-release/kinex-core-0.9.0.tgz \
   /tmp/kinex-release/kinex-0.9.0.tgz
 ```
 
-GitHub CI checks types, core and standalone, including PTY interaction and package
+GitHub CI checks types, core, setup and standalone, including PTY interaction and package
 relocation. CI uses `.nvmrc` and Python 3.12; no physical devices or paid models.
 
 A `v*` tag must match the standalone, core and setup versions and their exact dependencies.
