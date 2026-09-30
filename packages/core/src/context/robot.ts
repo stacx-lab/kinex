@@ -203,7 +203,7 @@ export async function renderRobotSummary(cwd: string, snapshot?: ProfileSnapshot
     return [
       "<robot>",
       "  No robot is configured in this workspace yet.",
-      "  Configure .kinex/workspace.yaml and device profiles before operating devices.",
+      "  Use profile_write to configure workspace facts and /register to prepare device profiles.",
       "</robot>",
     ].join("\n")
 

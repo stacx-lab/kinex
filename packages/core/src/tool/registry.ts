@@ -9,6 +9,7 @@ import { exists } from "../util/filesystem.ts"
 import { DeviceTools } from "./device/index.ts"
 import { SkillTool } from "./skill.ts"
 import { RecordTool } from "./record.ts"
+import { ProfileWriteTool } from "./profile_write.ts"
 
 // Zero-install custom tools: any .ts/.js file in tool/ under a content root
 // exporting {description, parameters (zod), execute}. Named <file> for default export,
@@ -49,7 +50,7 @@ export interface Loaded {
 // cache) unless the set actually changed.
 export interface ToolOptions { additionalTools?: Def[]; enableRecording?: boolean; reservedToolNames?: readonly string[] }
 export async function loadTools(cwd: string, options: ToolOptions = {}): Promise<Loaded> {
-  const builtins: Def[] = [...(options.additionalTools ?? []), SkillTool, ...DeviceTools, RecordTool]
+  const builtins: Def[] = [...(options.additionalTools ?? []), SkillTool, ...DeviceTools, RecordTool, ProfileWriteTool]
   const [custom, python] = await Promise.all([customTools(cwd), pythonTools(cwd)])
   const discovered = [...custom.tools, ...python.tools].sort((a, b) => a.id.localeCompare(b.id))
   const tools = new Map<string, Def>()

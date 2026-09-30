@@ -22,5 +22,6 @@ test('core alone validates calibration clears and reports readiness without proc
   await runtime.profiles.writeDevice({ name: 'sensor', access: { connection: { kind: 'mock' }, needs_calibration: null } })
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'access:sensor').status, 'done')
   const context = await runtime.context()
-  assert.doesNotMatch(context.instructions + context.robotics + context.guideRoots, /calib_plan|calib_write|\/onboarding|\/register|\/calibrate|setup-device/)
+  assert.match(context.readiness, /access:sensor: done/)
+  assert.doesNotMatch(context.instructions + context.robotics + context.guideRoots, /calib_plan|calib_write|\/onboarding|\/calibrate/)
 })

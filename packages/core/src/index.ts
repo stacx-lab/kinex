@@ -13,3 +13,4 @@ export { PermissionAction, PermissionRules, permissionRules, loadPermissionRules
 export type { Activation } from "./device/lifecycle.ts"
 export { roboticsCommands, isRoboticsCommand, executeRoboticsCommand, type RoboticsCommand, type CommandContext, type CommandResult } from "./commands.ts"
 export type { Question, QuestionOption } from "./tool/interaction.ts"
+export type { DeviceTemplateInfo } from "./device/templates.ts"

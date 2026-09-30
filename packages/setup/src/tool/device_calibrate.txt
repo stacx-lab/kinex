@@ -4,5 +4,5 @@ path/base_link/tip_link selection. It resolves joints and geometry from disk and
 stores a calibration result; the profile retains its URDF reference.
 
 For physical measurements, /calibrate selects a skill from the calib_plan queue.
-Persist measured facts with calib_write and explicitly clear needs_calibration only
+Persist measured facts with profile_write and explicitly clear needs_calibration only
 when the section is complete. Introspection does not clear requests automatically.

@@ -2,7 +2,7 @@
 # ONE entry point for provisioning the sam3 device — venv, pinned checkout,
 # gated weights, driver — everything confined to --dir. Idempotent: complete
 # steps are skipped, so re-running after a failure continues where it stopped.
-# Registration (calib_write) and /load stay with the harness; this script only
+# Registration (profile_write) and /load stay with the harness; this script only
 # prepares. Shape modeled on agentic-robotics-bench's scripts/perception.sh.
 #
 #     setup.sh --dir <device-dir> [--compute cuda:0|cpu] [--torch 2.6.0] [--token hf_...]
@@ -142,5 +142,5 @@ cp "$HERE/driver.py" "$DIR/driver.py"
 step "done"
 echo "  interpreter: $DIR/venv/bin/python"
 echo "  compute:     $COMPUTE"
-echo "  register with calib_write (DEVICE.md Setup/Profile YAML), filling access.driver.interpreter"
+echo "  register with profile_write (DEVICE.md Setup/Profile YAML), filling access.driver.interpreter"
 echo "  and access.connection.compute ({kind: cuda, index: N} or {kind: cpu}); keep loaded: false — /load sam3 serves it."

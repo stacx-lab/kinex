@@ -96,10 +96,9 @@ returns and calibration samples use the same formatting in model context.
 The device tool's `compact` option still requests single-line JSON.
 
 Direct operations run without a model round trip. Only onboarding, registration
-and calibration submit workflows to the model. Their implementation and help live
-in @kinex/setup contributions; standalone composes these with @kinex/core.
-Unregister is also a setup command. Core alone operates existing device inventories,
-including loading, unloading, control, perception and recording.
+and calibration submit workflows to the model. Core owns registration, unregister,
+provisioning and device guides. Setup owns onboarding and calibration; standalone composes both contributions. Core alone
+can add, remove and operate devices, including control, perception and recording.
 
 ## Control and world time
 
@@ -278,7 +277,9 @@ is the permission name for bash. Approval can be once or for the session. Auto
 modes override configured denies, matching the previous Kinex behavior. Stop is
 always allowed. The model's `record` tool is available only with
 `--enable-recording`; manual `/record` is always available. Unregister still needs
-an explicit interactive confirmation. Tool approvals do not provide an OS sandbox.
+an explicit interactive confirmation. The profile-writing tool and permission are
+now named `profile_write`; migrate existing `permission.calib_write` rules to
+`permission.profile_write`. The old name is not an alias. Tool approvals do not provide an OS sandbox.
 
 ## Runtime behavior
 
@@ -314,7 +315,7 @@ See [DESIGN.md](DESIGN.md), [the core API](packages/core/README.md) and the
 npm run typecheck
 npm test                         # fake provider, CLI/package, real Linux/macOS PTY
 npm run test:core                # core and independent npm consumption
-npm run test:setup               # provisioning/calibration and setup removal
+npm run test:setup               # onboarding/calibration and setup removal
 npm run test:tui                 # after build
 ```
 
@@ -360,8 +361,7 @@ updated explicitly; robotics code is maintained only in this repository.
 `@kinex/core/integration` defines feature contributions for tools, skills, commands
 and namespaced context. Host adapters consume contributions; product entrypoints
 explicitly compose them around a shared runtime. Standalone explicitly includes
-`@kinex/setup` for onboarding, registration, unregister
-and calibration. The setup package depends on core; core can be installed alone for
-operating a configured inventory. See [setup composition and API migration](packages/setup/README.md).
+`@kinex/setup` for onboarding and calibration. Core owns registration, unregister,
+device provisioning and operation; it can be installed alone. See [setup composition and API migration](packages/setup/README.md).
 Native plugins still use their existing packed snapshots; adopting these new APIs
 and packaging setup is a separate update in that project.

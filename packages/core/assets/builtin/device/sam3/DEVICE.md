@@ -10,7 +10,7 @@ The device tool can load/unload this service with device_act permission;
 /load and /unload use the same lifecycle. Status/ping never starts a process.
 Failed startup releases resources; explicitly load again after a failure.
 
-Registration = one interview + one script run + one calib_write. It PROVISIONS
+Registration = one interview + one script run + one profile_write. It PROVISIONS
 the device and writes its profile with `loaded: false`; it never starts the
 service — the user activates it later with `/load sam3` (which serves the
 model), checks it with `/ping sam3`, and frees the GPU with `/unload sam3`.
@@ -50,7 +50,7 @@ final summary prints the two values registration needs.
 
 ### 3. Register
 
-Merge the starter profile below via calib_write, filling from the
+Merge the starter profile below via profile_write, filling from the
 script's summary:
 - `access.driver.interpreter`: `<device-dir>/venv/bin/python` (absolute)
 - `access.connection.compute`: `{kind: cuda, index: N}` or `{kind: cpu}`
@@ -58,7 +58,7 @@ script's summary:
 
 ### 4. Verify (static only)
 
-Validate the profile, imports and driver syntax. `calib_plan` should show the
+Validate the profile, imports and driver syntax. The readiness section in current context should show the
 connection, declared actions and intrinsics complete once registration is done;
 Use /ping for current service liveness.
 Tell the user: `/load sam3` initializes the model, `/ping sam3` probes readiness,

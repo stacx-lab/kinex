@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 const exec = promisify(execFile)
 const root = fileURLToPath(new URL('../', import.meta.url))
 
-test('packed setup provisions a relocated workspace that operates after setup removal', { timeout: 180000 }, async t => {
+test('packed setup composes with core in a relocated workspace and can be removed', { timeout: 180000 }, async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-setup-package-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const pack = async location => {
@@ -18,11 +18,12 @@ test('packed setup provisions a relocated workspace that operates after setup re
   }
   const core = await pack(path.join(root, '../core'))
   const setup = await pack(root)
-  assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
+  assert.ok(!setup.files.some(file => file.path.includes('assets/builtin/device/') || file.path.includes('/setup-device/')))
+  assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/calibrate-camera-intrinsics/SKILL.md'))
   for (const name of ['driver.py', 'setup.sh', 'provision.py', 'fastwam_config.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
-    assert.ok(setup.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
+    assert.ok(core.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/') || file.path.endsWith('.pyc')))
-  assert.ok(!core.files.some(file => file.path.includes('assets/builtin/skill/')))
+  assert.ok(core.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
   const installed = path.join(directory, 'installed')
   await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', installed,
     path.join(directory, core.filename), path.join(directory, setup.filename), '@types/node@22'])
@@ -54,11 +55,11 @@ try {
   assert.ok((await runtime.skills.load('setup-device')).info.directory.includes('node_modules'))
   await assert.rejects(stat('.kinex'), {code:'ENOENT'})
   const write = async data => {
-    const result = await setup.tools.call('calib_write', data, {sessionID:'provision'})
+    const result = await runtime.tools.call('profile_write', data, {sessionID:'provision'})
     assert.ok(!result.isError, result.output)
   }
   await write({kind:'robot', data:{identity:{id:'clock',name:'Clock',platform:'real',kind:'arm'}}})
-  const template = (await setup.devices.templates()).find(template => template.name === 'world')
+  const template = (await runtime.devices.templates()).find(template => template.name === 'world')
   const profile = await deviceGuideProfile(path.join(template.directory, 'DEVICE.md'))
   profile.access.driver.interpreter = 'python3'
   await write({kind:'device',data:profile})
@@ -80,8 +81,10 @@ await assert.rejects(import('@kinex/setup'), {code:'ERR_MODULE_NOT_FOUND'})
 const runtime = createKinexRuntime({directory: process.cwd(), host:{ask: async () => {}}})
 try {
   const tools = (await runtime.tools.list()).tools.map(tool => tool.name)
-  for (const name of ['device','devices','device_stop','servo','track','settled','relative_pose','locate_object_3d','run_policy']) assert.ok(tools.includes(name), name)
+  for (const name of ['profile_write','device','devices','device_stop','servo','track','settled','relative_pose','locate_object_3d','run_policy']) assert.ok(tools.includes(name), name)
   for (const name of ['calib_plan','calib_write','calib_sample','device_calibrate']) assert.ok(!tools.includes(name), name)
+  assert.ok(await runtime.skills.load('setup-device'))
+  assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))
   await assert.rejects(stat('.kinex/python'), {code:'ENOENT'})
   await (await runtime.devices.load('world')).ready
   const first = (await runtime.devices.dispatch('world', 'read')).data.time_s

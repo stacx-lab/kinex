@@ -1,12 +1,14 @@
 # @kinex/setup
 
-Host-independent onboarding, device provisioning and calibration for Kinex.
+Host-independent onboarding and calibration for Kinex.
 Requires Node >=22.19 and an aligned `@kinex/core` version. It contains no host
 agent, provider, UI or independent device runtime.
 
-Core alone provides all utilities needed to operate a configured inventory:
+Core alone provisions, registers, removes and operates devices. It owns device
+guides, driver templates, setup-device, profile_write and runtime utilities:
 lifecycle, reads/writes, stop, transforms, FK/IK, perception, motion/policy tools,
-recording and runtime Python. Setup prepares or changes that inventory.
+recording and runtime Python. Setup coordinates workspace onboarding and
+calibration measurements using those core capabilities.
 
 ## Composition
 
@@ -47,48 +49,49 @@ precedence. `setupToolNames` reserves feature names ahead of workspace custom to
 No package loader or global registration is involved.
 
 Hosts may pass `setupPermissionDefaults` as the third argument to core's
-`kinexPermissionAction(permission, rules, featureDefaults)`. It preserves
-`calib_write: allow` and `device_calibrate: ask`; explicit configured rules take
-precedence. Missing host callbacks still deny permission requests. The contribution
+`kinexPermissionAction(permission, rules, featureDefaults)`. It supplies
+`device_calibrate: ask`; core supplies `profile_write: allow`. Explicit configured
+rules take precedence. Missing host callbacks still deny permission requests. The contribution
 uses invocation permission/question callbacks and never bypasses the host.
 
 ## APIs and migration
 
-| Previous core API | Replacement |
+| API or feature | Owner |
 | --- | --- |
-| `runtime.calibration.plan()` | `setup.calibration.plan()`; `runtime.readiness()` for operational completeness |
-| `runtime.devices.templates()` | `setup.devices.templates()` |
-| `runtime.devices.unregister(name)` | `setup.devices.unregister(name, signal?)` |
-| Core onboarding/register/calibrate/unregister commands | `setupContribution(setup).commands` |
-| Core `calib_plan`, `calib_write`, `calib_sample`, `device_calibrate` tools | `setup.tools` or composed capabilities |
-| `@kinex/core/workflows/index` | `workflows` from `@kinex/setup` |
-| `CalibrationResult` / `nowMeta` in core profile schema | `@kinex/setup/calibration/schema` |
-| Core calibration store/model subpaths | Core `device/profile/store`, `device/profile/readiness`, `device/joint-model`, `device/device-model` |
+| `runtime.devices.templates()` / `runtime.devices.unregister(name, signal?)` | Core |
+| `/register`, `/unregister`, setup-device and provisioning bundles | Core |
+| `profile_write` tool, profiles and readiness | Core |
+| `setup.calibration.plan()` | Setup; enriches core readiness with procedural guidance |
+| `/onboarding`, `/calibrate` | Setup contribution |
+| `calib_plan`, `calib_sample`, `device_calibrate` | Setup tools or composed capabilities |
+| `workflows` from `@kinex/setup` | Onboarding and calibrate prompts |
+| `CalibrationResult` / `nowMeta`, calibration evidence and routines | Setup |
 
-`ProfileStore` replaces the low-level `CalibrationStore` name. Core retains trusted
-profile writes, schemas, shared completeness checks and URDF model resolution.
-No compatibility re-exports are provided. Workspace schemas and calibration record
-formats are unchanged. Consumers pointing drivers directly into the old packaged
-provisioning bundles must copy those files into their device workspace and update
-the driver entry; provisioned workspace-local drivers need no migration.
+Replace `setup.devices.templates/unregister` with the corresponding runtime methods;
+setup no longer exposes a device facade. Register's workflow is available from
+`@kinex/core/workflows/index`. Replace `calib_write` calls with core's `profile_write`
+and migrate `permission.calib_write` rules to `permission.profile_write`. There is
+no compatibility alias. Setup tools do not forward profile-writing calls; use
+`runtime.tools.call` or the composed catalog.
+
+`ProfileStore` replaces the former low-level `CalibrationStore` name. Core owns
+schemas, trusted profile writes, readiness and URDF model resolution. Workspace
+schemas and calibration record formats are unchanged.
 
 Setup construction is inert and borrows the core runtime. Commands are trusted
-user operations; tools use core's tracked execution bridge. Unregister confirms
-through the host command context, holds the per-device lifecycle fence through
-capture shutdown/deactivation/deletion, and preserves files if deactivation fails.
-The trusted `setup.devices.unregister()` method itself does not prompt.
+user operations; tools use core's tracked execution bridge. The host owns runtime
+initialization and disposal; setup never creates a second device runtime.
 
 ## Assets
 
-Setup ships calibration skills/scripts and device provisioning bundles. Bundled
-Setup/Profile guides live here; runtime Use conventions remain in core. Existing
-combined workspace/global DEVICE.md overrides still work. Discovery never creates
-a nearer workspace or prepares Python; execution uses core's lazy environment.
+Setup ships calibration skills and scripts. Device guides, provisioning bundles,
+starter drivers and setup-device belong to core. Read core's Device guide roots
+for Setup/Profile and Use sections, including workspace/global overrides.
+Discovery never creates a nearer workspace or prepares Python. Calibration scripts
+use core's lazy environment or an explicitly configured vendor interpreter.
 
-Copy drivers and all runtime support modules into the device workspace during
-provisioning. Do not point registered drivers or runtime imports into this package:
-a configured inventory must keep operating after setup is removed. Normal runtime
-Python helpers belong to core. Explicit vendor environments own their dependencies.
+Drivers and their runtime support modules are copied into device workspaces during
+provisioning. Configured devices and registration remain usable without setup.
 
 ## Checks
 

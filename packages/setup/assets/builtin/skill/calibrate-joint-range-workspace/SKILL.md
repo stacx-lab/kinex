@@ -67,7 +67,7 @@ intrinsics.joints, dof, actions or home_joints fields.
 
 Only when world-referenced spatial information is needed, record independently
 measured bounds and surfaces using templates/world/DEVICE.md from the Device
-setup guide roots. An AABB
+guide roots. An AABB
 of reachable end-effector samples is not an environment measurement. Neither
 joint calibration nor task readiness requires a world profile.
 
@@ -84,5 +84,5 @@ fixed profile. No free-form notes, automatic margins, or target-frame policies.
 
 Clear needs_calibration with null only for fully resolved items.
 Re-run `calib_plan`: `intrinsics:<arm>` done; world remains optional. On abort persist only
-what was fully measured and update the remaining markers (`calib_write kind=needed`) with
+what was fully measured and update the remaining markers (`profile_write kind=needed`) with
 where the sweep stopped and why.

@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT.parent / "core/assets/python"), str(ROOT / "assets/builtin/device/fastwam")]
+sys.path[:0] = [str(ROOT / "assets/python"), str(ROOT / "assets/builtin/device/fastwam")]
 spec = importlib.util.spec_from_file_location("fastwam_driver", ROOT / "assets/builtin/device/fastwam/driver.py")
 driver = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(driver)

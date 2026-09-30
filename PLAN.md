@@ -1,31 +1,23 @@
 # Current work
 
-`dev` is the long-lived integration branch for combined fixes. Its PR to `main`
-collects those changes; individual fix branches integrate into `dev`.
+Restore device management and provisioning to core; keep onboarding and calibration
+procedures in setup. Workspace formats and native plugin snapshots are unchanged.
 
-- [x] Separate core profile/readiness/model foundations from setup procedures.
-- [x] Add @kinex/setup for onboarding, provisioning, calibration and unregister.
-- [x] Retain core-only lifecycle, perception/control tools, recording and Python.
-- [x] Split setup assets from runtime Use conventions and Python helpers.
-- [x] Compose both packages in standalone with shared permissions and disposal.
-- [x] Extend build, packaging and CI to three aligned packages.
-- [x] Document explicit composition and breaking setup API migration.
-- [x] Summarize implemented package ownership and shared runtime contracts in SEPARATION.md.
-- [x] Validate core-only and setup consumers, lifecycle fences and setup removal.
-- [x] Complete standalone, core and setup tests, typecheck, build and packaging.
-- [x] Isolate shared URDF parsing from individual caller cancellation.
-- [x] Audit core/setup instructions for guide ownership, Python paths and current APIs.
-- [x] Validate review fixes and repack all three packages.
+- [x] Move registration, unregister, template discovery and provisioning assets to core.
+- [x] Reunite device Setup/Profile/Use guides and move setup-device into core.
+- [x] Rename the shared profile writer and permission to profile_write in core.
+- [x] Expose descriptive readiness in core context without calibration procedures.
+- [x] Keep setup's onboarding, calibration tools, routines, evidence and skills.
+- [x] Update ownership instructions, API migration and SEPARATION.md.
+- [x] Move device regressions to core and validate focused tests and typecheck.
+- [x] Validate core-only installed registration, guide overrides and lifecycle cancellation.
+- [x] Run full core, setup and standalone suites and package all three artifacts.
+- [x] Review final diff, instructions and packaged contents.
 
-Workspace formats stay unchanged. Native plugin snapshots are updated separately
-in kinex-plugins; no plugin implementation or release publication is part of this work.
-
-Validation passed on Node 22.19: typecheck, 69 standalone tests (including PTY and
-relocation), 117 core tests and 14 setup tests. The final build and three-package
-packing passed; artifacts are in /tmp/kinex-setup-review-release with SHA256SUMS.
-Review regressions cover independent cancellation of either shared URDF caller,
-cached-result reuse and parser cleanup on disposal. Instruction checks cover
-paired guide sections, Markdown links, guidance JSON and Python syntax.
-The installed-package test removes setup and verifies core-only lifecycle,
-recording, runtime conventions and URDF model resolution. Tests use mock devices
-and temporary Python drivers; no physical hardware or paid models were used.
+Validation passed on Node 22.19: typecheck, 127 core tests, 7 setup tests and
+69 standalone tests (203 total). Final focused checks also passed after review.
+The final build and three-package packing passed. Artifacts and verified SHA256SUMS
+are in /tmp/kinex-device-ownership-release. Checks also covered packed ownership,
+Python syntax, guide sections, guidance JSON, Markdown links and diff whitespace.
+Tests use mock devices and temporary Python drivers; physical hardware and paid
+models are outside these checks. Native plugin adoption is separate work.

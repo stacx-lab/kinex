@@ -80,7 +80,7 @@ Pivot calibration observes position only. Preserve the calibrated mount rotation
 unknown, leave rotation_xyzw as "???" and keep the extrinsics item unresolved until
 orientation is established. Identity is valid only for deliberately aligned frames.
 
-    calib_write kind=device data={
+    profile_write kind=device data={
       "name": "<gripper>",
       "extrinsics": {"source": "calibration", "method": "tcp_pivot",
         "mount": {"parent": "<arm>", "parent_frame": "flange",

@@ -6,8 +6,10 @@ import { ProfileStore } from "./device/profile/store.ts"
 import { readinessPlan } from "./device/profile/readiness.ts"
 import { roboticsContext } from "./context/index.ts"
 import { closeDrivers } from "./device/driver.ts"
-import { dispatchDevice } from "./device/dispatch.ts"
-import { warmLoadedDevices, type Activation, loadDevice, unloadDevice, reloadDevice, pingDevice, lifecycleAction } from "./device/lifecycle.ts"
+import { dispatchDevice, deactivateDevice } from "./device/dispatch.ts"
+import { listDeviceTemplates } from "./device/templates.ts"
+import { removeDevice } from "./device/remove.ts"
+import { warmLoadedDevices, type Activation, loadDevice, unloadDevice, reloadDevice, pingDevice, lifecycleAction, deviceTransition } from "./device/lifecycle.ts"
 import { observeDevices, type DeviceEvent } from "./device/observe.ts"
 import { Recorder, type RecorderHost, type RecordingEvent, type StartInput, type SnapInput, type StopInput, type ExecutionEvent } from "./record/recorder.ts"
 import { listSkills, loadSkill } from "./skill/index.ts"
@@ -128,6 +130,15 @@ export function createKinexRuntime(options: RuntimeOptions) {
         return Promise.all(values.map(value => activation(Promise.resolve(value))))
       })),
       list: () => operation(() => ProfileStore.listDevices(directory)),
+      templates: () => operation(() => listDeviceTemplates(directory)),
+      unregister: (name: string, signal?: AbortSignal) => scopedOperation(abort => deviceTransition(directory, name, async () => {
+        abort.throwIfAborted()
+        const device = await ProfileStore.readDevice(directory, name)
+        if (!device) throw new Error(`unknown device "${name}"`)
+        await deactivateDevice(directory, device)
+        abort.throwIfAborted()
+        await removeDevice(directory, name)
+      }), signal),
       load: (name: string, signal?: AbortSignal) => operation(() => activation(loadDevice(directory, name, signal ? AbortSignal.any([abort.signal, signal]) : abort.signal))),
       unload: (name: string) => operation(() => unloadDevice(directory, name)),
       reload: (name: string, signal?: AbortSignal) => operation(() => activation(reloadDevice(directory, name, signal ? AbortSignal.any([abort.signal, signal]) : abort.signal))),

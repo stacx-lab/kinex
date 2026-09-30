@@ -3,7 +3,7 @@ import { isModel, isActuated, known, type Device } from "./profile/schema.ts"
 
 // Required driver actions gate access readiness. Hardware and
 // simulators use this same contract; only the in-memory mock bypasses drivers.
-// Setup and wire examples live in @kinex/setup assets.
+// Setup and wire examples live in core device guides.
 
 export { lifecycle as LIFECYCLE_ACTIONS } from "./profile/common.ts"
 

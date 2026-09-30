@@ -18,7 +18,7 @@ export type CalibrationPlan = Awaited<ReturnType<typeof calibrationPlan>>
 export { itemSelector }
 const MARKS: Record<ItemStatus, string> = { done: "✓", "needs-calibration": "◐", ready: "▶", blocked: "·" }
 
-// Compact by default: the plan is re-rendered after every calib_write, so done
+// Compact by default: the plan is re-rendered after every profile_write, so done
 // and blocked items collapse to one id-list line each — only actionable items
 // carry detail. `full` restores the per-item table.
 export function renderPlan(plan: CalibrationPlan, options: { full?: boolean } = {}): string {

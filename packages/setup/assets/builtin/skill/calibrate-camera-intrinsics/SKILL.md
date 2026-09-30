@@ -57,7 +57,7 @@ fix and recapture.
 ## 4. Persist and verify
 
 Clear needs_calibration explicitly with null only when the complete item is resolved.
-Use calib_write replace for complete sections when switching strict variants.
+Use profile_write replace for complete sections when switching strict variants.
 
 Persist width, height, projection and distortion under intrinsics.color,
 retaining the active fps/pixel_format/image_format from the camera setup.
@@ -66,4 +66,4 @@ calibrated_at to the current ISO UTC time. The schema derives color.fov.
 Store RMS and coverage diagnostics in the calibration result, not the profile.
 
 Re-run `calib_plan` and confirm `intrinsics:<camera>` is done; on failure persist nothing
-and update the marker (`calib_write kind=needed`) with what blocked you.
+and update the marker (`profile_write kind=needed`) with what blocked you.

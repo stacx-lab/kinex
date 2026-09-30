@@ -64,7 +64,7 @@ max ≤ 4 mm, proper rotation); otherwise re-survey wider-spread points.
 canonical joint device frames; every relative pose between the arms rides this one edge):
 
 ```text
-calib_write kind=device data={
+profile_write kind=device data={
   "name": "<second-arm>",
   "extrinsics": {"source": "calibration", "method": "survey",
     "mount": {"parent": "<anchor-arm>", "parent_frame": "<anchor-arm>",
@@ -75,4 +75,4 @@ calib_write kind=device data={
 Verify with the `relative_pose` tool (second base in anchor base) — it must reproduce the
 fit. Archive `points.json` and the solver JSON; re-run `calib_plan` and confirm
 `extrinsics:<second-arm>` is done; on failure persist nothing and update the marker
-(`calib_write kind=needed`).
+(`profile_write kind=needed`).

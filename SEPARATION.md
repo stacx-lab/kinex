@@ -1,11 +1,11 @@
 # Core and setup separation
 
-`@kinex/core` operates a configured device inventory. `@kinex/setup` provides the
-procedures and assets to prepare, calibrate, add or remove devices. Core remains
-usable without setup installed, including all utilities needed for control.
+`@kinex/core` provisions, registers, removes and operates devices. `@kinex/setup`
+coordinates workspace onboarding and calibration. Core remains usable by itself,
+including adding devices and repairing drivers.
 
 Both packages support hardware and simulators and are independent of host agents
-and UIs. The standalone `kinex` application includes both by default.
+and UIs. Standalone includes both by default.
 
 ```mermaid
 flowchart LR
@@ -14,115 +14,109 @@ flowchart LR
     Setup --> Core
 ```
 
-Setup imports core through its package exports. Core never imports setup. Host
+Setup imports core through package exports. Core never imports setup. Host
 integration, approval UI, model providers and agent loops belong outside these
-two packages.
+packages. Native plugins consume explicitly updated packed snapshots.
 
 ## Ownership
 
 | Area | `@kinex/core` | `@kinex/setup` |
 | --- | --- | --- |
-| Commands | `/devices`, `/load`, `/unload`, `/reload`, `/ping`, `/stop`, `/record` | `/onboarding`, `/register`, `/unregister`, `/calibrate` |
-| Model tools | `device`, `devices`, `device_stop`, `skill`; operational Python tools; opt-in `record` | `calib_plan`, `calib_write`, `calib_sample`, `device_calibrate` |
-| Operation | Connections, dispatch, scheduling, lifecycle, stop and resource ownership | Provisioning and inventory-management procedures |
-| Geometry and control | Frames, transforms, URDF resolution, FK/IK, trajectory planning, perception and policy execution | Calibration routines, measurement procedures and calibration records |
-| Profiles | Schemas, storage, validated trusted writes and readiness evaluation | Guided profile creation, editing and calibration requests |
-| Assets | Runtime Python helpers, operational tools and device `Use` conventions | Setup/calibration skills, `Setup/Profile` guides, starter drivers and provisioning bundles |
-| Runtime context | Device facts, readiness, frames, conventions, Python paths and recording state | Setup instructions, guide roots and actionable calibration guidance |
+| Commands | `/register`, `/unregister`, `/devices`, `/load`, `/unload`, `/reload`, `/ping`, `/stop`, `/record` | `/onboarding`, `/calibrate` |
+| Model tools | `profile_write`, `device`, `devices`, `device_stop`, `skill`, operational Python tools, opt-in `record` | `calib_plan`, `calib_sample`, `device_calibrate` |
+| Devices | Registration, provisioning, drivers, connections, lifecycle, dispatch, scheduling and resource ownership | Uses core devices during onboarding and calibration |
+| Geometry and control | Frames, transforms, URDF models, FK/IK, trajectories, perception and policy execution | Calibration routines, measurement procedures and evidence |
+| Profiles | Schemas, storage, validated writes, calibration-request markers and readiness | Collects workspace facts and measured calibration results through core APIs |
+| Assets | Complete device guides, driver templates, FastWAM/SAM3/GroundingDINO bundles, setup-device, runtime Python and operational tools | Calibration skills and scripts |
+| Context | Device facts, guide roots, readiness details, frames, Use conventions, Python paths and recording state | Onboarding/calibration instructions and actionable calibration guidance |
 
-Core's operational tools include `servo`, `track`, `settled`, `relative_pose`,
-`locate_object_3d` and `run_policy`. A fixed inventory can still be loaded,
-unloaded, reloaded, inspected, controlled and recorded through core.
-
-Core also retains trusted profile-writing primitives. The boundary separates
-shared runtime data and validation from setup procedures; it does not make core
-read-only. In particular, core validates explicit calibration-marker clears even
-when setup is absent. Runtime URDF parsing stays in core because normal kinematics
-and recording depend on resolved models.
+Core retains all control utilities, including `servo`, `track`, `settled`,
+`relative_pose`, `locate_object_3d` and `run_policy`. Calibration facts are shared
+runtime data: core validates profiles and explicit marker clears even without
+setup installed. Setup performs the procedures that obtain those facts.
 
 ## APIs and composition
 
 | API | Responsibility |
 | --- | --- |
 | `createKinexRuntime(options)` | Creates the core runtime and owns its resource scope |
-| `runtime.readiness()` | Reports profile completeness and prerequisite status without procedural guidance |
+| `runtime.devices.templates()` | Discovers provisioning instances and type templates |
+| `runtime.devices.unregister(name, signal?)` | Performs trusted deactivation and inventory deletion |
+| `runtime.readiness()` | Reports profile completeness and prerequisite status without calibration procedures |
+| `runtime.tools.call("profile_write", input, invocation)` | Writes validated workspace/device facts or calibration-request markers with host permission |
 | `createKinexSetup(runtime)` | Creates a setup facade borrowing that runtime |
-| `setup.calibration.plan()` | Adds setup guidance to core's readiness checks |
-| `setup.devices.templates()` | Discovers provisioning instances and type templates |
-| `setup.devices.unregister(name, signal?)` | Performs trusted deactivation and inventory deletion |
+| `setup.calibration.plan()` | Enriches core readiness with calibration guidance |
 | `coreContribution(runtime)` / `setupContribution(setup)` | Expose features through the shared contribution interface |
 | `composeContributions([...])` | Combines command/tool catalogs, skills and namespaced context |
 
-Composition is explicit; there is no dynamic package loader or global feature
-registration. A host enabling setup supplies `setupSkillRoots` as core's
-`builtinSkillRoots` and `setupToolNames` as `reservedToolNames`, then composes both
-contributions. Reservations preserve setup builtin names ahead of discovered
-custom tools. Duplicate identifiers across contributions are errors.
+Setup has no device facade. Core's `/register` workflow and setup-device skill use
+`profile_write` and dynamic readiness details, so registration does not require
+calibration tools. Registration leaves new devices unloaded; activation uses
+`/load` or the permission-checked device tool.
 
-Skill discovery stays in core. Setup supplies its builtin skill root rather than
-running a second workspace/global skill scan. Both the core skill tool and the
-composed skill catalog therefore use the same overrides. See the
+Composition is explicit. A host enabling setup supplies `setupSkillRoots` as
+core's `builtinSkillRoots` and `setupToolNames` as `reservedToolNames`, then composes
+both contributions. Setup roots contain only calibration skills; setup-device is
+always a core builtin. Discovery scans project/global roots once and preserves
+overrides. Duplicate contribution identifiers are errors. See the
 [composition example](packages/setup/README.md#composition).
 
-## Shared execution and lifecycle
+## Execution and lifecycle
 
-Construction is inert. The host owns one core runtime; setup has no independent
-connections, Python environment or disposal lifecycle. The host initializes
-devices as needed and calls `runtime.dispose()` on workspace shutdown.
+Construction is inert. The host owns one core runtime and calls `runtime.dispose()`
+on workspace shutdown. Setup has no independent connections, Python environment or
+disposal lifecycle. Its operations use `runtime.operation()` and tools use
+`runtime.tools.execute()` for shared scope, cancellation, validation, invocation
+callbacks and recording attribution.
 
-Setup operations use `runtime.operation()` for scope, combined cancellation and
-pending-operation tracking. Setup tool calls use `runtime.tools.execute()` for
-schema validation, invocation callbacks, cancellation and recording events. Tool
-implementations request permissions through those callbacks; the host decides
-whether to allow them. Disposal cancels and waits for tracked work, finalizes
-recordings and releases owned resources.
-URDF parsing is shared within that runtime. Each caller can cancel its own wait;
-runtime disposal cancels the shared parser, so cancelling setup work cannot fail
-another caller's model lookup.
+URDF parsing is shared within the runtime. Each caller can cancel its own wait;
+runtime disposal cancels the shared parser. Disposal cancels and waits for tracked
+work, finalizes recordings and releases owned resources.
 
-Trusted commands and model tools remain separate. The `/unregister` command asks
-for confirmation; the trusted setup API itself does not prompt. Unregister holds
-core's per-device lifecycle transition fence through deactivation and deletion,
-so concurrent load/reload cannot reopen a device between those steps. Required
-deactivation failures preserve the device files. Borrowed services are never
-terminated as owned resources.
+Trusted commands and model tools remain separate. `/unregister` confirms through
+the host; `runtime.devices.unregister()` itself does not prompt. The operation
+holds the per-device lifecycle fence through deactivation and deletion, preventing
+concurrent load/reload from reopening the device. Required deactivation failures
+preserve its files. Removal also cleans up its associated calibration-result files
+without importing setup. Borrowed services are never terminated as owned resources.
 
-Setup exports permission defaults for `calib_write: allow` and
-`device_calibrate: ask`; standalone passes them to core's permission resolver.
-Explicit configured rules take precedence within that resolver, while the host
-retains its interaction-mode policy. Missing permission callbacks deny requests.
-Stop remains always allowed, Python tools cannot change device lifecycle, and
-model recording remains opt-in.
+Core defaults `profile_write` permission to `allow`; setup exports
+`device_calibrate: ask`. Explicit rules take precedence in the resolver, while
+hosts retain their interaction policy. Missing callbacks deny requests except
+stop. Profile-writing tools cannot change activation intent. Python tools cannot
+change lifecycle; model recording stays opt-in.
 
-## Assets and persistent state
+## Assets, state and migration
 
-Both packages use the existing `.kinex` workspace layout. Profiles and calibration
-record formats are unchanged; setup does not create a second workspace database.
-Content discovery preserves nearest project → ancestors → global → packaged
-precedence. Bundled guides are split into core `Use` and setup `Setup/Profile`
-content; combined workspace/global `DEVICE.md` overrides remain supported.
+Both packages use the existing `.kinex` workspace layout and unchanged profile and
+calibration record formats. Discovery preserves nearest project → ancestors →
+global → packaged precedence, searching concrete instances before type templates.
+Core device guides contain `Setup`, nested `Profile`, and `Use` sections together.
+Only `Use` is injected for loaded device types; provisioning reads the other
+sections on demand. Workspace/global overrides follow the same format.
 
-Core owns the lazy `.kinex/python` environment and runtime Python library.
-Setup scripts use that environment or an explicitly configured vendor interpreter.
-Ordinary host shells retain their own Python environment.
+Core owns lazy `.kinex/python` and runtime Python helpers. Setup scripts borrow
+that environment or an explicit vendor interpreter. Ordinary host shells retain
+their own Python environment. Provisioning copies drivers and support modules into
+the device workspace or declared environment rather than linking packaged templates.
 
-Provisioning copies drivers and required runtime support modules into the device
-workspace or its declared environment. Configured drivers must not import or link
-to files inside the installed setup package. This lets a configured inventory
-continue operating after setup is uninstalled. Consumers referencing the old
-packaged provisioning paths must copy those files and update their driver entry.
+Consumers must replace `calib_write` calls with `profile_write` and migrate
+`permission.calib_write` rules to `permission.profile_write`; there is no alias.
+Replace `setup.devices.templates/unregister` with the corresponding runtime methods.
+Registration's prompt lives in `@kinex/core/workflows/index`; setup exports only
+onboarding and calibration workflows. Provisioning asset paths now belong to core;
+workspace-local drivers require no migration.
 
 ## Delivery and validation
 
-The workspace builds core → setup → standalone and packs three npm tarballs with
-aligned versions and exact internal dependencies. Native plugins in the separate
-`kinex-plugins` project still consume their existing snapshots; adoption is explicit.
+Build order remains core → setup → standalone. Packing produces three aligned npm
+tarballs with exact internal dependencies; routine checks do not publish them.
 
-Architecture tests enforce package boundaries. Core tests exercise independent
-operation; setup tests cover calibration, permissions, discovery and unregister
-fencing. An installed-package test provisions a device, removes setup, then verifies
-core-only lifecycle, recording, runtime conventions and URDF model resolution.
+Core tests cover provisioning, profile validation, permissions, guide discovery,
+unregister fencing and operation without setup. Setup tests cover composition,
+calibration, evidence, permissions and shared cancellation. Installed-package tests
+verify core-only registration and operation, relocation, and continued operation
+after setup is removed.
 
-For detailed contracts, see [DESIGN.md](DESIGN.md), the
-[core API](packages/core/README.md) and the
-[setup API and migration guide](packages/setup/README.md).
+See [DESIGN.md](DESIGN.md), the [core API](packages/core/README.md) and the
+[setup API](packages/setup/README.md) for detailed contracts.

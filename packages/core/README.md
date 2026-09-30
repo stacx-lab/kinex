@@ -3,9 +3,10 @@
 Kinex's robotics runtime for Node >=22.19. The standalone Kinex agent
 uses this package directly; external host adapters can consume the same API.
 It contains no model provider, agent loop, session store, terminal UI or MCP server.
-Core operates configured device inventories independently of `@kinex/setup`: lifecycle,
-control, perception, kinematics, recording and runtime Python remain available.
-Onboarding, provisioning, unregister and calibration procedures live in
+Core provisions, registers, removes and operates devices independently of
+`@kinex/setup`. It includes device guides, driver templates, setup-device, lifecycle,
+control, perception, kinematics, recording and runtime Python.
+Onboarding and calibration procedures live in
 [`@kinex/setup`](../setup/README.md).
 
 ```ts
@@ -47,14 +48,14 @@ model's recording tool; the host can use `recording` methods independently.
 
 The root exports `roboticsCommands`, `isRoboticsCommand()` and
 `executeRoboticsCommand(runtime, name, arguments, context)`. The catalog provides
-names, argument hints and descriptions for operational commands: devices, load,
-unload, reload, ping, stop and record. Execution returns
-`{kind: "output", text, isError?}`. Hosts provide a session ID, command context
-and optional progress notifications, and own registration, display and agent
-cancellation for stop. The shared CommandContext also carries a confirmation
-callback used by setup's unregister command. Setup contributes guided workflows
-returning `{kind: "workflow", prompt}` for the host to submit. This executor is
-a trusted user-command API, not a model tool.
+names, argument hints and descriptions for devices, load, unload, reload, ping,
+stop, record, register and unregister. Operations return
+`{kind: "output", text, isError?}`. Register returns `{kind: "workflow", prompt}`
+for the host to submit to its model; it prepares an unloaded device using core's
+setup-device skill and profile_write tool. Hosts provide a session ID, command
+context and optional progress notifications, and own display and cancellation
+for stop. Unregister uses the CommandContext confirmation callback before deleting
+a device. This executor is a trusted user-command API.
 
 ## Feature contributions
 
@@ -66,7 +67,7 @@ interface, not a second runtime or a dynamic extension loader.
 ```ts
 import { coreContribution, composeContributions } from "@kinex/core/integration"
 const capabilities = composeContributions([coreContribution(runtime)])
-// Add setup explicitly when provisioning/calibration is needed; see @kinex/setup.
+// Add setup explicitly when onboarding/calibration is needed; see @kinex/setup.
 const catalog = await capabilities.tools.list()
 const state = await capabilities.context() // stable instructions + source.section keys
 ```
@@ -172,7 +173,7 @@ Device writes and `run_policy` retain their existing duration contracts.
   arguments remain optional for host validation. `tools.call()`
   rescans, validates arguments, checks permissions and returns normalized results.
 - `skills.list()/load()` and `context()` provide discovered skills and live robotics
-  context (shared instructions, type conventions, guide roots and Python environment)
+  context (shared instructions, type conventions, guide roots, readiness and Python environment)
   for the host's prompt. Python context includes `library` and `workspaceLibrary`
   paths for shells that need an explicit `PYTHONPATH`. Core does not edit the
   host's system prompt.
@@ -189,6 +190,11 @@ Device writes and `run_policy` retain their existing duration contracts.
 - `devices.list()/load()/reload()/unload()/ping()` implement
   user device commands. Load/reload returns `{device, activating, ready}`; await
   `ready` for background initialization. `devices.dispatch()` is a trusted driver API.
+- `devices.templates()` discovers provisioning instances and type templates.
+  `devices.unregister(name, signal?)` holds the device lifecycle fence through
+  capture shutdown, deactivation and deletion, including associated calibration
+  result files. Failed deactivation preserves device files. This trusted method
+  does not prompt; the `/unregister` command confirms through its host.
 - `profiles.snapshot()/writeManifest()/writeDevice()` and `readiness()` expose
   workspace state. Profile writes validate using the existing schemas.
 - `recording.start()/snap()/stop()/status()/recent()` manage recording products.
@@ -214,10 +220,24 @@ Standalone and extension integrations should prefer bound runtime methods.
 Exported subpaths support internal Kinex consumers; the root runtime API
 is the intended integration surface.
 
-Setup workflows, template discovery and unregister are no longer core exports.
-Use `createKinexSetup(runtime)` and `setupContribution(setup)` from `@kinex/setup`.
-`runtime.readiness()` retains profile completeness and prerequisite evaluation,
-without procedural setup guidance. Direct profile writes still validate marker clears.
+Onboarding and calibration use `createKinexSetup(runtime)` and
+`setupContribution(setup)` from `@kinex/setup`. Core retains registration workflows
+at `@kinex/core/workflows/index`, template discovery and unregister.
+`runtime.readiness()` and dynamic context report profile completeness and
+prerequisite status without procedural calibration guidance.
+
+The core model tool `profile_write` writes workspace facts (`kind: robot`), device
+profiles (`kind: device`) and calibration-request markers (`kind: needed`). It
+preserves validation, merge/replace semantics, provenance and explicit marker
+clears. New devices remain unloaded; edits preserve activation intent. The trusted
+profile API remains available for hosts. The tool requests `profile_write`
+permission, whose core resolver default is `allow`; explicit rules and host
+callbacks still apply.
+
+Migration: replace `calib_write` calls with `profile_write` and move configured
+`permission.calib_write` rules to `permission.profile_write`. No alias is provided.
+Replace `setup.devices.templates/unregister` with `runtime.devices.templates/unregister`;
+setup's device facade is removed. Workspace formats are unchanged.
 
 `runtime.operation(fn, signal?)` tracks a trusted feature operation in the runtime's
 scope and supplies a combined cancellation signal. `runtime.tools.execute(def, input,
@@ -229,10 +249,12 @@ other tool traffic retains its tool name.
 
 ## Assets and discovery
 
-`assets/` is the authoritative copy of runtime Use conventions, Python tools,
-and the Python client/bridge scripts. It ships in the npm package and resolves
-relative to the package, never the caller's working directory. Setup owns
-provisioning guides, example drivers and packaged setup skills.
+`assets/` owns device provisioning bundles (including FastWAM, SAM3 and
+GroundingDINO), template drivers, complete Setup/Profile/Use guides, setup-device,
+operational Python tools and runtime helpers. Assets resolve relative to the
+package. Only each loaded type's Use section enters normal runtime context;
+Setup/Profile is read when needed. Setup ships calibration skills separately.
+Copy drivers and their runtime support files into device workspaces when provisioning.
 
 Discovery preserves workspace/project → parent projects → global → built-in
 precedence. `RuntimeOptions.builtinSkillRoots` appends feature-package skill roots

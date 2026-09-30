@@ -1,6 +1,7 @@
 import path from "node:path"
 import { Assets } from "../installation/assets.ts"
 import { ProfileStore } from "../device/profile/store.ts"
+import { readinessPlan } from "../device/profile/readiness.ts"
 import { renderRobotSummary } from "./robot.ts"
 import { deviceContentRoots, deviceConventions } from "../device/conventions.ts"
 import { pythonEnvironment } from "../python/environment.ts"
@@ -17,9 +18,10 @@ export async function roboticsContext(directory: string, enableRecording = false
   const [snapshot, skills, roots, python] = await Promise.all([
     ProfileStore.snapshot(directory), listSkills(directory), deviceContentRoots(directory), pythonEnvironment(directory),
   ])
-  const [robotics, conventions] = await Promise.all([
+  const [robotics, conventions, readiness] = await Promise.all([
     renderRobotSummary(directory, snapshot),
     deviceConventions(directory, snapshot.devices.filter((device) => device.loaded).map((device) => device.type)),
+    readinessPlan(directory, snapshot),
   ])
   return {
     instructions: [ROBOTICS, PYTHON, DEVICE_USE].join("\n\n"),
@@ -31,6 +33,7 @@ export async function roboticsContext(directory: string, enableRecording = false
       library: Assets.python(), workspaceLibrary: path.join(await ProfileStore.workspaceDir(directory), "lib"),
     },
     robotics,
+    readiness: readiness.items.map(item => `${item.id}: ${item.status} — ${item.detail}${item.dependsOn.length ? ` (requires: ${item.dependsOn.join(", ")})` : ""}`).join("\n"),
     conventions,
     skills: skills.length ? formatSkills(skills) : undefined,
     recording: enableRecording ? Recorder.render() : undefined,

@@ -38,8 +38,8 @@ export function coreContribution(runtime: KinexRuntime): KinexContribution {
     skills: runtime.skills,
     commands: roboticsCommands.map(command => ({
       ...command, interrupt: command.name === "stop",
-      choices: ["load", "unload", "reload", "ping", "stop"].includes(command.name)
-        ? async () => [...(await runtime.devices.list()).map(device => device.name), ...(command.name === "stop" ? [] : ["all"])] : undefined,
+      choices: ["load", "unload", "reload", "ping", "stop", "unregister"].includes(command.name)
+        ? async () => [...(await runtime.devices.list()).map(device => device.name), ...(["stop", "unregister"].includes(command.name) ? [] : ["all"])] : undefined,
       execute: (args, context) => executeRoboticsCommand(runtime, command.name, args, context),
     })),
     async context() {
@@ -47,6 +47,7 @@ export function coreContribution(runtime: KinexRuntime): KinexContribution {
       return { instructions: context.instructions, sections: {
         python: JSON.stringify(context.python), guides: context.guideRoots, devices: context.robotics,
         conventions: context.conventions, skills: context.skills ?? "", recording: context.recording ?? "",
+        readiness: context.readiness,
       } }
     },
   }

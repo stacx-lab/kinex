@@ -1,14 +1,12 @@
-# Device setup
+# Onboarding and calibration
 
-Use /onboarding to configure a workspace, /register to prepare an unloaded device,
-/calibrate to resolve calibration requests, and /unregister to remove a device.
-Load setup-device when adding a device or repairing its driver. Follow the ordered
-Device setup guide roots for provisioning and the core Device guide roots for
-runtime Use conventions. Setup tools work with real
-hardware and applicable simulator profiles.
+Use /onboarding to configure a workspace and /calibrate to resolve calibration
+requests. Device registration, removal, provisioning and setup-device belong to
+core. Read its Device guide roots for device Setup/Profile and Use conventions.
+These workflows support both real hardware and simulators.
 
 Use calib_plan to inspect missing facts and calibration requests. Preserve unknown
-facts as ??? and record requests through calib_write. Match calibration skills to
+facts as ??? and record requests through profile_write. Match calibration skills to
 their resolves selectors; clear requests explicitly only after validating the facts.
 Registration leaves new devices unloaded. Activation uses /load or the device tool
 with its existing permissions. Planning and readiness do not certify safe motion.

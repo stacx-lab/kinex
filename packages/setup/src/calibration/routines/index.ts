@@ -5,7 +5,7 @@ import { UrdfIntrospectRoutine } from "./urdf-introspect.ts"
 // Built-in calibration routines: introspection only — reading facts that are
 // already on disk (the device-owned model). Real-robot MEASUREMENT
 // procedures are delivered as skills (driven by the needs-calibration queue),
-// persisting results via calib_write. Simulated embodiments introspect
+// persisting results via profile_write. Simulated embodiments introspect
 // themselves OUTSIDE the harness: such a workspace ships its device profiles.
 
 export interface RoutineInput {

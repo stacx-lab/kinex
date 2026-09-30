@@ -36,7 +36,7 @@ whole item is resolved; the store checks completeness before clearing it. Planni
 never clears requests. Partial results keep their marker and must not be reported
 as complete. On failure preserve existing calibration and update the marker's reason.
 
-calib_write normally deep-merges partial patches. When changing a strict variant,
+profile_write normally deep-merges partial patches. When changing a strict variant,
 read the profile, supply the complete changed section, and name it in replace
 (e.g. replace:["intrinsics"]). Omitted sections remain intact. A replaced section
 keeps its outstanding request unless explicitly cleared. null removes an optional

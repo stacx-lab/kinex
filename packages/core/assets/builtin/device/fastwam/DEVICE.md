@@ -13,7 +13,7 @@ All downloads, Python dependencies and caches stay inside the instance directory
 Allow about 50 GB for model artifacts plus environment/cache space. CUDA is required.
 
 The script emits `profile.generated.json`; register its contents using
-`calib_write`, leaving `loaded: false`. `/load fastwam` initializes the selected
+`profile_write`, leaving `loaded: false`. `/load fastwam` initializes the selected
 variant, `/ping fastwam` reports readiness, `/unload fastwam` releases GPU memory.
 Discovery and status do not load weights. Runtime is offline; rerun setup to repair
 missing/corrupted artifacts. No training datasets, simulator packages or training

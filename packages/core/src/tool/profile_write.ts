@@ -1,10 +1,10 @@
 import { z } from "zod"
-import { define } from "@kinex/core/tool/tool"
-import { ProfileStore } from "@kinex/core/device/profile/store"
-import DESCRIPTION from "./calib_write.txt"
-import { resolveDeviceTemplate } from "../templates.ts"
+import { define } from "./tool.ts"
+import { ProfileStore } from "../device/profile/store.ts"
+import DESCRIPTION from "./profile_write.txt"
+import { resolveDeviceTemplate } from "../device/templates.ts"
 
-export const CalibWriteTool = define("calib_write", {
+export const ProfileWriteTool = define("profile_write", {
   description: DESCRIPTION,
   parameters: z.object({
     kind: z.enum(["robot", "device", "needed"]),
@@ -16,13 +16,13 @@ export const CalibWriteTool = define("calib_write", {
       ),
   }),
   execute: async (args, ctx) => {
-    await ctx.ask({ permission: "calib_write", description: `write ${args.kind} record` })
+    await ctx.ask({ permission: "profile_write", description: `write ${args.kind} record` })
 
     ctx.abort.throwIfAborted()
     if (args.kind === "needed") {
       const entry = args.data as { item?: string; note?: string }
       if (typeof entry.item !== "string" || entry.item === "")
-        return { title: "invalid patch", output: "data.item (a calib_plan item id) is required", isError: true }
+        return { title: "invalid patch", output: "data.item (a readiness item id) is required", isError: true }
       const marked = await ProfileStore.markNeeded(ctx.directory, entry.item, entry.note).then(
         () => undefined,
         (error: unknown) => (error instanceof Error ? error.message : String(error)),
@@ -72,7 +72,7 @@ export const CalibWriteTool = define("calib_write", {
       throw error
     })
 
-    if ("error" in attempt) return { title: `calib_write ${args.kind}`, output: attempt.error, isError: true }
-    return { title: `calib_write ${args.kind}`, output: attempt.ok }
+    if ("error" in attempt) return { title: `profile_write ${args.kind}`, output: attempt.error, isError: true }
+    return { title: `profile_write ${args.kind}`, output: attempt.ok }
   },
 })

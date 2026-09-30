@@ -67,7 +67,7 @@ max ≤ 4 mm, proper rotation). Otherwise re-survey wider-spread points.
 Clear needs_calibration explicitly with null only when the complete item is resolved.
 
 ```text
-calib_write kind=device data={
+profile_write kind=device data={
   "name": "<arm>",
   "extrinsics": {"source": "calibration", "method": "survey",
     "mount": {"parent": "<parent-device>", "parent_frame": "<parent-frame>",
@@ -76,4 +76,4 @@ calib_write kind=device data={
 ```
 
 Archive `points.json` and the solver JSON. Re-run `calib_plan` and confirm `extrinsics:<arm>`
-is done; on failure persist nothing and update the marker (`calib_write kind=needed`).
+is done; on failure persist nothing and update the marker (`profile_write kind=needed`).

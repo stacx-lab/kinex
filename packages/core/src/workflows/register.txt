@@ -1,0 +1,14 @@
+Register a new device for the workspace robot: $ARGUMENTS
+
+Registration prepares its runtime, artifacts, driver and profile with loaded: false.
+It does not start a service or read hardware; the device tool load action or /load activates it.
+If no workspace robot is configured, collect the minimum identity facts and persist
+them with profile_write kind=robot. Do not require onboarding to register a device.
+
+Load the setup-device skill. Follow its instance-first, then type-template lookup
+using the Device guide roots. Read the selected Setup guide, its starter profile
+or generated profile, and driver. Read the type's Use contract from those roots.
+Reuse the user's supplied name and facts. Write profiles with profile_write and
+inspect the readiness details in current context. Preserve unknown facts and queue
+measurement requests; registration does not perform calibration. Validate the
+prepared device statically, then report its name, remaining gaps and /load.

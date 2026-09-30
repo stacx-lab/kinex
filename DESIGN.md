@@ -8,8 +8,8 @@ Hardware and simulators share the same device contracts.
 
 | Location | Owns |
 | --- | --- |
-| `packages/core/src`, `packages/core/assets` | Configured-device runtime, schemas, validation, operational Python/tools and Use conventions; no setup/agent/UI dependencies. |
-| `packages/setup` | Provisioning, onboarding, registration/unregister, calibration tools, procedures and assets; depends on core. |
+| `packages/core/src`, `packages/core/assets` | Device registration/removal, provisioning, runtime, schemas, validation, Python/tools, setup-device and complete device guides; no setup/agent/UI dependencies. |
+| `packages/setup` | Onboarding and calibration tools, procedures and assets; depends on core. |
 | `src` | Standalone CLI, isolated coding storage and product policy; published Pi SDKs supply the coding harness and TUI. |
 | `src/integration` | Standalone Pi integration and product policy, independent of native plugins. |
 | `../kinex-plugins` (separate project) | Native Pi, OpenCode and Codex integrations consuming a packed core snapshot. |
@@ -19,10 +19,10 @@ compose contributions; adapters translate host APIs. Compatible feature changes
 flow through these catalogs without per-feature adapter code. New interaction or
 lifecycle semantics still require adaptation. Standalone composes core and setup by
 default. Core-only consumers retain all
-utilities needed to operate a configured inventory, including lifecycle, transforms,
+utilities needed to provision, register, remove and operate devices, including lifecycle, transforms,
 kinematics, perception, control, recording and lazy Python preparation. Setup borrows
 the runtime through tracked operations/tool execution; the runtime owns cancellation,
-recording attribution and disposal. Unregister lives in setup and holds core's device
+recording attribution and disposal. Unregister lives in core and holds its device
 transition fence through deactivation and deletion.
 
 ## Core contracts

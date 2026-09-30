@@ -38,7 +38,7 @@ with TemporaryDirectory() as directory:
     assert not verify(file, artifact)
 `
   const result = spawnSync(python, ['-c', script], {
-    env: { ...process.env, PYTHONPATH: path.join(root, '../core/assets/python') }, encoding: 'utf8', timeout: 10000,
+    env: { ...process.env, PYTHONPATH: path.join(root, 'assets/python') }, encoding: 'utf8', timeout: 10000,
   })
   assert.equal(result.status, 0, result.stderr)
 })
@@ -61,8 +61,7 @@ print(json.dumps([make_profile(${JSON.stringify(device)}, variant) for variant i
       assert.equal(profile.intrinsics.operations[0].output.properties.actions.minItems, 32)
       assert.ok(profile.intrinsics.artifacts.every(a => /^[a-f0-9]{40}$/.test(a.source.revision)))
     }
-    const { createKinexSetup } = await import('../dist/index.js')
-    const catalog = await createKinexSetup(runtime).devices.templates()
+    const catalog = await runtime.devices.templates()
     assert.ok(catalog.some(entry => entry.name === 'fastwam'))
   } finally {
     await runtime.dispose()

@@ -21,7 +21,7 @@ bash <instance-dir>/setup.sh --dir .kinex/devices/grounding-dino --compute cuda:
 
 The script installs a private venv and pinned model snapshot, checks imports and
 compute availability, and copies the driver. It can be rerun after interruption.
-Register the starter profile with `calib_write`, setting
+Register the starter profile with `profile_write`, setting
 `access.driver.interpreter` to the printed absolute path and
 `access.connection.compute` to the selected CPU or CUDA device. Keep `loaded: false`.
 Setup does not start the service; `/load grounding-dino`, `/ping grounding-dino`

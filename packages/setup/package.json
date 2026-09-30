@@ -1,7 +1,7 @@
 {
   "name": "@kinex/setup",
   "version": "0.9.0",
-  "description": "Host-independent device provisioning and calibration for Kinex",
+  "description": "Host-independent onboarding and calibration for Kinex",
   "type": "module",
   "engines": {
     "node": ">=22.19.0"
@@ -29,8 +29,7 @@
   ],
   "dependencies": {
     "@kinex/core": "0.9.0",
-    "zod": "^4.4.3",
-    "tinyglobby": "0.2.15"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.20.0"

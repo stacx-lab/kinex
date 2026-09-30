@@ -10,7 +10,7 @@ blocked means prerequisites are incomplete. Populated sections may be independen
 done before their prerequisites. Task-ready checks every applicable required item,
 including access, of loaded gating devices. Unloaded devices are optional.
 
-Planning never writes profiles or clears requests. Use calib_write with
+Planning never writes profiles or clears requests. Use profile_write with
 needs_calibration:null after successful calibration; incomplete clears are rejected.
 The compact view shows actionable details and collapses done/blocked lists;
 full:true includes every item's details and dependencies.

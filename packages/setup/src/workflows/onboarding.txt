@@ -3,7 +3,7 @@ Prepare the workspace robot's device profiles and drivers. Scope: $ARGUMENTS
 Run calib_plan first. Use existing profiles, local models, SDK metadata and supplied
 facts before asking questions. For simulated robots, use the exported workspace;
 fill missing facts from the simulator configuration instead of interviewing about
-hardware. Keep unresolved facts as ??? and queue their reasons with calib_write.
+hardware. Keep unresolved facts as ??? and queue their reasons with profile_write.
 
 ## Device model
 
@@ -40,7 +40,7 @@ Ask only for missing facts or choices. Batch related questions using the questio
 tool and offer "I don't know". Recommend a literal value only when evidence supports
 it; do not ask the user to reconfirm information they already supplied.
 
-When a fact is unknown, record ??? and queue {item,note} with calib_write kind=needed.
+When a fact is unknown, record ??? and queue {item,note} with profile_write kind=needed.
 Continue with other actionable items. Preserve source provenance: user for supplied
 facts, introspected for extracted facts, calibration for measured results, unknown
 for gaps. Clear needs_calibration with null only after the entire item is resolved.
