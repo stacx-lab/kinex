@@ -4,6 +4,12 @@ Task-scoped embodiment onboarding is implemented. An agent-authored DAG selects
 only prerequisites needed for the current task; incomplete calibration is never a
 new execution gate.
 
+CI and release workflows install the setup solver tests' pinned NumPy dependency;
+local installation is documented. The degenerate-survey test now requires
+a successful computation with degenerate geometry, so missing dependencies cannot
+masquerade as a passing quality-rejection test. All 24 setup tests passed in fresh
+Python 3.12 and 3.13 environments with only the declared test dependency installed.
+
 - [x] Persist plans, task scopes, dependency validation and evidence reconciliation.
 - [x] Add procedure descriptors and isolated calibration attempts.
 - [x] Replace calib_plan/device_calibrate with setup_plan/calib_compute.

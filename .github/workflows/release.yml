@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install calibration test dependencies
+        run: python3 -m pip install -r packages/setup/test/requirements.txt
       - name: Check all package versions and internal dependencies
         run: node script/release.mjs --check --tag "$GITHUB_REF_NAME"
       - run: npm ci
