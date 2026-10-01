@@ -1,84 +1,39 @@
 ---
 name: calibrate-camera-extrinsics
-description: Locate a camera relative to the robot — wrist-mounted (eye-in-hand) or fixed (eye-to-hand) — by hand-eye calibration from paired robot poses and board detections. Needs the camera's intrinsics.
-resolves: extrinsics:rgb,extrinsics:rgbd
+description: Measure a camera mount from robot poses and board observations when a task needs camera-to-robot coordinates.
 ---
 
-# Camera extrinsics calibration (hand-eye, both variants)
+# Calibrate camera extrinsics
 
-Fills `extrinsics:<camera>` — the mount of an rgb/rgbd camera (for rgbd: the COLOR optical
-frame; the procedure runs on the color stream). One pure-numpy Tsai–Lenz solver covers:
-- **eye_in_hand** — camera on the arm, board FIXED in the workspace → T_flange_camera.
-- **eye_to_hand** — camera fixed, board held by / attached to the gripper (the board→flange
-  offset need not be measured; the solver absorbs it) → T_base_camera.
+Bind `target` to the camera and `arm` to the observing arm. Require the camera's
+color projection/distortion and the selected arm's model and measured attachment
+frame. Bind frame-specific prerequisites in the plan; do not require world
+localization for an arm-local measurement. RGB-D uses the COLOR optical frame.
 
-Choose the variant from the recorded mount; ask only if the physical arrangement is unclear.
-Use servo with speedFraction ≤ 0.15 for the loop. Anyone steadying the board keeps hands clear. Scratch: `.kinex/calib/calibrate-camera-extrinsics/`.
-Servo submits the full plan and returns immediately with its computed duration_s;
-allow that time with world.wait, then verify measured arrival before sampling.
-Its joints and end_joints are targets/references, not measured positions.
+Choose `eye_in_hand` for a wrist camera observing a fixed board, or `eye_to_hand`
+for a camera fixed relative to the arm base and a board carried by the arm.
+Use known/measured board geometry. On mobile robots the relationship assumed fixed
+by the solver must actually remain fixed during collection. Base/torso motion that
+changes it invalidates those pairs; holding commanded zero is not proof of rest.
 
-In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
-Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
+Verify participating devices answer before physical preparation. Move with
+`servo speedFraction <= 0.15`, allow execution with `world.wait`, and verify
+measured arrival. Record the named attachment frame, without applying TCP offset.
+Use `calib_sample` for robot evidence and camera artifacts; retain both sample IDs
+and timestamps. Sequential captures are not claimed to be synchronized.
 
-## 0. Preconditions
+`scripts/detect_board.py` detects ChArUco/checkerboard observations. Archive selected
+pairs as `[{frame_pose:[x,y,z,qx,qy,qz,qw],rvec:[...],tvec:[...]}]` outside the
+sampler-owned samples.json. Exclude failed detections with reasons. Use at least
+5 diverse pairs; 10–15 are typical. Prefer rotations separated by roughly 20 degrees.
 
-- `intrinsics:<camera>` done — read intrinsics.color from the device profile.
-- The selected joint device is loaded and its read succeeds before physical prep.
-  It declares a moving attachment frame in intrinsics.frames. The examples use
-  flange; substitute the actual frame in readings and solver arguments.
-  Pose goals require the device’s declared IK; joint goals do not.
-- Use Kinex core Python (`"<core-python>"`); verify `import cv2, numpy, yaml`
-  and `cv2.aruco`. Keep one OpenCV distribution in that environment.
-- A board of KNOWN geometry. No factory board? Do not block: print a ChArUco/checkerboard
-  and have the user measure one square (±0.5 mm is plenty) — a measured print IS a measured
-  board; an on-site ArUco/AprilTag setup with a known tag size works too.
+Run `calib_compute operation:camera-extrinsics` with the run ID, pairs file, mode,
+and attachment `frame`. Require rotation residual <= 2 degrees and translation
+residual <= 10 mm. Add diverse pairs only when quality requires them.
 
-## 1. Collect 10–15 pose pairs
+The proposed mount is camera-in-parent; do not invert it. Eye-in-hand uses the
+arm attachment frame; eye-to-hand uses the arm base. A world mount requires an
+explicitly established transform. Persist accepted fields, retain residuals in
+evidence, and return to the task once its required transform is available.
 
-Choose reachable, collision-free targets from the joint model and observed scene,
-with large rotation diversity. Use measured world geometry only when available;
-consecutive orientations ≥ ~20° apart: hand-eye degenerates with pure translations. Per pose:
-1. announce → `servo` with a pose in `<arm>`, or a model-ordered joint target;
-2. `calib_sample deviceID=<arm> routine=calibrate-camera-extrinsics settle={...} note="pose N"`
-   — the flange pose [x,y,z,qx,qy,qz,qw] lands in samples.json as `data.frame_poses.flange`;
-3. read the camera → frame path;
-4. `"<core-python>" scripts/detect_board.py --image PATH --profile /path/to/workspace/.kinex/devices/<camera>/profile.yaml \
-      --board charuco --squares-x 7 --squares-y 5 \
-      --square-mm <MEASURED> --marker-mm <MEASURED_MARKER> --dict DICT_4X4_50`
-   → `{"ok": true, "rvec": [...], "tvec": [...], "reproj_px": 0.6, "corners": 31}`;
-   on `ok: false` (board not visible / too few corners) skip the pose — do not force it.
-
-Accumulate kept pairs in `pairs.json` (write tool — NOT `samples.json`, which calib_sample owns):
-
-    [{"frame_pose": [x,y,z,qx,qy,qz,qw], "rvec": [...], "tvec": [...]}, ...]
-
-## 2. Solve
-
-    "<core-python>" scripts/solve_extrinsics.py --device <arm> --frame flange --mode eye_in_hand|eye_to_hand --samples pairs.json
-
-    → {"ok": true, "translation_m": [x,y,z], "rotation_xyzw": [qx,qy,qz,qw], "parent_frame": "flange"|"<arm>",
-       "method": "Tsai", "residual_rot_deg": 0.8, "residual_trans_mm": 4.1, "pairs_used": 12}
-
-`{"ok": false, "error": "insufficient rotation diversity"}` → more poses with bigger
-orientation changes.
-
-## 3. Quality gate
-
-residual_rot_deg ≤ 2 and residual_trans_mm ≤ 10 → good. Above either: collect ~5 more
-diverse pairs and re-solve; if it still does not converge, suspect a wrong pose convention
-(the TCP offset must NOT be applied to the recorded poses) or a moving board.
-
-## 4. Persist and verify
-
-Clear needs_calibration explicitly with null only when the complete item is resolved.
-
-Persist the solver's translation_m and rotation_xyzw directly under
-extrinsics.mount, together with parent and parent_frame. For eye-in-hand use
-the arm's flange; eye-to-hand solves camera-in-arm-base, so use the arm device
-and its canonical frame (parent_frame is the device name). Use world only after
-explicitly composing that reference transform.
-Set extrinsics.source: calibration, method: hand_eye, and calibrated_at to
-an ISO UTC timestamp. The transform is camera-in-parent; never invert it.
-Record Tsai residuals in the calibration result, not in the strict profile.
-Re-run calib_plan and confirm extrinsics:<camera> is done.
+See [procedure.json](procedure.json) for machine-readable roles and field coverage.

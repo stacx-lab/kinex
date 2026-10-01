@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "roles": {
+    "base": {
+      "types": [
+        "velocity"
+      ]
+    }
+  },
+  "requires": [],
+  "produces": [],
+  "computes": [
+    "verify-base"
+  ],
+  "quality": "All task-selected checks must have independent evidence and explicit acceptance criteria. No inferred metric meaning for normalized commands."
+}

@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "roles": {
+    "anchor": {
+      "types": [
+        "joint"
+      ]
+    },
+    "second": {
+      "types": [
+        "joint"
+      ]
+    },
+    "anchor_tcp": {
+      "types": [
+        "gripper"
+      ]
+    },
+    "second_tcp": {
+      "types": [
+        "gripper"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "anchor_tcp",
+      "pointer": "/extrinsics/mount/translation_m"
+    },
+    {
+      "role": "anchor_tcp",
+      "pointer": "/extrinsics/mount/rotation_xyzw"
+    },
+    {
+      "role": "second_tcp",
+      "pointer": "/extrinsics/mount/translation_m"
+    },
+    {
+      "role": "second_tcp",
+      "pointer": "/extrinsics/mount/rotation_xyzw"
+    }
+  ],
+  "produces": [
+    {
+      "role": "second",
+      "pointer": "/extrinsics/mount"
+    }
+  ],
+  "computes": [
+    "fit-dual"
+  ],
+  "quality": "At least 4 nondegenerate shared touched points; RMS <= 2 mm and max <= 4 mm.",
+  "distinct": [
+    [
+      "anchor",
+      "second"
+    ],
+    [
+      "anchor_tcp",
+      "second_tcp"
+    ]
+  ],
+  "links": [
+    {
+      "child": "anchor_tcp",
+      "parent": "anchor"
+    },
+    {
+      "child": "second_tcp",
+      "parent": "second"
+    }
+  ]
+}

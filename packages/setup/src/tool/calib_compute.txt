@@ -1,0 +1,23 @@
+Run supported offline calibration/introspection using archived evidence. No device
+motion or profile writes. Use an existing run ID, a plan node, or a procedure name
+with concrete device-role bindings. First use creates an isolated attempt. Use the
+procedure descriptor returned by setup_plan full:true for roles and computations.
+Custom procedure code runs through existing host tools, not this offline registry.
+
+Results distinguish computation, quality and exact resolved fields. Inspect warning
+results against the task's accuracy needs; failed quality cannot establish a fact.
+Apply accepted proposedChanges with core profile_write, preserving unrelated facts.
+Proposed patches never clear calibration requests automatically. A pivot solve
+measures translation only; RGB-D color calibration does not measure depth facts.
+URDF introspection is offline and does not require activation. Base verification
+uses explicit measured checks and tolerances, without controller tuning.
+
+Archive manual/factory facts or external solver results as evidence for setup_plan
+record. Reuse valid evidence and stop as soon as the current task is supported.
+
+Base measurement files contain required_checks:[name,...] and checks:[{name,
+expected,measured,reference,...}]. reference names the archived source or independent
+measurement. Numerical expected/measured values need explicit tolerance and units.
+Other assertions compare exact values. Optional timestamps must contain at least
+two distinct increasing sample times. Only required_checks determine coverage;
+missing checks fail quality. Do not claim untested axes or operating conditions.

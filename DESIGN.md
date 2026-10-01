@@ -71,7 +71,10 @@ transition fence through deactivation and deletion.
   poses attached to its child and parent frames, using declared,
   live and call-local estimated edges, preferring fewer estimates; samples are
   cached only within a call. `???` is unresolved; `null` follows field semantics.
-  Calibration writes are validated and planning is read-only. FK/IK uses declared
+  Calibration writes are validated; plan inspection is read-only. Setup owns a persisted,
+  agent-authored DAG with task-selected prerequisites and evidence-backed outcomes.
+  Unrelated or incomplete calibration never becomes a global execution gate.
+  Profile completeness is descriptive; each operation retains its own validation. FK/IK uses declared
   geometry or driver solvers; readiness, world bounds and IK do not certify safe
   or collision-free motion.
   Shared Python pose validation and call-local frame estimates normalize xyzw

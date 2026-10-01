@@ -1,79 +1,33 @@
 ---
 name: calibrate-fixed-arm-mount
-description: Locate a fixed joint device in a declared parent frame using surveyed 3D point pairs.
-resolves: extrinsics:joint
+description: Survey an arm base relative to its rigid parent, including a mobile base or moving torso attachment frame.
 ---
 
-# Fixed joint mount calibration
+# Calibrate fixed arm mount
 
-Fills `extrinsics:<arm>`: the arm base in its fixed parent frame, fitted as
-`p_parent = R · p_arm + t` from corresponding 3D fiducials — exactly the profile's
-`mount` convention, so the fit is written as-is. Script: `scripts/fit_mount.py`
-(numpy only). Scratch: `.kinex/calib/calibrate-fixed-arm-mount/`.
+Bind `target` to the joint device and `parent` to the actual parent device.
+The fitted relationship is fixed between these frames even if the whole robot
+moves. World is optional. If frames are explicitly defined to coincide, archive
+that definition and record identity with appropriate provenance; missing facts
+never imply identity.
 
-In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
-Scratch paths are workspace-relative; pass absolute evidence paths to scripts.
+Prefer documented geometry or non-motion survey. Collect matching points in the
+arm base and the declared parent frame, in metres and the same order. Use measured
+fixtures, CAD with traceable geometry, a tracker or calibrated touch probing;
+uncalibrated images do not establish parent coordinates.
 
-## Check the frame definition
+For touch probing, add dependencies on the particular arm's control/feedback and
+TCP. Approach slowly in user-confirmed approximately 5 mm steps; never command
+motion while touching. A non-motion survey does not require loading the arm.
 
-If the canonical device frame and declared parent frame are explicitly defined to
-coincide, record identity with source:user and retain that definition in evidence.
-Otherwise measure their transform using the procedure below. A missing mount is
-not an identity transform.
+Archive `{arm_points_m:[[...]],parent_points_m:[[...]]}`. Use at least 4 well-spread,
+noncoplanar points. Run `calib_compute operation:fit-mount` with `points` and the
+actual `parent_frame`. The solver requires nondegenerate geometry, RMS <= 2 mm,
+maximum residual <= 4 mm, and a proper rotation.
 
-## 0. Preconditions
+Persist the accepted parent<-arm transform directly. Keep raw pairs and residuals
+in evidence. On mobile robots verify the measured reference relationship stayed
+consistent; do not replace measured base pose with a world-fixed mount.
+A local arm task may not need this survey at all.
 
-- The parent frame is physically defined and reproducible (for example `world:fixture`).
-- `"<core-python>" -c "import numpy"`.
-- ≥ 4 rigid, well-spaced, non-coplanar fiducials preferred (3 non-collinear is the minimum),
-  each measured in BOTH frames, metres, same order. Arm-frame coordinates: the robot/CAD
-  drawing, or touch-probing with a calibrated TCP and reading the state. Parent-frame
-  coordinates: a surveyed jig, CMM, tracker or metrology fixture — never uncalibrated images.
-- Prefer a non-motion survey. If the arm touches fiducials: driver verified, TCP calibrated,
-  approach in ~5 mm user-confirmed steps with a supported low-speed setting, never command motion
-  while touching a point.
-
-Use an existing device or named world frame as the parent (for example,
-parent=world, parent_frame=fixture).
-
-## 1. Collect correspondences
-
-`points.json` in the scratch directory, points spanning all three axes (archive repeats,
-never average them silently):
-
-```json
-{
-  "arm_points_m": [[x,y,z], [x,y,z], [x,y,z], [x,y,z]],
-  "parent_points_m": [[x,y,z], [x,y,z], [x,y,z], [x,y,z]]
-}
-```
-
-## 2. Solve
-
-```bash
-"<core-python>" scripts/fit_mount.py --points /absolute/path/points.json
-```
-
-One JSON object: `pose`, per-point residuals, rms/max, point count, singular values,
-degeneracy check, `quality_pass`.
-
-## 3. Quality gate
-
-Persist only when `quality_pass` is true (≥ 4 points, non-degenerate geometry, rms ≤ 2 mm,
-max ≤ 4 mm, proper rotation). Otherwise re-survey wider-spread points.
-
-## 4. Persist and verify
-
-Clear needs_calibration explicitly with null only when the complete item is resolved.
-
-```text
-profile_write kind=device data={
-  "name": "<arm>",
-  "extrinsics": {"source": "calibration", "method": "survey",
-    "mount": {"parent": "<parent-device>", "parent_frame": "<parent-frame>",
-              "translation_m": [x,y,z],
-              "rotation_xyzw": [qx,qy,qz,qw]}}}
-```
-
-Archive `points.json` and the solver JSON. Re-run `calib_plan` and confirm `extrinsics:<arm>`
-is done; on failure persist nothing and update the marker (`profile_write kind=needed`).
+See [procedure.json](procedure.json) for machine-readable roles and field coverage.

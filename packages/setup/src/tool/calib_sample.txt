@@ -1,5 +1,8 @@
-Read one calibration sample into .kinex/calib/<routine>/samples.json. Returns the
-new sample and running count. Use note to identify the collection step. Samples
+Read one sample into an isolated .kinex/calib/<run>/samples.json. Start with a plan
+node or procedure plus bindings; subsequent samples use the returned run ID. The
+device must be one of the bound participants. Inputs and participants cannot change
+within an attempt. Returns the new sample, run ID and count; camera attachments are
+copied into immutable attempt artifacts. Use note to identify the collection step. Samples
 contain measured state and timestamps; this tool cannot command or load devices.
 
 Optional settle waits for the declared measured velocity channels to remain below

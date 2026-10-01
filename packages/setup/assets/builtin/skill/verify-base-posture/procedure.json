@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "roles": {
+    "base": {
+      "types": [
+        "velocity"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "base",
+      "pointer": "/intrinsics/control/mode"
+    },
+    {
+      "role": "base",
+      "pointer": "/intrinsics/control/body_frame"
+    },
+    {
+      "role": "base",
+      "pointer": "/intrinsics/feedback/clock"
+    },
+    {
+      "role": "base",
+      "pointer": "/intrinsics/stop/behavior"
+    },
+    {
+      "role": "base",
+      "pointer": "/intrinsics/stop/affected_devices"
+    }
+  ],
+  "produces": [],
+  "computes": [
+    "verify-base"
+  ],
+  "quality": "All task-selected checks must have independent evidence and explicit acceptance criteria. No inferred metric meaning for normalized commands."
+}

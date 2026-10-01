@@ -75,9 +75,9 @@ environments run without syncing. The ordinary shell environment stays unchanged
 | `/record snap <devices>` | Capture an observation. |
 | `/record stop [success|failure|partial] [summary]` | Finish a recording. |
 | `/record status` | Inspect current and recent recordings. |
-| `/onboarding [description]` | Start a model-guided workspace setup. |
+| `/onboarding [description]` | Prepare the embodiment and current task through a setup DAG. |
 | `/register <type-or-template>` | Ask the model to prepare an unloaded profile. |
-| `/calibrate [scope]` | Start a model-guided calibration workflow. |
+| `/calibrate [scope]` | Resolve only the selected calibration prerequisites. |
 | `/mode [ask|auto|yolo]` | Select the Kinex permission/interaction mode. |
 
 Device names complete with Tab. General coding commands and keybindings use Pi's
@@ -94,6 +94,12 @@ All Kinex tool JSON results in the TUI indent their first two levels by two spac
 and keep deeper values inline, including Python and workspace tools. Python tool
 returns and calibration samples use the same formatting in model context.
 The device tool's `compact` option still requests single-line JSON.
+
+Setup tracks an agent-authored DAG with `setup_plan`; only the current task's
+prerequisites advance. Unrelated calibration remains deferred, and incomplete
+onboarding never gates device operations. Existing operation checks and permissions
+still apply. `calib_sample` archives attempt evidence; `calib_compute` runs offline
+solvers and proposes profile changes. See [setup API and migration](packages/setup/README.md).
 
 Direct operations run without a model round trip. Only onboarding, registration
 and calibration submit workflows to the model. Core owns registration, unregister,

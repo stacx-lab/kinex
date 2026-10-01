@@ -1,0 +1,21 @@
+Inspect or maintain the agent-authored embodiment DAG. This is task-scoped planning,
+never a gate on device operations. Read with full:true for the complete graph and
+available procedure descriptors; the default shows only the current task's gaps.
+Use the returned revision for save/select/record; conflicting edits must be reread.
+
+Save version:1 nodes with IDs, kind prepare/calibrate/verify, skill, concrete device
+role bindings, dependsOn IDs, input facts and expected output facts. A profile fact
+uses kind:profile, device (omit for workspace manifest), and JSON pointer; optional
+value requires an exact match. File facts use paths relative to .kinex. Select a
+task with objective, target node IDs and optional direct facts. Only the targets'
+dependency closure is required now; unrelated work stays deferred. task:null
+defers all calibration. An empty targets list can describe a task requiring no
+calibration. Skill descriptors list their exact roles, requirements and coverage.
+
+Record done only after verifying persisted outputs and archiving supporting
+evidence files (paths relative to .kinex). Existing factory/model/calibration facts
+can satisfy a node without new measurements. Partial results may satisfy a narrower
+task: split broad nodes into independently useful outputs. Never mark deferred work
+done or clear incomplete profile requests. Verification receipts describe evidence,
+not safety certification. Revisions and stale evidence never prevent unrelated
+operations. Replan only relevant gaps and return to the task as soon as satisfied.

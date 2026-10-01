@@ -35,15 +35,15 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.ok((await capabilities.skills.list()).some(skill => skill.name === 'setup-device'))
   assert.equal((await capabilities.skills.list()).filter(skill => skill.name === 'setup-device').length, 1)
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))
-  assert.ok((await setup.calibration.plan()).items.some(item => item.id === 'identity'))
+  assert.equal((await setup.plan.inspect()).taskSatisfied, null)
   const context = await capabilities.context()
-  assert.match(context.sections['setup.calibration'], /onboarding/)
-  assert.doesNotMatch((await runtime.context()).instructions, /calib_plan|\/onboarding/)
+  assert.equal(JSON.parse(context.sections['setup.plan']).task, null)
+  assert.doesNotMatch((await runtime.context()).instructions, /setup_plan|\/onboarding/)
   assert.deepEqual(await readdir(directory), [])
   assert.deepEqual(capabilities.commands.filter(command => command.kind === 'workflow').map(command => command.name).sort(), ['calibrate', 'onboarding', 'register'])
   assert.ok(coreContribution(runtime).commands.some(command => command.name === 'unregister'))
   assert.deepEqual(setupContribution(setup).commands.map(command => command.name).sort(), ['calibrate', 'onboarding'])
-  assert.deepEqual(setupToolNames, ['calib_plan', 'calib_sample', 'device_calibrate'])
+  assert.deepEqual(setupToolNames, ['setup_plan', 'calib_sample', 'calib_compute'])
   assert.equal(tools.tools.filter(tool => tool.name === 'profile_write').length, 1)
   assert.ok(!tools.tools.some(tool => tool.name === 'calib_write'))
   assert.equal(context.sections['setup.guides'], undefined)
@@ -67,23 +67,24 @@ test('sampling shares permissions, recording attribution and cancellation with c
   const events = []
   runtime.subscribe(event => events.push(event))
   await runtime.recording.start({ sessionID: 'setup', specs: { sensor: { rate: 1 } } })
-  const result = await setup.tools.call('calib_sample', { deviceID: 'sensor', routine: 'measured' }, { ...call, callID: 'sample' })
+  const result = await setup.tools.call('calib_sample', { deviceID: 'sensor', procedure: 'setup-device', bindings: { target: 'sensor' } }, { ...call, callID: 'sample' })
   assert.ok(!result.isError, result.output)
-  assert.equal(JSON.parse(await readFile(path.join(directory, '.kinex/calib/measured/samples.json'), 'utf8')).length, 1)
+  const run = result.output.match(/run: ([a-z0-9-]+)/)[1]
+  assert.equal(JSON.parse(await readFile(path.join(directory, `.kinex/calib/${run}/samples.json`), 'utf8')).length, 1)
   assert.ok(events.some(event => event.type === 'execution' && event.event.callID === 'sample' && event.event.origin === 'agent'))
   await runtime.recording.stop()
   await runtime.dispose()
-  assert.throws(() => setup.calibration.plan(), /disposed/)
+  assert.throws(() => setup.plan.inspect(), /disposed/)
 })
 
 test('disposing the borrowed runtime cancels an active setup sample', async t => {
   const { runtime, setup, directory } = await fixture(t)
   await pythonSensor(runtime, directory, { slowRead: true })
-  const pending = setup.tools.call('calib_sample', { deviceID: 'sensor', routine: 'cancelled' }, call)
+  const pending = setup.tools.call('calib_sample', { deviceID: 'sensor', procedure: 'setup-device', bindings: { target: 'sensor' } }, call)
   await delay(50)
   await runtime.dispose()
   assert.equal((await pending).isError, true)
-  await assert.rejects(stat(path.join(directory, '.kinex/calib/cancelled/samples.json')), { code: 'ENOENT' })
+  await assert.rejects(stat(path.join(directory, '.kinex/calib')), { code: 'ENOENT' })
 })
 
 test('URDF calibration borrows core model resolution and stores its result in setup', async t => {
@@ -100,17 +101,18 @@ test('URDF calibration borrows core model resolution and stores its result in se
     access: { connection: { kind: 'mock' } },
     intrinsics: { model: { format: 'urdf', path: 'arm.urdf', base_link: 'base', tip_link: 'tip' } },
   })
-  const input = { routine: 'urdf-introspect', deviceID: 'arm' }
-  await assert.rejects(setup.tools.call('device_calibrate', input, { ...call,
+  const input = { operation: 'urdf-introspect', procedure: 'calibrate-joint-range', bindings: { arm: 'arm' } }
+  await assert.rejects(setup.tools.call('calib_compute', input, { ...call,
     ask: async ({ permission }) => { throw new PermissionDeniedError(permission) },
   }), PermissionDeniedError)
-  const result = await setup.tools.call('device_calibrate', input, call)
+  const result = await setup.tools.call('calib_compute', input, call)
   assert.ok(!result.isError, result.output)
-  const saved = JSON.parse(await readFile(path.join(directory, '.kinex/calib/urdf-introspect-arm.json'), 'utf8'))
-  assert.equal(saved.status, 'ok')
-  assert.equal(saved.data.joints[0].name, 'j')
+  const response = JSON.parse(result.output)
+  const saved = JSON.parse(await readFile(path.join(directory, '.kinex', response.evidence), 'utf8'))
+  assert.equal(saved.computation, 'succeeded')
+  assert.equal(saved.data.model.joints[0].name, 'j')
   await runtime.devices.unregister('arm')
-  await assert.rejects(stat(path.join(directory, '.kinex/calib/urdf-introspect-arm.json')), { code: 'ENOENT' })
+  assert.ok(await stat(path.join(directory, '.kinex', response.evidence)))
 })
 
 test('onboarding and calibration share core profile writes and preserve planning purity', async t => {
@@ -124,9 +126,9 @@ test('onboarding and calibration share core profile writes and preserve planning
   assert.ok(!result.isError, result.output)
   const file = path.join(directory, '.kinex/devices/sensor/profile.yaml')
   const before = await readFile(file, 'utf8')
-  assert.equal((await setup.calibration.plan()).items.find(item => item.id === 'access:sensor').status, 'needs-calibration')
+  assert.equal((await runtime.readiness()).items.find(item => item.id === 'access:sensor').status, 'needs-calibration')
   assert.equal(await readFile(file, 'utf8'), before)
-  assert.match((await setup.tools.call('calib_sample', { deviceID: 'sensor', routine: 'test' }, call)).output, /unloaded/i)
+  assert.match((await setup.tools.call('calib_sample', { deviceID: 'sensor', procedure: 'setup-device', bindings: { target: 'sensor' } }, call)).output, /unloaded/i)
   for (const command of setupContribution(setup).commands) {
     const result = await command.execute('', { ...call, confirm: async () => false })
     assert.match(result.prompt, /profile_write/)

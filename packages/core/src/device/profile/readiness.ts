@@ -289,7 +289,7 @@ function buildNodes(ctx: PlanContext): Node[] {
     },
     {
       id: "task-ready",
-      title: "Task-ready",
+      title: "Profile completeness",
       dependsOn: ["identity", "devices-declared", "safety", ...gatingItems],
       check: () => ({ done: false, detail: "" }), // overridden: done iff all deps done
     },

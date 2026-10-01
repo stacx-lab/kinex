@@ -5,7 +5,10 @@ import { z } from "zod"
 import { define } from "@kinex/core/tool/tool"
 import { noRobot, unknownDevice, unloadedDevice, dispatchDevice } from "@kinex/core/tool/device/shared"
 import { ProfileStore } from "@kinex/core/device/profile/store"
-import { readJson, writeJson } from "@kinex/core/util/filesystem"
+import { readJson } from "@kinex/core/util/filesystem"
+import { AttemptInput, attempt, saveAttempt, archive } from "../calibration/attempt.ts"
+import { serialized } from "../planning/plan.ts"
+import { fail, atomicJSON } from "../planning/facts.ts"
 import { formatJSON } from "@kinex/core/util/json"
 import DESCRIPTION from "./calib_sample.txt"
 
@@ -14,7 +17,7 @@ export const CalibSampleTool = define("calib_sample", {
   recordingOrigin: "agent",
   parameters: z.strictObject({
     deviceID: z.string().describe("device to sample, e.g. arm"),
-    routine: z.string().describe("calibration routine name — samples land in calib/<routine>/samples.json"),
+    ...AttemptInput.shape,
     args: z.record(z.string(), z.unknown()).optional().describe("arguments for the driver action"),
     settle: z
       .object({
@@ -33,8 +36,10 @@ export const CalibSampleTool = define("calib_sample", {
     if (!device) return unknownDevice(args.deviceID)
     if (!device.loaded) return unloadedDevice(device)
     if (device.access?.driver)
-      await ctx.ask({ permission: "device_read", description: `sample read from ${device.name} (${args.routine})` })
+      await ctx.ask({ permission: "device_read", description: `sample read from ${device.name} (${args.run ?? args.procedure ?? args.node})` })
 
+    const run = await attempt(ctx.directory, args)
+    if (!Object.values(run.bindings).includes(args.deviceID)) fail("Sample device must be a bound attempt participant")
     const settle = args.settle
     const count = (() => {
       if (!settle) return 0
@@ -72,34 +77,39 @@ export const CalibSampleTool = define("calib_sample", {
     ctx.abort.throwIfAborted()
     const { reading, settled } = state
 
-    const dir = path.join(await ProfileStore.workspaceDir(ctx.directory), "calib", args.routine)
-    const file = path.join(dir, "samples.json")
-    const samples = (await readJson<unknown[]>(file)) ?? []
-    const sample = {
-      index: samples.length,
-      recorded_at: new Date().toISOString(),
-      device: device.name,
-      action: "read",
-      // Only claim settledness when it was actually checked.
-      ...(settle ? { settled } : {}),
-      ...(args.note ? { note: args.note } : {}),
-      ...(reading.filePath ? { file: reading.filePath } : {}),
-      data: reading.data ?? {},
-    }
-    samples.push(sample)
-    await writeJson(file, samples)
+    const dir = await saveAttempt(ctx.directory, run)
+    return serialized(dir, async () => {
+      ctx.abort.throwIfAborted()
+      const file = path.join(dir, "samples.json")
+      const samples = (await readJson<unknown[]>(file)) ?? []
+      const sample = {
+        index: samples.length,
+        recorded_at: new Date().toISOString(),
+        device: device.name,
+        action: "read",
+        // Only claim settledness when it was actually checked.
+        ...(settle ? { settled } : {}),
+        ...(args.note ? { note: args.note } : {}),
+        ...(reading.filePath ? { file: await archive(ctx.directory, run, reading.filePath) } : {}),
+        data: reading.data ?? {},
+      }
+      samples.push(sample)
+      ctx.abort.throwIfAborted()
+      await atomicJSON(file, samples)
 
-    // Return only the delta — the sample just taken plus the running count —
-    // not the whole history: sample loops are the main context sink.
-    return {
-      title: `sample ${sample.index} of ${device.name} (${args.routine})`,
-      output: [
-        `recorded sample ${sample.index} → ${file} (${samples.length} total)`,
-        settle && !settled ? `WARNING: settle timed out after ${settle.timeout_s}s — the device may still be moving; sample marked settled: false` : "",
-        formatJSON(sample.data),
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    }
+      // Return only the delta — the sample just taken plus the running count —
+      // not the whole history: sample loops are the main context sink.
+      return {
+        title: `sample ${sample.index} of ${device.name} (${args.run ?? args.procedure ?? args.node})`,
+        output: [
+          `run: ${run.id}`,
+          `recorded sample ${sample.index} → ${file} (${samples.length} total)`,
+          settle && !settled ? `WARNING: settle timed out after ${settle.timeout_s}s — the device may still be moving; sample marked settled: false` : "",
+          formatJSON(sample),
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }
+    })
   },
 })

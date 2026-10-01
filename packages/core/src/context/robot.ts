@@ -182,7 +182,7 @@ function statusLines(plan: ReadinessPlan): string[] {
   const lines: string[] = []
   const ready = plan.items.find((item) => item.id === "task-ready")
   lines.push(
-    `  calibration: ${plan.counts.done}/${plan.items.length} items done${ready?.status === "done" ? " — task-ready" : plan.next.length > 0 ? `; next: ${plan.next.map((item) => item.id).slice(0, 3).join(", ")}` : ""}`,
+    `  profile completeness: ${plan.counts.done}/${plan.items.length} items done${ready?.status === "done" ? " — profiles complete" : plan.next.length > 0 ? `; next: ${plan.next.map((item) => item.id).slice(0, 3).join(", ")}` : ""}`,
   )
   if (plan.needed.length > 0)
     lines.push(

@@ -1,69 +1,34 @@
 ---
 name: calibrate-camera-intrinsics
-description: Measure a camera's focal length, principal point and distortion from photos of a printed ChArUco/checkerboard target. Use for a queued intrinsics item on an rgb/rgbd device.
-resolves: intrinsics:rgb,intrinsics:rgbd
+description: Measure color-camera projection and distortion when the task needs calibrated image geometry; RGB-D depth facts remain separate.
 ---
 
-# Camera intrinsics calibration (ChArUco / checkerboard)
+# Calibrate camera intrinsics
 
-Fills `intrinsics:<camera>` (width/height, fx/fy, cx/cy, distortion) from 15–25 photos of a
-printed target. On an rgbd device this is the COLOR pinhole (`intrinsics.color`); prefer the
-vendor SDK's factory intrinsics when it reports them, and always take the depth block
-(`intrinsics.depth`: scale/range/alignment) from the SDK — never from a board.
+Use for color projection/distortion on RGB or RGB-D devices. Viewing images alone
+does not require this procedure. Reuse factory calibration matching the active
+resolution, crop, focus and rectification before collecting new evidence.
 
-In the examples, `<core-python>` is `python.executable` from context; set `PYTHONPATH` to `python.library` for the command.
+Bind `target` to the camera. Record the stream configuration as attempt inputs.
+The camera must be loaded and responsive for collection. Use a flat ChArUco or
+checkerboard with measured printed square dimensions. `scripts/generate_board.py`
+can generate a target; a printout's nominal dimensions are not measurements.
 
-## 0. Preconditions
+Collect sharp views across image corners, distance and tilt. Start with 10 usable
+frames and add views only for insufficient coverage or quality; 15–25 often suffice.
+Use `calib_sample` with the procedure and bindings, then reuse its run ID. Camera
+images are archived; pass selected artifact paths to `calib_compute` with
+`operation:camera-intrinsics`, `images`, `board`, and measured `square_mm`.
+Declare marker dimensions/dictionary for ChArUco and corner counts for checkerboards.
 
-- `access:<camera>` done (you need frames from it).
-- Use Kinex core Python (`"<core-python>"`); verify `import cv2, numpy`
-  and `cv2.aruco`. Keep one OpenCV distribution in that environment.
-- A printed target. Offer `"<core-python>" scripts/generate_board.py --out board.png` (ChArUco 7x5,
-  30 mm squares, DICT_4X4_50; `--board checkerboard` for a plain 9x6). Printed FLAT at 100%
-  on rigid backing — then the user MUST measure one printed square with a ruler: printers
-  rescale, and a wrong square size silently corrupts every downstream calibration. Use the
-  measured size in every command below.
+At least 10 frames and RMS <= 1 px are required. RMS < 0.5 px is good; 0.5–1 px
+or incomplete image coverage requires checking the task's accuracy needs. Above
+1 px, diagnose blur, wrong target geometry or poor coverage before recollecting.
 
-## 1. Capture 15–25 frames
+Apply accepted color fields with `profile_write`, retaining active stream formats.
+Keep RGB-D depth scale/registration/range from the SDK; the board does not measure
+them. Evidence includes RMS, coverage and source images. Clear a whole-section
+request only if its remaining fields are also resolved. Stop when the current
+task's required camera facts are established.
 
-Per frame: the user places the board, you read the camera with the device tool and keep the
-returned image path. Coach diversity — the solver needs it:
-- near and far (target filling ~30% to ~80% of the frame);
-- tilted up to ±40° in both axes (foreshortening constrains focal length);
-- pushed into all four image corners (constrains distortion);
-- fully visible and sharp every time (no motion blur, no glare).
-
-## 2. Solve
-
-    "<core-python>" scripts/calibrate_intrinsics.py --images 'FRAMES_DIR/*.png' \
-      --board charuco --squares-x 7 --squares-y 5 --square-mm <MEASURED> --dict DICT_4X4_50
-
-Checkerboard: `--board checkerboard --corners-x 9 --corners-y 6 --square-mm <MEASURED>`
-(inner corners). `--marker-mm` defaults to 0.75 × the square — pass it only when measured.
-
-The result contains width, height, projection (model/fx/fy/cx/cy/skew),
-distortion (model/k1/k2/p1/p2/k3), rms_px and detection diagnostics.
-
-`ok: false` names what failed (too few detections, board mismatch, unreadable images):
-fix and recapture.
-
-## 3. Quality gate
-
-- rms_px < 0.5: good.
-- 0.5–1.0: acceptable; tell the user the residual.
-- > 1.0 or fewer than 10 frames used: do NOT persist — diagnose (blur? glare? wrong
-  --square-mm? board not flat?), recapture the views named in coverage_warnings, re-solve.
-
-## 4. Persist and verify
-
-Clear needs_calibration explicitly with null only when the complete item is resolved.
-Use profile_write replace for complete sections when switching strict variants.
-
-Persist width, height, projection and distortion under intrinsics.color,
-retaining the active fps/pixel_format/image_format from the camera setup.
-Set intrinsics.source to calibration, method to charuco/checkerboard, and
-calibrated_at to the current ISO UTC time. The schema derives color.fov.
-Store RMS and coverage diagnostics in the calibration result, not the profile.
-
-Re-run `calib_plan` and confirm `intrinsics:<camera>` is done; on failure persist nothing
-and update the marker (`profile_write kind=needed`) with what blocked you.
+See [procedure.json](procedure.json) for machine-readable roles and field coverage.

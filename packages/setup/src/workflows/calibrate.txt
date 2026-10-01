@@ -1,46 +1,48 @@
-Resolve the workspace robot's calibration queue. Run calib_plan first. Scope work
-to $ARGUMENTS when supplied; otherwise work the loaded devices' queue in dependency
-order. Skip unloaded devices. If no workspace exists, point to /onboarding; if
-nothing is queued, report that result.
+Resolve calibration needed for the requested scope: $ARGUMENTS
 
-Match each item by exact id or its section:type selector, such as
-intrinsics:wrist_cam [intrinsics:rgb]. Load the matching skill. If several match,
-choose using the recorded reason and available equipment; ask only when a user
-preference or missing fact determines the procedure. If none matches, report the
-gap or write an embodiment-specific skill under the project's .kinex/skill/.
-Access items use setup-device and the selected device guide.
+Read setup_plan. If a task scope is supplied, select its required target nodes and
+facts. Without a new scope, resume the active task; with no active task, show available
+calibration choices and ask for the intended objective. Do not exhaust the whole
+backlog unless the user explicitly requests complete calibration.
 
-Before physical preparation, verify the required loaded devices answer. Prefer
-existing measured/factory data and device-owned URDF models over manual procedures.
-Reach estimates describe a joint device in its base frame; never persist sampled
-reachability as measured world geometry. World geometry remains optional.
+For missing plans, inspect profiles and matching procedure descriptors (read full:true),
+then author a scoped DAG. Reuse existing verified facts as evidence-backed completed
+nodes, or direct task facts. Bind actual participating devices and attachment frames.
+Choose one applicable method for each output. Add only its real prerequisites;
+arm-local work need not wait for a world survey. Split outputs if a task only needs
+part of a broader calibration. An unrelated calibrated gripper satisfies nothing.
 
-Follow the skill's collection procedure and quality gate. Scripts run from the
-skill's directory using core Python and the library paths supplied in context.
-Scratch files and raw solver results belong in .kinex/calib/<skill-name>/; device facts belong in
-profiles. Install missing dependencies in the prepared runtime within the user's
-authorization. Ask for physical setup, contact reports and missing measurements,
-without duplicating tool permission prompts.
+Follow next eligible nodes in authored order, selecting the least burdensome method
+that meets the task's accuracy needs. Load the skill. Use factory/model/simulator
+facts first, and collect physical evidence only for necessary gaps. Batch related
+questions and preparation. Verify participating devices respond before physical prep;
+activation remains an explicit core lifecycle operation with existing permissions.
 
-Use the skill's motion speed. servo scales planning rates with speedFraction and submits
-the full plan, returning immediately with computed duration_s. It accepts no duration
-override. Allow execution with world.wait and verify measured arrival before the next
-step or sample; joints and end_joints describe targets/references, not arrival or contact.
-calib_sample reads measured state; settling
-requires measured velocities and fresh timestamps. Without that feedback, collect
-an ordinary sample after the procedure's independent stationary confirmation.
+Start calib_sample with node:<id> or procedure plus bindings; reuse the returned run
+ID. Evidence lives under .kinex/calib/<run>/. Save manual observations, timestamps,
+frame conventions and exclusions there too. Never edit sampler-owned samples.json.
+calib_compute runs bundled offline computations and archives their inputs. For custom
+procedures use host tools and archive their output. Scripts use core Python and its
+library paths from context; missing dependencies require explicit environment repair.
 
-After a quality gate passes, write the measured section with source:calibration,
-method and calibrated_at when known. Include needs_calibration:null only when the
-whole item is resolved; the store checks completeness before clearing it. Planning
-never clears requests. Partial results keep their marker and must not be reported
-as complete. On failure preserve existing calibration and update the marker's reason.
+Device/servo writes return immediately. Use world.wait and measured feedback to verify
+arrival; references are not arrival or contact. Respect the selected procedure's speed.
+calib_sample settling requires fresh measured velocities. With no such feedback, use
+independent stationary confirmation. On mobile embodiments, verify any reference
+relationship the chosen solver assumes fixed throughout acquisition.
 
-profile_write normally deep-merges partial patches. When changing a strict variant,
-read the profile, supply the complete changed section, and name it in replace
-(e.g. replace:["intrinsics"]). Omitted sections remain intact. A replaced section
-keeps its outstanding request unless explicitly cleared. null removes an optional
-section only when that section is listed in replace.
+Stop collecting when the procedure's minimum evidence, coverage and quality criteria
+are met. Never lower quality gates for speed. On failed quality preserve accepted
+facts; recollect only the deficient evidence. Partial evidence stays partial.
 
-Re-run calib_plan after writes. Finish with resolved items, remaining reasons and
-readiness. Do not infer calibration quality from populated fields alone.
+Inspect proposed changes and warning results against the task's accuracy requirements.
+Persist accepted fields through profile_write. Its default deep merge retains other
+facts; strict variant changes need a complete section and replace:[section]. Preserve
+source/method/time provenance. Only clear needs_calibration:null when the complete
+section is resolved. Keep diagnostics and evidence outside strict profiles.
+
+Read back outputs, record the node outcome with evidence paths relative to .kinex and
+the current revision, then read setup_plan again. If relevant inputs changed, reassess
+only affected steps. Once task requirements are satisfied, resume the task immediately.
+Report the current result and any necessary next action concisely; leave deferred work
+collapsed. Planning evidence does not certify safe motion or replace host permissions.

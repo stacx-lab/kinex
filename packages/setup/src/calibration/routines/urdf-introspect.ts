@@ -12,10 +12,10 @@ export const UrdfIntrospectRoutine: Routine = {
     const base = { routine: "urdf-introspect", robotID: input.robot.identity.id, deviceID: input.deviceID, meta: nowMeta("introspected") }
     if (!input.deviceID) return { ...base, status: "failed", notes: "deviceID is required; URDF models belong to devices" }
     const device = await ProfileStore.readDevice(input.cwd, input.deviceID)
-    const k = device?.type === "joint" ? device.intrinsics.model : undefined
+    const k = (device?.type === "joint" || device?.type === "dexterous_hand") ? device.intrinsics.model : undefined
     if (!k || k === "???" || k.format !== "urdf")
       return { ...base, status: "failed", notes: "record this device's URDF path, base_link and tip link selection first" }
-    const model = device?.type === "joint" ? deviceModel(device) : undefined
+    const model = (device?.type === "joint" || device?.type === "dexterous_hand") ? deviceModel(device) : undefined
     if (!model) return { ...base, status: "failed", notes: "URDF model reference is incomplete" }
     return { ...base, status: "ok", data: model, notes: `resolved ${model.joints.length} joints; profile retains the URDF reference` }
   },

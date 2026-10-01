@@ -6,3 +6,5 @@ Load inactive devices through the permission-checked device tool or /load. statu
 Frames: arm is canonical; arm:flange is local. intrinsics.frames contains device-relative poses, null for measured read.frame_poses, or ??? for unknown geometry. extrinsics.mount maps child coordinates to parent_frame: p_parent = R * p_child + translation_m. Use metres and unit [x,y,z,w] quaternions in right-handed frames. World is optional; disconnected roots have no implied transform.
 kinex.devices runs calls concurrently and preserves result order; it does not guarantee simultaneous starts. Never retry uncertain writes. Cached readings retain acquisition timestamps; missing acquisition time uses null plus Unix received_time_s. Compare timestamps only within the same clock.
 </device_conventions>
+
+Profile completeness is descriptive, not a gate on tasks. Use the facts required by the selected operation; unrelated unknowns and calibration requests do not require onboarding or prevent device use. Keep operation-specific validation and permissions.

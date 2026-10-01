@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "roles": {
+    "target": {
+      "types": [
+        "joint"
+      ]
+    },
+    "parent": {
+      "types": [
+        "world",
+        "velocity",
+        "joint",
+        "other"
+      ]
+    }
+  },
+  "requires": [],
+  "produces": [
+    {
+      "role": "target",
+      "pointer": "/extrinsics/mount"
+    }
+  ],
+  "computes": [
+    "fit-mount"
+  ],
+  "quality": "At least 4 nondegenerate surveyed pairs; RMS <= 2 mm and max <= 4 mm.",
+  "distinct": [
+    [
+      "target",
+      "parent"
+    ]
+  ]
+}

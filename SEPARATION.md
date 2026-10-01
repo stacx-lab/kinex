@@ -23,7 +23,7 @@ packages. Native plugins consume explicitly updated packed snapshots.
 | Area | `@kinex/core` | `@kinex/setup` |
 | --- | --- | --- |
 | Commands | `/register`, `/unregister`, `/devices`, `/load`, `/unload`, `/reload`, `/ping`, `/stop`, `/record` | `/onboarding`, `/calibrate` |
-| Model tools | `profile_write`, `device`, `devices`, `device_stop`, `skill`, operational Python tools, opt-in `record` | `calib_plan`, `calib_sample`, `device_calibrate` |
+| Model tools | `profile_write`, `device`, `devices`, `device_stop`, `skill`, operational Python tools, opt-in `record` | `setup_plan`, `calib_sample`, `calib_compute` |
 | Devices | Registration, provisioning, drivers, connections, lifecycle, dispatch, scheduling and resource ownership | Uses core devices during onboarding and calibration |
 | Geometry and control | Frames, transforms, URDF models, FK/IK, trajectories, perception and policy execution | Calibration routines, measurement procedures and evidence |
 | Profiles | Schemas, storage, validated writes, calibration-request markers and readiness | Collects workspace facts and measured calibration results through core APIs |
@@ -45,7 +45,7 @@ setup installed. Setup performs the procedures that obtain those facts.
 | `runtime.readiness()` | Reports profile completeness and prerequisite status without calibration procedures |
 | `runtime.tools.call("profile_write", input, invocation)` | Writes validated workspace/device facts or calibration-request markers with host permission |
 | `createKinexSetup(runtime)` | Creates a setup facade borrowing that runtime |
-| `setup.calibration.plan()` | Enriches core readiness with calibration guidance |
+| `setup.plan.inspect()` | Reports task-scoped DAG progress and available procedures |
 | `coreContribution(runtime)` / `setupContribution(setup)` | Expose features through the shared contribution interface |
 | `composeContributions([...])` | Combines command/tool catalogs, skills and namespaced context |
 
@@ -77,19 +77,20 @@ Trusted commands and model tools remain separate. `/unregister` confirms through
 the host; `runtime.devices.unregister()` itself does not prompt. The operation
 holds the per-device lifecycle fence through deactivation and deletion, preventing
 concurrent load/reload from reopening the device. Required deactivation failures
-preserve its files. Removal also cleans up its associated calibration-result files
-without importing setup. Borrowed services are never terminated as owned resources.
+preserve its files. Removal cleans up legacy per-device calibration-result files without importing
+setup. New attempt history remains available; missing devices invalidate relevant
+setup requirements. Borrowed services are never terminated as owned resources.
 
 Core defaults `profile_write` permission to `allow`; setup exports
-`device_calibrate: ask`. Explicit rules take precedence in the resolver, while
+`setup_plan: allow` and `calib_compute: ask`. Explicit rules take precedence in the resolver, while
 hosts retain their interaction policy. Missing callbacks deny requests except
 stop. Profile-writing tools cannot change activation intent. Python tools cannot
 change lifecycle; model recording stays opt-in.
 
 ## Assets, state and migration
 
-Both packages use the existing `.kinex` workspace layout and unchanged profile and
-calibration record formats. Discovery preserves nearest project → ancestors →
+Both packages preserve existing `.kinex` profiles and historical calibration records.
+Setup adds `setup/plan.json` and isolated `calib/<run-id>/` evidence directories. Discovery preserves nearest project → ancestors →
 global → packaged precedence, searching concrete instances before type templates.
 Core device guides contain `Setup`, nested `Profile`, and `Use` sections together.
 Only `Use` is injected for loaded device types; provisioning reads the other

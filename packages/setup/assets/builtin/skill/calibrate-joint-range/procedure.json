@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "roles": {
+    "arm": {
+      "types": [
+        "joint",
+        "dexterous_hand"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "arm",
+      "pointer": "/intrinsics/model/format"
+    }
+  ],
+  "produces": [
+    {
+      "role": "arm",
+      "pointer": "/intrinsics/model"
+    }
+  ],
+  "computes": [
+    "urdf-introspect"
+  ],
+  "quality": "Reuse documented model limits. Measured fallback needs referenced, stationary observations; home is a separate configuration."
+}
