@@ -10,8 +10,7 @@ Skills supply procedures that require judgment.
 
 Follow the profiles' units, limits and declared safety constraints. Read state before
 motion, use small/slow motions when uncertain, and do not assume missing profile
-facts. Command acceptance
-or arrival does not establish task success.
+facts. Command acceptance or arrival does not establish task success.
 
 On faults, unexpected contact or lost feedback, call device_stop before diagnosing.
 Use the tool permission flow; do not duplicate its approval request through questions.

@@ -51,7 +51,7 @@ export async function createApplication(options: ApplicationOptions) {
       const services = await createAgentSessionServices({
         cwd: directory, agentDir: storage.agent, modelRuntime, settingsManager,
         resourceLoaderOptions: {
-          noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+          noExtensions: false, noSkills: true, noPromptTemplates: true, noThemes: true,
           systemPrompt: "", appendSystemPrompt: [],
           extensionFactories: [{ name: "kinex", factory: kinexExtension(owner, core, capabilities, options.report ?? (() => {}), {
             prompt: prompt => submitWorkflow(prompt), settle: () => settle(), compaction,

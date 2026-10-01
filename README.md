@@ -298,11 +298,11 @@ Kinex uses separate storage from Pi and from legacy Kinex coding sessions:
 The global defaults are `$XDG_CONFIG_HOME/kinex` (`~/.config/kinex`) and
 `$XDG_DATA_HOME/kinex` (`~/.local/share/kinex`). Kinex's launcher sets Pi's documented
 agent-directory override to the Kinex configuration directory. It does not use
-`.pi` settings, extensions, skills, or system prompts. Project `AGENTS.md` and
-`CLAUDE.md` instructions are loaded through the SDK. External Pi packages/resources
-in agent settings are not supported in this first standalone delivery; use Kinex's
-workspace tools and skills. Legacy coding settings, command templates and session
-formats are not migrated.
+`.pi/settings.json`, Pi skills, or Pi system prompts. Project `AGENTS.md` and
+`CLAUDE.md` instructions are loaded through the SDK. Legacy coding settings,
+command templates and session formats are not migrated.
+
+Kinex supports Pi extensions.
 
 For a local model, for example, `agent/models.json` can contain:
 

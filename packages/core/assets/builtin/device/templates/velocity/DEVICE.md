@@ -12,6 +12,8 @@ Use `???` for unresolved facts and `null` only where the schema permits it.
 
 control contains mode:motion, body_frame and modes. Each preset has nullable velocity {frame:body|heading,components:[{axis,units,bounds}]} and posture {reference,components:[{axis,units,bounds,default}]}. Implement period_s and nonblocking set_target hooks; the shared driver owns the buffer. feedback declares velocity_frame and velocity_components. The base is an unlocalized root: omit mount and pose_frame. Declare normalized input bounds when known; limit_handling:native delegates saturation to the controller.
 
+Check whether the SDK provides XYZ position; if so, expose it as raw data, not an accurate position estimate.
+
 ### Profile
 
 ```yaml
