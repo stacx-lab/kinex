@@ -6,7 +6,10 @@ Use the returned revision for save/select/record; conflicting edits must be rere
 Save version:1 nodes with IDs, kind prepare/calibrate/verify, skill, concrete device
 role bindings, dependsOn IDs, input facts and expected output facts. A profile fact
 uses kind:profile, device (omit for workspace manifest), and JSON pointer; optional
-value requires an exact match. File facts use paths relative to .kinex. Select a
+value requires an exact match. Use narrow profile pointers for both inputs and
+outputs, tracking only facts relevant to the node's conclusion. Keep volatile
+loaded/meta fields and live poses out of persistent calibration dependencies and
+outputs. File facts use paths relative to .kinex. Select a
 task with objective, target node IDs and optional direct facts. Only the targets'
 dependency closure is required now; unrelated work stays deferred. task:null
 defers all calibration. An empty targets list can describe a task requiring no

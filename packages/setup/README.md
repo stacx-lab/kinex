@@ -83,7 +83,10 @@ Facts use `{kind:"profile", device?, pointer, value?}` or `{kind:"file", path}`.
 Omit device to read the workspace manifest. JSON pointers select narrow facts;
 value optionally requires exact equality. Null retains its profile meaning; `???`
 and absent fields are unknown. File paths are relative to `.kinex` or absolute.
-Avoid volatile activation/timestamps and live poses as fixed-calibration inputs.
+Use narrow profile pointers for both inputs and outputs, tracking only facts relevant
+to the node's conclusion. Keep volatile loaded/meta fields and live poses out of
+persistent calibration dependencies and outputs. World motion does not invalidate
+arm-to-base geometry.
 Record required driver/model files as inputs; URDF requirements also fingerprint
 model bytes. Planning never resolves models or reads hardware.
 
