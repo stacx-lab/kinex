@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Execute one inference worth of policy actions."""
 
-from kinex import args, device, finish, profile, devices
+from kinex import args, device, finish, profile, devices, RPCError
 from kinex.control import stop_on_error
 from kinex.joint_control import command as joint_command, joint_model
 from kinex.scalar_control import command as scalar_command
@@ -78,7 +78,7 @@ def control(a):
                 count, ik_failure = len(sequence), failure
                 if count == 0:
                     return {"actions_submitted": 0, "duration_s": 0,
-                            "writes": {}, "ik_failure": ik_failure}
+                            "execution_ids": {}, "ik_failure": ik_failure}
         else:
             sequence = [action[0] for action in samples]
         sequences[entry["name"]] = sequence
@@ -98,12 +98,11 @@ def control(a):
             "actions": sequences[name], "duration_s": duration}} for name in names])
         for result in results:
             if not result.get("ok"):
-                raise RuntimeError(result.get("error", "policy write failed"))
-            if (result.get("data") or {}).get("state", {}).get("faults"):
-                raise RuntimeError("policy write reported device faults")
-        outcomes = {name: result["data"] for name, result in zip(names, results)}
+                raise RPCError(result.get("error", "policy write failed"),
+                               code=result.get("code"), details=result.get("details"))
+        identities = {name: result["data"]["execution_id"] for name, result in zip(names, results)}
         return {"actions_submitted": count, "duration_s": duration,
-                "writes": outcomes, "ik_failure": ik_failure}
+                "execution_ids": identities, "ik_failure": ik_failure}
 
 
 if __name__ == "__main__":

@@ -12,10 +12,34 @@ from pathlib import Path
 from unittest.mock import patch
 
 from kinex.buffer import Buffer
-from kinex.scalar_control import command
+from kinex.scalar_control import command, reading
+from kinex.validation import observation_timestamp
 
 
 class TemplateTests(unittest.TestCase):
+    def test_observation_timestamp_uses_latest_capture_or_receipt(self):
+        self.assertEqual(observation_timestamp(0, received=9), 0)
+        self.assertEqual(observation_timestamp(3, 2, received=9), 3)
+        self.assertEqual(observation_timestamp(2, None, received=4), 4)
+        for invalid in (True, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                observation_timestamp(invalid, received=4)
+        with self.assertRaises(ValueError):
+            observation_timestamp(None, received=None)
+
+    def test_gripper_read_requires_measured_aperture(self):
+        profile = {"type": "gripper", "intrinsics": {"feedback": {"aperture_m": True}}}
+        sample = {"aperture_m": .039, "timestamp": 1, "faults": []}
+        state = reading(profile, {**sample, "force_n": None, "pressure_pa": None, "object_detected": None})
+        self.assertEqual(state, sample)
+        for aperture in (None, -1, float("nan"), True):
+            with self.assertRaises(ValueError):
+                reading(profile, {**sample, "aperture_m": aperture})
+        profile["intrinsics"]["feedback"]["aperture_m"] = False
+        self.assertIsNone(reading(profile, {**sample, "aperture_m": None})["aperture_m"])
+        with self.assertRaises(ValueError):
+            reading(profile, sample)
+
     def test_driver_keeps_speed_across_flat_buffer_and_rejects_before_replacement(self):
         path = Path(__file__).parents[1] / "assets/builtin/device/templates/gripper/driver.py"
         spec = importlib.util.spec_from_file_location("gripper_driver", path)
@@ -24,7 +48,7 @@ class TemplateTests(unittest.TestCase):
         profile = {"type": "gripper", "intrinsics": {
             "control": {"mode": "position", "bounds": {"min": 0, "max": 1}, "resolution": None,
                         "speed": {"native_bounds": {"min": 1, "max": 10}, "native_resolution": 1, "default_fraction": .5}},
-            "feedback": {"positions": ["finger"], "velocities": False},
+            "feedback": {"aperture_m": True},
             "stop": {"behavior": "hold", "affected_devices": ["gripper"]},
         }}
         class Hardware(module.ScalarDriver):
@@ -38,13 +62,17 @@ class TemplateTests(unittest.TestCase):
         driver.serving = True
         driver.connect = lambda: object()
         driver.disconnect = lambda handle: None
-        driver.read_state = lambda handle: {"positions": [0], "velocities": [], "faults": [], "sample_time_s": time.monotonic()}
+        driver.read_state = lambda handle: {"aperture_m": .04, "faults": [], "timestamp": time.monotonic()}
         driver.set_target = lambda handle, value: applied.append(value)
         driver.halt = lambda handle, value: stopped.append(True)
         try:
             result = driver.execute("write", {"actions": [.2, .8], "duration_s": .1, "speedFraction": .3})
-            self.assertIsInstance(result["execution_id"], str)
-            self.assertGreaterEqual(result["elapsed_s"], 0)
+            self.assertRegex(result["execution_id"], r"^[0-9a-f]{16}$")
+            self.assertNotIn("elapsed_s", result)
+            self.assertEqual(result["state"]["aperture_m"], .04)
+            self.assertNotIn("positions", result["state"])
+            self.assertNotIn("frame_poses", result["state"])
+            self.assertFalse({"force_n", "pressure_pa", "object_detected"}.intersection(result["state"]))
             with driver.buffer.condition:
                 pending = driver.buffer.pending
                 with self.assertRaises(ValueError):
@@ -89,7 +117,7 @@ class TemplateTests(unittest.TestCase):
                 results = {value["id"]: value for value in [replies.get(timeout=2) for _ in range(3)]}
                 self.assertFalse(results["long"]["ok"])
                 self.assertTrue(results["short"]["ok"])
-                self.assertGreaterEqual(results["short"]["elapsed_s"], .1)
+                self.assertGreaterEqual(results["short"]["waited_s"], .1)
                 self.assertLess(time.monotonic() - start, 2)
                 send("unload", "unload")
                 self.assertTrue(replies.get(timeout=2)["ok"])

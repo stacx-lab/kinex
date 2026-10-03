@@ -28,3 +28,24 @@ test('hardware buffers and world waits support replacement and independent cance
     encoding: 'utf8',
   })
 })
+
+test('joint poses use explicit local frames and measured-state FK', () => {
+  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./joint_frames.py', import.meta.url))], {
+    env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) },
+    encoding: 'utf8',
+  })
+})
+
+test('camera output modes preserve image bytes and array ownership', () => {
+  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./camera_output.py', import.meta.url))], {
+    env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) },
+    encoding: 'utf8',
+  })
+})
+
+test('shipped scalar and world templates obey feedback and clock contracts', () => {
+  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./driver_templates.py', import.meta.url))], {
+    env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) },
+    encoding: 'utf8',
+  })
+})

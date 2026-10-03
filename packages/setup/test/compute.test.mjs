@@ -110,12 +110,12 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
   await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', intrinsics: { model: { format: 'joints', joints: [
     { name: 'j', type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: null, max_effort: null },
   ] } } })
-  await runtime.profiles.writeDevice({ name: 'tool', type: 'gripper', extrinsics: { mount: { parent: 'arm', parent_frame: 'flange' } } })
+  await runtime.profiles.writeDevice({ name: 'tool', type: 'gripper', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: null, rotation_xyzw: [0, 0, 0, 1] } } }, extrinsics: { mount: { parent: 'arm', parent_frame: 'flange', translation_m: [0, 0, .02], rotation_xyzw: [0, 0, 1, 0] } } })
   const s = Math.sqrt(.5)
   const quaternions = [[0, 0, 0, 1], [s, 0, 0, s], [0, s, 0, s], [0, 0, s, s], [-s, 0, 0, s], [0, -s, 0, s]]
   const samples = quaternions.map(([x, y, z, w]) => {
     const rotated = [2 * (x * z + w * y) * .12, 2 * (y * z - w * x) * .12, (1 - 2 * (x * x + y * y)) * .12]
-    return { settled: true, data: { frame_poses: { flange: [.2 - rotated[0], .1 - rotated[1], .5 - rotated[2], x, y, z, w] } } }
+    return { settled: true, kinematics: { frame: 'flange', reference_frame: null, pose: [.2 - rotated[0], .1 - rotated[1], .5 - rotated[2], x, y, z, w] } }
   })
   const result = await compute({ operation: 'fit-tcp', procedure: 'calibrate-tcp-offset', bindings: { arm: 'arm', target: 'tool' },
     samples: await json('samples.json', samples) })
@@ -123,10 +123,11 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
   const value = JSON.parse(result.output)
   assert.equal(value.quality, 'passed')
   const patch = value.proposedChanges[0].data
-  assert.ok(Math.abs(patch.extrinsics.mount.translation_m[2] - .12) < 1e-8)
-  assert.equal(patch.extrinsics.mount.rotation_xyzw, undefined)
+  assert.ok(Math.abs(patch.intrinsics.frames.tcp.translation_m[2] - .10) < 1e-8)
+  assert.equal(patch.extrinsics, undefined)
+  assert.deepEqual(patch.intrinsics.frames.tcp.rotation_xyzw, [0, 0, 0, 1])
   await runtime.profiles.writeDevice(patch)
-  assert.equal((await runtime.devices.list()).find(device => device.name === 'tool').extrinsics.mount.rotation_xyzw, '???')
+  assert.deepEqual((await runtime.devices.list()).find(device => device.name === 'tool').extrinsics.mount.translation_m, [0, 0, .02])
 })
 
 test('cancelling an owned computation never publishes a result', async t => {

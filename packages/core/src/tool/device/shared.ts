@@ -36,8 +36,6 @@ const optionalFeedback = ["velocities", "efforts", "frame_poses"]
 const optionalReading = [...optionalFeedback, ...optionalFeedback.map(field => `state.${field}`)]
 
 export function renderReading(reading: DeviceReading, verbose = true, compact = false): string {
-  const value = reading.data ?? {}
-  const data = formatJSON(verbose ? value : omitEmptyOptional(value, optionalReading), compact)
-  if (reading.filePath) return `written to ${reading.filePath}\n${data}`
-  return data
+  const value = { ...reading.data, ...(reading.filePath ? { file: reading.filePath } : {}) }
+  return formatJSON(verbose ? value : omitEmptyOptional(value, optionalReading), compact)
 }

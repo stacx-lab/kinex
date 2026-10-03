@@ -69,8 +69,8 @@ fields, with actions read/load/unload/status.
 
 Driver read returns force and torque as axis maps or null, in SI units and the
 measurement frame. A supported zero measurement is a numeric zero, not null.
-Missing, extra, or nonfinite axes are rejected. sample_time_s may be a numeric
-acquisition timestamp or null; never fabricate a sample time from a polling time.
+Missing, extra, or nonfinite axes are rejected. timestamp is finite acquisition time in seconds, falling back to receipt time;
+cached readings retain their original timestamp.
 Drivers adapt native coordinates/units/signs but do NOT apply profile bias.
 The harness subtracts bias once, before tools and recorder receive the reading.
 Out-of-range measurements are not clamped. The declared range is a rating, not
@@ -128,8 +128,12 @@ extrinsics:
 
 ## Use
 
-read returns force and torque as measured x/y/z axis maps, or null when unsupported. Units: N and N·m. The profile declares axes; unknown axes are never zero-filled. measurement.quantity distinguishes transmitted connection load, external load, contact_normal, contact_total (including tangential), and actuation load. measurement.target identifies the body/frame receiving positive load.
+Read-only. `read()` returns force (N) and torque (N·m) as declared axis maps,
+or null when unsupported, plus timestamp. Unknown axes are never zero-filled.
+`measurement.quantity` identifies the load kind; `measurement.target` receives
+the positive load.
 
-Vectors use the measurement frame placed by mount. Positive force follows its axes; torque is right-handed about its origin. Target and mount may differ. Neither requires world. Translating a torque origin requires force as well as torque; kinex.force_torque helpers require full axes for general transforms.
-
-Harness readings already have profile bias subtracted once: do not subtract it again or tare away real gravity/contact loads. Numeric zero is a measurement; null is unsupported. range is a rating, not a clamp or motion limit. sample_rate_hz is descriptive, not a pacing command. sample_time_s is acquisition time when available; polling time is not acquisition time. No automatic tare occurs on load/read. This device is read-only and optional for task readiness.
+Vectors use the mounted measurement frame; torque is right-handed about its
+origin. Bias is already subtracted once. Do not subtract it again or tare away
+real loads. Range is a rating, not a clamp. `kinex.force_torque` handles
+transforms; shifting torque origin also requires force measurements.

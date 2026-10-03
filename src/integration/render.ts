@@ -1,5 +1,5 @@
 import { keyHint, type ToolDefinition } from "@earendil-works/pi-coding-agent"
-import { Container, Text, TruncatedText, getCapabilities, imageFallback, stripTerminalSequences } from "@earendil-works/pi-tui"
+import { Container, Text, TruncatedText, stripTerminalSequences } from "@earendil-works/pi-tui"
 import { formatJSON } from "@kinex/core/util/json"
 
 const tools = new Set(["device", "devices", "record", "device_stop", "servo", "track"])
@@ -25,8 +25,12 @@ function summary(name: string, args: Record<string, unknown>): string {
   return [string(args.device), goal].filter(Boolean).join(" ")
 }
 
-function jsonText(text: string): string {
-  try { return formatJSON(JSON.parse(text)) }
+const timeFields = new Set(["time_s", "used_s", "waited_s", "max_s"])
+function jsonText(text: string, compact: boolean): string {
+  try {
+    return formatJSON(JSON.parse(text, (key: string, value: unknown) =>
+      typeof value === "number" && timeFields.has(key) ? Number(value.toFixed(6)) : value), compact)
+  }
   catch { return text }
 }
 
@@ -46,10 +50,9 @@ export function toolRenderers(name: string, displayName = name): Pick<ToolDefini
     renderResult(result, options, theme, context) {
       const compact = name === "device" && object(context.args).compact === true
       const output = result.content.flatMap(block => {
-        if (block.type === "image") return !getCapabilities().images || !context.showImages ? [imageFallback(block.mimeType)] : []
         if (block.type !== "text") return []
         const text = stripTerminalSequences(block.text).replace(/\r/g, "")
-        return [compact ? text : jsonText(text)]
+        return [jsonText(text, compact)]
       }).join("\n")
       const text = new Text(theme.fg(context.isError ? "error" : "toolOutput", output), 0, 0)
       if (options.expanded) return text

@@ -13,20 +13,8 @@ export function jointReading(device: Device, reading: DeviceReading): DeviceRead
     velocities: feedback.velocities ? z.array(z.number()).length(size) : z.array(z.number()).length(0).default([]),
     efforts: feedback.efforts ? z.array(z.number()).length(size) : z.array(z.number()).length(0).default([]),
     faults: z.array(z.strictObject({ code: z.string() })),
-    sample_time_s: z.number().nullable(), received_time_s: z.number().optional(),
-  }).passthrough().superRefine((state, ctx) => {
-    if (state.sample_time_s === null && state.received_time_s === undefined)
-      ctx.addIssue({ code: "custom", message: "read requires an acquisition or receipt timestamp" })
-  }).parse(reading.data)
-  return { ...reading, data }
-}
-
-export function jointResult(device: Device, reading: DeviceReading): DeviceReading {
-  const result = z.object({ execution_id: z.string().min(1), elapsed_s: z.number().nonnegative(),
-    state: z.record(z.string(), z.unknown()),
+    timestamp: z.number(),
+    frame_poses: z.never().optional(),
   }).passthrough().parse(reading.data)
-  const state = jointReading(device, { ...reading, data: result.state }).data
-  if (z.object({ faults: z.array(z.unknown()) }).parse(state).faults.length)
-    throw new NamedError("JointResultError", "joint motion reported faults")
-  return { ...reading, data: { ...result, state } }
+  return { ...reading, data }
 }

@@ -4,6 +4,7 @@ from kinex import device, fail, profile
 from kinex.frame_path import Edge, compose_path, label, select_path
 from kinex.geometry import mount_to_rt, pose_to_rt, rt_to_pose, xyzq_to_rt
 from kinex.motion import quaternion
+from kinex.local_frames import frame_definitions
 from kinex.validation import vector
 
 
@@ -20,6 +21,7 @@ class _Resolver:
 
     def __init__(self, readings):
         self.profiles = {}
+        self.definitions = {}
         self.readings = dict(readings or {})
         self.parents = {}
         self.ends = {}
@@ -39,6 +41,11 @@ class _Resolver:
             self.readings[name] = device(name).get("data") or {}
         return self.readings[name]
 
+    def frames(self, name):
+        if name not in self.definitions:
+            self.definitions[name] = frame_definitions(self.profile(name))
+        return self.definitions[name]
+
     def node(self, ref):
         if not isinstance(ref, str) or not ref:
             raise _FrameError("provide a nonempty frame reference")
@@ -47,12 +54,25 @@ class _Resolver:
         prof = self.profile(name)
         if prof.get("type") in ("model", "detection", "segmentation"):
             raise _FrameError(f'"{name}" is a model device — it has no physical pose')
-        if frame and frame not in prof.get("intrinsics", {}).get("frames", {}):
+        if frame and frame not in self.frames(name):
             raise _FrameError(f'device "{name}" does not declare frame "{frame}"')
         return name, frame
 
     def frame_pose(self, node):
         name, frame = node
+        prof = self.profile(name)
+        if prof["type"] in {"joint", "dexterous_hand"}:
+            from kinex.joints import JointDevice
+            facts = prof["intrinsics"]
+            source = self.frames(name)[frame]["source"]
+            fk = (facts.get("kinematics") or {}).get("fk")
+            if source == "kinematics" and not fk:
+                fail(f'device "{name}" has no FK for frame "{frame}"')
+            args = {"joints": self.read(name)["positions"], "frame": frame,
+                    "reference_frame": None}
+            if source == "kinematics" and fk == "driver":
+                return xyzq_to_rt(device(name, "fk", **args)["data"]["pose"])
+            return xyzq_to_rt(JointDevice(prof).fk(**args)["pose"])
         value = self.read(name).get("frame_poses", {}).get(frame)
         if value is None:
             fail(f'device "{name}" reported no pose for {label(node)}')
@@ -68,22 +88,25 @@ class _Resolver:
         name, frame = node
         prof = self.profile(name)
         if frame:
-            fixed = prof["intrinsics"]["frames"][frame]
-            if fixed == "???":
-                return Edge(node, (name, ""), "static", None, f"intrinsics:{name} frame {frame} is ??? — inspect the device profile")
-            if fixed is None:
-                return Edge(node, (name, ""), "live", lambda: self.frame_pose(node))
-            return Edge(node, (name, ""), "static", lambda: xyzq_to_rt(fixed))
+            definition = self.frames(name)[frame]
+            parent = (name, definition["parent_frame"] or "")
+            if "source" in definition:
+                return Edge(node, parent, "live", lambda: self.frame_pose(node))
+            translation, rotation = definition["translation_m"], definition["rotation_xyzw"]
+            if translation is None or rotation is None:
+                if prof["type"] not in {"joint", "dexterous_hand", "gripper", "world"}:
+                    return Edge(node, parent, "live", lambda: self.frame_pose(node))
+                return Edge(node, parent, "static", None, f"intrinsics:{name} frame {frame} transform is unknown")
+            return Edge(node, parent, "static", lambda: xyzq_to_rt([*translation, *rotation]))
         if prof.get("type") == "world":
             return None
         spatial = prof.get("extrinsics") or {}
-        velocity = prof.get("type") == "velocity"
-        if velocity or "pose_frame" in spatial:
-            feedback = prof["intrinsics"].get("feedback") if velocity else spatial
-            reference = feedback.get("pose_frame") if isinstance(feedback, dict) else "???"
+        if prof.get("type") == "velocity":
+            raise _FrameError(f"{name} is unlocalized — supply an explicit frame estimate")
+        if "pose_frame" in spatial:
+            reference = spatial["pose_frame"]
             if _missing(reference):
-                section = "intrinsics" if velocity else "extrinsics"
-                raise _FrameError(f"{name} is unlocalized" if reference is None else f"{section}:{name} pose_frame is ???")
+                raise _FrameError(f"{name} is unlocalized" if reference is None else f"extrinsics:{name} pose_frame is ???")
             return Edge(node, self.node(reference), "dynamic", lambda: self.measured_pose(name))
         mount = spatial.get("mount")
         if _missing(mount):

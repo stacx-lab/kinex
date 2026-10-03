@@ -16,12 +16,20 @@
     {
       "role": "arm",
       "pointer": "/intrinsics/model"
+    },
+    {
+      "role": "target",
+      "pointer": "/extrinsics/mount/translation_m"
+    },
+    {
+      "role": "target",
+      "pointer": "/extrinsics/mount/rotation_xyzw"
     }
   ],
   "produces": [
     {
       "role": "target",
-      "pointer": "/extrinsics/mount/translation_m"
+      "pointer": "/intrinsics/frames/tcp/translation_m"
     }
   ],
   "computes": [

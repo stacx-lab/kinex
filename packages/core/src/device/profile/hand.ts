@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { Pose, quaternion } from "./common.ts"
+import { Pose, quaternion, type LocalFrame } from "./common.ts"
 import { ChainLink } from "./joints.ts"
 import { jointModel, type JointIntrinsics, type ResolvedJointModel } from "./joint.ts"
 
@@ -10,7 +10,6 @@ const HandLink = z.intersection(ChainLink, z.object({ origin: Pose }))
 // Geometry predicts references, not contacts or object acquisition. Every chain
 // starts in the canonical hand frame and uses its own ordered subset of joints.
 export const HandGeometry = z.strictObject({
-  description: name,
   palm_frame: name,
   reference_frame: name,
   fingers: z.record(name, z.strictObject({
@@ -35,7 +34,7 @@ export function handJointErrors(geometry: z.infer<typeof HandGeometry> | undefin
 }
 
 export function refineHand(value: JointIntrinsics & {
-  frames: Record<string, z.infer<typeof Pose> | null | "???">,
+  frames: Record<string, LocalFrame>,
   geometry?: z.infer<typeof HandGeometry>,
 }, ctx: z.RefinementCtx) {
   const geometry = value.geometry
@@ -47,10 +46,8 @@ export function refineHand(value: JointIntrinsics & {
   if (model) for (const message of handJointErrors(geometry, model)) issue(message)
   if (new Set([...fixed, ...dynamic]).size !== fixed.length + dynamic.length) issue("hand geometry frame names must be distinct")
   for (const frame of fixed) {
-    if (!Array.isArray(value.frames[frame])) issue(`declare fixed hand frame ${frame}`)
-  }
-  for (const frame of dynamic) {
-    if (value.frames[frame] !== null) issue(`declare dynamic hand frame ${frame}`)
+    const definition = value.frames[frame]
+    if (!definition?.translation_m || !definition.rotation_xyzw) issue(`declare fixed hand frame ${frame}`)
   }
   for (const finger of Object.values(geometry.fingers)) {
     const indexes = finger.chain.flatMap((link) => "joint" in link ? [link.joint] : [])

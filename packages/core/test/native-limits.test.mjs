@@ -21,7 +21,7 @@ test('native joint writes delegate range handling but retain finite dimensions a
 test('gripper profiles reject out-of-range commands and preserve direction normalization', () => {
   for (const control of [
     { mode: 'position', units: 'normalized', bounds: { min: 0, max: 1 }, resolution: null, open_target: 1, close_target: 0, speed: null },
-    { mode: 'direction', open_target: -1, close_target: 1, increment_per_interval: .2 },
+    { mode: 'direction', open_target: -1, close_target: 1 },
   ]) {
     const device = Device.parse({ meta, name: 'gripper', type: 'gripper', intrinsics: { control } })
     const low = control.mode === 'position' ? 0 : -1
@@ -43,7 +43,24 @@ test('native velocity and posture pass through with null or documented bounds', 
     } } })
     const args = { mode: 'drive', velocity: { vx: 100 }, posture: { height: 100 }, duration_s: .1 }
     assert.deepEqual(writeCommand(device, args), args)
+    assert.throws(() => writeCommand(device, { ...args, velocity: [0] }), /velocity requires named axes.*vx.*arrays are unsupported/)
+    assert.throws(() => writeCommand(device, { ...args, posture: [.7] }), /posture requires named axes.*height/)
+    for (const duration_s of [0, -1, NaN, Infinity, true]) assert.throws(() => writeCommand(device, { ...args, duration_s }))
     for (const velocity of [{ vx: true }, { vx: NaN }, {}, { vx: 0, vy: 0 }])
       assert.throws(() => writeCommand(device, { ...args, velocity }))
   }
+})
+
+
+test('gripper profiles allow finger descriptions and reject removed contact and feedback fields', () => {
+  const profile = { meta, name: 'gripper', type: 'gripper', intrinsics: {
+    feedback: { aperture_m: true },
+    frames: { tcp: { parent_frame: null, translation_m: [0, 0, .097], rotation_xyzw: [0, 0, 0, 1] } },
+  } }
+  assert.equal(Device.parse(profile).intrinsics.feedback.aperture_m, true)
+  for (const [key, value] of Object.entries({ sensors: [], clock: 'simulation', positions: [], velocities: false, aperture_model: null }))
+    assert.throws(() => Device.parse({ ...profile, intrinsics: { ...profile.intrinsics, feedback: { ...profile.intrinsics.feedback, [key]: value } } }))
+  const geometry = { description: 'Two opposing sliding fingers.', approach_axis: null, closing_axis: null }
+  assert.equal(Device.parse({ ...profile, intrinsics: { ...profile.intrinsics, geometry } }).intrinsics.geometry.description, geometry.description)
+  assert.throws(() => Device.parse({ ...profile, intrinsics: { ...profile.intrinsics, geometry: { ...geometry, contacts: {} } } }))
 })

@@ -38,6 +38,22 @@
     {
       "role": "second_tcp",
       "pointer": "/extrinsics/mount/rotation_xyzw"
+    },
+    {
+      "role": "anchor_tcp",
+      "pointer": "/intrinsics/frames/tcp/translation_m"
+    },
+    {
+      "role": "anchor_tcp",
+      "pointer": "/intrinsics/frames/tcp/rotation_xyzw"
+    },
+    {
+      "role": "second_tcp",
+      "pointer": "/intrinsics/frames/tcp/translation_m"
+    },
+    {
+      "role": "second_tcp",
+      "pointer": "/intrinsics/frames/tcp/rotation_xyzw"
     }
   ],
   "produces": [

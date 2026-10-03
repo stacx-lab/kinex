@@ -4,7 +4,7 @@ dropped cv2.calibrateHandEye) over collected pose pairs.
 
 --samples takes the merged pairs file (pairs.json — NOT calib_sample's own
 samples.json, which holds raw readings):
-  [{"frame_pose": [x,y,z,qx,qy,qz,qw],   # gripper/flange pose in BASE, from a device read
+  [{"frame_pose": [x,y,z,qx,qy,qz,qw],   # gripper/flange pose in BASE, from FK at sampled joint positions
     "rvec": [...], "tvec": [...]},        # board pose in CAMERA frame (detect_board.py)
    ...]
 

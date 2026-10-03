@@ -18,10 +18,6 @@
     },
     {
       "role": "base",
-      "pointer": "/intrinsics/feedback/clock"
-    },
-    {
-      "role": "base",
       "pointer": "/intrinsics/stop/behavior"
     },
     {

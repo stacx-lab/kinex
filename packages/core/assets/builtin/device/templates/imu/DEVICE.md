@@ -98,8 +98,8 @@ read/load/unload/status are supported.
 
 Driver read always returns all four channel keys: vector axis maps, orientation
 quaternion, or null as declared. Each vector contains only the measured axes.
-Optional sample_time_s is an acquisition timestamp or null if unavailable; do
-not fabricate it from a polling time. Drivers adapt native units/axes and the
+timestamp is finite acquisition time in seconds, falling back to receipt time.
+Cached readings retain their original timestamp. Drivers adapt native units/axes and the
 stated acceleration quantity, but do NOT subtract the profile bias. Dispatch
 validates values and subtracts bias exactly once before tools and recording.
 kinex.imu.read(name) uses that corrected read path and checks the device type.
@@ -147,12 +147,15 @@ extrinsics:
 
 ## Use
 
-read returns angular_velocity (rad/s), linear_acceleration (m/s²), magnetic_field (T), and orientation. Vectors are maps containing the declared axes; unsupported channels are null. orientation is unit xyzw, placing the measurement frame in its declared reference.
+Read-only. `read()` returns angular_velocity (rad/s), linear_acceleration
+(m/s²), magnetic_field (T), orientation and timestamp. Vectors contain declared
+axes in the mounted measurement frame; unsupported channels are null. Bias is
+already subtracted once.
 
-All vectors use the measurement frame placed by mount; acceleration is measured at its origin. Rotating coordinates does not relocate that measurement: moving the origin requires rotational-motion terms. Harness readings already subtract profile bias once; never subtract it again.
-
-Acceleration quantity:specific_force is a-g: zero in freefall, opposite gravity at rest (+9.81 Z only if +Z points up). gravity_removed is motion acceleration, near zero at rest. Never silently remove gravity or treat it as bias.
-
-Orientation reference: frame uses the actual named frame; startup is relative to the startup epoch, not absolute world. gravity_aligned has +Z up: relative heading uses initial horizontal +X, while magnetic_north/true_north use ENU (+X east,+Y north). Different startup epochs are not comparable. No implicit zeroing/reference reset occurs on load/read.
-
-sample_time_s is acquisition time when available, not polling time; sample_rate_hz is descriptive. Use kinex.imu.read for corrected readings. Fusion/integration are explicit tools. This device is read-only and needs no world.
+`specific_force` is a−g; `gravity_removed` already excludes gravity. Never
+zero away gravity as bias. Orientation is unit xyzw in its declared reference:
+a named frame, startup epoch, or gravity-aligned frame with the declared heading.
+Gravity-aligned references use +Z up; absolute heading uses ENU. Startup-relative
+orientation is not absolute world attitude. Rotating acceleration
+does not relocate its measurement point. Use `kinex.imu` for corrected readings;
+fusion and integration are explicit operations.

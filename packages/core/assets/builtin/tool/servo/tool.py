@@ -47,8 +47,8 @@ def control(a):
                       a.get("speedFraction", 1.0), a.get("max_velocity"), a.get("max_acceleration"),
                       check_limits=prof["intrinsics"]["control"].get("limit_handling") != "native")
     outcome = device(name, "write", actions=plan.actions, duration_s=plan.duration_s)["data"]
-    return {"device": name, "joints": goal, "duration_s": plan.duration_s,
-            "end_joints": plan.actions[-1], "actions_submitted": len(plan.actions), "write": outcome}
+    return {"device": name, "execution_id": outcome["execution_id"], "joints": goal,
+            "duration_s": plan.duration_s, "actions_submitted": len(plan.actions)}
 
 
 if __name__ == "__main__":

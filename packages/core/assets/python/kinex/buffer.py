@@ -1,8 +1,8 @@
 """A driver-owned reference buffer on the hardware clock."""
 
+import secrets
 import threading
 import time
-import uuid
 
 from kinex.validation import number
 
@@ -15,6 +15,7 @@ class Buffer:
         self.apply, self.halt, self.expire = apply, halt, expire
         self.condition = threading.Condition()
         self.pending = None
+        self.owner = None
         self.error = None
         self.closed = False
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -25,14 +26,44 @@ class Buffer:
             if self.closed or self.error:
                 raise RuntimeError(self.error or "buffer is closed")
             self.pending = (actions, duration, time.monotonic())
+            self.owner = secrets.token_hex(8)
             self.condition.notify_all()
-            return uuid.uuid4().hex
+            return self.owner
 
     def stop(self):
         with self.condition:
             self.pending = None
-            self.halt()
-            self.condition.notify_all()
+            try:
+                self.halt()
+            except Exception as error:
+                self.error = str(error)
+                error.code = "stop_failed"
+                error.details = {"effects": "unknown"}
+                raise
+            else:
+                self.owner = None
+            finally:
+                self.condition.notify_all()
+
+    def cancel(self, identity):
+        """Stop only a reference still owned by this submission, including holds."""
+        with self.condition:
+            if self.owner != identity:
+                return False
+            self.stop()
+            return True
+
+    def result(self, identity, sample):
+        try:
+            return {"execution_id": identity, "state": sample()}
+        except Exception as error:
+            try:
+                self.cancel(identity)
+            except Exception as cleanup:
+                cleanup.details = {"effects": "unknown", "validation_error": str(error),
+                                   "cleanup_error": str(cleanup)}
+                raise cleanup from error
+            raise
 
     def run(self):
         with self.condition:
@@ -45,7 +76,7 @@ class Buffer:
                 try:
                     if elapsed >= duration:
                         if self.expire:
-                            self.halt()
+                            self.stop()
                         else:
                             self.apply(actions[-1])
                         self.pending = None
@@ -64,5 +95,6 @@ class Buffer:
         with self.condition:
             self.closed = True
             self.pending = None
+            self.owner = None
             self.condition.notify_all()
         self.thread.join()

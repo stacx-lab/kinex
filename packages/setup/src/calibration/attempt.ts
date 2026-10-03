@@ -1,5 +1,5 @@
+import { shortID } from "@kinex/core/util/id"
 import path from "node:path"
-import { randomUUID } from "node:crypto"
 import { copyFile, mkdir } from "node:fs/promises"
 import { z } from "zod"
 import { currentSignal } from "@kinex/core/scope"
@@ -54,7 +54,7 @@ export async function attempt(cwd: string, input: AttemptInput): Promise<Attempt
     bindings, dependsOn: [], outputs: [], optional: false, inputs: input.inputs })
   const facts = await inspectFacts(cwd, inputs)
   if (facts.missing.length) fail(`Missing attempt inputs: ${JSON.stringify(facts.missing)}`)
-  return { version: 1, id: randomUUID(), ...(node && plan ? { node: node.id, definition: digest(node), dependencies: dependencies(plan, node) } : {}),
+  return { version: 1, id: shortID(), ...(node && plan ? { node: node.id, definition: digest(node), dependencies: dependencies(plan, node) } : {}),
     procedure, bindings, inputs, fingerprint: facts.hash, createdAt: new Date().toISOString() }
 }
 export async function saveAttempt(cwd: string, run: Attempt) {
@@ -67,7 +67,7 @@ export async function saveAttempt(cwd: string, run: Attempt) {
 }
 export async function archive(cwd: string, run: Attempt, file: string) {
   const dir = await saveAttempt(cwd, run)
-  const destination = path.join(dir, "artifacts", `${randomUUID()}${path.extname(file)}`)
+  const destination = path.join(dir, "artifacts", `${shortID()}${path.extname(file)}`)
   await copyFile(file, destination)
   return destination
 }

@@ -7,10 +7,12 @@ Complete the four source hooks; shared capture code validates and encodes output
 
 import pathlib
 import threading
+import time
 from copy import deepcopy
 import sys
 from kinex.driver_protocol import run, release
-from kinex.capture import settings, validate, save
+from kinex.capture import settings, validate, save, output_mode
+from kinex.validation import observation_timestamp
 
 HERE = pathlib.Path(__file__).parent
 OUT = HERE / "out"
@@ -32,7 +34,7 @@ def open_stream():
 
 
 def grab(stream):
-    """Return {color: HxWx3 uint8 RGB, sample_time_s: acquisition Unix seconds}.
+    """Return {color: HxWx3 uint8 RGB, timestamp: acquisition or receipt seconds on the device clock}.
     Read the output geometry and connection from settings(HERE)."""
     raise NotImplementedError("interface hook: grab() — complete per DEVICE.md")
 
@@ -77,11 +79,14 @@ def latest_frame():
 def sample(stream):
     # SDK grabs may reuse buffers; publish an owned snapshot before releasing it.
     with SOURCE_LOCK:
-        return deepcopy(validate(settings(HERE), grab(stream)))
+        frame = grab(stream)
+        frame["timestamp"] = observation_timestamp(frame.get("timestamp"), received=time.time())
+        return deepcopy(validate(settings(HERE), frame))
 
 
 def read(args):
-    return save(settings(HERE), latest_frame(), OUT)
+    output = output_mode(args.get("output", "file"))
+    return save(settings(HERE), latest_frame(), OUT, output)
 
 
 def load_hook(args):

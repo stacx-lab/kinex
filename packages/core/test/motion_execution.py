@@ -82,7 +82,8 @@ class QuaternionTests(unittest.TestCase):
                 {"origin": [0, 0, 0, 0, 0, 0, 1], "joint": 0, "axis": [0, 0, 1],
                  "anchor": [0, 0, 0], "reference": 0},
                 {"origin": [1, 0, 0, 0, 0, 0, 1]}]},
-            "home": None, "kinematics": {"frame": "tip", "fk": "numerical", "feedback": "fk", "ik": {
+            "home": None, "frames": {},
+            "kinematics": {"frame": "tip", "fk": "numerical",  "ik": {
                 "backend": "numerical", "max_iterations": 100, "damping": 1e-3,
                 "frame_to_solver": [0, 0, 0, 0, 0, 0, 1],
                 "position_tolerance_m": 1e-3, "rotation_tolerance_rad": 1e-3}}}})
@@ -101,22 +102,27 @@ class QuaternionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "IK result failed FK residual verification"):
             arm.ik(target, [0])
 
-    def test_velocity_pose_and_frame_readings_keep_strict_validation(self):
+    def test_velocity_body_and_frame_readings_without_global_pose(self):
         from kinex.velocity import reading
 
-        profile = {"type": "velocity", "intrinsics": {"frames": {"camera": None}, "feedback": {
-            "velocity_components": [], "velocity_frame": None, "pose_frame": "world", "clock": "simulation"}}}
-        sample = {"pose": {"translation_m": [0, 0, 0], "rotation_xyzw": [0, 0, 0, 1]},
-                  "velocities": [], "faults": [], "sample_time_s": 0,
-                  "frame_poses": {"camera": [0, 0, 0, 0, 0, 0, 1]}}
+        profile = {"type": "velocity", "intrinsics": {"frames": {"torso": {"parent_frame": None, "translation_m": None, "rotation_xyzw": None}}, "feedback": {
+            "velocity_components": [], "velocity_frame": None}}}
+        sample = {"velocities": [], "faults": [], "timestamp": 0, "height_m": .74,
+                  "frame_poses": {"torso": [0, 0, .2, 0, 0, 0, 1]}}
         self.assertEqual(reading(profile, sample), sample)
-        sample["pose"]["rotation_xyzw"] = [0, 0, 0, .9995]
-        with self.assertRaisesRegex(ValueError, "unit norm"):
-            reading(profile, sample)
-        sample["pose"]["rotation_xyzw"] = [0, 0, 0, 1]
-        sample["frame_poses"]["camera"][-1] = .9995
-        with self.assertRaisesRegex(ValueError, "Unit quaternion"):
-            reading(profile, sample)
+        for value in (None, {"translation_m": [0, 0, 0], "rotation_xyzw": [0, 0, 0, 1]}):
+            with self.assertRaisesRegex(ValueError, "global pose"):
+                reading(profile, {**sample, "pose": value})
+        for value in (True, math.nan, math.inf):
+            with self.assertRaises(ValueError):
+                reading(profile, {**sample, "height_m": value})
+        empty = {**sample, "frame_poses": {}}
+        self.assertNotIn("frame_poses", reading(profile, empty))
+        del empty["frame_poses"]
+        self.assertEqual(reading(profile, empty), empty)
+        for frames in ({"missing": [0, 0, 0, 0, 0, 0, 1]}, {"torso": [0, 0, 0, 0, 0, 0, .9995]}, None):
+            with self.assertRaises(ValueError):
+                reading(profile, {**sample, "frame_poses": frames})
 
 
 class MotionTests(unittest.TestCase):

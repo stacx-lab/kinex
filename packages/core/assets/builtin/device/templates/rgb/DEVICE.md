@@ -115,13 +115,14 @@ needs_calibration:null; put measurement diagnostics in calibration results.
 
 ### Driver and recording
 
-`grab` returns a dictionary containing color and its acquisition sample_time_s
-in Unix seconds.
-Map hardware clocks to this shared timebase; cached reads retain capture time.
-When the transport has no acquisition timestamp, return sample_time_s: null
-(and depth_sample_time_s: null for RGBD) plus received_time_s. Never label
-network receipt as sensor acquisition.
-Shared kinex.capture validates array dtype/resolution and writes files.
+`grab` returns color (and depth for RGBD) with one finite numeric `timestamp`
+in seconds on the device clock. Use acquisition time, or receipt time when acquisition is unknown.
+For RGBD, use `kinex.validation.observation_timestamp(rgb_time, depth_time,
+received=receipt_time)` in the source hook to choose the later component time.
+Use one timebase for both components and receipt time; cached reads retain the original timestamp.
+The supplied skeleton uses Unix receipt time when the hook omits a timestamp;
+a hook using another clock must provide its own timestamp.
+Shared kinex.capture validates array dtype/resolution and encodes the requested output.
 introspect returns a patch with intrinsics.color.
 Unknowns stay unknown; inspect actual stream calibration after SDK conversion.
 
@@ -129,6 +130,16 @@ Persistent mode avoids reopening the source and is required for driver-owned
 recording. ffmpeg must be available (libx264).
 Capture rate_hz and playback fps are separate recording settings. Recording
 previews may be resized; the profile describes original sensor output.
+
+### Capture contract
+
+SDK acquisition must produce a consistent snapshot. Serialize access and copy
+reused buffers; file paths identify immutable per-response artifacts. Finish
+recorder shutdown before disconnecting the source. Convert output to file,
+array or base64 in the driver without changing source/server transport. Arrays
+cross JSON boundaries as encoded images and are decoded in the Python client.
+Pixel outer edges are -0.5 and size-0.5; the profile describes the full output,
+including projection/distortion. Native recording requires a persistent driver.
 
 ### Profile
 
@@ -168,10 +179,14 @@ extrinsics:
 
 ## Use
 
-read returns the color image as file, with width, height and sample_time_s. Output is uint8 RGB PNG in the declared intrinsics.color geometry. The agent sees the image directly; files are available for numerical processing.
+`read()` returns `file` (RGB8 PNG) and `timestamp`. Images are saved, not
+attached; inspect `file` with the host file-reading tool. Dimensions and
+calibration come from the profile. `status()` observes streaming/recording state.
 
-Optical axes: X right, Y down, Z forward. Pixel center (0,0) is top-left; u right, v down; outer edges are -0.5 and size-0.5. Mount maps the color optical frame to parent_frame. A wrist camera follows its named parent frame.
+Python tools may request `output="array"` for NumPy `color` or `"base64"` for a
+PNG string; these modes serve programmatic consumers, not model image inspection.
+File output is the default.
 
-Projection is pinhole (fx/fy/cx/cy/skew in pixels); distortion is none or opencv_brown_conrady. Use kinex.camera for geometry. FOV is derived. Changes to focus, crop, resolution or rectification require matching calibration.
-
-sample_time_s is acquisition Unix seconds. Cached frames retain acquisition time. If unavailable it is null with separate received_time_s. fps:null means on-demand capture. Recording streams are managed through record; native capture requires a persistent driver.
+Optical axes are X right, Y down, Z forward; pixel (0,0) is the top-left center.
+Mount places the optical frame in its parent. Use `kinex.camera` with the profile
+projection/distortion; image geometry changes require matching calibration.

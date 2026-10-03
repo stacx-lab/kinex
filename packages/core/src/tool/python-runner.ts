@@ -1,3 +1,4 @@
+import { shortID } from "../util/id.ts"
 import { serveProcess, terminate } from "../device/serve-process.ts"
 import { spawnProcess } from "../util/process.ts"
 import { abortable } from "../util/abort.ts"
@@ -13,7 +14,7 @@ import { stopOwnedMotions } from "../device/dispatch.ts"
 import { callDevices, DeviceCallSchema, DeviceCallsSchema } from "./device/calls.ts"
 import { pythonLaunch } from "../python/launch.ts"
 import { imageMime } from "../util/media.ts"
-import { PermissionDeniedError } from "./errors.ts"
+import { PermissionDeniedError, failure, failureMetadata } from "./errors.ts"
 import { NamedError } from "../util/error.ts"
 import { readLine, LineTimeoutError } from "../util/lines.ts"
 import { create } from "../util/log.ts"
@@ -101,7 +102,7 @@ async function composed(result: Promise<unknown>): Promise<Record<string, unknow
     return { ok: true, result: await result }
   } catch (error) {
     if (error instanceof PermissionDeniedError) throw error
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    return { ok: false, ...failure(error) }
   }
 }
 
@@ -114,7 +115,7 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
       await stopOwnedMotions(cwd, ctx.motionOwner)
       return { ok: true }
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      return { ok: false, ...failure(error) }
     }
   }
   const robot = await ProfileStore.readManifest(cwd)
@@ -157,7 +158,8 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
       const results = await callDevices(calls, ctx, { kind: info.kind, owner: ctx.motionOwner })
       if (name === "devices") return { ok: true, result: { results } }
       const result = results[0]!
-      return result.ok ? { ok: true, result: { ...result.data, ...(result.file ? { file: result.file } : {}) } } : { ok: false, error: result.error }
+      return result.ok ? { ok: true, result: { ...result.data, ...(result.file ? { file: result.file } : {}) } }
+        : { ok: false, error: result.error, ...failureMetadata({ ...result }) }
     }
     const target = (await listPyTools(cwd)).tools.find((tool) => tool.manifest.name === name)
     if (!target) return { ok: false, error: `unknown python tool "${name}"` }
@@ -172,7 +174,7 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
 }
 
 // Run the dialog to completion; preserve the returned JSON value, including null.
-async function invoke(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: Context, depth: number, motionOwner: string = crypto.randomUUID()): Promise<unknown> {
+async function invoke(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: Context, depth: number, motionOwner: string = shortID()): Promise<unknown> {
   const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(info.timeout_s * 1000))])
   const scoped = { ...ctx, abort: signal, motionOwner }
   signal.throwIfAborted()
@@ -221,7 +223,7 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
       if ("return" in parsed) {
         return parsed["return"]
       }
-      if ("error" in parsed) throw new PyToolError(pythonDiagnostic(String(parsed["error"]), runtime.executable))
+      if ("error" in parsed) throw new PyToolError(pythonDiagnostic(String(parsed["error"]), runtime.executable), failureMetadata(parsed))
       if ("call" in parsed) {
         const response = await abortable(dispatch(cwd, info, parsed, scoped, depth), signal)
         proc.stdin.write(JSON.stringify(response) + "\n")

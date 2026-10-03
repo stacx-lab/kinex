@@ -2,8 +2,8 @@ name: relative_pose
 kind: perception
 description: >-
   Express a frame-attached child pose in a frame-attached parent pose.
-  Local poses are [x,y,z,qx,qy,qz,qw], metres and unit quaternion xyzw;
-  omitted poses are identity. Returns translation, rotation, pose, path and
+  Input and returned poses are [x,y,z,qx,qy,qz,qw], metres and unit quaternion xyzw;
+  omitted input poses are identity. Returns only pose, path and
   estimated_links. Resolves calibrated/live frames and optional call-local
   estimates; never invents missing connections or persists estimates.
 parameters:

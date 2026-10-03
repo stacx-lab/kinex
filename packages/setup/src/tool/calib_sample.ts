@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises"
-import { deviceJoints, known } from "@kinex/core/device/profile/schema"
+import { deviceJoints, isJoint, known } from "@kinex/core/device/profile/schema"
 import path from "node:path"
 import { z } from "zod"
 import { define } from "@kinex/core/tool/tool"
@@ -19,6 +19,7 @@ export const CalibSampleTool = define("calib_sample", {
     deviceID: z.string().describe("device to sample, e.g. arm"),
     ...AttemptInput.shape,
     args: z.record(z.string(), z.unknown()).optional().describe("arguments for the driver action"),
+    frame: z.string().min(1).optional().describe("joint-device frame to compute through FK from this sample"),
     settle: z
       .object({
         velocity_threshold: z.number().nonnegative().default(0.005).describe("max |joint velocity| that counts as settled"),
@@ -35,6 +36,7 @@ export const CalibSampleTool = define("calib_sample", {
     const device = await ProfileStore.readDevice(ctx.directory, args.deviceID)
     if (!device) return unknownDevice(args.deviceID)
     if (!device.loaded) return unloadedDevice(device)
+    if (args.frame !== undefined && device.type !== "joint" && device.type !== "dexterous_hand") fail("frame requires a joint device")
     if (device.access?.driver)
       await ctx.ask({ permission: "device_read", description: `sample read from ${device.name} (${args.run ?? args.procedure ?? args.node})` })
 
@@ -43,8 +45,7 @@ export const CalibSampleTool = define("calib_sample", {
     const settle = args.settle
     const count = (() => {
       if (!settle) return 0
-      if (device.type === "joint" && known(device.intrinsics.feedback) && device.intrinsics.feedback.velocities) return deviceJoints(device).length
-      if (device.type === "gripper" && known(device.intrinsics.feedback) && device.intrinsics.feedback.velocities) return device.intrinsics.feedback.positions.length
+      if (isJoint(device) && known(device.intrinsics.feedback) && device.intrinsics.feedback.velocities) return deviceJoints(device).length
       if (device.type === "velocity" && known(device.intrinsics.feedback) && known(device.intrinsics.feedback.velocity_components)) return device.intrinsics.feedback.velocity_components.length
       return 0
     })()
@@ -59,7 +60,7 @@ export const CalibSampleTool = define("calib_sample", {
       const faults = z.array(z.unknown()).parse(data?.faults)
       if (faults.length) throw new Error(`cannot settle with faults: ${JSON.stringify(faults)}`)
       const velocities = z.array(z.number()).length(count).parse(data?.velocities)
-      const stamp = z.number().parse(data?.sample_time_s ?? data?.received_time_s)
+      const stamp = z.number().parse(data?.timestamp)
       if (stamp < state.stamp) throw new Error("sample clock moved backwards")
       if (stamp > state.stamp) {
         state.stable = velocities.every((v) => Math.abs(v) <= settle.velocity_threshold) ? state.stable + 1 : 0
@@ -76,12 +77,18 @@ export const CalibSampleTool = define("calib_sample", {
     }
     ctx.abort.throwIfAborted()
     const { reading, settled } = state
+    const kinematics = args.frame === undefined ? undefined : (await dispatchDevice(ctx.directory, device, "fk", {
+      joints: reading.data?.positions, frame: args.frame, reference_frame: null,
+    }, undefined, ctx.abort)).data
 
     const dir = await saveAttempt(ctx.directory, run)
     return serialized(dir, async () => {
       ctx.abort.throwIfAborted()
       const file = path.join(dir, "samples.json")
       const samples = (await readJson<unknown[]>(file)) ?? []
+      const data = { ...reading.data }
+      if (data.depth_file !== undefined)
+        data.depth_file = await archive(ctx.directory, run, z.string().parse(data.depth_file))
       const sample = {
         index: samples.length,
         recorded_at: new Date().toISOString(),
@@ -91,7 +98,8 @@ export const CalibSampleTool = define("calib_sample", {
         ...(settle ? { settled } : {}),
         ...(args.note ? { note: args.note } : {}),
         ...(reading.filePath ? { file: await archive(ctx.directory, run, reading.filePath) } : {}),
-        data: reading.data ?? {},
+        data,
+        ...(kinematics ? { kinematics } : {}),
       }
       samples.push(sample)
       ctx.abort.throwIfAborted()

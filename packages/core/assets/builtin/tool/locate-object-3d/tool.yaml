@@ -39,8 +39,6 @@ parameters:
       description: zero-based index after filtering and sorting by descending score; ties keep model order
   required: [camera, model, prompt]
 timeout_s: 300
-devices: [rgb, detection]
-requires: intrinsics:rgb
 device_inputs:
   camera:
     types: [rgb, rgbd]

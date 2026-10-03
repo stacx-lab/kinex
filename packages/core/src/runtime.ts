@@ -1,3 +1,4 @@
+import { shortID } from "./util/id.ts"
 import path from "node:path"
 import { pythonEnvironment, initializePython, preparePython } from "./python/environment.ts"
 import { createScope, inScope, withSignal } from "./scope.ts"
@@ -76,7 +77,7 @@ export function createKinexRuntime(options: RuntimeOptions) {
     return withSignal(combined, () => fn(combined))
   })
   const executeTool = (def: Def, input: unknown, call: ToolInvocation) => scopedOperation(async signal => {
-    const callID = call.callID ?? crypto.randomUUID()
+    const callID = call.callID ?? shortID()
     observe({ type: "tool", name: def.id, callID, status: "running", origin: def.recordingOrigin })
     const ctx: Context = {
       directory, sessionID: call.sessionID, abort: signal,

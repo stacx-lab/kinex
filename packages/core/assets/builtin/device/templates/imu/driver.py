@@ -29,7 +29,7 @@ def disconnect(handle):
 def read_sample(handle):
     """Return supported vector channels as SI axis maps and unsupported channels
     as null. Orientation maps the IMU frame into its declared reference.
-    Include sample_time_s when available (null otherwise). No implicit gravity
+    Include numeric timestamp: acquisition time, or receipt time if unavailable. No implicit gravity
     removal; no fabricated pose or magnetic-field data."""
     raise NotImplementedError("interface hook: read_sample() — complete per DEVICE.md")
 

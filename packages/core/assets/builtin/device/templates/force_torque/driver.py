@@ -2,7 +2,7 @@
 """Force/torque transport adapter. Raw SI axis maps, no profile bias applied.
 
 read -> {force: {x, y, z} or null, torque: {x, y, z} or null,
-         sample_time_s: number or null}. Include exactly the declared axes.
+         timestamp: acquisition or receipt seconds}. Include exactly the declared axes.
 The harness validates channels and subtracts profile bias once at dispatch.
 """
 

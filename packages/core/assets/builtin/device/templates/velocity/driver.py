@@ -12,7 +12,7 @@ class VelocityDeviceDriver(Driver):
         raise NotImplementedError("Release owned services and connection; preserve balance and shared external services")
 
     def read_state(self, handle):
-        raise NotImplementedError("Read body pose, velocities, frames, faults and acquisition timestamp")
+        raise NotImplementedError("Read velocities, optional body measurements/local frames, faults and acquisition timestamp")
 
     @property
     def period_s(self):

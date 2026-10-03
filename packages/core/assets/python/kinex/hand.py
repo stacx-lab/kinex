@@ -7,6 +7,7 @@ Measured joint-limit overshoot is preserved; validate candidate writes separatel
 
 from kinex.geometry import compose_rt, xyzq_to_rt
 from kinex.joint_control import joint_model
+from kinex.local_frames import fixed_transform, frame_definitions
 from kinex.kinematics import Kinematics
 from kinex.motion import flat, pose, vector
 from kinex.validation import number
@@ -25,24 +26,20 @@ def forward(profile, positions):
     by_name = {joint["name"]: (joint, value) for joint, value in zip(joints, values, strict=True)}
     if len(by_name) != len(joints):
         raise ValueError("Hand model requires unique joints")
-    frames = intrinsics["frames"]
+    frames = frame_definitions(profile)
     for frame in (geometry["palm_frame"], geometry["reference_frame"]):
-        pose(frames.get(frame), "fixed hand frame")
+        fixed_transform(frames, frame)
     result = {}
     for finger in geometry["fingers"].values():
         names = finger["joints"]
         if len(set(names)) != len(names) or any(name not in by_name for name in names):
             raise ValueError("Finger requires unique, known model joints")
         frame = finger["tip_frame"]
-        if frame not in frames or frames[frame] is not None or frame in result:
-            raise ValueError("Fingertip requires a distinct declared dynamic frame")
         chain = Kinematics({"joints": [by_name[name][0] for name in names], "chain": finger["chain"]}, None)
         tip = chain.forward([by_name[name][1] for name in names])[0]
         result[frame] = flat(compose_rt(xyzq_to_rt(tip), xyzq_to_rt(pose(finger["tip_offset"]))))
     center = geometry["center"]
     frame = center["frame"]
-    if frame not in frames or frames[frame] is not None or frame in result:
-        raise ValueError("Center requires a distinct declared dynamic frame")
     weights = center["weights"]
     if any(name not in geometry["fingers"] or number(weight) < 0 for name, weight in weights.items()):
         raise ValueError("Center weights require known fingers and nonnegative numbers")

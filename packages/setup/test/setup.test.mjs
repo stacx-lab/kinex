@@ -135,3 +135,118 @@ test('onboarding and calibration share core profile writes and preserve planning
     assert.doesNotMatch(result.prompt, /calib_write/)
   }
 })
+
+test('calibration requests FK at the captured joint sample and stores poses separately', async t => {
+  const { runtime, setup, directory } = await fixture(t)
+  await seed(runtime)
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: false,
+    access: { connection: { kind: 'tcp', host: 'localhost', port: 1 }, driver: {
+      interpreter: 'python3', actions: ['load', 'unload', 'status', 'read', 'fk', 'write', 'stop'],
+    } }, intrinsics: {
+      model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null }] },
+      frames: {},
+      kinematics: { frame: 'flange', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
+      home: null, control: { mode: 'position' }, feedback: { velocities: false, efforts: false },
+      stop: { behavior: 'hold', affected_devices: ['arm'] },
+    } })
+  await writeFile(path.join(directory, '.kinex/devices/arm/driver.py'), `from kinex.driver_protocol import run
+
+def dispatch(action, args):
+    if action == 'read':
+        return {'ok': True, 'positions': [.35], 'velocities': [], 'efforts': [], 'faults': [], 'timestamp': 7}
+    if action == 'fk':
+        assert args == {'joints': [.35], 'frame': 'flange', 'reference_frame': None}
+        return {'ok': True, 'pose': [.35, 0, 0, 0, 0, 0, 1], 'frame': 'flange', 'reference_frame': None}
+    return {'ok': True}
+run(dispatch, lambda: None)
+`)
+  await (await runtime.devices.load('arm')).ready
+  const result = await setup.tools.call('calib_sample', { deviceID: 'arm', frame: 'flange', procedure: 'setup-device', bindings: { target: 'arm' } }, call)
+  assert.ok(!result.isError, result.output)
+  const run = result.output.match(/run: ([a-z0-9-]+)/)[1]
+  const [sample] = JSON.parse(await readFile(path.join(directory, `.kinex/calib/${run}/samples.json`), 'utf8'))
+  assert.equal(sample.data.frame_poses, undefined)
+  assert.equal(sample.data.timestamp, 7)
+  assert.deepEqual(sample.kinematics, { pose: [.35, 0, 0, 0, 0, 0, 1], frame: 'flange', reference_frame: null })
+})
+
+test('calibration settles hands on fresh feedback and computes FK after settle timeout', async t => {
+  const { runtime, setup, directory } = await fixture(t)
+  await seed(runtime)
+  await runtime.profiles.writeDevice({ name: 'hand', type: 'dexterous_hand', loaded: false,
+    access: { connection: { kind: 'mock' }, driver: {
+      interpreter: 'python3', actions: ['load', 'unload', 'status', 'read', 'fk', 'write', 'stop'],
+    } }, intrinsics: {
+      model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null }] },
+      frames: {}, kinematics: { frame: 'tip', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
+      home: null, control: { mode: 'position' }, feedback: { velocities: true, efforts: false },
+      stop: { behavior: 'hold', affected_devices: ['hand'] },
+    } })
+  await writeFile(path.join(directory, '.kinex/devices/hand/driver.py'), `from kinex.driver_protocol import run
+stamp = 0
+def dispatch(action, args):
+    global stamp
+    if action == 'read':
+        if not args.get('cached'): stamp += 1
+        return {'ok': True, 'positions': [.35], 'velocities': [0], 'efforts': [], 'faults': [], 'timestamp': stamp}
+    if action == 'fk':
+        assert args['joints'] == [.35]
+        return {'ok': True, 'pose': [.35, 0, 0, 0, 0, 0, 1], 'frame': 'tip', 'reference_frame': None}
+    return {'ok': True}
+run(dispatch, lambda: None)
+`)
+  await (await runtime.devices.load('hand')).ready
+  const input = { deviceID: 'hand', procedure: 'setup-device', bindings: { target: 'hand' } }
+  for (const frame of [undefined, 'tip']) {
+    for (const cached of [false, true]) {
+      const result = await setup.tools.call('calib_sample', { ...input, frame, args: { cached },
+        settle: { stable_reads: 2, timeout_s: cached ? .1 : 2 } }, call)
+      assert.ok(!result.isError, result.output)
+      const run = result.output.match(/run: ([a-z0-9-]+)/)[1]
+      const [sample] = JSON.parse(await readFile(path.join(directory, `.kinex/calib/${run}/samples.json`), 'utf8'))
+      assert.equal(sample.settled, !cached)
+      assert.equal(sample.kinematics?.frame, frame)
+    }
+  }
+})
+
+test('calibration archives both RGBD files and never appends an incomplete sample', async t => {
+  const { runtime, setup, directory } = await fixture(t)
+  await seed(runtime)
+  await runtime.profiles.writeDevice({ name: 'camera', type: 'rgbd', loaded: false,
+    access: { connection: { kind: 'mock' }, driver: {
+      interpreter: 'python3', actions: ['load', 'unload', 'status', 'read'],
+    } }, intrinsics: {
+      color: { width: 1, height: 1, pixel_format: 'rgb8', image_format: 'png' },
+      depth: { width: 1, height: 1, pixel_format: 'uint16', image_format: 'pgm16_be',
+        registration: 'color', quantity: 'z', scale_m_per_unit: .001, invalid_value: 0,
+        valid_range_m: { min: .001, max: 65.535 } },
+    } })
+  const output = path.join(directory, '.kinex/devices/camera/out')
+  await mkdir(output, { recursive: true })
+  await writeFile(path.join(output, 'color.png'), 'color evidence')
+  await writeFile(path.join(output, 'depth.pgm'), 'depth evidence')
+  await writeFile(path.join(directory, '.kinex/devices/camera/driver.py'), `from kinex.driver_protocol import run
+def dispatch(action, args):
+    if action == 'read':
+        return {'ok': True, 'file': ${JSON.stringify(path.join(output, 'color.png'))}, 'depth_file': ${JSON.stringify(path.join(output, 'depth.pgm'))}, 'timestamp': 1}
+    return {'ok': True}
+run(dispatch, lambda: None)
+`)
+  await (await runtime.devices.load('camera')).ready
+  const input = { deviceID: 'camera', procedure: 'setup-device', bindings: { target: 'camera' } }
+  const result = await setup.tools.call('calib_sample', input, call)
+  assert.ok(!result.isError, result.output)
+  const run = result.output.match(/run: ([a-z0-9-]+)/)[1]
+  const samplesPath = path.join(directory, `.kinex/calib/${run}/samples.json`)
+  const [sample] = JSON.parse(await readFile(samplesPath, 'utf8'))
+  for (const file of [sample.file, sample.data.depth_file])
+    assert.equal(path.dirname(file), path.join(directory, `.kinex/calib/${run}/artifacts`))
+  await rm(path.join(output, 'depth.pgm'))
+  const failed = await setup.tools.call('calib_sample', { deviceID: 'camera', run }, call)
+  assert.equal(failed.isError, true)
+  assert.equal(JSON.parse(await readFile(samplesPath, 'utf8')).length, 1)
+  await rm(output, { recursive: true })
+  assert.equal(await readFile(sample.file, 'utf8'), 'color evidence')
+  assert.equal(await readFile(sample.data.depth_file, 'utf8'), 'depth evidence')
+})

@@ -27,7 +27,7 @@ maximum residual <= 4 mm, and a proper rotation.
 
 Persist the accepted parent<-arm transform directly. Keep raw pairs and residuals
 in evidence. On mobile robots verify the measured reference relationship stayed
-consistent; do not replace measured base pose with a world-fixed mount.
+consistent; do not replace missing base localization with a world-fixed mount.
 A local arm task may not need this survey at all.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.

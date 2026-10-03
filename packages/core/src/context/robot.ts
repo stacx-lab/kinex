@@ -1,3 +1,4 @@
+import { deviceFrames } from "../device/profile/frames.ts"
 import { cameraMissing } from "../device/profile/camera.ts"
 import { ProfileStore, type ProfileSnapshot } from "../device/profile/store.ts"
 import { readinessPlan, type ReadinessPlan } from "../device/profile/readiness.ts"
@@ -34,8 +35,8 @@ function deviceLine(device: Device): string {
       bits.push(mount !== undefined && known(mount) ? ` mounted on ${mountFrame(mount)}${mount.dynamic ? " (dynamic)" : ""}` : " extrinsics: ???")
       bits.push(
         device.type === "rgbd"
-          ? "; frames from the device tool are shown to you as images, depth as a 16-bit PGM path in data"
-          : "; frames from the device tool are shown to you as images",
+          ? "; read returns file (RGB PNG) and depth_file (16-bit PGM); inspect RGB with the host file-reading tool"
+          : "; read returns file (RGB PNG); inspect it with the host file-reading tool",
       )
       break
     }
@@ -47,7 +48,7 @@ function deviceLine(device: Device): string {
       if (device.type === "dexterous_hand") {
         const geometry = device.intrinsics.geometry
         if (!geometry) bits.push("; fingertip/grasp geometry unavailable")
-        if (geometry) bits.push(`; ${geometry.description}; local prediction: kinex.hand.forward; fixed grasp reference ${device.name}:${geometry.reference_frame}; moving center ${device.name}:${geometry.center.frame}; tips ${Object.values(geometry.fingers).map((finger) => `${device.name}:${finger.tip_frame}`).join(", ")}`)
+        if (geometry) bits.push(`; local prediction: kinex.hand.forward; fixed grasp reference ${device.name}:${geometry.reference_frame}; moving center ${device.name}:${geometry.center.frame}; tips ${Object.values(geometry.fingers).map((finger) => `${device.name}:${finger.tip_frame}`).join(", ")}`)
       }
       break
     }
@@ -60,15 +61,15 @@ function deviceLine(device: Device): string {
         const { geometry, aperture_m } = device.intrinsics
         if (aperture_m) bits.push(`, opening ${aperture_m.min}–${aperture_m.max} m`)
         if (!geometry) bits.push(", geometry unknown; do not infer jaw axes from the mount")
-        if (geometry) bits.push(`, ${geometry.description}; approach ${JSON.stringify(geometry.approach_axis)}, fixed closing axis ${JSON.stringify(geometry.closing_axis)}; contacts ${Object.values(geometry.contacts).map((c) => `${device.name}:${c.frame}`).join(", ") || "unknown"}`)
+        if (geometry) bits.push(`, approach ${JSON.stringify(geometry.approach_axis)}, fixed closing axis ${JSON.stringify(geometry.closing_axis)}${geometry.description ? `; ${geometry.description}` : ""}`)
       }
       break
     }
     case "velocity": {
-      const { control, feedback, stop } = device.intrinsics
+      const { control, stop } = device.intrinsics
       if (known(control)) bits.push(`, motion modes: ${Object.keys(control.modes).join(", ")}`)
       if (known(stop)) bits.push(`, stop ${stop.behavior}`)
-      if (known(feedback)) bits.push(`, pose: ${feedback.pose_frame ?? "unlocalized"}`)
+      bits.push(", unlocalized root")
       break
     }
     case "detection":
@@ -118,7 +119,7 @@ function deviceLine(device: Device): string {
   return "    " + bits.join("")
 }
 
-// Mounts use explicit device frames; named moving frames come from live reads.
+// Mounts use explicit device frames; moving frames resolve from observations.
 function mountTreeLines(devices: Device[]): string[] {
   const byName = new Map(devices.map((device) => [device.name, device]))
   const children = new Map<string, { name: string; note: string }[]>()
@@ -128,15 +129,15 @@ function mountTreeLines(devices: Device[]): string[] {
     const mount = deviceMount(device)
     if (mount === undefined || !known(mount)) {
       const feedback = devicePoseFeedback(device)
-      if (feedback !== undefined && known(feedback) && feedback.pose_frame === null) continue
+      if (device.type === "velocity" || (feedback !== undefined && known(feedback) && feedback.pose_frame === null)) continue
       unplaced.push(device.name)
       continue
     }
     const parent = byName.get(mount.parent)
-    const frames = parent && "frames" in parent.intrinsics ? parent.intrinsics.frames : {}
+    const frames = parent ? deviceFrames(parent) : {}
     const onNamedFrame = Object.hasOwn(frames, mount.parent_frame ?? "")
     const notes: string[] = []
-    if (onNamedFrame) notes.push(`on ${mount.parent_frame}${frames[mount.parent_frame ?? ""] === null ? ", live" : ""}`)
+    if (onNamedFrame) notes.push(`on ${mount.parent_frame}`)
     else if (mount.parent_frame && mount.parent_frame !== mount.parent) notes.push(`on ${mount.parent_frame}`)
     if (mount.dynamic) notes.push("dynamic")
     else if (!known(mount.translation_m) || !known(mount.rotation_xyzw)) notes.push("pose ???")

@@ -15,6 +15,9 @@ Core supplies the mask-required detect contract in intrinsics.operations;
 do not redefine it. Declare extra operations, such as point segmentation,
 with their input/output contracts and include them in access.driver.actions.
 Weights must exist locally before activation; runtime must not download them.
+Undo model resizing/cropping in returned boxes and masks; preserve original-image
+coordinates and scores in [0,1]. Process only the supplied image, never a fresh
+camera capture.
 
 ### Profile
 
@@ -36,19 +39,13 @@ intrinsics:
 
 ## Use
 
-An inference service, with no physical pose. read/status report readiness;
-`load` initializes it and `unload` releases its resources; both are available
-through the device tool with device_act permission or /load and /unload.
+Inference service with no physical frame; read/status report readiness.
+`detect({image, prompt, min_score?, max_results?})` defaults to 0.25 and 10.
+Results are sorted by score, each with pixel box [x1,y1,x2,y2], score, label
+and a required mask PNG path. Masks are single-channel, nonzero foreground and
+aligned to the supplied image. `file` may contain an overlay; no matches returns
+`results: []`.
 
-detect {image, prompt, min_score?, max_results?} shares the detection interface,
-with a required mask for every result. Defaults: min_score 0.25, max_results 10.
-Return results sorted by descending score, each with box [x1,y1,x2,y2] in
-original-image pixels, score in [0,1], label, and mask PNG path. Masks are
-single-channel, nonzero foreground, and match the input image's dimensions and
-coordinates. Drivers undo resizing/cropping and never capture another frame.
-An optional top-level file is an overlay. No detections: results [].
-
-Segmentation satisfies detection requirements. locate_object_3d samples depth
-only inside the supplied mask and fails on unusable masks or depth holes;
-it never widens sampling to the box. Frame conversion belongs to relative_pose.
-The resolved intrinsics.operations exposes detect and any additional operations.
+Segmentation satisfies detection requirements. `locate_object_3d` samples depth
+only inside the mask and fails on unusable depth; use `relative_pose` for frame
+conversion.

@@ -28,7 +28,7 @@ class ScalarDriver(Driver):
         raise NotImplementedError("Return the hardware control period")
 
     def read_state(self, handle):
-        raise NotImplementedError("Read measured feedback and faults")
+        raise NotImplementedError("Read measured aperture_m (null if unsupported), faults and timestamp")
 
     def set_target(self, handle, command):
         raise NotImplementedError("Set target and optional native_speed without waiting")

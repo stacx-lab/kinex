@@ -2,11 +2,21 @@ Read one sample into an isolated .kinex/calib/<run>/samples.json. Start with a p
 node or procedure plus bindings; subsequent samples use the returned run ID. The
 device must be one of the bound participants. Inputs and participants cannot change
 within an attempt. Returns the new sample, run ID and count; camera attachments are
-copied into immutable attempt artifacts. Use note to identify the collection step. Samples
+copied into immutable attempt artifacts, including both RGB and depth files for
+RGBD readings. Both copies must succeed before a sample is appended.
+Use note to identify the collection step. Samples
 contain measured state and timestamps; this tool cannot command or load devices.
 
 Optional settle waits for the declared measured velocity channels to remain below
 the threshold over distinct samples. Unsupported/malformed feedback and faults are
 errors. Cached readings do not establish stability. A timeout after a reading saves
 that reading with settled:false; cancellation saves nothing. Without settle, the
-sample makes no claim of stationary motion.
+sample makes no claim of stationary motion. Settling supports joint devices,
+dexterous hands and velocity devices with declared measured velocity channels.
+This blocking sampler does not advance simulator time; arrange world waits
+outside the sampler when collecting simulation evidence.
+
+For joint devices, optional frame computes FK from that exact sample and stores
+kinematics with pose, frame and reference_frame:null alongside the measured data.
+Use it for TCP calibration; joint-device reads contain no frame poses. FK and
+artifact capture still run after a settle timeout, subject to caller cancellation.

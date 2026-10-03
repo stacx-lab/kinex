@@ -363,7 +363,7 @@ test('cancelling a controller before motion does not stop unowned devices', { ti
     access: { connection: { kind: 'mock' } }, intrinsics: {
       model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
       home: null, control: { mode: 'position' },
-      feedback: { velocities: true, efforts: false, clock: 'simulation' },
+      feedback: { velocities: true, efforts: false },
       stop: { behavior: 'hold', affected_devices: ['arm'] },
     },
   })
@@ -422,13 +422,13 @@ def dispatch(action, args):
         try:
             while not release.wait(.005): check_cancelled()
             check_cancelled()
-            return {'ok': True, 'tag': args['actions'][0][0], 'execution_id': 'test', 'elapsed_s': .02, 'state': {'positions': [0], 'velocities': [0], 'efforts': [], 'faults': [], 'sample_time_s': time.monotonic()}}
+            return {'ok': True, 'tag': args['actions'][0][0], 'execution_id': 'test', 'state': {'positions': [0], 'velocities': [0], 'efforts': [], 'faults': [], 'timestamp': time.monotonic()}}
         finally:
             active = False
     if action == 'read':
         if args.get('release'): release.set()
         if args.get('sleep'): time.sleep(args['sleep'])
-    return {'ok': True, 'active': active, 'started': list(started), 'positions': [0], 'velocities': [0], 'efforts': [], 'faults': [], 'sample_time_s': time.monotonic(), **args}
+    return {'ok': True, 'active': active, 'started': list(started), 'positions': [0], 'velocities': [0], 'efforts': [], 'faults': [], 'timestamp': time.monotonic(), **args}
 run(dispatch, lambda: None)
 `
 async function concurrentFixture(t) {
@@ -436,7 +436,7 @@ async function concurrentFixture(t) {
   await value.runtime.profiles.writeDevice({ name: 'sensor', type: 'joint', intrinsics: {
     model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
     home: null, control: { mode: 'position' },
-    feedback: { velocities: true, efforts: false, clock: 'simulation' },
+    feedback: { velocities: true, efforts: false },
     stop: { behavior: 'hold', affected_devices: ['sensor'] },
   } })
   await value.runtime.profiles.writeDevice({ name: 'sensor', access: { connection: { kind: 'mock' }, driver: {
@@ -591,7 +591,7 @@ test('joint buffers validate before execution and accept arbitrary rates', async
     access: { connection: { kind: 'mock' } }, intrinsics: {
       model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
       home: null, control: { mode: 'position' },
-      feedback: { velocities: true, efforts: false, clock: 'simulation' },
+      feedback: { velocities: true, efforts: false },
       stop: { behavior: 'hold', affected_devices: ['arm'] },
     },
   })
@@ -600,10 +600,12 @@ test('joint buffers validate before execution and accept arbitrary rates', async
     { actions: [[0.1]], duration_s: 1, block_s: 0 },
     { actions: [[0.1]], freq_hz: 0 }, { target: [0.1], for_s: 1 },
   ]) await assert.rejects(runtime.devices.dispatch('arm', 'write', args))
-  assert.equal((await runtime.devices.dispatch('arm', 'read')).data.sample_time_s, 0)
+  assert.equal((await runtime.devices.dispatch('arm', 'read')).data.timestamp, 0)
   await runtime.profiles.writeDevice({ name: 'world', type: 'world', loaded: true, access: { connection: { kind: 'mock' } } })
   const sequence = (await runtime.devices.dispatch('arm', 'write', { actions: [[0.1], [0.2]], duration_s: .08 })).data
-  assert.equal(sequence.elapsed_s, 0)
+  assert.match(sequence.execution_id, /^[0-9a-f]{16}$/)
+  assert.equal(sequence.state.timestamp, 0)
+  assert.ok(!('elapsed_s' in sequence))
   assert.deepEqual(sequence.state.positions, [0])
   await runtime.devices.dispatch('world', 'wait', { duration_s: .08 })
   assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, [.2])
@@ -629,7 +631,7 @@ test('servo validates inputs and submits complete, replaceable plans through the
     access: { connection: { kind: 'mock' } }, intrinsics: {
       model: { format: 'joints', joints: [0, 1].map(i => ({ name: `j${i}`, type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: 1, max_acceleration: 3, max_effort: null })) },
       home: null, control: { mode: 'position' },
-      feedback: { velocities: true, efforts: false, clock: 'simulation' },
+      feedback: { velocities: true, efforts: false },
       stop: { behavior: 'hold', affected_devices: ['arm'] },
     },
   })
@@ -648,11 +650,11 @@ test('servo validates inputs and submits complete, replaceable plans through the
   const response = await runtime.tools.call('servo', { device: 'arm', joints: [2, 1] }, { sessionID: 's' })
   assert.ok(!response.isError, response.output)
   const result = JSON.parse(response.output)
-  assert.deepEqual(result.joints, [2, 1])
-  assert.deepEqual(result.end_joints, [2, 1])
-  assert.equal(result.duration_s, 3.75)
-  assert.equal(result.actions_submitted, 375)
-  assert.deepEqual(result.write.state.positions, [0, 0])
+  const submission = events.find(event => event.action === 'write').reading.data
+  assert.match(submission.execution_id, /^[0-9a-f]{16}$/)
+  assert.deepEqual(result, { device: 'arm', execution_id: submission.execution_id,
+    joints: [2, 1], duration_s: 3.75, actions_submitted: 375 })
+  assert.deepEqual(submission.state.positions, [0, 0])
   assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, [0, 0])
   assert.ok(!events.some(event => event.action === 'wait' || event.action === 'stop'))
   await runtime.devices.dispatch('world', 'wait', { duration_s: 2.5 })
@@ -681,6 +683,64 @@ test('servo validates inputs and submits complete, replaceable plans through the
   assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, stopped)
 })
 
+test('servo and policy reject invalid write feedback and faults through core validation', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  await runtime.profiles.writeDevice({ name: 'sensor', type: 'joint', loaded: true,
+    access: { connection: { kind: 'mock' }, driver: { interpreter: 'python3', persistent: true,
+      actions: ['load', 'unload', 'status', 'read', 'write', 'stop'], timeout_s: 2 } },
+    intrinsics: {
+      model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 1, max_effort: null }] },
+      home: null, control: { mode: 'position' }, feedback: { velocities: true, efforts: false },
+      stop: { behavior: 'hold', affected_devices: ['sensor'] },
+    },
+  })
+  const dir = path.join(directory, '.kinex', 'devices', 'sensor')
+  await writeFile(path.join(dir, 'driver.py'), `from kinex.driver_protocol import run
+def dispatch(action, args):
+    state = {'positions': [0], 'velocities': [0], 'efforts': [], 'faults': [], 'timestamp': 1}
+    if action == 'read':
+        return {'ok': True, **state}
+    if action == 'write':
+        if args['actions'][-1][0] < 0:
+            state['positions'] = []
+        else:
+            state['faults'] = [{'code': 'test_fault'}]
+        return {'ok': True, 'execution_id': 'submission', 'state': state}
+    if action == 'stop':
+        with open('stops', 'a') as output: output.write('stop\\n')
+    return {'ok': True}
+run(dispatch, lambda: None)
+`)
+  await (await runtime.devices.load('sensor')).ready
+  await pythonTool(directory, 'servo', await readFile(new URL('../assets/builtin/tool/servo/tool.py', import.meta.url), 'utf8'), 'controller')
+  await pythonTool(directory, 'run_policy', await readFile(new URL('../assets/builtin/tool/run-policy/tool.py', import.meta.url), 'utf8'), 'controller')
+  await runtime.profiles.writeDevice({ name: 'policy', type: 'model', loaded: false,
+    access: { connection: { kind: 'process', compute: { kind: 'cpu' } }, driver: {
+      interpreter: 'python3', actions: ['load', 'unload', 'status', 'infer'],
+    } }, intrinsics: { operations: [{ name: 'infer',
+      input: { type: 'object', properties: { obs: { type: 'object', properties: { goal: { type: 'number' } }, required: ['goal'] } }, required: ['obs'] },
+      output: { type: 'object', properties: { actions: { type: 'array', items: { type: 'array', items: { type: 'number' } } } }, required: ['actions'] },
+    }] } })
+  await writeFile(path.join(directory, '.kinex/devices/policy/driver.py'), `from kinex.driver_protocol import run
+def dispatch(action, args):
+    if action == 'infer': return {'ok': True, 'actions': [[args['obs']['goal']]]}
+    return {'ok': True}
+run(dispatch, lambda: None)
+`)
+  await (await runtime.devices.load('policy')).ready
+  let stops = 0
+  for (const tool of ['servo', 'run_policy']) for (const [goal, error] of [[-1, /positions/], [1, /write reported faults/]]) {
+    const args = tool === 'servo' ? { device: 'sensor', joints: [goal] }
+      : { model: 'policy', observation: { goal }, command: [{ device: 'sensor' }] }
+    const response = await runtime.tools.call(tool, args, { sessionID: 's' })
+    assert.equal(response.isError, true)
+    assert.match(response.output, error)
+    const count = (await readFile(path.join(dir, 'stops'), 'utf8')).trim().split('\n').length
+    assert.ok(count > stops, 'each invalid submission triggers stop cleanup')
+    stops = count
+  }
+})
+
 async function trackingFixture(t) {
   const value = await fixture(t, { host })
   const { runtime, directory } = value
@@ -690,7 +750,7 @@ async function trackingFixture(t) {
       access: { connection: { kind: 'mock' } }, intrinsics: {
         model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -2, max: 2 }, max_velocity: 2, max_effort: null }] },
         home: null, control: { mode: 'position' },
-        feedback: { velocities: true, efforts: false, clock: 'simulation' },
+        feedback: { velocities: true, efforts: false },
         stop: { behavior: 'hold', affected_devices: [name] },
       },
     })
@@ -762,17 +822,18 @@ test('track maps fresh camera file entries to controllers without encoding image
   const dir = await pythonDriver(runtime, directory, false)
   await writeFile(path.join(dir, 'source.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64'))
   await writeFile(path.join(dir, 'driver.py'), `from pathlib import Path
-import uuid
+import secrets
 from kinex.driver_protocol import run
 def dispatch(action, args):
-    frame = Path(str(uuid.uuid4()) + '.png').resolve()
+    frame = Path(secrets.token_hex(8) + '.png').resolve()
     frame.write_bytes(Path('source.png').read_bytes())
     return {'ok': True, 'file': str(frame)}
 run(dispatch, lambda: None)
 `)
   const image = await runtime.tools.call('device', { deviceID: 'sensor' }, { sessionID: 's' })
   assert.ok(!image.isError, image.output)
-  assert.equal(image.attachments[0].mime, 'image/png')
+  assert.equal(image.attachments, undefined)
+  assert.match(JSON.parse(image.output).file, /\.png$/)
   const result = await runtime.tools.call('track', { ...args, max_rounds: 2,
     perceive: { python: 'from kinex import device\ndef main():\n    return {"image": device("sensor")["file"]}\n' },
     process: { python: 'lambda observation: observation' },
@@ -886,13 +947,13 @@ def dispatch(action, args):
     duration = args.get('duration_s', 0)
     if action == 'wait':
         elapsed += duration
-    budget = ${maximum === undefined ? '{}' : `{'budget': {'elapsed_s': elapsed, 'max_s': ${maximum === null ? 'None' : maximum}}}`}
-    return {'ok': True, 'time_s': 1000 + elapsed, 'elapsed_s': duration, 'extra': True, **budget}
+    budget = ${maximum === undefined ? '{}' : `{'budget': {'used_s': elapsed, 'max_s': ${maximum === null ? 'None' : maximum}}}`}
+    return {'ok': True, 'time_s': 1000 + elapsed, 'waited_s': duration, 'extra': True, **budget}
 run(dispatch, lambda: None)
 `)
     await (await runtime.devices.load(name)).ready
-    const expected = elapsed_s => ({ time_s: 1000 + elapsed_s,
-      ...(maximum === undefined ? {} : { budget: { elapsed_s, max_s: maximum } }) })
+    const expected = used_s => ({ time_s: 1000 + used_s,
+      ...(maximum === undefined ? {} : { budget: { used_s, max_s: maximum } }) })
     for (const verbose of [true, false]) for (const compact of [true, false]) {
       const response = await runtime.tools.call('device', { deviceID: name, action: 'read', verbose, compact }, { sessionID: 's' })
       assert.ok(!response.isError, response.output)
@@ -901,7 +962,7 @@ run(dispatch, lambda: None)
     for (const time_s of [1000.25, 1000.5]) {
       const wait = await runtime.tools.call('device', { deviceID: name, action: 'wait', args: { duration_s: .25 } }, { sessionID: 's' })
       assert.ok(!wait.isError, wait.output)
-      assert.deepEqual(JSON.parse(wait.output), { time_s, elapsed_s: .25 })
+      assert.deepEqual(JSON.parse(wait.output), { time_s, waited_s: .25 })
       assert.deepEqual((await runtime.devices.dispatch(name, 'read')).data, expected(time_s - 1000))
     }
   }
@@ -922,7 +983,7 @@ def dispatch(action, args):
         while time.monotonic() - start < args['duration_s']:
             check_cancelled()
             time.sleep(.005)
-        return {'time_s': time.monotonic(), 'elapsed_s': time.monotonic() - start}
+        return {'time_s': time.monotonic(), 'waited_s': time.monotonic() - start}
     return {'ok': True, 'time_s': time.monotonic()}
 run(dispatch, lambda: None)
 `)
@@ -934,7 +995,7 @@ run(dispatch, lambda: None)
   await delay(50)
   cancelled.abort(new Error('cancel this wait'))
   await rejected
-  assert.ok((await short).data.elapsed_s >= .2)
+  assert.ok((await short).data.waited_s >= .2)
   const now = (await runtime.devices.dispatch('world', 'read')).data.time_s
   assert.ok(Number.isFinite(now))
   assert.ok((await runtime.devices.dispatch('world', 'wait', { duration_s: .01 })).data.time_s > now)
@@ -948,7 +1009,7 @@ test('end-effectors require flat actions and reject invalid replacements before 
     ['suction', { mode: 'binary', off_target: 2, on_target: 5 }, [2, 5], 3],
   ]) {
     await runtime.profiles.writeDevice({ name: type, type, loaded: true, access: { connection: { kind: 'mock' } },
-      intrinsics: { control, feedback: { positions: [], velocities: false, clock: 'simulation' },
+      intrinsics: { control, feedback: type === 'gripper' ? { aperture_m: false } : { positions: [], velocities: false },
         stop: { behavior: 'hold', affected_devices: [type] } },
     })
     const write = values => runtime.devices.dispatch(type, 'write', { duration_s: .2, ...values })
@@ -959,16 +1020,151 @@ test('end-effectors require flat actions and reject invalid replacements before 
       await assert.rejects(write(values))
     }
     await runtime.devices.dispatch('world', 'wait', { duration_s: .2 })
-    assert.deepEqual((await runtime.devices.dispatch(type, 'read')).data.positions, [actions.at(-1)])
+    const observed = (await runtime.devices.dispatch(type, 'read')).data
+    if (type === 'suction') assert.deepEqual(observed.positions, [actions.at(-1)])
+    else { assert.equal(observed.positions, undefined); assert.equal(observed.aperture_m, null) }
     await write({ actions: [actions[0]] })
     await runtime.devices.dispatch('world', 'wait', { duration_s: .2 })
     const state = (await runtime.devices.dispatch(type, 'read')).data
-    assert.deepEqual(state.positions, [actions[0]])
+    if (type === 'suction') assert.deepEqual(state.positions, [actions[0]])
+    else assert.equal(state.positions, undefined)
     assert.equal(state.stopped, false)
   }
 })
 
-test('devices preauthorizes concurrent reads, preserves partial results and attaches images', async t => {
+test('dispatch rejects stale gripper feedback and stops invalid write results', async t => {
+  const { runtime, directory } = await fixture(t)
+  await runtime.profiles.writeDevice({ name: 'gripper', type: 'gripper', loaded: true,
+    access: { connection: { kind: 'mock' }, driver: { interpreter: 'python3', persistent: true,
+      actions: ['read', 'write', 'stop', 'load', 'unload', 'status'] } },
+    intrinsics: { control: { mode: 'direction', open_target: -1, close_target: 1 },
+      feedback: { aperture_m: true }, stop: { behavior: 'hold', affected_devices: ['gripper'] } },
+  })
+  const dir = path.join(directory, '.kinex', 'devices', 'gripper')
+  await writeFile(path.join(dir, 'driver.py'), `from kinex.driver_protocol import run
+state = {'aperture_m': .04, 'faults': [], 'timestamp': 1}
+def dispatch(action, args):
+    if action == 'read':
+        return {'ok': True, **state, 'object_detected': None}
+    if action == 'write':
+        result = {'execution_id': 'submission', 'state': dict(state)}
+        if args['actions'][0] < 0:
+            result['elapsed_s'] = 0
+        else:
+            result['state']['frame_poses'] = {}
+        return {'ok': True, **result}
+    if action == 'stop':
+        with open('stops', 'a') as output: output.write('stop\\n')
+    return {'ok': True}
+run(dispatch, lambda: None)
+`)
+  await (await runtime.devices.load('gripper')).ready
+  await assert.rejects(runtime.devices.dispatch('gripper', 'read'), /object_detected/)
+  for (const value of [-1, 1])
+    await assert.rejects(runtime.devices.dispatch('gripper', 'write', { actions: [value], duration_s: .1 }))
+  assert.deepEqual((await readFile(path.join(dir, 'stops'), 'utf8')).trim().split('\n'), ['stop', 'stop'])
+})
+
+test('device failure metadata survives tools, Python composition and controller cleanup', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  const details = { effects: 'unknown', validation_error: 'bad feedback', cleanup_error: 'halt rejected' }
+  await runtime.profiles.writeDevice({ name: 'sensor', type: 'joint', loaded: true,
+    access: { connection: { kind: 'mock' }, driver: { interpreter: 'python3', persistent: true,
+      actions: ['load', 'unload', 'status', 'read', 'write', 'stop'] } },
+    intrinsics: {
+      model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: 1, max_effort: null }] },
+      home: null, control: { mode: 'position' }, feedback: { velocities: true, efforts: false },
+      stop: { behavior: 'hold', affected_devices: ['sensor'] },
+    },
+  })
+  await writeFile(path.join(directory, '.kinex/devices/sensor/driver.py'), `import sys
+from kinex.driver_protocol import run
+stops = 0
+def dispatch(action, args):
+    global stops
+    if args.get('fail'):
+        print('private driver stderr', file=sys.stderr)
+        return {'ok': False, 'error': 'cleanup failed', 'code': 'stop_failed',
+                'details': {'effects': 'unknown', 'validation_error': 'bad feedback', 'cleanup_error': 'halt rejected'}}
+    if action == 'stop': stops += 1
+    state = {'positions': [0], 'velocities': [0], 'efforts': [], 'faults': [], 'timestamp': 1, 'stops': stops}
+    return {'ok': True, **({'execution_id': 'submission', 'state': state} if action == 'write' else state)}
+run(dispatch, lambda: None)
+`)
+  await (await runtime.devices.load('sensor')).ready
+  await pythonTool(directory, 'rpc_device', 'from kinex import device\ndevice("sensor", fail=True)\n')
+  await pythonTool(directory, 'rpc_call', 'from kinex import call\ncall("device", deviceID="sensor", args={"fail": True})\n')
+  await pythonTool(directory, 'rpc_batch', 'from kinex import devices, finish\nfinish(devices([{"device": "sensor", "args": {"fail": True}}]))\n')
+  await pythonTool(directory, 'rpc_call_batch', 'from kinex import call, finish\nfinish(call("devices", calls=[{"deviceID": "sensor", "args": {"fail": True}}]))\n')
+  await pythonTool(directory, 'rpc_catch', `from kinex import device, RPCError, finish
+try:
+    device('sensor', fail=True)
+except RPCError as error:
+    assert isinstance(error, RuntimeError)
+    finish(error.payload())
+`)
+  await pythonTool(directory, 'rpc_controller', 'from kinex import device\ndevice("sensor", "write", actions=[[0]], duration_s=.1)\ndevice("sensor", fail=True)\n', 'controller')
+  await pythonTool(directory, 'rpc_nested', 'from kinex import call\ncall("rpc_controller")\n', 'controller')
+  await pythonTool(directory, 'rpc_inline', `from kinex import inline
+inline("lambda: __import__('kinex').call('rpc_controller')", {}, kind='controller')
+`, 'controller')
+  const check = value => {
+    assert.equal(value.code, 'stop_failed')
+    assert.deepEqual(value.details, details)
+    assert.match(value.error, /cleanup failed/)
+    assert.equal(value.stderr, undefined)
+  }
+  for (const name of ['device', 'devices', 'rpc_device', 'rpc_call', 'rpc_controller', 'rpc_nested', 'rpc_inline']) {
+    const one = { deviceID: 'sensor', args: { fail: true } }
+    const response = await runtime.tools.call(name, name === 'device' ? one : name === 'devices' ? { calls: [one] } : {}, { sessionID: 's' })
+    assert.equal(response.isError, true, response.output)
+    assert.doesNotMatch(response.output, /private driver stderr/)
+    const value = JSON.parse(response.output)
+    check(name === 'devices' ? value.results[0] : value)
+  }
+  for (const name of ['rpc_batch', 'rpc_call_batch', 'rpc_catch']) {
+    const response = await runtime.tools.call(name, {}, { sessionID: 's' })
+    assert.ok(!response.isError, response.output)
+    const value = JSON.parse(response.output)
+    check(name === 'rpc_batch' ? value[0] : name === 'rpc_call_batch' ? value.results[0] : value)
+  }
+  assert.ok((await runtime.devices.dispatch('sensor', 'read')).data.stops >= 3)
+})
+
+test('builtin prerequisites validate selected devices and retain custom global gates', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  for (const [name, type, loaded] of [['camera', 'rgbd', true], ['detector', 'segmentation', true],
+    ['policy', 'model', true], ['arm', 'joint', true], ['unused', 'rgb', false]]) {
+    await runtime.profiles.writeDevice({ name, type, loaded })
+  }
+  for (const folder of ['run-policy', 'locate-object-3d']) {
+    const manifest = await readFile(new URL(`../assets/builtin/tool/${folder}/tool.yaml`, import.meta.url), 'utf8')
+    assert.doesNotMatch(manifest, /^(devices|requires):/m)
+    const dir = path.join(directory, '.kinex/tool', folder)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'tool.yaml'), manifest + '\ninterpreter: python3\n')
+    // Isolate manifest gates from the tools' numerical and device operations.
+    await writeFile(path.join(dir, 'tool.py'), 'from kinex import finish\nfinish({"entered": True})\n')
+  }
+  for (const [name, args] of [
+    ['run_policy', { model: 'policy', command: [{ device: 'arm' }], observation: {} }],
+    ['locate_object_3d', { camera: 'camera', model: 'detector', prompt: 'cup' }],
+  ]) {
+    const result = await runtime.tools.call(name, args, { sessionID: 's' })
+    assert.ok(!result.isError, result.output)
+    assert.deepEqual(JSON.parse(result.output), { entered: true })
+  }
+  const unloaded = await runtime.tools.call('locate_object_3d', { camera: 'unused', model: 'detector', prompt: 'cup' }, { sessionID: 's' })
+  assert.match(unloaded.output, /unused.*unloaded/)
+  const wrong = await runtime.tools.call('run_policy', { model: 'camera', command: [{ device: 'arm' }], observation: {} }, { sessionID: 's' })
+  assert.match(wrong.output, /accepts model/)
+  const custom = await pythonTool(directory, 'custom_gate', 'from kinex import finish\nfinish({})\n')
+  await writeFile(path.join(custom, 'tool.yaml'), (await readFile(path.join(custom, 'tool.yaml'), 'utf8')) + 'devices: [imu]\nrequires: intrinsics:imu\n')
+  const gated = await runtime.tools.call('custom_gate', {}, { sessionID: 's' })
+  assert.match(gated.output, /requires a loaded device of type imu/)
+})
+
+test('devices preauthorizes concurrent reads, preserves partial results and returns image paths', async t => {
   const permissions = [], events = []
   const { runtime, directory } = await fixture(t, { host: { ask: async request => {
     assert.equal(events.length, 0, 'authorization precedes every device effect')
@@ -999,7 +1195,7 @@ run(dispatch, lambda: None)
   assert.equal(rows[0].data.index, 0)
   assert.equal(rows[2].data.index, 2)
   assert.equal(rows[0].file, file)
-  assert.deepEqual(result.attachments, [{ mime: 'image/png', path: file }])
+  assert.equal(result.attachments, undefined)
   assert.deepEqual(permissions, ['device_read', 'device_read'])
   assert.equal(events.length, 2)
 })
@@ -1231,4 +1427,55 @@ test('nested Python device composition preserves permission denial as a host err
   for (const name of ['outer', 'inline_outer'])
     await assert.rejects(runtime.tools.call(name, {}, { sessionID: 's' }), PermissionDeniedError)
   assert.equal(events.length, 0)
+})
+
+test('Python camera reads decode arrays and keep agent-facing reads file-based', async t => {
+  const { runtime, directory } = await fixture(t, { host, enableRecording: true })
+  await runtime.profiles.writeDevice({ name: 'camera', type: 'rgbd', loaded: true,
+    access: { connection: { kind: 'mock' } }, intrinsics: {
+      color: { width: 2, height: 2, pixel_format: 'rgb8', image_format: 'png' },
+      depth: { width: 2, height: 2, pixel_format: 'uint16', image_format: 'pgm16_be',
+        registration: 'color', quantity: 'z', scale_m_per_unit: .001, invalid_value: 0,
+        valid_range_m: { min: .001, max: 65.535 } },
+    } })
+  await pythonTool(directory, 'camera_modes', `import numpy as np
+from kinex import device, devices, call, finish
+samples = [device('camera', output='array')['data'],
+           devices([{'device': 'camera', 'args': {'output': 'array'}}])[0]['data'],
+           call('device', deviceID='camera', args={'output': 'array'}),
+           call('devices', calls=[{'deviceID': 'camera', 'args': {'output': 'array'}}])['results'][0]['data']]
+for sample in samples:
+    assert sample['color'].shape == (2, 2, 3) and sample['color'].dtype == np.uint8
+    assert sample['depth'].shape == (2, 2) and sample['depth'].dtype == np.uint16
+    assert sample['color'].flags.owndata and sample['depth'].flags.writeable
+encoded = device('camera', output='base64')['data']
+assert encoded['color'].startswith('iVBOR') and isinstance(encoded['depth'], str)
+finish({'timestamp': samples[0]['timestamp']})
+`)
+  const result = await runtime.tools.call('camera_modes', {}, { sessionID: 's' })
+  assert.ok(!result.isError, result.output)
+  assert.deepEqual(JSON.parse(result.output), { timestamp: 0 })
+  const out = path.join(directory, '.kinex/devices/camera/out')
+  await assert.rejects(readdir(out), { code: 'ENOENT' })
+  for (const name of ['device', 'devices']) {
+    const call = { deviceID: 'camera', args: { output: 'array' } }
+    const rejected = await runtime.tools.call(name, name === 'device' ? call : { calls: [call] }, { sessionID: 's' })
+    assert.equal(rejected.isError, true)
+    assert.match(rejected.output, /inside Python tools/)
+  }
+  const file = await runtime.tools.call('device', { deviceID: 'camera' }, { sessionID: 's' })
+  assert.ok(!file.isError, file.output)
+  assert.ok(JSON.parse(file.output).file.endsWith('.png'))
+  assert.equal(file.attachments, undefined)
+  const recording = await runtime.recording.start({ specs: { sensor: { rate: 1 } }, sessionID: 's' })
+  await runtime.devices.dispatch('camera', 'read', { output: 'base64' })
+  await runtime.recording.stop()
+  const recorded = path.join(directory, '.kinex/recordings', recording.manifest.id)
+  const events = (await readFile(path.join(recorded, 'passive/camera/events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
+  const frame = events.find(event => event.file)
+  assert.ok(frame.depthFile)
+  assert.equal(frame.data.color, undefined)
+  assert.equal(frame.data.depth, undefined)
+  assert.equal(frame.data.timestamp, 0)
+  assert.ok((await readFile(path.join(recorded, frame.file))).length > 0)
 })

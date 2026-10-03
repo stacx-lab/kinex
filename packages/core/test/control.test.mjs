@@ -26,14 +26,14 @@ function arm({ dof = 2, rate = 1, ik = null }) {
   }
   const snapshot = () => ({
     positions: [...self.positions], velocities: self.positions.map(() => 0),
-    efforts: [], faults: [], sample_time_s: self.clock,
+    efforts: [], faults: [], timestamp: self.clock,
   })
   self.read = () => { self.reads++; return snapshot() }
   self.write = (args) => {
     self.writes++
     self.history.push(...args.actions.map(q => [...q]))
     self.pending = args
-    return { execution_id: 'test', elapsed_s: 0, state: snapshot() }
+    return { execution_id: 'test', state: snapshot() }
   }
 
   self.advance = seconds => { if (self.pending) self.target = self.pending.actions.at(-1); advance(seconds) }
@@ -43,7 +43,7 @@ function arm({ dof = 2, rate = 1, ik = null }) {
     resolved_model: { joints: self.positions.map((_, i) => ({ name: `j${i}`, type: 'revolute', limits: { min: -3.2, max: 3.2 }, max_velocity: 2 })), chain: null },
     intrinsics: {
       control: { mode: 'position' },
-      feedback: { velocities: true, clock: 'simulation' },
+      feedback: { velocities: true },
       kinematics: { ik: 'numerical', frame: 'flange' }, frames: {},
     },
   })
@@ -71,14 +71,18 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
     const act = (device, action, args) => {
       if (action === 'wait') return { ok: true, data: device.wait(args) }
       if (action === 'read') return { ok: true, data: device.read() }
-      if (action === 'write') { owned.add(device); return { ok: true, data: device.write(args) } }
+      if (action === 'write') {
+        owned.add(device)
+        try { return { ok: true, data: device.write(args) } }
+        catch (error) { return { ok: false, error: error.message, code: error.code, details: error.details } }
+      }
       if (action === 'stop') return { ok: true, data: device.stop() }
       if (action === 'ik') {
         device.ikArgs = args
         try { return { ok: true, data: { joints: typeof device.ik === 'function' ? device.ik(args) : device.ik } } }
-        catch (error) { return { ok: false, error: error.message } }
+        catch (error) { return { ok: false, error: error.message, code: error.code, details: error.details } }
       }
-      if (action === 'fk') return { ok: true, data: { pose: [0, 0, 0, 0, 0, 0, 1] } }
+      if (action === 'fk') return { ok: true, data: device.fk?.(args) ?? { pose: [0, 0, 0, 0, 0, 0, 1] } }
       if (action === 'infer') return { ok: true, data: device.infer(args) }
       return { ok: false, error: `no action ${action}` }
     }
@@ -87,7 +91,7 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
       let message
       try { message = JSON.parse(line) } catch { return }
       if ('return' in message) { done = true; resolve({ result: message.return, stderr }); proc.stdin.end(); return }
-      if ('error' in message) { done = true; resolve({ error: message.error, stderr }); proc.stdin.end(); return }
+      if ('error' in message) { done = true; resolve({ ...message, stderr }); proc.stdin.end(); return }
       const { call } = message
       if (call === 'stop_owned') {
         for (const device of owned) device.stop()
@@ -118,7 +122,7 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
 
 test('relative_pose composes both local rotations and offsets and reverses the result', async () => {
   const device = arm({}), prof = device.profile, q = Math.SQRT1_2
-  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = [1, 2, 3, 0, 0, q, q]; return p }
+  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = { parent_frame: null, translation_m: [1, 2, 3], rotation_xyzw: [0, 0, q, q] }; return p }
   const child = { frame: 'arm:camera', pose: [1, 0, 0, 1, 0, 0, 0] }
   const parent = { frame: 'arm', pose: [1, 1, 1, 0, 0, q, q] }
   const near = (actual, expected) => actual.forEach((v, i) => assert.ok(Math.abs(v - expected[i]) < 1e-9, `${actual} != ${expected}`))
@@ -126,11 +130,12 @@ test('relative_pose composes both local rotations and offsets and reverses the r
     const { result, stderr } = await dialog(tool('relative-pose'), { child: a, parent: b }, { arm: device })
     assert.ok(result, stderr)
     near(result.pose, expected)
-    assert.deepEqual(result.pose, [...result.translation, ...result.rotation])
-    assert.equal(result.estimated_links, 0)
+    assert.equal(result.pose.length, 7)
+    assert.deepEqual(result, { pose: result.pose,
+      path: [{ from: a.frame, to: b.frame, kind: 'static', inverse: a === parent }], estimated_links: 0 })
   }
   const identity = await dialog(tool('relative-pose'), { child: { frame: 'arm' }, parent: { frame: 'arm' } }, { arm: device })
-  near(identity.result.pose, [0, 0, 0, 0, 0, 0, 1])
+  assert.deepEqual(identity.result, { pose: [0, 0, 0, 0, 0, 0, 1], path: [], estimated_links: 0 })
   const bad = await dialog(tool('relative-pose'), { child: { ...child, pose: [0, 0, 0, 0, 0, 0, 0] }, parent }, { arm: device })
   assert.match(bad.stderr, /unit quaternion/)
   assert.equal(device.writes, 0)
@@ -148,12 +153,12 @@ test('policy validates every point before submitting its chunk', async () => {
 })
 function cartesianArm() {
   const self = arm({})
-  const originalProfile = self.profile, originalRead = self.read
+  const originalProfile = self.profile
   self.profile = () => ({ ...originalProfile(),
-    intrinsics: { ...originalProfile().intrinsics, frames: { flange: null } },
+    intrinsics: { ...originalProfile().intrinsics, kinematics: { fk: 'driver', ik: 'driver', frame: 'flange' }, frames: {} },
     extrinsics: { mount: { parent: 'world', parent_frame: 'world', translation_m: [1, 0, 0], rotation_xyzw: [0, 0, 0, 1] } },
   })
-  self.read = () => ({ ...originalRead(), frame_poses: { flange: [0, 0, 0, 0, 0, 0, 1] } })
+  self.fk = () => ({ pose: [0, 0, 0, 0, 0, 0, 1], frame: 'flange', reference_frame: null })
   self.solves = []
   self.ik = args => { self.solves.push(args); return args.pose.slice(0, 2) }
   return self
@@ -184,7 +189,7 @@ test('policy caps the execution horizon before splitting actions or solving IK',
     profile: () => ({ type: 'gripper', intrinsics: { control: {
       mode: 'position', bounds: { min: 0, max: 1 }, resolution: null, speed: null,
     } } }),
-    write: args => { submitted.push(args); return { execution_id: 'gripper', elapsed_s: 0, state: { faults: [] } } },
+    write: args => { submitted.push(args); return { execution_id: 'gripper', state: { faults: [] } } },
     stop: () => ({}),
   }
   const { result, stderr } = await dialog(tool('run-policy'), {
@@ -195,12 +200,51 @@ test('policy caps the execution horizon before splitting actions or solving IK',
     [99, 0, 0, 0, 0, 0, 99], [],
   ] }]) })
   assert.ok(result, stderr)
-  assert.equal(result.actions_submitted, 2)
-  assert.equal(result.duration_s, .1)
-  assert.equal(result.ik_failure, null)
+  assert.deepEqual(result, { actions_submitted: 2, duration_s: .1,
+    execution_ids: { arm: 'test', gripper: 'gripper' }, ik_failure: null })
   assert.equal(self.solves.length, 2)
   assert.deepEqual(self.pending, { actions: [[.1, 0], [.2, 0]], duration_s: .1 })
   assert.deepEqual(submitted, [{ actions: [.2, .4], duration_s: .1 }])
+})
+
+test('Cartesian policy projects its initial IK seed while preserving measured FK inputs', async () => {
+  const device = cartesianArm(), measurements = []
+  device.positions = [3.201, -3.201]
+  const fk = device.fk
+  device.fk = args => { measurements.push(args.joints); return fk(args) }
+  const solve = device.ik
+  device.ik = args => {
+    assert.ok(args.seed.every(value => value >= -3.2 && value <= 3.2))
+    return solve(args)
+  }
+  const { result, stderr } = await dialog(tool('run-policy'), {
+    model: 'policy', observation: {}, command: [{ device: 'arm', space: 'pose_delta' }],
+  }, { arm: device, policy: policy([{ actions: [[.1, 0, 0, 0, 0, 0], [.1, 0, 0, 0, 0, 0]] }]) })
+  assert.ok(result, stderr)
+  assert.deepEqual(device.solves.map(args => args.seed), [[3.2, -3.2], [.1, 0]])
+  assert.deepEqual(measurements, [[3.201, -3.201]])
+  assert.deepEqual(device.positions, [3.201, -3.201])
+  assert.equal(result.actions_submitted, 2)
+})
+
+test('policy propagates structured stop failures in IK and cleans up partial write failures', async () => {
+  const details = { effects: 'unknown', validation_error: 'bad feedback', cleanup_error: 'halt rejected' }
+  for (const stage of ['ik', 'write']) {
+    const device = cartesianArm(), peer = arm({})
+    device[stage] = () => { throw Object.assign(new Error('cleanup failed'), { code: 'stop_failed', details }) }
+    const outcome = await dialog(tool('run-policy'), {
+      model: 'policy', observation: {},
+      command: [{ device: 'peer' }, { device: 'arm', space: 'pose_delta' }],
+    }, { peer, arm: device, policy: policy([{ actions: [[.1, .2, .1, 0, 0, 0, 0, 0]] }]) })
+    assert.equal(outcome.result, undefined)
+    assert.equal(outcome.error, 'cleanup failed')
+    assert.equal(outcome.code, 'stop_failed')
+    assert.deepEqual(outcome.details, details)
+    assert.equal(peer.writes, stage === 'write' ? 1 : 0)
+    assert.equal(peer.stops, stage === 'write' ? 1 : 0)
+    assert.equal(device.stops, stage === 'write' ? 1 : 0)
+    if (stage === 'write') assert.equal(peer.pending, null)
+  }
 })
 
 test('policy execution horizon accepts shorter chunks and single-action inference', async () => {
@@ -276,7 +320,7 @@ test('policy trims all devices to the earliest IK failure and preserves action c
     profile: () => ({ type: 'gripper', intrinsics: { control: {
       mode: 'position', bounds: { min: 0, max: 1 }, resolution: null, speed: null,
     } } }),
-    write: args => { submitted.push(args); return { execution_id: 'gripper', elapsed_s: 0, state: { faults: [] } } },
+    write: args => { submitted.push(args); return { execution_id: 'gripper', state: { faults: [] } } },
     stop: () => ({}),
   }
   const { result, stderr } = await dialog(tool('run-policy'), {
@@ -304,7 +348,7 @@ test('policy returns normally and preserves existing buffers when the first IK a
   const { result, stderr } = await dialog(tool('run-policy'), {
     model: 'policy', observation: {}, command: [{ device: 'peer' }, { device: 'arm', space: 'pose_delta' }],
   }, { peer, arm: self, policy: policy([{ actions: Array(2).fill([.1, .2, .1, 0, 0, 0, 0, 0]) }]) })
-  assert.deepEqual(result, { actions_submitted: 0, duration_s: 0, writes: {},
+  assert.deepEqual(result, { actions_submitted: 0, duration_s: 0, execution_ids: {},
     ik_failure: { device: 'arm', action_index: 0, error: 'unreachable' } }, stderr)
   assert.equal(self.writes, 0)
   assert.equal(peer.writes, 0)
@@ -314,8 +358,8 @@ test('policy returns normally and preserves existing buffers when the first IK a
 })
 
 test('policy rotation deltas use reference axes rather than rotating tool axes', async () => {
-  const self = cartesianArm(), read = self.read
-  self.read = () => ({ ...read(), frame_poses: { flange: [0, 0, 0, Math.SQRT1_2, 0, 0, Math.SQRT1_2] } })
+  const self = cartesianArm()
+  self.fk = () => ({ pose: [0, 0, 0, Math.SQRT1_2, 0, 0, Math.SQRT1_2], frame: 'flange', reference_frame: null })
   const { result, stderr } = await dialog(tool('run-policy'), {
     model: 'policy', observation: {}, command: [{ device: 'arm', space: 'pose_delta' }],
   }, { arm: self, policy: policy([{ actions: [[0, 0, 0, 0, 0, Math.PI / 2]] }]) })
@@ -337,7 +381,7 @@ test('policy rejects live tool offsets and reserved inference argument overrides
 
 function clock(arm) {
   return { time: 0, read() { return { time_s: this.time } },
-    wait({ duration_s }) { this.time += duration_s; arm.advance(duration_s); return { time_s: this.time, elapsed_s: duration_s } } }
+    wait({ duration_s }) { this.time += duration_s; arm.advance(duration_s); return { time_s: this.time, waited_s: duration_s } } }
 }
 const tracking = { world: 'world', wait_s: 0.1, max_rounds: 3,
   perceive: { tool: 'target' }, process: { tool: 'process' },
@@ -354,9 +398,8 @@ test('servo submits the full planned trajectory without waiting or stopping', as
   assert.equal(armDevice.clock, 0)
   assert.equal(armDevice.history.length, 375)
   assert.deepEqual(armDevice.history.at(-1), [2, 1])
-  assert.deepEqual(result.joints, [2, 1])
-  assert.deepEqual(result.end_joints, [2, 1])
-  assert.equal(result.duration_s, 3.75)
+  assert.deepEqual(result, { device: 'arm', execution_id: 'test', joints: [2, 1],
+    duration_s: 3.75, actions_submitted: 375 })
   assert.equal(armDevice.pending.duration_s, result.duration_s)
   assert.equal(result.actions_submitted, armDevice.history.length)
 })
@@ -368,7 +411,7 @@ test('servo resolves pose targets through IK and computes short move duration', 
   assert.deepEqual(armDevice.history.at(-1), [.01, .02])
   assert.equal(result.duration_s, Math.sqrt(10 / Math.sqrt(3) * .02 / 3))
   assert.equal(armDevice.history.length, Math.ceil(result.duration_s / .01))
-  assert.deepEqual(result.end_joints, [.01, .02])
+  assert.deepEqual(result.joints, [.01, .02])
 })
 
 test('servo scales full plans and rejects oversized plans before writing', async () => {
@@ -377,7 +420,7 @@ test('servo scales full plans and rejects oversized plans before writing', async
   assert.ok(result, stderr)
   assert.equal(result.duration_s, 7.5)
   assert.equal(device.history.length, 750)
-  assert.deepEqual(result.end_joints, [2, 1])
+  assert.deepEqual(device.history.at(-1), [2, 1])
   const pending = device.pending
   const failed = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], speedFraction: .0001 }, { arm: device })
   assert.equal(failed.result, undefined)
@@ -386,7 +429,7 @@ test('servo scales full plans and rejects oversized plans before writing', async
   assert.equal(device.pending, pending)
 })
 
-test('servo reports wrapped continuous references while settled checks the requested goal', async () => {
+test('servo submits wrapped continuous references while settled checks the requested goal', async () => {
   const device = arm({ dof: 1 }), profile = device.profile
   device.positions = [Math.PI - .1]
   device.profile = () => {
@@ -397,13 +440,15 @@ test('servo reports wrapped continuous references while settled checks the reque
   const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [-Math.PI + .1] }, { arm: device })
   assert.ok(result, stderr)
   assert.deepEqual(result.joints, [-Math.PI + .1])
-  assert.ok(Math.abs(result.end_joints[0] - (Math.PI + .1)) < 1e-12)
+  assert.ok(Math.abs(device.history.at(-1)[0] - (Math.PI + .1)) < 1e-12)
   const context = { time_s: 0, control_result: result }
   const before = await dialog(tool('settled'), { context }, { arm: device })
   assert.equal(before.result.done, false)
-  device.positions = [...result.end_joints]
+  device.positions = [...device.history.at(-1)]
+  device.clock = 1
   const arrived = await dialog(tool('settled'), { context: { ...context, time_s: 1 } }, { arm: device })
   assert.equal(arrived.result.done, false)
+  device.clock = 1.2
   const quiet = await dialog(tool('settled'), { context: { ...context, time_s: 1.2 }, state: arrived.result.state }, { arm: device })
   assert.equal(quiet.result.reason, 'settled')
 })
@@ -455,7 +500,7 @@ test('track continues through partial and empty policy prefixes without interpre
   assert.deepEqual(observed.map(row => row.stops), [0, 0, 0])
   assert.equal(observed[0].positions[0], .1)
   assert.equal(observed[1].pending, observed[0].pending)
-  assert.deepEqual(observed[1].writes, {})
+  assert.deepEqual(observed[1].execution_ids, {})
   assert.equal(armDevice.writes, 2)
   assert.equal(armDevice.stops, 1)
   assert.ok(Math.abs(world.time - .3) < 1e-9)
@@ -525,6 +570,7 @@ test('settled persists stable time across fresh tool processes and resets on goa
   const armDevice = arm({}), world = clock(armDevice)
   let state = null
   const check = async (time, joints = [0, 0]) => {
+    armDevice.clock = 100 + time
     const out = await dialog(tool('settled'), { context: { time_s: time, world: 'world', control_result: { device: 'arm', joints } }, state }, { arm: armDevice, world })
     assert.ok(out.result, out.stderr)
     state = out.result.state
@@ -535,6 +581,49 @@ test('settled persists stable time across fresh tool processes and resets on goa
   assert.equal(await check(.1), true)
   assert.equal(await check(.2, [.1, 0]), false)
   assert.equal(state.since_s, null)
+})
+
+test('settled separates sample freshness from world-time stability and timeout', async () => {
+  const device = arm({}), original = device.read
+  let state, velocity = 0
+  device.read = () => ({ ...original(), velocities: [velocity, 0] })
+  const check = async (time, timestamp, joints = [0, 0], timeout_s) => {
+    device.clock = timestamp
+    const out = await dialog(tool('settled'), { context: { time_s: time }, device: 'arm', joints, state, timeout_s }, { arm: device })
+    if (out.result) state = out.result.state
+    return out
+  }
+  assert.equal((await check(100, 7)).result.done, false)
+  assert.equal(state.sample_timestamp, 7)
+  assert.equal(state.since_s, 100)
+  assert.equal((await check(100.2, 7)).result.done, false, 'cached feedback cannot establish arrival')
+  assert.equal((await check(100.3, 7.01)).result.reason, 'settled', 'duration uses world time, not device time')
+  velocity = .1
+  assert.equal((await check(100.4, 7.02)).result.done, false)
+  assert.equal(state.since_s, null)
+  velocity = 0
+  assert.equal((await check(100.5, 7.03)).result.done, false)
+  assert.equal(state.since_s, 100.5)
+  assert.match((await check(100.6, 6)).stderr, /device sample clock moved backwards/)
+  assert.match((await check(99, 7.04)).stderr, /world clock moved backwards/)
+  assert.equal((await check(100.6, 7.04, [.001, 0])).result.done, false)
+  assert.equal(state.since_s, 100.6, 'a changed goal starts a new stability interval')
+  assert.equal(state.started_s, 100)
+  const reads = device.reads
+  assert.equal((await check(101, 7.04, [.001, 0], 1)).result.reason, 'timeout')
+  assert.equal(device.reads, reads, 'world timeout is checked before device feedback')
+})
+
+test('settled restarts stability when caller state has no sample timestamp', async () => {
+  const device = arm({})
+  const { result, stderr } = await dialog(tool('settled'), {
+    context: { time_s: 10 }, device: 'arm', joints: [0, 0],
+    state: { device: 'arm', joints: [0, 0], since_s: 0, started_s: 0, time_s: 0 },
+  }, { arm: device })
+  assert.ok(result, stderr)
+  assert.equal(result.done, false)
+  assert.equal(result.state.since_s, 10)
+  assert.equal(result.state.started_s, 0)
 })
 
 test('settled uses world time for timeout even without a resolved target', async () => {
@@ -550,7 +639,7 @@ test('run_policy flattens end-effector columns and validates the entire chunk be
       profile: () => ({ type: 'gripper', intrinsics: { control: {
         mode: 'position', bounds: { min: 0, max: 1 }, resolution: null, speed: null,
       } } }),
-      write: args => { submitted.push(args); return { execution_id: 'gripper', elapsed_s: 0, state: { faults: [] } } },
+      write: args => { submitted.push(args); return { execution_id: 'gripper', state: { faults: [] } } },
       stop: () => ({}),
     }
     const model = policy([{ actions: [[.1, .2, .3], [.2, .3, invalid ? 2 : .4]] }])
@@ -582,7 +671,7 @@ test('run_policy submits complete chunks without advancing time', async () => {
 
 test('track maps a measured pose through relative_pose into servo', async () => {
   const device = arm({ ik: [0.1, 0.2] }), prof = device.profile, world = clock(device)
-  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = [1, 2, 3, 0, 0, 0, 1]; return p }
+  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = { parent_frame: null, translation_m: [1, 2, 3], rotation_xyzw: [0, 0, 0, 1] }; return p }
   const options = { ...tracking, max_rounds: 1,
     process: { tool: 'relative_pose', args: { parent: { frame: 'arm' } },
       inputs: { '/child/frame': '/frame', '/child/pose': '/poses/0' } },
@@ -662,9 +751,9 @@ test('relative_pose normalizes local poses and estimates within the same norm bo
     }, devices)
     assert.ok(result, stderr)
     const norm = Math.hypot(...rotation)
-    result.rotation.forEach((value, i) => assert.ok(Math.abs(value - rotation[i] / norm) < 1e-12))
+    result.pose.slice(3).forEach((value, i) => assert.ok(Math.abs(value - rotation[i] / norm) < 1e-12))
     const position = rotation[2] ? [0, 2, 0] : [1, 1, 0]
-    result.translation.forEach((value, i) => assert.ok(Math.abs(value - position[i]) < 1e-12))
+    result.pose.slice(0, 3).forEach((value, i) => assert.ok(Math.abs(value - position[i]) < 1e-12))
     assert.equal(result.estimated_links, 1)
   }
   for (const rotation of [[0, 0, 0, .998], [0, 0, 0, 1.002], [0, 0, 0, 0]]) {

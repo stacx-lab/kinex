@@ -1,6 +1,6 @@
 name: servo
 kind: controller
-description: "Plan and submit a full joint trajectory. Returns immediately with computed duration_s, requested/IK-resolved target joints and final commanded reference end_joints; these do not confirm arrival. Use world.wait to allow execution and measured feedback to verify arrival. Later writes or stop can interrupt the plan."
+description: "Plan and submit a full joint trajectory. Returns immediately with device, execution_id, requested/IK-resolved target joints, computed duration_s and actions_submitted; these do not confirm arrival. Use world.wait to allow execution and measured feedback to verify arrival. Later writes or stop can interrupt the plan."
 parameters:
   type: object
   additionalProperties: false

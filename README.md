@@ -95,6 +95,11 @@ and keep deeper values inline, including Python and workspace tools. Python tool
 returns and calibration samples use the same formatting in model context.
 The device tool's `compact` option still requests single-line JSON.
 
+Sensor and actuator readings now use numeric `timestamp` in seconds. Update custom drivers
+and consumers together; no old-field aliases are supported. Refresh exported/copied
+drivers and runtime resources, then reload devices and restart owned RoboEnv services.
+UUID-based IDs now use 16 random hexadecimal characters (with existing prefixes).
+
 Setup tracks an agent-authored DAG with `setup_plan`; only the current task's
 prerequisites advance. Unrelated calibration remains deferred, and incomplete
 onboarding never gates device operations. Existing operation checks and permissions
@@ -112,11 +117,12 @@ Writes submit an action buffer with `duration_s` and return immediately.
 Gripper and suction use flat `actions: [value, ...]`; joint devices and dexterous
 hands use `actions: [[joint1, joint2, ...], ...]`. A single command uses one action.
 Use `device("world", "wait", duration_s=...)` for delays in the driver's clock.
-`servo` plans and submits a full joint trajectory, returning immediately with its
-computed `duration_s`, requested/IK-resolved target `joints`, and final commanded
-reference `end_joints`. It accepts no duration override. Use `world.wait` to allow
-execution time and measured feedback to verify arrival; neither submission nor
-elapsed duration confirms arrival. Position devices retain the final reference.
+`servo` plans and submits a full joint trajectory, returning immediately with
+`device`, the driver's `execution_id`, requested/IK-resolved target `joints`,
+computed `duration_s` and `actions_submitted`. It accepts no duration override.
+Use `world.wait` to allow execution time and measured feedback to verify arrival;
+neither submission nor elapsed duration confirms arrival. Position devices retain
+the final reference.
 `track` composes perception, processing, control and an `until` predicate, waiting
 `wait_s` each round. This is its observation/replanning interval: a new control
 call can replace the remaining references, and exit or `stop_after_control` can
@@ -125,6 +131,8 @@ interrupt a plan.
 For existing servo calls, remove the `duration_s` argument; obsolete input is
 rejected. The returned duration now comes from the planner. Device writes and
 `run_policy` keep their existing duration behavior.
+Servo results expose `execution_id` directly; the nested `write` and `end_joints`
+fields have been removed. Driver feedback validation still runs before success.
 
 `device` calls one device; `devices` accepts a batch of calls:
 
@@ -159,7 +167,10 @@ Without `inputs`, process receives `observation` and its returned dict overrides
 controller arguments. With `inputs`, JSON Pointer mappings select the fields.
 Null results or selected null values count as misses; missing paths are errors.
 `relative_pose` uses `{frame, pose?}` for both endpoints; local poses default to
-identity and always contain translation and orientation.
+identity. Input and returned poses use `[x,y,z,qx,qy,qz,qw]`, with translation in
+metres and a unit quaternion in xyzw order. Results contain only `pose`, `path`
+and `estimated_links`; the duplicate `translation` and `rotation` fields have
+been removed. Pass the returned `pose` directly to `servo.pose`.
 
 Any stage can use inline Python instead of a tool name, without creating files
 or waiting for discovery. For a previously measured target in the arm frame:
@@ -188,14 +199,35 @@ Until receives `context` and `state`, returning `done`, optional `state` and `re
 Replace perception/processing with live observation tools for closed-loop control.
 `stop_after_control` stops owned motion after each world wait; track always stops
 owned motion on exit. `settled` checks measured joint error and quiet velocity
-for a stable interval, using world time for its optional timeout.
+for a stable interval in world time, accepting only fresh device timestamps as
+arrival evidence. Cached samples cannot establish arrival. Changing the target
+restarts stability but preserves the optional world-time timeout.
 
 `run_policy` infers once and submits an action chunk. If IK fails partway through,
 all commanded devices receive the shared valid prefix at the original `action_hz`.
 The result includes `ik_failure` with `device`, zero-based `action_index` and
 `error`, or null when no IK failure occurred. IK rejection returns normally, so
 `track` waits and continues. An empty prefix submits nothing and leaves existing
-buffers intact.
+buffers intact. Results contain `actions_submitted`, `duration_s`, `execution_ids`
+(device to execution ID) and `ik_failure`. Migrate consumers of the former `writes`
+map to `execution_ids`; use fresh reads for measured state. Structured failures,
+including `stop_failed`, preserve `error`, `code` and `details` across tool calls
+and remain failures rather than normal IK truncations.
+
+Numerical IK now retries failed DLS solves from deterministic nearby and broader
+seeds, choosing the valid fallback nearest the original seed. An initial solution
+still returns immediately. Optional `intrinsics.kinematics.ik.search` defaults to
+`{max_attempts: 5, attempt_time_s: 0.02, max_time_s: 0.1}`; `max_iterations`
+also limits each attempt. These cooperative budgets apply per pose, so policy
+chunks can accumulate planning time. Tolerances and FK checks remain strict;
+nearest preference does not impose a hard waypoint-step limit. See the
+[core API](packages/core/README.md) for details.
+
+Existing profiles inherit the defaults without migration. After upgrading core,
+reload persistent drivers. If a workspace's `.kinex/lib/kinex` overrides packaged
+Python helpers, refresh those copies together, including `kinematics.py` and
+`ik_search.py`, before reloading. Native plugins require their separate packed
+core snapshot update.
 
 For receding horizon control, set `run_policy.max_actions` to the maximum number
 of actions to execute from each inference. The remaining predictions are discarded
@@ -374,3 +406,28 @@ explicitly compose them around a shared runtime. Standalone explicitly includes
 device provisioning and operation; it can be installed alone. See [setup composition and API migration](packages/setup/README.md).
 Native plugins still use their existing packed snapshots; adopting these new APIs
 and packaging setup is a separate update in that project.
+
+Joint reads contain positions, velocities, efforts, faults and timestamp. Use FK
+to obtain poses, selecting `frame` and `reference_frame` (null means device base).
+Profiles define local frames with `parent_frame`, `translation_m` and
+`rotation_xyzw`; null transform components mean unknown. Joint `kinematics.frame`
+and hand geometry declare computed frames directly; omit their duplicate entries
+from `frames`. Frame queries compute FK on demand.
+
+Camera reads save RGB/depth files and return their paths in JSON. Use Pi's built-in
+`read` tool on the RGB path when image inspection is needed.
+
+Python tools can select camera output with `device("camera", output="array")["data"]`
+for NumPy `color`/`depth` arrays, or `output="base64"` for PNG/PGM16 strings.
+The default `output="file"` returns saved paths. Each mode includes one `timestamp`.
+This selects driver output, independently of the camera server's transport.
+
+Velocity writes use named axes, for example
+`{mode: "drive", velocity: {vx: 0.05, vy: 0, wz: 0}, duration_s: 0.5}`.
+Consult the profile for units and input bounds. Velocity reads expose measured
+velocities, faults and timestamp, plus available body/local-frame measurements;
+they omit global pose. World-relative transforms require explicit frame estimates.
+Existing velocity profiles must remove `feedback.pose_frame`; drivers must omit
+`pose` from both reads and write-result states.
+Refresh copied RoboEnv profiles and drivers together, restart the simulation service,
+and reload the base after upgrading an existing workspace.

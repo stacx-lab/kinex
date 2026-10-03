@@ -49,7 +49,7 @@ transition fence through deactivation and deletion.
   Unload attempts capture shutdown, stop and resource release; borrowed services
   are not terminated. Joint goals are absolute vectors in model order, in radians/metres.
   All actuator writes submit a validated buffer with `duration_s` and return
-  immediately with `execution_id`, submission `elapsed_s` and measured `state`.
+  immediately with `execution_id` and measured `state`.
   Gripper and suction actions are flat numeric sequences; joint and dexterous-hand
   actions are sequences of joint vectors. One command is a one-element sequence.
   New writes replace pending references without stopping; invalid writes leave
@@ -58,36 +58,99 @@ transition fence through deactivation and deletion.
   preserving posture. Explicit stop clears affected buffers. Background faults
   remain visible through reads. Ownership outlives write calls; cleanup cannot
   stop a replacement owned by another invocation.
-  `world.read` returns `time_s` and optional `budget: {elapsed_s, max_s}`. Budget
+  Failed post-submission feedback validation cancels only that submission before
+  reporting failure. Failed cleanup reports `stop_failed` and blocks further
+  writes until recovery.
+  `world.read` returns `time_s` and optional `budget: {used_s, max_s}`. Budget
   values are episode time in seconds: finite nonnegative elapsed time and a finite
   positive allowance, or `max_s: null` for no cap. Drivers own accounting and
   conversion to seconds; Kinex neither infers a budget nor enforces its allowance.
-  `world.wait(duration_s)` returns only `time_s` and actual `elapsed_s` for that
-  wait. Drivers abstract physical and simulated clocks. Concurrent
+  `world.wait(duration_s)` returns only `time_s` and actual `waited_s` for that
+  wait. The TUI displays world time fields to at most six decimal places; tool
+  results retain full precision. Drivers abstract physical and simulated clocks. Concurrent
   waits share world time and support individual cancellation. Reads never advance
   time. Uncertain writes are never retried automatically.
-- **Frames and calibration.** Frames form a forest; world is optional and missing
+  Device observations use one finite numeric `timestamp` in seconds, including
+  measured state in write results. Use acquisition time, or receipt time when it is
+  unavailable, in the device's clock. Combined observations use the latest component
+  time; cached observations retain it. RoboEnv timestamps use simulation time.
+  Camera reads accept output=file (default), array or base64. File output returns
+  file/depth_file; Python array output returns owned uint8 RGB color and uint16
+  depth arrays; base64 returns PNG/PGM16 strings under color/depth. One timestamp
+  covers both streams. Arrays cross JSON boundaries as base64, decoded in the
+  calling Python runtime. Server-to-driver transport is unchanged. Fixed dimensions
+  stay in profiles and are validated against image contents. Agent-facing device tools
+  allow only file output and return paths in JSON
+  without attaching image bytes; the host file-reading tool handles explicit
+  image inspection. Standalone uses Pi's native `read` tool.
+  Generated UUIDs are replaced by 16 random hexadecimal characters; IDs remain opaque.
+- **Frames and calibration.** Local frames declare `parent_frame`, `translation_m`
+  and `rotation_xyzw`; null parent means device base, null components mean unknown.
+  Joint `kinematics.frame` and hand geometry declare computed frames relative to
+  the device base; do not duplicate them in `frames`. Additional explicit frames
+  may name computed parents. Joint reads and write-result states omit `frame_poses`; live joint frames use FK
+  from measured positions without clamping. FK/IK accept device-local `frame` and
+  `reference_frame` and include both in results. Defaults are the modeled endpoint
+  and null (device base); targets may be fixed endpoint descendants and references
+  may be fixed base frames. Gripper frames are fixed references; other spatial
+  devices may supply parent-relative live frame feedback for unknown transforms.
+  Velocity reads and write states omit global `pose`; feedback has no `pose_frame`.
+  Bases are unlocalized roots without fixed mounts. Body height and nonempty local
+  `frame_poses` may be measured feedback; explicit frame queries compose them and
+  call-local estimates can connect a base to world. Native command bounds describe
+  controller input ranges; `limit_handling: native` preserves native saturation.
+  Frames form a forest; world is optional and missing
   relationships are not identity transforms. `relative_pose` composes full local
   poses attached to its child and parent frames, using declared,
   live and call-local estimated edges, preferring fewer estimates; samples are
-  cached only within a call. `???` is unresolved; `null` follows field semantics.
+  cached only within a call. Its tool result contains only `pose`, `path` and
+  `estimated_links`; input and returned poses use `[x,y,z,qx,qy,qz,qw]` in metres
+  with a unit xyzw quaternion. The Python `frames.pose()` API retains separate
+  translation and rotation fields. `???` is unresolved; `null` follows field semantics.
   Calibration writes are validated; plan inspection is read-only. Setup owns a persisted,
   agent-authored DAG with task-selected prerequisites and evidence-backed outcomes.
+  Calibration settling requires fresh declared velocity feedback (including hands);
+  it never advances simulator time. A settle timeout after a read saves that sample
+  as `settled:false`; FK and archival retain caller cancellation independently of
+  the settle deadline. RGBD samples archive both color and depth before appending.
   Unrelated or incomplete calibration never becomes a global execution gate.
   Profile completeness is descriptive; each operation retains its own validation. FK/IK uses declared
   geometry or driver solvers; readiness, world bounds and IK do not certify safe
   or collision-free motion.
+  Numerical DLS IK tries the original seed first, then deterministic nearby and
+  broader seeds. Optional `ik.search` defaults to five total attempts, 0.02 seconds
+  per attempt and 0.1 seconds total per target; `max_iterations` also bounds each
+  attempt. Cancellation and monotonic deadlines are checked between iterations.
+  Deadlines are cooperative; the current iteration or final verification may overrun.
+  An initial solution returns immediately; fallback search selects the verified
+  candidate nearest the original seed using joint-range-normalized displacement,
+  wrapping only continuous joints. This preference is not a hard waypoint-step
+  limit. Pose tolerances and independent FK verification remain unchanged.
+  Exhaustion reports attempts, iterations, elapsed time and best observed residuals;
+  it does not establish unreachability. Native driver IK retains its own solver.
   Shared Python pose validation and call-local frame estimates normalize xyzw
   quaternions only when their norm is within `[0.999, 1.001]`, inclusive.
   Persisted-profile schemas and velocity-reading validation remain strict.
+- Gripper reads expose physical aperture, faults and timestamp.
+  Reads and write states omit finger poses. Finger measurements and aperture conversion remain private
+  to the driver. The mount locates the gripper base; `intrinsics.frames.tcp` locates
+  the tool point. Gripper geometry retains axes and an optional finger description,
+  with no contact-frame entries. Other device profile prose remains in guides.
+  Dispatch validates actuator write states with the same checks as reads and
+  stops the device if a write returns invalid state or faults.
+- World provides time and waiting. Device feedback retains timestamps without a
+  clock-type label; removing labels does not convert or synchronize timestamps.
 - **Tools, skills and Python.** Tools declare schemas, capabilities and timeouts;
   composed calls retain permissions and recording attribution. Skills supply
-  procedures. Detection/segmentation feed perception; depth localization respects
+  procedures. Shared device context and setup guidance cover cross-type contracts;
+  each device guide owns its Setup details and a concise, model-visible Use section.
+  Detection/segmentation feed perception; depth localization respects
   masks and reports camera-relative measurements. `servo` plans from measured
   joint positions and submits a full trajectory at its computed duration, without
   waiting, stopping, settling or arrival checks. It accepts no duration override;
-  results report computed `duration_s`, requested/IK-resolved target `joints` and
-  final commanded reference `end_joints`, not measured arrival. Planning rates
+  results report `device`, the driver's `execution_id`, requested/IK-resolved
+  target `joints`, computed `duration_s` and `actions_submitted`, not measured
+  arrival. Driver feedback remains validated before returning. Planning rates
   default to 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
   capped by known limits.
   The Python planner returns references and duration together. Position devices
@@ -108,11 +171,19 @@ transition fence through deactivation and deletion.
   `track.wait_s` sets the observation/replanning interval; each control call may
   replace the remaining references, and exit or `stop_after_control` may interrupt
   the plan. `settled` checks joint error, quiet velocity and stable world time,
-  with an optional world-time timeout. `device` and `devices` share execution; batches
+  using strictly advancing device timestamps as fresh evidence and an optional
+  world-time timeout. Changing targets resets stability but retains the timeout;
+  predicate state retains `sample_timestamp` separately from world time.
+  `device` and `devices` share execution; batches
   authorize before dispatch, preserve result order and report per-entry failures.
+  Public failure `code` and `details` survive direct tools, batches and Python
+  composition without driver stderr. Python raises `RPCError`, a `RuntimeError`
+  subclass; uncaught structured failures cross JSONL with their metadata.
   Python composition retains capability restrictions and forbids lifecycle changes.
   `run_policy` infers once, converts Cartesian actions using frozen frames and
   seeded IK, and validates device buffers before submitting them concurrently.
+  Its initial seed projects measured positions to joint limits while FK retains
+  the measured configuration; subsequent solves use the preceding solution.
   Optional `max_actions` caps the execution horizon before action validation and
   IK, discarding the remainder; each call infers anew. `track` supplies repeated
   observations and world waits for receding horizon control.
@@ -120,7 +191,11 @@ transition fence through deactivation and deletion.
   cadence and reporting the failed device, zero-based action index and error.
   IK rejection returns normally, including an empty prefix that leaves existing
   buffers intact. `track` treats controller results as opaque data.
-  It returns submission information without waiting or claiming arrival.
+  `stop_failed` remains a failure, never a normal IK truncation.
+  It returns `actions_submitted`, `duration_s`, `execution_ids` (device to driver
+  execution ID) and `ik_failure`, without waiting or claiming arrival. An empty
+  prefix returns an empty execution map. Runtime checks use selected devices;
+  these builtins do not impose redundant global capability requirements.
   Core prepares `.kinex/python` with uv only when its interpreter is missing.
   Existing environments execute without dependency synchronization; dependency
   changes and repairs are explicit. Concurrent first use within a process waits for preparation,
