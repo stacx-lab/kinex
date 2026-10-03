@@ -111,12 +111,28 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   arrival: allow execution with `world.wait` and verify using feedback. Planning
   defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
   capped by known limits. Lower `speedFraction` lengthens the computed duration.
+- Numerical IK uses bounded DLS restarts for both `servo` and Cartesian policy
+  actions. The supplied/measured seed is tried first; an initial solution returns
+  immediately. Otherwise, two nearby perturbations precede broader bounded seeds,
+  and the nearest verified fallback is selected. Only continuous-joint distances
+  wrap. Nearest preference does not enforce a maximum waypoint step.
+  Optional `intrinsics.kinematics.ik.search` accepts `max_attempts` (default 5,
+  including the original seed), `attempt_time_s` (0.02) and `max_time_s` (0.1).
+  Counts must be positive integers and times positive finite seconds; omitted
+  fields use these defaults. `max_iterations` remains a per-attempt limit.
+  Deadlines and cancellation are checked between iterations; the current iteration
+  or final verification can overrun a deadline. Search exhaustion reports seed
+  attempts, iterations, elapsed time and best residuals without claiming
+  unreachability. Pose tolerances remain strict. Native driver IK is unchanged.
 - `run_policy` infers once, splits the selected chunk across devices, and submits
   buffers concurrently. Cartesian `pose` and `pose_delta` actions use frozen
   reference frames and seeded IK; `target_frame` must be rigidly attached to the
   IK frame. It returns submission results without waiting.
   Gripper/suction writes use flat `actions: [value, ...]`; joint and dexterous-hand
   writes use sequences of joint vectors. Both require `duration_s`.
+  Each Cartesian waypoint has its own IK search budget, so planning time can
+  accumulate across a chunk. Failed search retains the existing shared-prefix
+  truncation behavior, including leaving existing buffers intact for an empty prefix.
 - `relative_pose` accepts `child` and `parent`, each `{frame, pose?}`. A local pose
   is `[x,y,z,qx,qy,qz,qw]` in metres with a unit quaternion, defaulting to identity.
   Both local transforms participate. The result expresses child in parent and

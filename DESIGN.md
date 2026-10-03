@@ -77,6 +77,17 @@ transition fence through deactivation and deletion.
   Profile completeness is descriptive; each operation retains its own validation. FK/IK uses declared
   geometry or driver solvers; readiness, world bounds and IK do not certify safe
   or collision-free motion.
+  Numerical DLS IK tries the original seed first, then deterministic nearby and
+  broader seeds. Optional `ik.search` defaults to five total attempts, 0.02 seconds
+  per attempt and 0.1 seconds total per target; `max_iterations` also bounds each
+  attempt. Cancellation and monotonic deadlines are checked between iterations.
+  Deadlines are cooperative; the current iteration or final verification may overrun.
+  An initial solution returns immediately; fallback search selects the verified
+  candidate nearest the original seed using joint-range-normalized displacement,
+  wrapping only continuous joints. This preference is not a hard waypoint-step
+  limit. Pose tolerances and independent FK verification remain unchanged.
+  Exhaustion reports attempts, iterations, elapsed time and best observed residuals;
+  it does not establish unreachability. Native driver IK retains its own solver.
   Shared Python pose validation and call-local frame estimates normalize xyzw
   quaternions only when their norm is within `[0.999, 1.001]`, inclusive.
   Persisted-profile schemas and velocity-reading validation remain strict.

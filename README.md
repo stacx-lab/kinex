@@ -197,6 +197,21 @@ The result includes `ik_failure` with `device`, zero-based `action_index` and
 `track` waits and continues. An empty prefix submits nothing and leaves existing
 buffers intact.
 
+Numerical IK now retries failed DLS solves from deterministic nearby and broader
+seeds, choosing the valid fallback nearest the original seed. An initial solution
+still returns immediately. Optional `intrinsics.kinematics.ik.search` defaults to
+`{max_attempts: 5, attempt_time_s: 0.02, max_time_s: 0.1}`; `max_iterations`
+also limits each attempt. These cooperative budgets apply per pose, so policy
+chunks can accumulate planning time. Tolerances and FK checks remain strict;
+nearest preference does not impose a hard waypoint-step limit. See the
+[core API](packages/core/README.md) for details.
+
+Existing profiles inherit the defaults without migration. After upgrading core,
+reload persistent drivers. If a workspace's `.kinex/lib/kinex` overrides packaged
+Python helpers, refresh those copies together, including `kinematics.py` and
+`ik_search.py`, before reloading. Native plugins require their separate packed
+core snapshot update.
+
 For receding horizon control, set `run_policy.max_actions` to the maximum number
 of actions to execute from each inference. The remaining predictions are discarded
 before validation and IK; each call infers a new chunk. Omit `max_actions` to use

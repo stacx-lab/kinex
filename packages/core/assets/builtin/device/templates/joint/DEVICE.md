@@ -14,6 +14,13 @@ intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {form
 
 kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), feedback (driver/fk), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. Declare the tip under intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
 
+Numerical `ik.search` optionally sets `max_attempts` (5 total), `attempt_time_s`
+(0.02) and `max_time_s` (0.1). Existing profiles inherit these defaults;
+`max_iterations` also limits each attempt. The original seed is tried first,
+then deterministic nearby and broader seeds; fallback selection prefers the
+nearest valid configuration. Tolerances remain strict. Budgets are cooperative
+and apply per target; nearest preference is not a hard waypoint-step limit.
+
 home names every joint or is null. feedback declares velocities, efforts and clock (unix/monotonic/simulation). stop declares behavior and affected_devices. intrinsics.frames maps local names to fixed poses or null for read.frame_poses feedback. extrinsics supplies only a mount or measured pose_frame.
 
 ### Profile
