@@ -350,7 +350,7 @@ See [DESIGN.md](DESIGN.md), [the core API](packages/core/README.md) and the
 ## Checks and packaging
 
 ```sh
-python3 -m pip install -r packages/setup/test/requirements.txt
+python3 -m pip install -r packages/core/test/requirements.txt -r packages/setup/test/requirements.txt
 npm run typecheck
 npm test                         # fake provider, CLI/package, real Linux/macOS PTY
 npm run test:core                # core and independent npm consumption
@@ -359,7 +359,7 @@ npm run test:tui                 # after build
 ```
 
 Tests use mock devices and a local HTTP provider; no paid model API is needed.
-PTY tests need Python 3 and a POSIX host; setup solver tests also need NumPy in
+PTY tests need Python 3 and a POSIX host; camera and solver tests need Pillow and NumPy in
 the `python3` interpreter (activate a virtual environment before installing the test
 requirements if needed). Do not rebuild core while consumer tests
 are running. Live provider cache rates and real robot task success require separate
