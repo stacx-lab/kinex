@@ -24,8 +24,8 @@ test('real PTY renders Kinex, SDK tools/replies and device command completion', 
   const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', '--seed', 'TUI smoke'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'KINEX_TUI_READY', TUI_TEST_KEYS: JSON.stringify([
-      [0.5, '/load sen'], [0.4, '\t'], [0.3, '\r'], [0.6, '/devices\r'], [0.6, '/reload sensor\r'],
-      [0.6, '/unload sensor\r'], [0.6, '/quit\r'],
+      [0.05, '/load sen'], [0.05, '\t'], [0.05, '\r'], ['sensor loaded', '/devices\r'], [0.1, '/reload sensor\r'],
+      ['sensor reloaded', '/unload sensor\r'], ['sensor unloaded', '/quit\r'],
     ]) },
   })
   assert.match(stdout, /Kinex/)
@@ -55,7 +55,7 @@ for (const tuiMode of ['regular', 'fullscreen']) test(`real PTY ${tuiMode} keeps
   const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--enable-recording', '--model', 'fake/test', '--seed', 'Record the sensor'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'RECORDING_READY', TUI_TEST_KEYS: JSON.stringify([
-      [0.5, '\u000f'], [0.3, '\u000f'], [0.3, '/record stop success\r'], [0.6, '/quit\r'],
+      [0.05, '\u000f'], [0.05, '\u000f'], [0.05, '/record stop success\r'], ['stopped', '/quit\r'],
     ]) },
   })
   const text = stripTerminalSequences(stdout)
@@ -82,7 +82,7 @@ test('real PTY permission dialog approves a coding tool through the keyboard', {
   fake.steps.push({ tool: 'write', args: { path: 'approved.txt', content: 'approved' } }, { text: 'APPROVAL_DONE' })
   const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', '--seed', 'Ask permission'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Allow once', TUI_TEST_KEYS: JSON.stringify([[0.3, '\r'], [1, '/quit\r']]) },
+    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Allow once', TUI_TEST_KEYS: JSON.stringify([[0.05, '\r'], ['APPROVAL_DONE', '/quit\r']]) },
   })
   assert.match(stdout, /APPROVAL_DONE/)
   assert.doesNotMatch(stdout + stderr, /Extension error|TypeError/)
@@ -95,7 +95,7 @@ test('real PTY keeps interviews enabled in auto mode', { timeout: 30000 }, async
   fake.steps.push({ tool: 'question', args: { questions: [{ header: 'Camera', question: 'Which camera should be used?', options: [{ label: 'Left camera' }, { label: 'Right camera' }] }] } }, { text: 'INTERVIEW_DONE' })
   const { stdout } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', '--seed', 'Ask a question'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Left camera', TUI_TEST_KEYS: JSON.stringify([[0.5, '\r'], [1, '/quit\r']]) },
+    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Left camera', TUI_TEST_KEYS: JSON.stringify([[0.05, '\r'], ['INTERVIEW_DONE', '/quit\r']]) },
   })
   assert.match(stdout, /INTERVIEW_DONE/)
   assert.match(JSON.stringify(fake.requests[1].messages), /Left camera/)
@@ -107,7 +107,7 @@ test('real PTY Escape cancels a permission dialog without executing the write', 
   fake.steps.push({ tool: 'write', args: { path: 'denied.txt', content: 'must not exist' } })
   await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', '--seed', 'Ask permission'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Allow once', TUI_TEST_KEYS: JSON.stringify([[0.4, '\u001b'], [1, '/quit\r']]) },
+    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Allow once', TUI_TEST_KEYS: JSON.stringify([[0.05, '\u001b'], [0.1, '/quit\r']]) },
   })
   await assert.rejects(stat(path.join(cwd, 'denied.txt')), { code: 'ENOENT' })
   assert.equal(fake.requests.length, 1)

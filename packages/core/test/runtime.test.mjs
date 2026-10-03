@@ -1375,7 +1375,7 @@ test('inline execution inherits cancellation and the track deadline', { timeout:
     const { runtime, directory, args, events } = await trackingFixture(t)
     if (mode === 'timeout') {
       const manifest = path.join(directory, '.kinex/tool/track/tool.yaml')
-      await writeFile(manifest, (await readFile(manifest, 'utf8')).replace('timeout_s: 900', 'timeout_s: 5'))
+      await writeFile(manifest, (await readFile(manifest, 'utf8')).replace('timeout_s: 900', 'timeout_s: 1'))
     }
     let started
     const ready = new Promise(resolve => { started = resolve })

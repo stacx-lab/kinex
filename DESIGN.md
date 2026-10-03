@@ -131,6 +131,11 @@ transition fence through deactivation and deletion.
   Shared Python pose validation and call-local frame estimates normalize xyzw
   quaternions only when their norm is within `[0.999, 1.001]`, inclusive.
   Persisted-profile schemas and velocity-reading validation remain strict.
+- Gripper stop clears pending references while retaining the last applied grip target
+  and its actuator preload. Direction grippers stop integration at the accumulated
+  target; position grippers retain their applied position reference. Never replace
+  a loaded grip target with measured aperture. Explicit open releases a grasp.
+  Reset seeds a fresh hold from measured posture; stop before first write must not close.
 - Gripper reads expose physical aperture, faults and timestamp.
   Reads and write states omit finger poses. Finger measurements and aperture conversion remain private
   to the driver. The mount locates the gripper base; `intrinsics.frames.tcp` locates

@@ -1,5 +1,6 @@
 """Velocity driver lifecycle and asynchronous reference execution."""
 
+import copy
 import sys
 import threading
 
@@ -48,6 +49,13 @@ class Driver:
     def halt(self, handle, target):
         raise NotImplementedError("Apply profile stop behavior, preserving posture/balance; target is the last command or None")
 
+    def apply_reference(self, handle, reference):
+        held = copy.deepcopy(reference)
+        self.set_target(handle, reference)
+        if self.profile["type"] == "gripper":
+            # Stop keeps the applied goal, never the unconsumed end of a buffer.
+            self.target = held
+
     def connection(self):
         if self.handle is None:
             self.handle = self.connect()
@@ -93,12 +101,13 @@ class Driver:
             handle = self.connection()
             references = self.references(value)
             if self.buffer is None:
-                self.buffer = Buffer(self.period_s, lambda target: self.set_target(handle, target),
+                self.buffer = Buffer(self.period_s, lambda target: self.apply_reference(handle, target),
                                      lambda: self.halt(handle, self.target), expire=self.profile["type"] == "velocity")
             with self.buffer.condition:
                 check_cancelled()
                 identity = self.buffer.submit(references, value["duration_s"])
-                self.target = value
+                if self.profile["type"] != "gripper":
+                    self.target = value
             return self.buffer.result(identity, lambda: self.execute("read", {}))
         raise ValueError(f"Unsupported base action: {action}")
 

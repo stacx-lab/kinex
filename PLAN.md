@@ -1,5 +1,51 @@
 # Current work
 
+## Gripper hold and test consolidation
+
+- [x] Retain applied gripper references at stop, including buffered hardware drivers.
+- [x] Unify scalar-gripper stop across all six RoboEnv backends; keep reset separate.
+- [x] Add CPU stop contracts and Panda contact/preload regression coverage.
+- [x] Build once per full check; share packed-consumer preparation and remove duplicate matrices.
+- [x] Drive PTY transitions by observed output; shorten only test-owned deadlines.
+- [x] Complete full checks and timing comparison; verify relocated consumers and local packaging.
+
+Validation: Node 22.19 full check passed 247 tests, including core-only installation,
+setup removal, standalone relocation and real PTY interaction. One build/typecheck
+pass plus tests and package metadata checks took 51.6 seconds; tests took 38.2 seconds
+versus the prior existing-build run's 42.1 seconds. PTY cases totaled about 14 seconds
+versus 24 seconds. The CI path now builds each package once instead of rebuilding
+core four times and setup three times.
+
+RoboEnv's complete check passed 1,105 tests with 40 optional skips, privacy audit and
+both wheel gates in 135.0 seconds. Its test phase took 132.4 seconds versus the prior
+164.8-second run. These are local single-run measurements, not a CI latency guarantee.
+Removed duplicate coverage remains represented by the shared package stages, three
+recording cases, one CLI service-selection scenario plus in-process rejection cases,
+both scheduler modes, one owner-thread Kinex composition, and four kitchen builds
+across two processes.
+
+The isolated native Panda contact fixture retains its grasp through wait, stop and
+translation, and releases on explicit open. The former measured-position stop is
+its dropping negative control. Native Panda/Omron checks also retain the gripper
+integrator target while moving the arm. This does not certify kitchen-task success
+or GPU replay. Refresh copied hardware gripper drivers and runtime helpers, then
+reload; restart owned RoboEnv services. Existing third-party working edits are preserved.
+
+## Version 0.10.0 preparation
+
+- [x] Install pinned camera dependencies in PR/release CI and fresh local test environments.
+- [x] Make VERSION authoritative; add explicit sync and read-only consistency commands.
+- [x] Synchronize package versions, internal pins and lockfile; derive CLI output from installed metadata.
+- [x] Validate drift rejection, idempotence, third-party lock preservation and relocated packages.
+- [x] Complete fresh Python 3.12 / Node 22.19 typecheck, 149 core, 27 setup and 74 standalone tests.
+- [x] Build and pack all three 0.10.0 tarballs locally.
+
+Future bumps edit VERSION and run `npm run version:sync`, then commit the generated
+metadata. `npm run version:check` and release tag checks reject drift without writes.
+The original device-contract snapshot remains in its own commit. This prepares
+source and local artifacts; no tag, GitHub release or registry publication is created.
+Hosted validation is tracked by the PR checks on each pushed commit.
+
 Bounded DLS restarts shared by servo and Cartesian policy actions are complete.
 
 ## Bounded IK search

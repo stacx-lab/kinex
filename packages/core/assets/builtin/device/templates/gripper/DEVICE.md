@@ -12,6 +12,12 @@ Use `???` for unresolved facts and `null` only where the schema permits it.
 
 control.mode is position or direction. Position declares units, bounds, resolution, open_target, close_target and optional speed. Direction declares opposite -1/+1 endpoints; zero holds. feedback declares aperture_m support. Raw finger measurements and aperture conversion stay inside the driver. stop declares behavior and scope. A gripper mount locates its mounting base; finger joints do not turn it into a joint device.
 
+A vendor `halt(handle, target)` receives the last applied reference (including
+native speed), or None before any write. Retain its actuator setpoint/preload;
+never replace it with measured aperture. Direction drivers must retain their own
+accumulated setpoint while stopping further direction integration. Initialize a
+hold from measured posture on connection/reset; None must not trigger closing.
+
 ### Geometry
 
 `extrinsics.mount` locates the gripper base in its parent attachment frame.
@@ -89,6 +95,9 @@ extrinsics:
 `write({actions: [value, ...], duration_s})` uses profile command units and
 open/close endpoints. Direction mode uses signs in [-1,1]; zero holds.
 `speedFraction` is optional when supported. The final reference remains active.
+`stop` clears pending references and retains the applied grip target and gripping
+force; it does not release the object. Direction mode freezes its accumulated
+position target. Use an explicit open command to release.
 
 Reads and write states contain `aperture_m`, `faults` and `timestamp`.
 Aperture is measured opening in metres, or null when unsupported; it does not

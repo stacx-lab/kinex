@@ -351,17 +351,18 @@ See [DESIGN.md](DESIGN.md), [the core API](packages/core/README.md) and the
 
 ```sh
 python3 -m pip install -r packages/core/test/requirements.txt -r packages/setup/test/requirements.txt
-npm run typecheck
-npm test                         # fake provider, CLI/package, real Linux/macOS PTY
-npm run test:core                # core and independent npm consumption
-npm run test:setup               # onboarding/calibration and setup removal
+npm run check                    # build/typecheck once; all suites and packed consumption
+npm test                         # focused standalone, PTY and packed consumption
+npm run test:core                # focused core behavior
+npm run test:setup               # focused onboarding/calibration
 npm run test:tui                 # after build
 ```
 
 Tests use mock devices and a local HTTP provider; no paid model API is needed.
 PTY tests need Python 3 and a POSIX host; camera and solver tests need Pillow and NumPy in
 the `python3` interpreter (activate a virtual environment before installing the test
-requirements if needed). Do not rebuild core while consumer tests
+requirements if needed). The full check packs each package once and checks core-only, setup/removal and
+standalone in one isolated installation. Do not rebuild core while consumer tests
 are running. Live provider cache rates and real robot task success require separate
 environment-specific validation.
 
@@ -374,19 +375,31 @@ npm run pack -- /tmp/kinex-release
 Until registry publication, install standalone with both package dependencies:
 
 ```sh
-npm install /tmp/kinex-release/kinex-core-0.9.0.tgz \
-  /tmp/kinex-release/kinex-setup-0.9.0.tgz \
-  /tmp/kinex-release/kinex-0.9.0.tgz
+kinex_version=$(cat VERSION)
+npm install "/tmp/kinex-release/kinex-core-${kinex_version}.tgz" \
+  "/tmp/kinex-release/kinex-setup-${kinex_version}.tgz" \
+  "/tmp/kinex-release/kinex-${kinex_version}.tgz"
 ```
 
 GitHub CI checks types, core, setup and standalone, including PTY interaction and package
 relocation. CI uses `.nvmrc` and Python 3.12; no physical devices or paid models.
 
-A `v*` tag must match the standalone, core and setup versions and their exact dependencies.
-Before tagging, update all three package manifests, exact internal dependencies,
-lockfile, CLI version and installation examples. Run
-`node script/release.mjs --check --tag v0.9.0`, complete the checks above, and commit
-the version changes before creating the tag. Release CI reads the tagged commit;
+`VERSION` is the only release version to edit. It contains a stable
+`MAJOR.MINOR.PATCH` without a `v` prefix. After editing it, run:
+
+```sh
+npm run version:sync
+npm run version:check
+node script/release.mjs --check --tag "v$(cat VERSION)"
+```
+
+Sync updates all three package manifests, exact internal dependencies and the
+lockfile without resolving third-party dependencies. These synchronized copies
+are committed; do not edit them independently. The CLI reads its installed
+package version. Builds and release checks reject drift without rewriting files.
+A `v*` tag must match `VERSION`. Complete the checks above and commit the changes
+before creating a tag. The sync command creates no commits, tags or releases.
+Release CI reads the tagged commit;
 rerunning an existing tag does not pick up later commits.
 Release CI publishes three npm tarballs plus `SHA256SUMS` as GitHub assets. It does
 not publish to npm or bundle Node. Routine builds/tests publish nothing.
@@ -431,3 +444,9 @@ Existing velocity profiles must remove `feedback.pose_frame`; drivers must omit
 `pose` from both reads and write-result states.
 Refresh copied RoboEnv profiles and drivers together, restart the simulation service,
 and reload the base after upgrading an existing workspace.
+
+Gripper `stop` retains the applied grip target and gripping effort while clearing
+pending actions. Use an explicit open command to release. Direction grippers freeze
+the accumulated target; they do not reset it to measured aperture. Update custom
+vendor stop hooks and refresh copied gripper drivers and `kinex/velocity_driver.py`
+before reloading. RoboEnv services need the matching runtime update and owner restart.

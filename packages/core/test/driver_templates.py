@@ -64,8 +64,11 @@ class TemplateTests(unittest.TestCase):
         driver.disconnect = lambda handle: None
         driver.read_state = lambda handle: {"aperture_m": .04, "faults": [], "timestamp": time.monotonic()}
         driver.set_target = lambda handle, value: applied.append(value)
-        driver.halt = lambda handle, value: stopped.append(True)
+        driver.halt = lambda handle, value: stopped.append(value)
         try:
+            driver.execute("stop", {})
+            self.assertEqual(stopped, [None])
+            stopped.clear()
             result = driver.execute("write", {"actions": [.2, .8], "duration_s": .1, "speedFraction": .3})
             self.assertRegex(result["execution_id"], r"^[0-9a-f]{16}$")
             self.assertNotIn("elapsed_s", result)
@@ -85,10 +88,15 @@ class TemplateTests(unittest.TestCase):
             self.assertEqual(applied[-1], {"target": .8, "native_speed": 3})
             self.assertTrue(all(value["native_speed"] == 3 for value in applied))
             self.assertEqual(stopped, [])
-            driver.execute("write", {"actions": [.4], "duration_s": .1})
-            self.assertEqual(stopped, [])
-            driver.execute("stop", {})
-            self.assertEqual(stopped, [True])
+            # Stopping before the replacement runs must retain the previous applied goal.
+            with driver.buffer.condition:
+                driver.execute("write", {"actions": [.4, .1], "duration_s": .1})
+                self.assertEqual(stopped, [])
+                driver.execute("stop", {})
+                driver.execute("stop", {})
+                self.assertIsNone(driver.buffer.pending)
+            self.assertEqual(stopped, [{"target": .8, "native_speed": 3}] * 2)
+            self.assertEqual(applied[-1], stopped[-1])
         finally:
             driver.close(stop=False)
 

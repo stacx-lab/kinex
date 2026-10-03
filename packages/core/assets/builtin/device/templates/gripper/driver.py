@@ -34,7 +34,11 @@ class ScalarDriver(Driver):
         raise NotImplementedError("Set target and optional native_speed without waiting")
 
     def halt(self, handle, target):
-        raise NotImplementedError("Perform the declared stop behavior")
+        raise NotImplementedError(
+            "Retain the last applied target and gripping effort; stop direction integration "
+            "without replacing its accumulated goal with measured aperture. "
+            "target is the last applied reference or None before any write; do not close on None"
+        )
 
 
 if __name__ == "__main__":

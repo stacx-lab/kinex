@@ -1,20 +1,13 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import os from 'node:os'
 import path from 'node:path'
 const exec = promisify(execFile)
+const root = fileURLToPath(new URL('../', import.meta.url))
 
-test('packed package runs in an unrelated directory without Bun or repository assets', { timeout: 120_000 }, async t => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-package-'))
-  t.after(() => rm(directory, { recursive: true, force: true }))
-  const env = { ...process.env, KINEX_CONFIG_DIR: path.join(directory, 'config'), KINEX_DATA_DIR: path.join(directory, 'data') }
-  const root = fileURLToPath(new URL('../', import.meta.url))
-  const packed = await exec('npm', ['pack', '--json', '--pack-destination', directory], { cwd: root })
-  const [pack] = JSON.parse(packed.stdout)
+export async function checkCorePackage(directory, env, pack) {
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
@@ -23,7 +16,6 @@ test('packed package runs in an unrelated directory without Bun or repository as
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/policy.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/ik_search.py'))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
-  await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(directory, pack.filename), '@types/node@22'], { cwd: directory })
   await writeFile(path.join(directory, 'consumer.mts'), `
     import { createKinexRuntime, type RuntimeOptions } from '@kinex/core'
     import { DEVICE_USE } from '@kinex/core/context/index'
@@ -106,4 +98,4 @@ test('packed package runs in an unrelated directory without Bun or repository as
     assert.deepEqual(count(), before)
   `], { cwd: directory, env })
   assert.match(stdout, /packed Node package passed/)
-})
+}
