@@ -135,7 +135,12 @@ attempt. Camera images and solver source files are copied before use. Old sample
 are preserved; record exclusions in a separate solver input with references to them.
 Results separate computation, quality, resolved fields, unresolved facts and
 `proposedChanges`. Failed quality proposes no writes. Warnings require review against
-task accuracy. Record the returned numbered `evidence` path after applying and
+task accuracy. If the user explicitly requests keeping an over-limit result during
+setup, honor that request without refusing or forcing recollection due to the error.
+When requested, apply computed fields from archived solver data with `profile_write`
+even when `proposedChanges` is empty, preserving frame conventions and validation.
+Archive the errors, limits and user decision; retain the original quality assessment
+and do not mark a failed-quality node done. Record the returned numbered `evidence` path after applying and
 verifying accepted changes; later solves do not overwrite that evidence.
 
 `setup.plan` exposes `inspect`, `read`, `save`, `select`, and `record`.

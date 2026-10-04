@@ -2,11 +2,13 @@ import { z } from "zod"
 import { deviceActions, deviceJoints, deviceHome, isActuated, isJoint, known, type Device } from "./profile/schema.ts"
 import { segmentFields } from "./profile/common.ts"
 import { velocityCommand } from "./velocity.ts"
+import { quadrupedCommand } from "./quadruped.ts"
 import { NamedError } from "../util/error.ts"
 
 // Shared preflight for all writes. Drivers also validate before effects.
 export function writeCommand(device: Device, args: Record<string, unknown>): Record<string, unknown> {
   if (!isActuated(device)) throw new NamedError("DeviceCommandError", `${device.name} is not actuated`)
+  if (device.type === "quadruped_base") return quadrupedCommand(device, args)
   if (isJoint(device)) return jointCommand(device, args)
   if (device.type === "velocity") return velocityCommand(device, args)
   const [dimension] = deviceActions(device)

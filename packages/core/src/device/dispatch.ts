@@ -8,6 +8,7 @@ import { jointReading } from "./joint.ts"
 import { gripperReading } from "./gripper.ts"
 import { spatialReading } from "./spatial.ts"
 import { velocityReading } from "./velocity.ts"
+import { quadrupedReading } from "./quadruped.ts"
 import { writeCommand } from "./command.ts"
 import { abortable } from "../util/abort.ts"
 import { imuReading } from "./imu.ts"
@@ -46,6 +47,7 @@ export function validateReading(device: Device, reading: DeviceReading): DeviceR
     z.number().parse(reading.data?.timestamp)
   const spatial = spatialReading(device, reading)
   switch (device.type) {
+    case "quadruped_base": return quadrupedReading(device, spatial)
     case "joint":
     case "dexterous_hand": return jointReading(device, spatial)
     case "gripper": return gripperReading(device, spatial)

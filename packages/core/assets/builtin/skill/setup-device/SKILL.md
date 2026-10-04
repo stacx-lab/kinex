@@ -1,7 +1,7 @@
 ---
 name: setup-device
 description: Add a device or repair its driver — choose an instance or type guide, provision its runtime, fill a profile and verify the interface.
-resolves: access:velocity,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,intrinsics:model,access:detection,intrinsics:detection,access:segmentation,intrinsics:segmentation,access:other
+resolves: access:velocity,access:quadruped_base,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,intrinsics:model,access:detection,intrinsics:detection,access:segmentation,intrinsics:segmentation,access:other
 ---
 
 # Set up a device
@@ -94,11 +94,17 @@ Implement read/load/unload/status and the type's declared operations.
 Read/status report actual state; acquisition timestamps identify samples, not
 polling. Drivers adapt native units/axes and transport; shared helpers implement
 common validation/conversion. Follow the type guide for where corrections are
-applied. Actuated writes validate before effects, require positive duration_s
+applied. Buffered actuator writes validate before effects, require positive duration_s
 and replace goals without restarting identical targets.
 Submit the validated buffer and return execution_id and
 measured state immediately. Consume references at the fixed device cadence;
 submission does not promise arrival. Explicit stop clears the affected buffers.
+Quadruped bases declare their write schema and prefer velocity-device names,
+units and duration semantics for equivalent motion. State changes and optional
+skills extend that interface; the driver maps it to the SDK. They still
+validate before effects, return execution_id and measured state, and retain
+replacement, cancellation and stop ownership. Their Setup requires a custom
+device DEVICE.md documenting the verified read/write and state/skill contracts.
 Read/load must not initiate motion or silently clear faults; unload releases
 resources and safely stops active actuation. Attempt recorder shutdown, halt,
 disconnect and owned-service cleanup even if an earlier stage fails; use

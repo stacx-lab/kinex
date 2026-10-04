@@ -20,7 +20,7 @@ export async function roboticsContext(directory: string, enableRecording = false
   ])
   const [robotics, conventions, readiness] = await Promise.all([
     renderRobotSummary(directory, snapshot),
-    deviceConventions(directory, snapshot.devices.filter((device) => device.loaded).map((device) => device.type)),
+    deviceConventions(directory, snapshot.devices.filter((device) => device.loaded)),
     readinessPlan(directory, snapshot),
   ])
   return {

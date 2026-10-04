@@ -1,5 +1,31 @@
 # Current work
 
+## Quadruped base template
+
+- [x] Add an independent quadruped_base template requiring a custom instance Use guide.
+- [x] Describe minimal SDK states/skills, measured readback and explicit writes.
+- [x] Seed crouched_down, stand_still and drive; add states/optional skills only for user needs.
+- [x] Declare control.device_modes and use mode consistently for writes and measured feedback.
+- [x] Prefer velocity-compatible motion parameters, feedback names and expiry semantics; adapt SDK details in drivers.
+- [x] Support SDK-defined writes, optional state graphs and observed state feedback.
+- [x] Validate template resolution, profile schema and state-control contracts.
+
+Validation: full workspace build/typecheck, eight device-management tests, three
+quadruped tests (including the SDK mock scaffold), and frame/readiness/architecture/
+contribution regressions passed. Vendor SDK hooks remain to be implemented during
+device setup; no physical quadruped was exercised.
+
+## Device-specific context
+
+- [x] Prefer optional per-device DEVICE.md Use sections over type guides.
+- [x] Scope guidance to loaded devices and preserve shared fallback precedence.
+- [x] Cover edits, removal, invalid overrides, nested discovery and inert Python state.
+- [x] Validate core typechecking, device-management tests and diff formatting.
+
+Validation: core build/typecheck and all eight device-management tests passed.
+The full core suite was attempted; Python-dependent checks fail with the local
+Python 3.8 interpreter (unsupported modern typing and executor APIs).
+
 ## Version 0.10.1
 
 - [x] Bump VERSION and synchronize all package versions, internal pins and lockfile.

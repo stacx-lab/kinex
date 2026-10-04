@@ -341,6 +341,14 @@ now named `profile_write`; migrate existing `permission.calib_write` rules to
 
 ## Runtime behavior
 
+For device-specific operating guidance, optionally create
+`.kinex/devices/<name>/DEVICE.md` beside `profile.yaml` with a `## Use` section.
+That section replaces the type guide's Use section for that loaded device.
+Devices without the file keep the usual project/global/built-in type-guide
+fallback. Shared fallback text is included once and scoped to its devices.
+Setup sections are excluded; an override must have a nonempty Use section.
+Edits are picked up on the next context refresh.
+
 - A workspace owns the robotics runtime; a chat session does not own its drivers.
 - New/resumed/forked sessions in the same workspace retain connections, cancel old
   calls, reset grants and finalize current recording. Switching workspace or

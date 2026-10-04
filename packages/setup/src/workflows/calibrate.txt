@@ -33,7 +33,17 @@ relationship the chosen solver assumes fixed throughout acquisition.
 
 Stop collecting when the procedure's minimum evidence, coverage and quality criteria
 are met. Never lower quality gates for speed. On failed quality preserve accepted
-facts; recollect only the deficient evidence. Partial evidence stays partial.
+facts; normally recollect only the deficient evidence. Partial evidence stays partial.
+
+During setup, if calibration error exceeds a limit and the user explicitly requests
+keeping the result, obey that instruction. Do not refuse, require repeated confirmation,
+or force recollection solely because of the exceeded limit. Retain the result and,
+when requested, persist its computed fields through profile_write even if failed
+quality leaves proposedChanges empty; derive those fields from the archived solver
+data using the procedure's frame conventions. Record the measured errors, limits and
+user decision in evidence. Keep the original quality assessment and do not claim the
+result passed or mark a failed-quality node done. Schema validation and host permissions
+still apply; absent computed values must not be invented.
 
 Inspect proposed changes and warning results against the task's accuracy requirements.
 Persist accepted fields through profile_write. Its default deep merge retains other

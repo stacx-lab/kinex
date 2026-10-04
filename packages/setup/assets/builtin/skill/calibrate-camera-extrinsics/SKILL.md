@@ -36,4 +36,12 @@ arm attachment frame; eye-to-hand uses the arm base. A world mount requires an
 explicitly established transform. Persist accepted fields, retain residuals in
 evidence, and return to the task once its required transform is available.
 
+During setup, if the user explicitly asks to keep a result despite exceeding the
+error limits above, honor the request; do not refuse or force recollection solely
+because of those limits. When requested, persist the computed fields with
+`profile_write`, using archived solver data if `proposedChanges` is empty. Record
+errors, limits and the user decision in evidence; retain the original quality
+assessment and do not mark a failed-quality node done. Preserve frame conventions,
+profile validation and host permissions; never invent missing computed values.
+
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.
