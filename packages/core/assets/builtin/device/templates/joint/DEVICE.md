@@ -23,6 +23,13 @@ and apply per target; nearest preference is not a hard waypoint-step limit.
 
 home names every joint or is null. feedback declares velocities and efforts. stop declares behavior and affected_devices. intrinsics.frames declares additional references as {parent_frame, translation_m, rotation_xyzw}. A null parent means the device base; either transform component may be null when unknown. extrinsics supplies only a mount or measured pose_frame.
 
+Confirm whether the joint devices have physical brakes `intrinsics.has_brake` during setup.
+For `has_brake: false`, Make sure the robot goes back to home pose when unloading it.
+Set `home_start_tolerance_deg` to small positive number, such as 0.5 to allow joints to
+start from readings outside the limits if `has_brake: false`. Prismatic joints,
+other goals, and absent/unknown brake settings retain strict limits. Native
+limit handling still belongs to the controller. 
+
 ### Frame feedback
 
 Reads and write states omit `frame_poses`; resolve live frames through FK from
@@ -60,6 +67,8 @@ intrinsics:
   model: ???
   kinematics: null
   home: ???
+  has_brake: ???
+  home_start_tolerance_deg: 0.5
   control: ???
   feedback: ???
   stop: ???

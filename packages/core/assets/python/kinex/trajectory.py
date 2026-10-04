@@ -38,10 +38,13 @@ def planning_limits(joints, max_velocity=None, max_acceleration=None):
     return result
 
 
-def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, check_limits=True):
+def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, check_limits=True, start_tolerance=0):
     """Plan a full synchronized quintic; return its references and duration."""
-    start = joint_target(start, joints, check_limits=check_limits)
+    start = joint_target(start, joints, check_limits=False)
     target = joint_target(target, joints, check_limits=check_limits)
+    if check_limits:
+        from kinex.joint_control import recovery_targets
+        recovery_targets([start, target], joints, start_tolerance)
     if not math.isfinite(period_s) or period_s <= 0 or not 0 < fraction <= 1:
         raise ValueError("invalid trajectory period or speed fraction")
     delta, duration = [], period_s
@@ -61,5 +64,9 @@ def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None,
     for tick in range(1, count + 1):
         t = tick / count
         scale = t ** 3 * (10 + t * (-15 + 6 * t))
-        result.append(joint_target([a + d * scale for a, d in zip(start, delta)], joints, check_limits=check_limits))
+        result.append([a + d * scale for a, d in zip(start, delta)])
+    result[-1] = [q if j["type"] == "continuous" else goal
+                  for q, goal, j in zip(result[-1], target, joints)]
+    if check_limits:
+        recovery_targets(result, joints, start_tolerance)
     return Trajectory(actions=result, duration_s=duration)

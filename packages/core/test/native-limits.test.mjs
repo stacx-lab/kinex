@@ -9,6 +9,26 @@ const joint = native => Device.parse({ meta, name: 'arm', type: 'joint', intrins
   control: { mode: 'position', ...(native ? { limit_handling: 'native' } : {}) },
 } })
 
+test('brakeless home recovery bounds the inward prefix without widening other commands', () => {
+  const device = joint(false)
+  Object.assign(device.intrinsics, { has_brake: false, home: { j: 0 } })
+  const check = actions => writeCommand(device, { actions: actions.map(q => [q]), duration_s: 1 })
+  for (const sign of [-1, 1]) check([sign * (1 + 0.5 * Math.PI / 180), sign * 1.004, sign, 0])
+  for (const actions of [[1.09, 0], [1.004, 1.005, 0], [1.004, .9, 1.001, 0], [1.004, .1], [1.004]])
+    assert.throws(() => check(actions), /joint limits/)
+  for (const brake of [true, undefined, '???']) {
+    device.intrinsics.has_brake = brake
+    assert.throws(() => check([1.004, 0]))
+  }
+  device.intrinsics.has_brake = false
+  device.intrinsics.home_start_tolerance_deg = 10
+  check([1.1, 0])
+  device.intrinsics.model.joints[0].type = 'prismatic'
+  assert.throws(() => check([1.001, 0]))
+  for (const tolerance of [-1, Infinity, NaN])
+    assert.throws(() => Device.parse({ ...device, intrinsics: { ...device.intrinsics, home_start_tolerance_deg: tolerance } }))
+})
+
 test('native joint writes delegate range handling but retain finite dimensions and command shape', () => {
   const args = { actions: [[100]], duration_s: .1 }
   assert.throws(() => writeCommand(joint(false), args))

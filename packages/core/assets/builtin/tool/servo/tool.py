@@ -3,6 +3,7 @@
 
 from kinex import args, device, finish, profile
 from kinex.control import read
+from kinex.joint_control import home_start_tolerance
 from kinex.frames import pose as frame_pose
 from kinex.geometry import compose_rt, pose_to_rt, xyzq_to_rt
 from kinex.motion import flat, pose as unit_pose
@@ -45,7 +46,8 @@ def control(a):
     state = read(name)
     plan = trajectory(joints, state["positions"], goal, 0.01,
                       a.get("speedFraction", 1.0), a.get("max_velocity"), a.get("max_acceleration"),
-                      check_limits=prof["intrinsics"]["control"].get("limit_handling") != "native")
+                      check_limits=prof["intrinsics"]["control"].get("limit_handling") != "native",
+                      start_tolerance=home_start_tolerance(prof, joints, goal))
     outcome = device(name, "write", actions=plan.actions, duration_s=plan.duration_s)["data"]
     return {"device": name, "execution_id": outcome["execution_id"], "joints": goal,
             "duration_s": plan.duration_s, "actions_submitted": len(plan.actions)}

@@ -6,6 +6,41 @@ from kinex.motion import joint_target, vector
 from kinex.urdf import read_chain
 
 
+def home_start_tolerance(profile, joints, target):
+    """Only explicitly brakeless joint devices may recover toward declared home."""
+    joint_target(target, joints, check_limits=False)
+    intrinsics = profile["intrinsics"]
+    home = intrinsics.get("home")
+    if profile.get("type") != "joint" or intrinsics.get("has_brake") is not False or not isinstance(home, dict):
+        return 0.0
+    if any(j["name"] not in home or abs(q - home[j["name"]]) > 1e-9 for j, q in zip(joints, target)):
+        return 0.0
+    from kinex.validation import number
+    tolerance = number(intrinsics.get("home_start_tolerance_deg", 0.5), "home_start_tolerance_deg")
+    if tolerance < 0:
+        raise ValueError("home_start_tolerance_deg must be nonnegative")
+    return math.radians(tolerance)
+
+
+def recovery_targets(actions, joints, tolerance):
+    """Allow a bounded, inward-only prefix; the final target remains in limits."""
+    joint_target(actions[-1], joints)
+    previous = None
+    for target in actions:
+        joint_target(target, joints, check_limits=False)
+        for i, (q, joint) in enumerate(zip(target, joints)):
+            limits = joint["limits"]
+            if limits is None:
+                continue
+            margin = tolerance if joint["type"] == "revolute" else 0
+            low, high = limits["min"], limits["max"]
+            if not low - margin <= q <= high + margin:
+                raise ValueError("target outside joint limits recovery tolerance")
+            if previous is not None and ((q < low and not previous[i] <= q) or (q > high and not previous[i] >= q)):
+                raise ValueError("joint limits recovery must move inward")
+        previous = target
+
+
 def joint_model(profile, directory=None):
     if profile.get("resolved_model") is not None:
         return profile["resolved_model"]
@@ -31,7 +66,9 @@ def command(profile, args, model=None):
     if not isinstance(actions, list) or not actions:
         raise ValueError("actions must be a nonempty sequence")
     for target in actions:
-        joint_target(target, joints, check_limits=profile["intrinsics"]["control"].get("limit_handling") != "native")
+        joint_target(target, joints, check_limits=False)
+    if profile["intrinsics"]["control"].get("limit_handling") != "native":
+        recovery_targets(actions, joints, home_start_tolerance(profile, joints, actions[-1]))
     return segment(args, {"actions": actions})
 
 

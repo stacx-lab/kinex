@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { deviceActions, isActuated, isJoint, known, type Device } from "./profile/schema.ts"
+import { deviceActions, deviceJoints, deviceHome, isActuated, isJoint, known, type Device } from "./profile/schema.ts"
 import { segmentFields } from "./profile/common.ts"
 import { velocityCommand } from "./velocity.ts"
 import { NamedError } from "../util/error.ts"
@@ -34,12 +34,25 @@ function jointCommand(device: Device, args: Record<string, unknown>): Record<str
     throw new NamedError("DeviceCommandError", "joint control is unresolved")
   const dimensions = deviceActions(device)
   if (!dimensions.length) throw new NamedError("DeviceCommandError", "joint model is unresolved")
-  const target = z.array(z.number()).length(dimensions.length).superRefine((values, ctx) => {
+  const command = z.strictObject({ actions: z.array(z.array(z.number()).length(dimensions.length)).min(1), ...segmentFields }).parse(args)
+  if (device.intrinsics.control.limit_handling === "native") return command
+  const joints = deviceJoints(device)
+  const home = deviceHome(device)
+  const last = command.actions.at(-1)!
+  const recovery = device.type === "joint" && device.intrinsics.has_brake === false && home
+    && last.every((q, i) => Math.abs(q - home[i]!) <= 1e-9)
+  const tolerance = recovery ? (device.intrinsics.home_start_tolerance_deg ?? 0.5) * Math.PI / 180 : 0
+  for (const [step, values] of command.actions.entries()) {
     for (const [i, value] of values.entries()) {
       const bounds = dimensions[i]!.bounds
-      if (device.intrinsics.control !== "???" && device.intrinsics.control.limit_handling !== "native" && bounds && (value < bounds.min || value > bounds.max))
-        ctx.addIssue({ code: "custom", path: [i], message: "target exceeds joint limits" })
+      if (!bounds) continue
+      const margin = step < command.actions.length - 1 && joints[i]!.type === "revolute" ? tolerance : 0
+      if (value < bounds.min - margin || value > bounds.max + margin)
+        throw new NamedError("DeviceCommandError", "target exceeds joint limits")
+      const previous = command.actions[step - 1]?.[i]
+      if (previous !== undefined && ((value < bounds.min && value < previous) || (value > bounds.max && value > previous)))
+        throw new NamedError("DeviceCommandError", "joint limits recovery must move inward")
     }
-  })
-  return z.strictObject({ actions: z.array(target).min(1), ...segmentFields }).parse(args)
+  }
+  return command
 }

@@ -36,6 +36,8 @@ export const JointKinematics = z.strictObject({
 })
 
 export const jointShape = {
+  has_brake: field(z.boolean()).optional(),
+  home_start_tolerance_deg: z.number().nonnegative().optional(),
   model: field(z.discriminatedUnion("format", [
     z.strictObject({ format: z.literal("urdf"), path: field(z.string().min(1)), base_link: field(z.string().min(1)), tip_link: field(z.string().min(1)) }),
     z.strictObject({ format: z.literal("serial_chain"), joints: Joints, chain: z.array(ChainLink).min(1) }),
