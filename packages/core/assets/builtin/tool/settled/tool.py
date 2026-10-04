@@ -27,25 +27,29 @@ def check(a):
     prof = profile(name)
     joints = prof["resolved_model"]["joints"]
     goal = joint_target(goal, joints, check_limits=prof["intrinsics"]["control"].get("limit_handling") != "native")
-    if not prof["intrinsics"]["feedback"]["velocities"]:
-        raise ValueError("settled requires measured velocities")
 
     def tolerance(key, default):
         value = a.get(key, default)
         return vector(value if isinstance(value, list) else [value] * len(joints), len(joints), key)
 
     spec = {"joint_tolerance": tolerance("joint_tolerance", 0.01),
-            "quiet_velocity": tolerance("quiet_velocity", 0.005), "stable_s": a.get("stable_s", 0.1)}
+            "quiet_velocity": tolerance("quiet_velocity", 0.005), "stable_s": a.get("stable_s", 0.1),
+            "estimate_velocity": not prof["intrinsics"]["feedback"]["velocities"]}
     arrival = Arrival(joints, goal, spec)
     if state.get("device") == name:
         arrival.stamp = previous.get("sample_timestamp")
         if arrival.stamp is not None and state.get("joints") == goal:
             arrival.since = state.get("since_s")
+            if spec["estimate_velocity"]:
+                arrival.history = previous.get("sample_history", [])
+                if not arrival.history:
+                    arrival.since = None
     measured = read(name)
     if measured["faults"]:
         raise RuntimeError(f"{name}: device fault")
     done = arrival.sample(measured, time_s=now)
     state.update(device=name, joints=goal, since_s=arrival.since, sample_timestamp=arrival.stamp)
+    state["sample_history"] = arrival.history
     return {"done": done, "reason": "settled" if done else None, "state": state}
 
 

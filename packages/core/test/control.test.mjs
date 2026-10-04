@@ -638,6 +638,70 @@ test('settled separates sample freshness from world-time stability and timeout',
   assert.equal(device.reads, reads, 'world timeout is checked before device feedback')
 })
 
+test('settled estimates missing velocities from fresh position history across tool processes', async () => {
+  const device = arm({ dof: 1 }), original = device.profile
+  device.profile = () => {
+    const p = original()
+    p.intrinsics.feedback.velocities = false
+    return p
+  }
+  device.read = () => ({ positions: device.positions, velocities: [], faults: [], timestamp: device.clock })
+  let state
+  const check = async (time, timestamp, position = 0, joints = [0], timeout_s) => {
+    device.clock = timestamp
+    device.positions = [position]
+    const out = await dialog(tool('settled'), {
+      context: { time_s: time }, device: 'arm', joints, state, timeout_s,
+    }, { arm: device })
+    if (out.result) state = out.result.state
+    return out
+  }
+  assert.equal((await check(0, 10)).result.done, false)
+  assert.equal((await check(1, 10)).result.done, false)
+  assert.equal(state.sample_history.length, 1, 'cached samples do not fill the window')
+  assert.equal((await check(2, 10.1)).result.done, false, 'two readings are insufficient')
+  assert.equal((await check(2.2, 10.2)).result.reason, 'settled')
+  assert.equal((await check(2.3, 10.3, .009)).result.done, false, 'motion inside goal tolerance is not quiet')
+  assert.equal((await check(2.4, 10.4, 0)).result.done, false, 'oscillation cannot cancel across the window')
+  assert.equal((await check(2.5, 10.5)).result.done, false)
+  assert.equal((await check(2.6, 10.6)).result.done, false)
+  assert.equal((await check(2.8, 10.7)).result.done, true)
+  assert.equal(state.sample_history.length, 3, 'history remains bounded')
+  assert.equal((await check(3, 10.8, 0, [.001])).result.done, false)
+  assert.equal(state.sample_history.length, 1, 'new goals reset history')
+  assert.match((await check(3.1, 10.7, 0, [.001])).stderr, /device sample clock moved backwards/)
+  assert.equal((await check(4, 10.8, 0, [.001], 4)).result.reason, 'timeout')
+})
+
+test('settled position fallback uses device time, wraps continuous joints and still requires arrival', async () => {
+  const device = arm({ dof: 1 }), original = device.profile
+  device.profile = () => {
+    const p = original()
+    p.intrinsics.feedback.velocities = false
+    p.resolved_model.joints[0] = { name: 'j0', type: 'continuous', limits: null }
+    return p
+  }
+  device.read = () => ({ positions: device.positions, faults: [], timestamp: device.clock })
+  let state
+  const check = async (time, timestamp, position) => {
+    device.clock = timestamp
+    device.positions = [position]
+    const out = await dialog(tool('settled'), {
+      context: { time_s: time }, device: 'arm', joints: [Math.PI], state,
+    }, { arm: device })
+    assert.ok(out.result, out.stderr)
+    state = out.result.state
+    return out.result.done
+  }
+  assert.equal(await check(0, 50, Math.PI - .001), false)
+  assert.equal(await check(.2, 51, -Math.PI + .001), false)
+  assert.equal(await check(.4, 52, Math.PI - .001), true)
+  assert.equal(await check(10, 52.001, -Math.PI + .001), false, 'speed uses device time, not world time')
+  assert.equal(await check(11, 53, 0), false)
+  assert.equal(await check(12, 54, 0), false)
+  assert.equal(await check(13, 55, 0), false, 'quiet readings away from the goal cannot establish arrival')
+})
+
 test('settled restarts stability when caller state has no sample timestamp', async () => {
   const device = arm({})
   const { result, stderr } = await dialog(tool('settled'), {

@@ -86,6 +86,7 @@ class Arrival:
         self.joints, self.target, self.spec = joints, target, spec
         self.since = None
         self.stamp = None
+        self.history = []
 
     def sample(self, state, *, time_s=None):
         stamp = vector([state.get("timestamp")], 1, "timestamp")[0]
@@ -99,8 +100,19 @@ class Arrival:
         within = all(abs(e) <= tol for e, tol in zip(errors, self.spec["joint_tolerance"]))
         quiet = self.spec.get("quiet_velocity")
         if quiet is not None:
-            velocity = vector(state.get("velocities"), len(self.joints), "velocities")
-            within = within and all(abs(v) <= tol for v, tol in zip(velocity, quiet))
+            if self.spec.get("estimate_velocity"):
+                if fresh:
+                    positions = vector(state["positions"], len(self.joints), "positions")
+                    self.history = (self.history + [{"timestamp": stamp, "positions": positions}])[-3:]
+                within = within and len(self.history) >= 2
+                for before, after in zip(self.history, self.history[1:]):
+                    dt = after["timestamp"] - before["timestamp"]
+                    changes = [math.atan2(math.sin(q-p), math.cos(q-p)) if j["type"] == "continuous" else q-p
+                               for p, q, j in zip(before["positions"], after["positions"], self.joints)]
+                    within = within and all(abs(change) / dt <= tol for change, tol in zip(changes, quiet))
+            else:
+                velocity = vector(state.get("velocities"), len(self.joints), "velocities")
+                within = within and all(abs(v) <= tol for v, tol in zip(velocity, quiet))
         if not within:
             self.since = None
             return False
@@ -108,4 +120,6 @@ class Arrival:
             return False
         if self.since is None:
             self.since = now
+        if self.spec.get("estimate_velocity") and len(self.history) < 3:
+            return False
         return now - self.since + 1e-9 >= self.spec.get("stable_s", 0)
