@@ -2,7 +2,7 @@ import { currentSignal } from "@kinex/core/scope"
 import { NamedError } from "@kinex/core/util/error"
 import { z } from "zod"
 import { Plan, StoredPlan, Outcome, Task, Fact, ID, Pointer, type PlanNode } from "./schema.ts"
-import { atomicJSON, digest, fail, inspectFacts, location, optionalText } from "./facts.ts"
+import { atomicJSON, digest, fail, inspectFacts, location, missingFacts, optionalText } from "./facts.ts"
 import { procedures, requirements } from "./procedures.ts"
 
 const writes = new Map<string, Promise<unknown>>()
@@ -54,7 +54,7 @@ export async function validatePlan(cwd: string, plan: Plan) {
   const catalog = await procedures(cwd)
   for (const node of plan.nodes) {
     const inputs = await requirements(cwd, node, catalog)
-    const missing = (await inspectFacts(cwd, inputs)).missing
+    const missing = await missingFacts(cwd, inputs)
     const ancestors = closure(plan, node.dependsOn)
     for (const input of missing) {
       const producers = plan.nodes.filter(other => other.id !== node.id && other.outputs.some(output => covers(output, input)))
@@ -109,25 +109,24 @@ async function inspectValidPlan(cwd: string) {
       views.set(node.id, { status: "needs-input", reasons: [error.message] })
       continue
     }
-    const inputs = await inspectFacts(cwd, facts)
-    const outputs = await inspectFacts(cwd, node.outputs)
+    const inputs = await missingFacts(cwd, facts)
     const receipt = plan.receipts[node.id]
-    const evidence = receipt ? await inspectFacts(cwd, receipt.evidence.map(path => ({ kind: "file", path }))) : undefined
-    const changed = receipt && (receipt.definition !== digest(node) || receipt.inputs !== inputs.hash ||
-      receipt.outputs !== outputs.hash || receipt.evidenceHash !== evidence?.hash || receipt.dependencies !== dependencies(plan, node))
-    const stale = receipt?.status === "done" && (changed || deps.length > 0)
-    const status: NodeStatus = stale ? "stale" : deps.length ? "blocked" : inputs.missing.length ? "needs-input" :
-      receipt && !changed ? receipt.status : "ready"
+    const missing = receipt?.status === "done" ? await missingFacts(cwd, [
+      ...node.outputs, ...receipt.evidence.map(path => ({ kind: "file" as const, path })),
+    ]) : []
+    const stale = receipt?.status === "done" && (inputs.length > 0 || missing.length > 0 || deps.length > 0)
+    const status: NodeStatus = stale ? "stale" : deps.length ? "blocked" : inputs.length ? "needs-input" :
+      receipt?.status ?? "ready"
     states.set(node.id, status)
     views.set(node.id, { status, reasons: [
-      ...deps.map(id => `requires ${id}`), ...inputs.missing.map(fact => `missing ${JSON.stringify(fact)}`),
-      ...(stale ? ["Evidence or a dependency changed; reassess the affected facts"] : []),
+      ...deps.map(id => `requires ${id}`), ...inputs.map(fact => `missing ${JSON.stringify(fact)}`),
+      ...(stale ? ["Required facts, outputs, evidence or completed dependencies are missing; reassess the affected facts"] : []),
       ...(receipt?.note ? [receipt.note] : []),
     ] })
   }
   const nodes = plan.nodes.map(node => ({ ...node, ...views.get(node.id)!,
     relevance: active.has(node.id) ? "required-now" : node.optional ? "optional" : "deferred" }))
-  const missing = plan.task ? (await inspectFacts(cwd, plan.task.facts)).missing : []
+  const missing = plan.task ? await missingFacts(cwd, plan.task.facts) : []
   return { revision: plan.revision, task: plan.task, taskSatisfied: plan.task ?
     [...active].every(id => states.get(id) === "done") && !missing.length : null,
   missing, nodes, next: nodes.filter(node => active.has(node.id) && ["ready", "partial", "failed", "stale"].includes(node.status) &&

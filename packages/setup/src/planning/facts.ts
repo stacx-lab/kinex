@@ -1,7 +1,8 @@
 import { shortID } from "@kinex/core/util/id"
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { readFile, mkdir, rename, writeFile } from "node:fs/promises"
+import { readFile, mkdir, rename, writeFile, stat } from "node:fs/promises"
+import { isDeepStrictEqual } from "node:util"
 import { ProfileStore } from "@kinex/core/device/profile/store"
 import { parse as parseYaml } from "yaml"
 import { NamedError } from "@kinex/core/util/error"
@@ -46,6 +47,20 @@ export async function profile(cwd: string, device?: string): Promise<unknown> {
   const file = await location(cwd, device ? `devices/${device}/profile.yaml` : "workspace.yaml")
   const text = await optionalText(file)
   return text === undefined ? undefined : parseYaml(text)
+}
+export async function missingFacts(cwd: string, facts: Fact[]) {
+  const available = await Promise.all(facts.map(async fact => {
+    if (fact.kind === "file") {
+      const file = path.isAbsolute(fact.path) ? fact.path : await location(cwd, fact.path)
+      return stat(file).then(info => info.isFile()).catch((error: unknown) => {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return false
+        throw error
+      })
+    }
+    const value = pointer(await profile(cwd, fact.device), fact.pointer)
+    return known(value) && (!Object.hasOwn(fact, "value") || isDeepStrictEqual(value, fact.value))
+  }))
+  return facts.filter((_fact, index) => !available[index])
 }
 export async function inspectFacts(cwd: string, facts: Fact[]) {
   const values = await Promise.all(facts.map(async fact => {

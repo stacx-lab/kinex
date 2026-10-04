@@ -72,8 +72,8 @@ test('reject cycles, missing dependencies, wrong task targets and stale revision
   assert.deepEqual((await setup.plan.inspect()).next, [])
 })
 
-test('facts, evidence and transitive dependencies invalidate only affected branches', async t => {
-  const { runtime, setup, save, evidence, done } = await fixture(t)
+test('inspection ignores content hashes but missing facts and dependencies still invalidate affected branches', async t => {
+  const { directory, runtime, setup, save, evidence, done } = await fixture(t)
   await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] } } } })
   await evidence()
   await save([node('tcp', { outputs: [fact('arm', '/intrinsics/frames/tcp')] }),
@@ -84,14 +84,46 @@ test('facts, evidence and transitive dependencies invalidate only affected branc
   await runtime.profiles.writeDevice({ name: 'arm', loaded: true })
   assert.equal((await setup.plan.inspect()).taskSatisfied, true)
   await runtime.profiles.writeDevice({ name: 'arm', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: [0.1, 0, 0], rotation_xyzw: [0, 0, 0, 1] } } } })
+  assert.equal((await setup.plan.inspect()).taskSatisfied, true)
+  await rm(path.join(directory, '.kinex/devices/arm/profile.yaml'))
   const states = Object.fromEntries((await setup.plan.inspect()).nodes.map(node => [node.id, node.status]))
   assert.deepEqual(states, { tcp: 'stale', reach: 'stale', independent: 'done' })
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: [0.1, 0, 0], rotation_xyzw: [0, 0, 0, 1] } } } })
   await done('tcp')
-  assert.equal((await setup.plan.inspect()).nodes.find(node => node.id === 'reach').status, 'stale')
+  assert.equal((await setup.plan.inspect()).nodes.find(node => node.id === 'reach').status, 'done')
   await setup.plan.select({ objective: 'Independent task', targets: ['independent'], facts: [] }, (await setup.plan.inspect()).revision)
   assert.equal((await setup.plan.inspect()).taskSatisfied, true)
   await evidence('source.txt', 'Changed evidence')
+  assert.equal((await setup.plan.inspect()).taskSatisfied, true)
+  await rm(path.join(directory, '.kinex/evidence/source.txt'))
   assert.equal((await setup.plan.inspect()).nodes.find(node => node.id === 'independent').status, 'stale')
+})
+
+test('inspection checks file presence and explicit profile values without comparing saved hashes', async t => {
+  const { directory, runtime, setup, save, evidence, done } = await fixture(t)
+  await runtime.profiles.writeDevice({ name: 'sensor', type: 'other', loaded: true })
+  const file = await evidence()
+  const input = await evidence('driver.txt', 'original input')
+  const output = await evidence('output.txt', 'original output')
+  const fileFact = path => ({ kind: 'file', path })
+  const nodes = [node('check', { inputs: [fileFact(input), fact('sensor', '/loaded', true)], outputs: [fileFact(output)] })]
+  await save(nodes, ['check'], [fileFact(input)])
+  await done('check', file)
+  await evidence('driver.txt', 'changed input')
+  await evidence('output.txt', 'changed output')
+  await save([{ ...nodes[0], title: 'Updated title' }], ['check'], [fileFact(input)])
+  assert.equal((await setup.plan.inspect()).taskSatisfied, true)
+  await runtime.profiles.writeDevice({ name: 'sensor', loaded: false })
+  assert.equal((await setup.plan.inspect()).nodes[0].status, 'stale')
+  await runtime.profiles.writeDevice({ name: 'sensor', loaded: true })
+  await rm(path.join(directory, '.kinex', output))
+  assert.equal((await setup.plan.inspect()).nodes[0].status, 'stale')
+  await evidence('output.txt')
+  await rm(path.join(directory, '.kinex', input))
+  const view = await setup.plan.inspect()
+  assert.equal(view.nodes[0].status, 'stale')
+  assert.deepEqual(view.missing, [fileFact(input)])
+  assert.equal(view.taskSatisfied, false)
 })
 
 test('partial TCP facts can satisfy a task while rotation and section request remain unknown', async t => {
