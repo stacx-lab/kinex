@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "roles": {
+    "world": {
+      "types": [
+        "world"
+      ]
+    }
+  },
+  "requires": [],
+  "produces": [
+    {
+      "role": "world",
+      "pointer": "/intrinsics"
+    }
+  ],
+  "computes": [],
+  "quality": "Independent measured world coordinates, with explicit units and uncertainty; reachable arm bounds are not world geometry."
+}

@@ -1,5 +1,5 @@
 import path from "node:path"
-import { CalibrationStore } from "../calibration/store.ts"
+import { ProfileStore } from "../device/profile/store.ts"
 import { Assets } from "../installation/assets.ts"
 import { pythonRuntime } from "./environment.ts"
 
@@ -7,7 +7,7 @@ import { pythonRuntime } from "./environment.ts"
 // implements their dialog; both retain the caller's remaining import paths.
 export async function pythonLaunch(cwd: string, kind: "driver" | "tool", interpreter?: string, signal?: AbortSignal) {
   const runtime = await pythonRuntime(cwd, interpreter, signal)
-  const lib = path.join(await CalibrationStore.workspaceDir(cwd), "lib")
+  const lib = path.join(await ProfileStore.workspaceDir(cwd), "lib")
   const paths = kind === "driver" ? [lib, Assets.python()] : [Assets.python(), lib]
   if (process.env.PYTHONPATH) paths.push(process.env.PYTHONPATH)
   return {

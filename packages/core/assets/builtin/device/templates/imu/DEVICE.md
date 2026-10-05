@@ -4,18 +4,6 @@ type: imu
 description: Inertial measurements with explicit acceleration quantity, measured axes, optional orientation reference and magnetic field. Fixed profile and read-only driver.
 ---
 
-## Use
-
-read returns angular_velocity (rad/s), linear_acceleration (m/s²), magnetic_field (T), and orientation. Vectors are maps containing the declared axes; unsupported channels are null. orientation is unit xyzw, placing the measurement frame in its declared reference.
-
-All vectors use the measurement frame placed by mount; acceleration is measured at its origin. Rotating coordinates does not relocate that measurement: moving the origin requires rotational-motion terms. Harness readings already subtract profile bias once; never subtract it again.
-
-Acceleration quantity:specific_force is a-g: zero in freefall, opposite gravity at rest (+9.81 Z only if +Z points up). gravity_removed is motion acceleration, near zero at rest. Never silently remove gravity or treat it as bias.
-
-Orientation reference: frame uses the actual named frame; startup is relative to the startup epoch, not absolute world. gravity_aligned has +Z up: relative heading uses initial horizontal +X, while magnetic_north/true_north use ENU (+X east,+Y north). Different startup epochs are not comparable. No implicit zeroing/reference reset occurs on load/read.
-
-sample_time_s is acquisition time when available, not polling time; sample_rate_hz is descriptive. Use kinex.imu.read for corrected readings. Fusion/integration are explicit tools. This device is read-only and needs no world.
-
 ## Setup
 
 Load initializes the connection and any owned control/streaming service, waiting
@@ -27,7 +15,8 @@ Copy the starter profile below under the user's chosen device name. Determine wh
 are actually returned and whether acceleration is specific_force or
 gravity_removed. Record unsupported channels as null and unresolved facts as ???.
 Do not infer attitude, magnetic field, position or velocity from the device type.
-See DEVICE.md#use for the fixed profile and runtime contract.
+The starter profile is below. See templates/imu/DEVICE.md in the core Device
+guide roots for the runtime contract.
 
 Record the connection with its closed transport variant. Provision using
 the setup-device skill, and complete connect, disconnect
@@ -155,3 +144,15 @@ extrinsics:
     translation_m: ???
     rotation_xyzw: ???
 ```
+
+## Use
+
+read returns angular_velocity (rad/s), linear_acceleration (m/s²), magnetic_field (T), and orientation. Vectors are maps containing the declared axes; unsupported channels are null. orientation is unit xyzw, placing the measurement frame in its declared reference.
+
+All vectors use the measurement frame placed by mount; acceleration is measured at its origin. Rotating coordinates does not relocate that measurement: moving the origin requires rotational-motion terms. Harness readings already subtract profile bias once; never subtract it again.
+
+Acceleration quantity:specific_force is a-g: zero in freefall, opposite gravity at rest (+9.81 Z only if +Z points up). gravity_removed is motion acceleration, near zero at rest. Never silently remove gravity or treat it as bias.
+
+Orientation reference: frame uses the actual named frame; startup is relative to the startup epoch, not absolute world. gravity_aligned has +Z up: relative heading uses initial horizontal +X, while magnetic_north/true_north use ENU (+X east,+Y north). Different startup epochs are not comparable. No implicit zeroing/reference reset occurs on load/read.
+
+sample_time_s is acquisition time when available, not polling time; sample_rate_hz is descriptive. Use kinex.imu.read for corrected readings. Fusion/integration are explicit tools. This device is read-only and needs no world.

@@ -5,7 +5,7 @@ import { exists } from "../util/filesystem.ts"
 import { NamedError } from "../util/error.ts"
 import { ConfigPaths } from "../config/paths.ts"
 import { abortable } from "../util/abort.ts"
-import { currentScope } from "../scope.ts"
+import { currentSignal } from "../scope.ts"
 import PROJECT from "./project.txt"
 
 // Core owns a project separate from the host coding agent's Python environment.
@@ -88,11 +88,11 @@ async function prepare(cwd: string, onlyIfMissing: boolean, signal?: AbortSignal
 }
 
 // Explicit preparation always synchronizes, including an existing environment.
-export async function preparePython(cwd: string, signal = currentScope().signal) {
+export async function preparePython(cwd: string, signal = currentSignal()) {
   return prepare(cwd, false, signal)
 }
 
-export async function pythonRuntime(cwd: string, interpreter?: string, signal = currentScope().signal) {
+export async function pythonRuntime(cwd: string, interpreter?: string, signal = currentSignal()) {
   signal?.throwIfAborted()
   if (interpreter) return { executable: interpreter, env: { ...process.env } }
   return prepare(cwd, true, signal)

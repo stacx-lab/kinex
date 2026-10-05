@@ -8,43 +8,49 @@ resolves: access:velocity,access:joint,access:gripper,access:dexterous_hand,acce
 
 ## Select the guide
 
-Use the ordered Device guide roots in the system prompt (workspace/project,
+Use the ordered Device guide roots in the current context (workspace/project,
 global, builtin). For the requested family/name, look for `<root>/<name>/DEVICE.md`
 in every root first. If no instance matches, use
 `<root>/templates/<type>/DEVICE.md` in the first root containing it. Establish
 missing type/name information from existing configuration before asking the user.
 Do not substitute a generic template for an available concrete instance.
 
-Read the selected guide's Setup section and its type's Use section. The starter
-profile is the single YAML block under Setup → Profile; copy that data, not the
-illustrative fragments elsewhere in the guide. Template driver.py is executable
-scaffolding. A concrete instance such as SAM3 may also have a substantial setup.sh.
+Read the selected guide's Setup section and its type's Use section. Both are
+available from the same Device guide roots; packaged type guides contain both.
+Use the starter YAML under Setup → Profile, or the generated profile when the
+instance's setup script supplies one. Do not copy illustrative fragments elsewhere
+in the guide. Template driver.py is executable scaffolding. Concrete instances
+may also supply setup.sh and runtime support modules.
 
 ## Prepare and register
 
 1. Inspect existing configuration/SDKs and use the user's supplied facts and
    authorization. Ask only for missing facts. Keep source provenance; unknowns
-   remain ??? and calibration work is queued through calib_write kind=needed.
+   remain ??? and calibration work is queued through profile_write kind=needed.
 2. Prepare the device directory under the workspace's devices/<name>/; keep device
    sources, caches, artifacts and outputs there. Use the shared Kinex core Python
-   by default and record SDK dependencies with `uv add --project .kinex/python PACKAGE`. Use a separate
+   by default and record SDK dependencies with `uv add --project <python.project> PACKAGE`,
+   using the project path from current context. Use a separate
    environment and an explicit interpreter only when required by a vendor/model
    stack or supplied by the user. Include imports used by helpers (for example
    PyYAML, numpy, Pillow). Store credentials in environment variables.
-3. Copy driver.py and complete its SDK hooks. Connection, model, calibration and
+3. Copy driver.py and every runtime support module into the device directory, then
+   complete its SDK hooks. Never retain imports, symlinks or access.driver entries
+   pointing into packaged templates; keep the provisioned driver self-contained
+   apart from core Python helpers and its declared dependencies. Connection, model, calibration and
    command settings come from the actual sibling profile.yaml. The harness puts
    its kinex Python helpers and workspace lib/ on PYTHONPATH. Direct test
    invocations need those paths explicitly. Shared vendor clients belong in lib/.
    World needs a clock driver for read/wait. Remote models need only a thin client;
    local model artifacts are provisioned at their declared paths before loading.
-4. Write the starter profile plus known instance facts through calib_write. Set
+4. Write the starter profile plus known instance facts through profile_write. Set
    all implemented driver actions; omit interpreter for Kinex core Python, or set
    an absolute path for a separate environment. Keep loaded:false
    for new devices. Repairing an existing driver preserves its profile and
    activation state; persistent drivers need /reload or device unload followed by load to pick up edits.
 5. Validate schema, imports and driver syntax without starting the device. Use
    mock SDK tests for conversions, invalid-command rejection and lifecycle.
-   calib_plan checks connection completeness and declared actions. Clear a resolved access request explicitly with needs_calibration:null.
+   The readiness section in current context reports connection completeness and declared actions. Clear a resolved access request explicitly with needs_calibration:null.
    Registration ends unloaded. When activation is part of the authorized task,
    use the device tool action=load (device_act permission); /load is also available.
    Probe readiness with device status or /ping. Real reads/inference and motion
@@ -85,7 +91,7 @@ responses fail with a migration error. Regenerate RoboEnv workspace drivers from
 the updated catalog and reload devices before use.
 
 Only use explicit persistent:false for adapters that require a fresh process
-per call. These run as `<interpreter> driver.py <action> '<JSON args>'` and
+per call. These receive one `{action,args}` JSON line on stdin and
 return one response object; they cannot retain a connection or recording
 between calls or own a long-lived service. Close temporary clients at process
 exit without cancelling accepted asynchronous commands; explicit unload performs
@@ -97,10 +103,9 @@ polling. Drivers adapt native units/axes and transport; shared helpers implement
 common validation/conversion. Force/IMU drivers return raw SI measurements;
 the harness applies profile bias once. Actuated writes validate before effects,
 require positive duration_s and replace goals without restarting identical targets.
-Execute within that device-clock budget and return accepted, elapsed_s, reached
-and the resulting state; an acknowledgment alone is insufficient. SDK hooks in
-the shipped wrappers must return that report. Honor arrive when supplied and
-retain bounded waits when the device clock stalls.
+Submit the validated buffer and return execution_id, submission elapsed_s and
+measured state immediately. Consume references at the fixed device cadence;
+submission does not promise arrival. Explicit stop clears the affected buffers.
 Read/load must not initiate motion or silently clear faults; unload releases
 resources and safely stops active actuation. Attempt recorder shutdown, halt,
 disconnect and owned-service cleanup even if an earlier stage fails; use
@@ -130,8 +135,9 @@ relative to the canonical device frame. Use `device:frame` references and
 separate device directory or driver.
 
 A reusable instance can be saved under a content root's device/<name>/ with
-DEVICE.md (Setup/Profile) and its driver. Type guides have Use and Setup sections;
-keep setup material out of Use, which is injected into normal task context.
+DEVICE.md (Setup/Profile) and its driver. Core type guides contain Setup/Profile and Use together. Workspace/global
+type overrides follow the same format; keep setup material out of Use, which is injected into
+normal task context for loaded devices.
 
 ### Gripper geometry
 

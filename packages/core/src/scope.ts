@@ -6,12 +6,16 @@ export interface RuntimeScope {
   signal?: AbortSignal
   closed?: boolean
   assetsRoot?: string
+  builtinSkillRoots?: readonly string[]
   settings?: CoreSettings
   processes: Set<ManagedProcess>
 }
 
-export const createScope = (options: { assetsRoot?: string; settings?: CoreSettings } = {}): RuntimeScope => ({ ...options, processes: new Set() })
+export const createScope = (options: { assetsRoot?: string; builtinSkillRoots?: readonly string[]; settings?: CoreSettings } = {}): RuntimeScope => ({ ...options, processes: new Set() })
 const storage = new AsyncLocalStorage<RuntimeScope>()
+const signals = new AsyncLocalStorage<AbortSignal>()
+export const currentSignal = () => signals.getStore() ?? currentScope().signal
+export const withSignal = <T>(signal: AbortSignal, run: () => T): T => signals.run(signal, run)
 // Low-level APIs use the application's default scope. Explicit runtimes always
 // bind their own scope, including asynchronous callbacks and background capture.
 const application = createScope()

@@ -1,20 +1,18 @@
 import type { KinexRuntime } from "./runtime.ts"
-import { workflows } from "./workflows/index.ts"
 import { parseSpecs } from "./record/spec.ts"
 import { recordingOutput } from "./record/output.ts"
+import { workflows } from "./workflows/index.ts"
 
 export const roboticsCommands = [
+  { name: "register", description: "Prepare an unloaded device profile", arguments: "<type-or-template>", kind: "workflow" },
+  { name: "unregister", description: "Unload and delete a device", arguments: "<device>", kind: "operation" },
   { name: "devices", description: "List devices and activation intent", arguments: "", kind: "operation" },
   { name: "load", description: "Activate devices", arguments: "<device|all>", kind: "operation" },
   { name: "unload", description: "Deactivate devices", arguments: "<device|all>", kind: "operation" },
   { name: "reload", description: "Restart device drivers", arguments: "<device|all>", kind: "operation" },
   { name: "ping", description: "Inspect live device status", arguments: "<device|all>", kind: "operation" },
   { name: "stop", description: "Stop actuators", arguments: "[device]", kind: "operation" },
-  { name: "unregister", description: "Unload and delete a device", arguments: "<device>", kind: "operation" },
   { name: "record", description: "Capture observations", arguments: "start|snap|stop|status [--verbose] ...", kind: "operation" },
-  { name: "onboarding", description: "Set up a robotics workspace", arguments: "[description]", kind: "workflow" },
-  { name: "register", description: "Prepare an unloaded device profile", arguments: "<type-or-template>", kind: "workflow" },
-  { name: "calibrate", description: "Resolve calibration requirements", arguments: "[scope]", kind: "workflow" },
 ] as const
 
 export type RoboticsCommand = typeof roboticsCommands[number]["name"]
@@ -35,13 +33,20 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
   context.signal?.throwIfAborted()
   const tokens = args.trim().split(/\s+/).filter(Boolean)
   const output = (text: string): CommandResult => ({ kind: "output", text })
-  if (name === "onboarding" || name === "register" || name === "calibrate") {
-    if (name === "register" && !args.trim()) throw new Error("Usage: /register <type-or-template>")
-    return { kind: "workflow", prompt: workflows[name].replaceAll("$ARGUMENTS", () => args.trim()) }
+  if (name === "register") {
+    if (!args.trim()) throw new Error("Usage: /register <type-or-template>")
+    return { kind: "workflow", prompt: workflows.register.replaceAll("$ARGUMENTS", () => args.trim()) }
+  }
+  if (name === "unregister") {
+    const device = tokens[0]
+    if (!device || device === "all" || tokens.length !== 1) throw new Error("Usage: /unregister <device>")
+    if (!await context.confirm(`Unregister ${device}?`, "Unload and delete its profile, driver and local files?")) return output("Cancelled")
+    await runtime.devices.unregister(device, context.signal)
+    return output(`${device} unregistered`)
   }
   if (name === "devices") {
     if (tokens.length) throw new Error("Usage: /devices")
-    return output((await runtime.devices.list()).map(device => `${device.name}: ${device.type}, ${device.loaded ? "loaded" : "unloaded"}`).join("\n") || "No devices. Use /onboarding.")
+    return output((await runtime.devices.list()).map(device => `${device.name}: ${device.type}, ${device.loaded ? "loaded" : "unloaded"}`).join("\n") || "No devices configured.")
   }
   if (name === "stop") {
     if (tokens.length > 1) throw new Error("Usage: /stop [device]")
@@ -50,13 +55,7 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
   }
   if (name === "record") return output(await record(runtime, tokens, context.sessionID))
   const device = tokens[0]
-  if (!device || tokens.length !== 1) throw new Error(`Usage: /${name} <${name === "unregister" ? "device" : "device|all"}>`)
-  if (name === "unregister") {
-    if (device === "all") throw new Error("Unregister requires one device")
-    if (!await context.confirm(`Unregister ${device}?`, "Unload and delete its profile, driver and local files?")) return output("Cancelled")
-    await runtime.devices.unregister(device)
-    return output(`${device} unregistered`)
-  }
+  if (!device || tokens.length !== 1) throw new Error(`Usage: /${name} <device|all>`)
   const names = device === "all"
     ? (await runtime.devices.list()).filter(item => name === "load" ? !item.loaded : item.loaded).map(item => item.name)
     : [device]

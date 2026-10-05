@@ -70,7 +70,7 @@ class _Resolver:
         if frame:
             fixed = prof["intrinsics"]["frames"][frame]
             if fixed == "???":
-                return Edge(node, (name, ""), "static", None, f"intrinsics:{name} frame {frame} is ??? — run calib_plan")
+                return Edge(node, (name, ""), "static", None, f"intrinsics:{name} frame {frame} is ??? — inspect the device profile")
             if fixed is None:
                 return Edge(node, (name, ""), "live", lambda: self.frame_pose(node))
             return Edge(node, (name, ""), "static", lambda: xyzq_to_rt(fixed))
@@ -87,10 +87,10 @@ class _Resolver:
             return Edge(node, self.node(reference), "dynamic", lambda: self.measured_pose(name))
         mount = spatial.get("mount")
         if _missing(mount):
-            raise _FrameError(f"extrinsics:{name} mount is unknown — run calib_plan")
+            raise _FrameError(f"extrinsics:{name} mount is unknown — inspect the device profile")
         parent = self.node(f"{mount['parent']}:{mount['parent_frame']}")
         if any(_missing(mount.get(key)) for key in ("translation_m", "rotation_xyzw")):
-            return Edge(node, parent, "static", None, f"extrinsics:{name} mount is incomplete — run calib_plan")
+            return Edge(node, parent, "static", None, f"extrinsics:{name} mount is incomplete — inspect the device profile")
         return Edge(node, parent, "static", lambda: mount_to_rt(mount))
 
     def discover(self, ref):

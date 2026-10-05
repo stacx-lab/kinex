@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""RGBD camera driver skeleton. Setup: DEVICE.md. Contract: DEVICE.md#use.
+"""RGBD camera driver skeleton. Setup and Use: sibling DEVICE.md in @kinex/core.
+Runtime contract: templates/rgbd/DEVICE.md in the Device guide roots.
 
 Complete the four source hooks; shared capture code validates and encodes output.
 """

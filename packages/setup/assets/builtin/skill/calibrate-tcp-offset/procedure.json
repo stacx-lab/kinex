@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "roles": {
+    "target": {
+      "types": [
+        "gripper"
+      ]
+    },
+    "arm": {
+      "types": [
+        "joint"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "arm",
+      "pointer": "/intrinsics/model"
+    }
+  ],
+  "produces": [
+    {
+      "role": "target",
+      "pointer": "/extrinsics/mount/translation_m"
+    }
+  ],
+  "computes": [
+    "fit-tcp"
+  ],
+  "quality": "At least 4 diverse touches; mean residual < 5 mm good, 5\u201310 mm warning, > 10 mm fails. Does not measure orientation.",
+  "links": [
+    {
+      "child": "target",
+      "parent": "arm"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { createKinexSetup, setupContribution } from "@kinex/setup"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import {
@@ -42,7 +43,7 @@ export async function createApplication(options: ApplicationOptions) {
   try {
     const host = await createAgentSessionRuntime(async ({ cwd: directory, sessionManager, sessionStartEvent }) => {
       const core = await owner.enter(directory)
-      const capabilities = composeContributions(options.contributions?.(core) ?? [coreContribution(core)])
+      const capabilities = composeContributions(options.contributions?.(core) ?? [coreContribution(core), setupContribution(createKinexSetup(core))])
       const settingsManager = settings(directory)
       const compaction = await createCompactionControl()
       let submitWorkflow = async (_prompt: string): Promise<void> => { throw new Error("Session is not initialized") }

@@ -1,0 +1,48 @@
+Resolve calibration needed for the requested scope: $ARGUMENTS
+
+Read setup_plan. If a task scope is supplied, select its required target nodes and
+facts. Without a new scope, resume the active task; with no active task, show available
+calibration choices and ask for the intended objective. Do not exhaust the whole
+backlog unless the user explicitly requests complete calibration.
+
+For missing plans, inspect profiles and matching procedure descriptors (read full:true),
+then author a scoped DAG. Reuse existing verified facts as evidence-backed completed
+nodes, or direct task facts. Bind actual participating devices and attachment frames.
+Choose one applicable method for each output. Add only its real prerequisites;
+arm-local work need not wait for a world survey. Split outputs if a task only needs
+part of a broader calibration. An unrelated calibrated gripper satisfies nothing.
+
+Follow next eligible nodes in authored order, selecting the least burdensome method
+that meets the task's accuracy needs. Load the skill. Use factory/model/simulator
+facts first, and collect physical evidence only for necessary gaps. Batch related
+questions and preparation. Verify participating devices respond before physical prep;
+activation remains an explicit core lifecycle operation with existing permissions.
+
+Start calib_sample with node:<id> or procedure plus bindings; reuse the returned run
+ID. Evidence lives under .kinex/calib/<run>/. Save manual observations, timestamps,
+frame conventions and exclusions there too. Never edit sampler-owned samples.json.
+calib_compute runs bundled offline computations and archives their inputs. For custom
+procedures use host tools and archive their output. Scripts use core Python and its
+library paths from context; missing dependencies require explicit environment repair.
+
+Device/servo writes return immediately. Use world.wait and measured feedback to verify
+arrival; references are not arrival or contact. Respect the selected procedure's speed.
+calib_sample settling requires fresh measured velocities. With no such feedback, use
+independent stationary confirmation. On mobile embodiments, verify any reference
+relationship the chosen solver assumes fixed throughout acquisition.
+
+Stop collecting when the procedure's minimum evidence, coverage and quality criteria
+are met. Never lower quality gates for speed. On failed quality preserve accepted
+facts; recollect only the deficient evidence. Partial evidence stays partial.
+
+Inspect proposed changes and warning results against the task's accuracy requirements.
+Persist accepted fields through profile_write. Its default deep merge retains other
+facts; strict variant changes need a complete section and replace:[section]. Preserve
+source/method/time provenance. Only clear needs_calibration:null when the complete
+section is resolved. Keep diagnostics and evidence outside strict profiles.
+
+Read back outputs, record the node outcome with evidence paths relative to .kinex and
+the current revision, then read setup_plan again. If relevant inputs changed, reassess
+only affected steps. Once task requirements are satisfied, resume the task immediately.
+Report the current result and any necessary next action concisely; leave deferred work
+collapsed. Planning evidence does not certify safe motion or replace host permissions.

@@ -1,4 +1,4 @@
-export { createKinexRuntime, type KinexRuntime, type RuntimeOptions, type RuntimeEvent } from "./runtime.ts"
+export { createKinexRuntime, type KinexRuntime, type RuntimeOptions, type ToolInvocation, type RuntimeEvent } from "./runtime.ts"
 export type { Context, Def, Result, Attachment } from "./tool/tool.ts"
 export { define } from "./tool/tool.ts"
 export { NamedError } from "./util/error.ts"
@@ -13,3 +13,4 @@ export { PermissionAction, PermissionRules, permissionRules, loadPermissionRules
 export type { Activation } from "./device/lifecycle.ts"
 export { roboticsCommands, isRoboticsCommand, executeRoboticsCommand, type RoboticsCommand, type CommandContext, type CommandResult } from "./commands.ts"
 export type { Question, QuestionOption } from "./tool/interaction.ts"
+export type { DeviceTemplateInfo } from "./device/templates.ts"

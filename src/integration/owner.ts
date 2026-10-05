@@ -1,3 +1,4 @@
+import { setupSkillRoots, setupToolNames } from "@kinex/setup"
 import path from "node:path"
 import { createKinexRuntime, type KinexRuntime } from "@kinex/core"
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
@@ -16,7 +17,7 @@ export class RoboticsOwner {
     const directory = path.resolve(cwd)
     if (this.runtime?.directory === directory) return this.runtime
     await this.dispose()
-    this.runtime = createKinexRuntime({ directory, enableRecording: this.enableRecording, host: {
+    this.runtime = createKinexRuntime({ directory, builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames, enableRecording: this.enableRecording, host: {
       ...this.interaction.host,
       exportTrace: async (sessionID, range) => {
         if (this.trace?.getSessionId() !== sessionID) return { sessionID, messages: [] }

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""RGB camera driver skeleton. Setup: DEVICE.md. Contract: DEVICE.md#use.
+"""RGB camera driver skeleton. Setup and Use: sibling DEVICE.md in @kinex/core.
+Runtime contract: templates/rgb/DEVICE.md in the Device guide roots.
 
 Complete the four source hooks; shared capture code validates and encodes output.
 """

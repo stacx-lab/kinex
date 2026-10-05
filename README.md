@@ -75,9 +75,9 @@ environments run without syncing. The ordinary shell environment stays unchanged
 | `/record snap <devices>` | Capture an observation. |
 | `/record stop [success|failure|partial] [summary]` | Finish a recording. |
 | `/record status` | Inspect current and recent recordings. |
-| `/onboarding [description]` | Start a model-guided workspace setup. |
+| `/onboarding [description]` | Prepare the embodiment and current task through a setup DAG. |
 | `/register <type-or-template>` | Ask the model to prepare an unloaded profile. |
-| `/calibrate [scope]` | Start a model-guided calibration workflow. |
+| `/calibrate [scope]` | Resolve only the selected calibration prerequisites. |
 | `/mode [ask|auto|yolo]` | Select the Kinex permission/interaction mode. |
 
 Device names complete with Tab. General coding commands and keybindings use Pi's
@@ -95,9 +95,16 @@ and keep deeper values inline, including Python and workspace tools. Python tool
 returns and calibration samples use the same formatting in model context.
 The device tool's `compact` option still requests single-line JSON.
 
+Setup tracks an agent-authored DAG with `setup_plan`; only the current task's
+prerequisites advance. Unrelated calibration remains deferred, and incomplete
+onboarding never gates device operations. Existing operation checks and permissions
+still apply. `calib_sample` archives attempt evidence; `calib_compute` runs offline
+solvers and proposes profile changes. See [setup API and migration](packages/setup/README.md).
+
 Direct operations run without a model round trip. Only onboarding, registration
-and calibration submit workflows to the model. Their implementation and help live
-in feature contributions shared with the Pi and OpenCode adapters.
+and calibration submit workflows to the model. Core owns registration, unregister,
+provisioning and device guides. Setup owns onboarding and calibration; standalone composes both contributions. Core alone
+can add, remove and operate devices, including control, perception and recording.
 
 ## Control and world time
 
@@ -276,7 +283,9 @@ is the permission name for bash. Approval can be once or for the session. Auto
 modes override configured denies, matching the previous Kinex behavior. Stop is
 always allowed. The model's `record` tool is available only with
 `--enable-recording`; manual `/record` is always available. Unregister still needs
-an explicit interactive confirmation. Tool approvals do not provide an OS sandbox.
+an explicit interactive confirmation. The profile-writing tool and permission are
+now named `profile_write`; migrate existing `permission.calib_write` rules to
+`permission.profile_write`. The old name is not an alias. Tool approvals do not provide an OS sandbox.
 
 ## Runtime behavior
 
@@ -296,7 +305,7 @@ an explicit interactive confirmation. Tool approvals do not provide an OS sandbo
   Pi handles native tool additions where the model supports them; unsupported
   models and tool interface redefinitions can change the cached prefix. This is
   verified with local request fixtures, not measured live cache-hit rates.
-- A tool batch containing any core tool or question executes in order, including
+- A tool batch containing any core/setup tool or question executes in order, including
   mixed coding/robotics batches. Permission denial or cancellation stops later
   calls; completed work is not rolled back. Pure coding batches remain parallel.
 - Images enter SDK history as bytes; replacing the source file does not change
@@ -309,40 +318,45 @@ See [DESIGN.md](DESIGN.md), [the core API](packages/core/README.md) and the
 ## Checks and packaging
 
 ```sh
+python3 -m pip install -r packages/setup/test/requirements.txt
 npm run typecheck
 npm test                         # fake provider, CLI/package, real Linux/macOS PTY
 npm run test:core                # core and independent npm consumption
+npm run test:setup               # onboarding/calibration and setup removal
 npm run test:tui                 # after build
 ```
 
 Tests use mock devices and a local HTTP provider; no paid model API is needed.
-PTY tests need Python 3 and a POSIX host. Do not rebuild core while consumer tests
+PTY tests need Python 3 and a POSIX host; setup solver tests also need NumPy in
+the `python3` interpreter (activate a virtual environment before installing the test
+requirements if needed). Do not rebuild core while consumer tests
 are running. Live provider cache rates and real robot task success require separate
 environment-specific validation.
 
-After building, pack standalone and core with:
+After building, pack standalone, core and setup with:
 
 ```sh
 npm run pack -- /tmp/kinex-release
 ```
 
-Until registry publication, install standalone with its core dependency:
+Until registry publication, install standalone with both package dependencies:
 
 ```sh
 npm install /tmp/kinex-release/kinex-core-0.9.0.tgz \
+  /tmp/kinex-release/kinex-setup-0.9.0.tgz \
   /tmp/kinex-release/kinex-0.9.0.tgz
 ```
 
-GitHub CI checks types, core and standalone, including PTY interaction and package
+GitHub CI checks types, core, setup and standalone, including PTY interaction and package
 relocation. CI uses `.nvmrc` and Python 3.12; no physical devices or paid models.
 
-A `v*` tag must match the standalone and core versions and their exact dependency.
-Before tagging, update both package manifests, the exact `@kinex/core` dependency,
+A `v*` tag must match the standalone, core and setup versions and their exact dependencies.
+Before tagging, update all three package manifests, exact internal dependencies,
 lockfile, CLI version and installation examples. Run
 `node script/release.mjs --check --tag v0.9.0`, complete the checks above, and commit
 the version changes before creating the tag. Release CI reads the tagged commit;
 rerunning an existing tag does not pick up later commits.
-Release CI publishes two npm tarballs plus `SHA256SUMS` as GitHub assets. It does
+Release CI publishes three npm tarballs plus `SHA256SUMS` as GitHub assets. It does
 not publish to npm or bundle Node. Routine builds/tests publish nothing.
 
 ## Use Kinex in another harness
@@ -355,6 +369,8 @@ updated explicitly; robotics code is maintained only in this repository.
 
 `@kinex/core/integration` defines feature contributions for tools, skills, commands
 and namespaced context. Host adapters consume contributions; product entrypoints
-explicitly compose them around a shared runtime. A future `@kinex/real-world` can
-provide onboarding independently without rewriting the host adapters. This release
-does not split that package, add a dynamic feature loader, or change plugin host integrations.
+explicitly compose them around a shared runtime. Standalone explicitly includes
+`@kinex/setup` for onboarding and calibration. Core owns registration, unregister,
+device provisioning and operation; it can be installed alone. See [setup composition and API migration](packages/setup/README.md).
+Native plugins still use their existing packed snapshots; adopting these new APIs
+and packaging setup is a separate update in that project.

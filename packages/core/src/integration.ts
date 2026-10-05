@@ -33,7 +33,7 @@ export function coreContribution(runtime: KinexRuntime): KinexContribution {
   return {
     id: "core", tools: {
       list: () => runtime.tools.list(),
-      call: (name, input, call) => runtime.tools.call(name, input, { sessionID: call.sessionID, callID: call.callID, signal: call.abort }),
+      call: (name, input, call) => runtime.tools.call(name, input, { sessionID: call.sessionID, callID: call.callID, signal: call.abort, ask: call.ask, questions: call.questions }),
     },
     skills: runtime.skills,
     commands: roboticsCommands.map(command => ({
@@ -47,6 +47,7 @@ export function coreContribution(runtime: KinexRuntime): KinexContribution {
       return { instructions: context.instructions, sections: {
         python: JSON.stringify(context.python), guides: context.guideRoots, devices: context.robotics,
         conventions: context.conventions, skills: context.skills ?? "", recording: context.recording ?? "",
+        readiness: context.readiness,
       } }
     },
   }

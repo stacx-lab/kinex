@@ -4,16 +4,6 @@ type: rgbd
 description: Register a RGBD camera with a fixed output profile and a source-specific driver.
 ---
 
-## Use
-
-read returns a color file plus depth_file, dimensions and acquisition sample_time_s/depth_sample_time_s. Color is uint8 RGB PNG; depth is uint16 pgm16_be (P5, maxval 65535), for numerical processing.
-
-Optical axes: X right, Y down, Z forward. Pixel center (0,0) is top-left; u right, v down; outer edges are -0.5 and size-0.5. Mount places the color optical frame in parent_frame. Projection/distortion come from the profile; use kinex.camera helpers. FOV is derived; changed image geometry needs matching calibration.
-
-Depth metres = raw * scale_m_per_unit. quantity:z is optical Z; range is ray length. Reject invalid_value and values outside valid_range_m; reliable_range_m describes quality. registration:color shares the color grid/calibration/frame. registration:native uses depth's projection/distortion and depth_to_color maps depth into color. Never assume depth scale or registration from pixels.
-
-Color/depth timestamps share acquisition Unix seconds; cached frames retain them. Unavailable acquisition times are null with separate received_time_s. Keep paired capture and calibration consistent. fps:null means on-demand. Native recording requires a persistent driver.
-
 ## Setup
 
 Load initializes the connection and any owned control/streaming service, waiting
@@ -21,7 +11,8 @@ for readiness; status only observes. Unload stops active work according to the
 profile and releases every owned resource, even if a cleanup stage fails. Follow
 setup-device for service ownership, partial-startup rollback and exit cleanup.
 
-The Use section is automatically shown for loaded devices of this type.
+The Use section below is automatically shown for loaded devices of this type.
+Before loading, read templates/rgbd/DEVICE.md in the Device guide roots.
 The profile is a strict schema, not a place for SDK prose or arbitrary options.
 
 ### Register and provision
@@ -30,11 +21,13 @@ The profile is a strict schema, not a place for SDK prose or arbitrary options.
    and frame rate. Read existing source configuration first. Obtain factory
    calibration or queue the camera calibration skills; never invent values.
 2. Provision the environment using the setup-device skill.
-   The device directory contains its venv, driver and out/ images. The harness
-   supplies the kinex Python library on PYTHONPATH during driver execution;
-   direct invocations need `<kinex-root>/python` on PYTHONPATH as well.
-3. Merge the starter profile below with the user's name through calib_write. Set the
-   absolute venv interpreter. Keep loaded false; /load controls activation.
+   Keep the driver and out/ images in the device directory. Use shared core Python
+   unless the SDK needs a separate environment. The harness supplies its Python
+   library and workspace lib/ during driver execution; for direct invocations,
+   set PYTHONPATH to python.library and python.workspaceLibrary from current context.
+3. Merge the starter profile below with the user's name through profile_write. Set the
+   interpreter only for a separate environment, using its absolute path; omit it
+   for core Python. Keep loaded false; /load controls activation.
 4. Complete open_stream, grab, close_stream and introspect in driver.py.
    Read connection and active output settings using `settings(HERE)`; do not
    duplicate serials, URLs, geometry or scale as constants in driver code.
@@ -108,16 +101,16 @@ mount:
 ```
 
 This example is a fixed color-optical-frame mount. Whole mount, translation
-or rotation may be `???`. See DEVICE.md#use for axes and transform direction.
+or rotation may be `???`. See the core rgbd Use guide for axes and transform direction.
 For hand-eye calibration use the actual named mounting link, not an assumed
 world frame. Parent motion is resolved through the frame graph.
 
 access/intrinsics/extrinsics carry source, method, calibrated_at. Source uses
 user/calibration/introspected/default/unknown. Method uses
 unknown/factory/introspection/checkerboard/charuco/hand_eye/survey/manual.
-calibrated_at is an ISO UTC timestamp or null. Status is derived by calib_plan
+calibrated_at is an ISO UTC timestamp or null. Readiness is derived
 from the actual fields rather than an independently editable flag.
-calib_write kind needed records the request reason. Clear a resolved request with
+profile_write kind needed records the request reason. Clear a resolved request with
 needs_calibration:null; put measurement diagnostics in calibration results.
 
 ### Driver and recording
@@ -218,3 +211,13 @@ extrinsics:
   calibrated_at: null
   mount: ???
 ```
+
+## Use
+
+read returns a color file plus depth_file, dimensions and acquisition sample_time_s/depth_sample_time_s. Color is uint8 RGB PNG; depth is uint16 pgm16_be (P5, maxval 65535), for numerical processing.
+
+Optical axes: X right, Y down, Z forward. Pixel center (0,0) is top-left; u right, v down; outer edges are -0.5 and size-0.5. Mount places the color optical frame in parent_frame. Projection/distortion come from the profile; use kinex.camera helpers. FOV is derived; changed image geometry needs matching calibration.
+
+Depth metres = raw * scale_m_per_unit. quantity:z is optical Z; range is ray length. Reject invalid_value and values outside valid_range_m; reliable_range_m describes quality. registration:color shares the color grid/calibration/frame. registration:native uses depth's projection/distortion and depth_to_color maps depth into color. Never assume depth scale or registration from pixels.
+
+Color/depth timestamps share acquisition Unix seconds; cached frames retain them. Unavailable acquisition times are null with separate received_time_s. Keep paired capture and calibration consistent. fps:null means on-demand. Native recording requires a persistent driver.

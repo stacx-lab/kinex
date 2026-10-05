@@ -1,33 +1,33 @@
 # Current work
 
-`dev` is the long-lived integration branch for combined fixes. Its PR to `main`
-collects those changes; individual fix branches integrate into `dev`.
+Task-scoped embodiment onboarding is implemented. An agent-authored DAG selects
+only prerequisites needed for the current task; incomplete calibration is never a
+new execution gate.
 
-- [x] Make servo submit full planned trajectories and report computed duration.
-- [x] Expose optional `budget: {elapsed_s, max_s}` in seconds on world reads only.
-- [x] Migrate callers and documentation; cover execution, interruption, budget
-  validation and model-visible results with regression tests.
-- [x] Validate the combined changes with typecheck, standalone tests and core tests.
-- [x] Move tool arguments, inline source and one-shot driver requests to stdin.
-- [x] Cover large payloads, startup ordering, image references and interruption.
-- [x] Normalize near-unit pose quaternions and frame estimates within 0.001;
-  test boundaries, invalid inputs, IK, frame consumers and strict profile checks.
-- [x] Trim agent-facing world usage to clock, budget and geometry essentials.
-- [x] Report headless recording refusals and add source-preserving CLI HTML export.
-- [x] Verify export aliases, older sessions, errors, interruption and packaging.
-- [x] Build and pack the combined changes.
+CI and release workflows install the setup solver tests' pinned NumPy dependency;
+local installation is documented. The degenerate-survey test now requires
+a successful computation with degenerate geometry, so missing dependencies cannot
+masquerade as a passing quality-rejection test. All 24 setup tests passed in fresh
+Python 3.12 and 3.13 environments with only the declared test dependency installed.
 
-Combined validation passed: typecheck, 69 standalone tests and 115 core tests,
-including 12 Python motion tests. Standalone/core build and local release
-packaging also passed.
-Execution tests used mock devices and temporary Python drivers.
-Local runtime benchmarks showed no noticeable latency regression for 1 KiB and
-32 KiB requests. Transport documentation stays in developer references; no new
-model-facing instructions were added.
+- [x] Persist plans, task scopes, dependency validation and evidence reconciliation.
+- [x] Add procedure descriptors and isolated calibration attempts.
+- [x] Replace calib_plan/device_calibrate with setup_plan/calib_compute.
+- [x] Refactor existing skills and add base interface, motion and posture verification.
+- [x] Update workflows, public APIs, permissions, migration and documentation.
+- [x] Validate synthetic solvers, task scopes, compositions, permissions and cancellation.
+- [x] Run typecheck and full standalone/core/setup suites.
+- [x] Finish final build, packaging and diff checks after the last descriptor refinements.
 
-Servo returns immediately; physical arrival still requires measured feedback.
-RoboEnv must report budget values already converted to seconds; Kinex does not
-convert legacy count/unit budgets or enforce the allowance. Provider changes and
-native plugin snapshots remain separate updates.
-Custom Python tools/drivers reading request payloads from argv must migrate to
-`kinex.args()` or `kinex.driver_protocol.run`; images remain file references.
+Validation on Node 22.19: 69 standalone, 127 core and 24 setup tests passed (220
+total). The final setup rerun covers an operational base mode alongside an
+incomplete unused mode. Checks also cover partial TCP facts, concrete dual-arm
+bindings, moving torso/base attachments, stale transitive dependencies, deferred
+procedure errors, solver quality gates, owned-process cancellation and relocated
+package consumption/removal. Ten skills, Python syntax and local Markdown links
+validated. Existing operation validation and host permissions remain intact.
+
+Physical hardware and live simulator acceptance remain separate validation work.
+Native plugin snapshots were not changed. Final build and three-package packing
+passed; artifacts and SHA256SUMS are in /tmp/kinex-task-scoped-release. No packages
+were published.

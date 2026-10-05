@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "roles": {
+    "target": {
+      "types": [
+        "rgb",
+        "rgbd"
+      ]
+    }
+  },
+  "requires": [],
+  "produces": [
+    {
+      "role": "target",
+      "pointer": "/intrinsics/color/projection"
+    },
+    {
+      "role": "target",
+      "pointer": "/intrinsics/color/distortion"
+    }
+  ],
+  "computes": [
+    "camera-intrinsics"
+  ],
+  "quality": "At least 10 usable frames; RMS <= 1 px. Warn at RMS >= 0.5 px or incomplete image coverage."
+}

@@ -3,11 +3,11 @@ import { spawnProcess } from "../util/process.ts"
 import { abortable } from "../util/abort.ts"
 import { z } from "zod"
 import { pythonDiagnostic } from "../python/environment.ts"
-import { deviceModel, deviceModelError } from "../calibration/device-model.ts"
+import { deviceModel, deviceModelError } from "../device/device-model.ts"
 import { deviceInputValues } from "./device-input.ts"
 import path from "node:path"
 import { formatJSON } from "../util/json.ts"
-import { CalibrationStore } from "../calibration/store.ts"
+import { ProfileStore } from "../device/profile/store.ts"
 import { matchesDeviceType } from "../device/profile/schema.ts"
 import { stopOwnedMotions } from "../device/dispatch.ts"
 import { callDevices, DeviceCallSchema, DeviceCallsSchema } from "./device/calls.ts"
@@ -35,9 +35,9 @@ const MAX_DEPTH = 8
 // prompt for a doomed run) and again on composed calls.
 async function missingDeviceTypes(cwd: string, manifest: PyToolInfo["manifest"]): Promise<string[]> {
   if (manifest.devices.length === 0) return []
-  const robot = await CalibrationStore.readManifest(cwd)
+  const robot = await ProfileStore.readManifest(cwd)
   if (!robot) return [...manifest.devices]
-  const devices = await CalibrationStore.listDevices(cwd)
+  const devices = await ProfileStore.listDevices(cwd)
   const loaded = devices.filter((device) => device.loaded).map((device) => device.type)
   // Richer device types satisfy their base contract (RGBD and segmentation).
   return manifest.devices.filter(
@@ -52,7 +52,7 @@ async function validateInputs(cwd: string, info: PyToolInfo, args: Record<string
     for (const value of deviceInputValues(args, info.manifest.parameters, parameter)) {
       if (typeof value !== "string") throw new PyToolError(`device input "${parameter}" must name a device`)
       const name = input.frame ? value.split(":")[0]! : value
-      const device = await CalibrationStore.readDevice(cwd, name)
+      const device = await ProfileStore.readDevice(cwd, name)
       // The frame graph also recognizes the conventional world frame without a geometry profile.
       if (!device && input.frame && value === "world" && input.types.includes("world")) continue
       if (!device) throw new PyToolError(`device input "${parameter}": unknown device "${name}"`)
@@ -64,7 +64,7 @@ async function validateInputs(cwd: string, info: PyToolInfo, args: Record<string
 }
 
 const missingDevicesError = (name: string, missing: string[]) =>
-  `tool "${name}" requires a loaded device of type ${missing.join(", ")} — none is loaded. /register one or /load an existing device first`
+  `tool "${name}" requires a loaded device of type ${missing.join(", ")} — none is loaded. configure an instance or /load an existing device first`
 
 // The harness first sends {args, source?} on stdin. The tool then writes one JSON
 // object per stdout line — either a request {"call": ...} (harness answers with one JSON
@@ -117,7 +117,7 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
   }
-  const robot = await CalibrationStore.readManifest(cwd)
+  const robot = await ProfileStore.readManifest(cwd)
   if (call === "robot") {
     if (!robot) return { ok: false, error: "no robot is onboarded in this project" }
     return { ok: true, robot }
@@ -126,7 +126,7 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
     if (!robot) return { ok: false, error: "no robot is onboarded in this project" }
     const name = request["device"]
     if (typeof name !== "string") return { ok: false, error: "profile needs a device name" }
-    const device = await CalibrationStore.readDevice(cwd, name)
+    const device = await ProfileStore.readDevice(cwd, name)
     if (!device && request["optional"] === true) return { ok: true, profile: null }
     if (!device) return { ok: false, error: `no device "${name}" for robot ${robot.identity.id}` }
     const error = deviceModelError(device)

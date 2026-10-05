@@ -7,6 +7,7 @@ import DESCRIPTION from "./device.txt"
 
 export const DeviceTool = define("device", {
   description: DESCRIPTION,
+  recordingOrigin: "agent",
   parameters: DeviceCallSchema.extend({
     compact: z.boolean().default(false).describe("single-line JSON output — use in polling/sampling loops"),
     verbose: z.boolean().default(true).describe("keep all result fields; false omits empty optional feedback"),

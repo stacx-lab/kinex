@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { glob } from "tinyglobby"
 import path from "node:path"
 import { contentRoots } from "../config/content.ts"
+import { currentScope } from "../scope.ts"
 import { Assets } from "../installation/assets.ts"
 import { exists } from "../util/filesystem.ts"
 
@@ -11,9 +12,9 @@ export interface SkillInfo {
   file: string
   directory: string
   // Calibration skills: comma-separated selectors this skill can resolve —
-  // exact calib_plan item ids (intrinsics:wrist_cam) or <section>:<device type>
-  // patterns (intrinsics:rgb). Surfaced in <available_skills> so /calibrate
-  // can match queue items without loading every skill.
+  // exact readiness item ids (intrinsics:wrist_cam) or <section>:<device type>
+  // patterns (intrinsics:rgb). Surfaced in <available_skills> so setup workflows
+  // can match requests without loading every skill.
   resolves?: string
   // Same selector grammar, opposite direction: calibration items that must be
   // DONE before this skill is usable. Advisory — the skill tool warns about
@@ -43,7 +44,7 @@ export function parseFrontmatter(text: string): { meta: Record<string, string>; 
 export async function listSkills(cwd: string): Promise<SkillInfo[]> {
   const skills: SkillInfo[] = []
   const seen = new Set<string>()
-  for (const skillDir of await contentRoots(cwd, "skill", builtinDir())) {
+  for (const skillDir of [...await contentRoots(cwd, "skill", builtinDir()), ...(currentScope().builtinSkillRoots ?? [])]) {
     if (!(await exists(skillDir))) continue
     const pattern = "**/SKILL.md"
     for (const entry of (await glob(pattern, { cwd: skillDir, dot: true })).sort()) {

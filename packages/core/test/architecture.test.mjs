@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../', import.meta.url))
 test('core source imports stay inside the package and have no host dependencies', async () => {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
+  assert.ok(!('@kinex/setup' in manifest.dependencies))
   const allowed = new Set(Object.keys(manifest.dependencies))
   async function visit(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {

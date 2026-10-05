@@ -44,7 +44,7 @@ with TemporaryDirectory() as directory:
 })
 
 test('all FastWAM variants register typed operation contracts and pinned artifacts', async () => {
-  const { createKinexRuntime } = await import('../dist/index.js')
+  const { createKinexRuntime } = await import('@kinex/core')
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-fastwam-'))
   const runtime = createKinexRuntime({ directory })
   try {

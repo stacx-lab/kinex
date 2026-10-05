@@ -2,7 +2,7 @@ import { scoped } from "../scope.ts"
 import fs from "node:fs"
 import fsp from "node:fs/promises"
 import path from "node:path"
-import { CalibrationStore } from "../calibration/store.ts"
+import { ProfileStore } from "../device/profile/store.ts"
 import { isModel, type Device } from "../device/profile/schema.ts"
 import { loadConfig, recordConfig, type RecordConfig } from "../config/config.ts"
 import { observeDevices, type DeviceEvent } from "../device/observe.ts"
@@ -27,9 +27,6 @@ export class RecordError extends NamedError {
   }
 }
 
-// Tools whose device traffic is the agent's own hand; anything else running
-// (python tools) is attributed by name.
-const AGENT_TOOLS = new Set(["device", "device_stop", "calib_sample", "device_calibrate"])
 const MAX_DATA_CHARS = 64_000
 const MANIFEST_INTERVAL_MS = 1_000
 const TOOL_WINDOWS = 64
@@ -39,6 +36,7 @@ const OWN_ORIGINS = new Set(["snap", "sampler", "stream"])
 interface ToolWindow {
   callID: string
   name: string
+  origin?: "agent"
   start: number
   end?: number
 }
@@ -70,7 +68,7 @@ interface Active {
 
 export type RecordingEvent = { type: "recording.changed" } | { type: "recording.warning"; message: string }
 export type ExecutionEvent =
-  | { type: "tool"; callID: string; name: string; status: "running" | "completed" | "error"; isError?: boolean }
+  | { type: "tool"; callID: string; name: string; status: "running" | "completed" | "error"; isError?: boolean; origin?: "agent" }
   | { type: "message"; sessionID: string; id: string; completed: boolean }
 export interface RecorderHost {
   emit?(event: RecordingEvent): void
@@ -91,7 +89,7 @@ const state = scoped<State>(() => ({ windows: [], host: {}, pending: new Set(), 
 function attribution(wall: number): { origin: string; callID?: string } {
   const window = state().windows.findLast((entry) => entry.start <= wall && (entry.end === undefined || entry.end >= wall))
   if (!window) return { origin: "harness" }
-  return { origin: AGENT_TOOLS.has(window.name) ? "agent" : `tool:${window.name}`, callID: window.callID }
+  return { origin: window.origin ?? `tool:${window.name}`, callID: window.callID }
 }
 
 function onExecutionEvent(event: ExecutionEvent) {
@@ -99,7 +97,7 @@ function onExecutionEvent(event: ExecutionEvent) {
   if (event.type === "tool") {
     const part = event
     if (part.status === "running") {
-      state().windows.push({ callID: part.callID, name: part.name, start: Date.now() })
+      state().windows.push({ callID: part.callID, name: part.name, origin: part.origin, start: Date.now() })
       if (state().windows.length > TOOL_WINDOWS) state().windows.splice(0, state().windows.length - TOOL_WINDOWS)
       if (!active) return
       timeline(active, { kind: "tool.start", callID: part.callID, name: part.name })
@@ -375,7 +373,7 @@ function nameFor(kind: RecordingManifest["kind"], instruction: string | undefine
 }
 
 async function resolveDevice(active: Active, name: string): Promise<Device | string> {
-  const device = await CalibrationStore.readDevice(active.cwd, name)
+  const device = await ProfileStore.readDevice(active.cwd, name)
   if (!device) return `no device "${name}" in this workspace`
   if (!device.loaded) return `device "${name}" is unloaded — activate it through the device tool or /load`
   if (device.type === "world" || isModel(device)) return `${device.type} devices have nothing to record`
@@ -413,7 +411,7 @@ async function configure(active: Active, specs: Record<string, DeviceSpec>): Pro
 async function open(cwd: string, kind: RecordingManifest["kind"], sessionID: string, instruction: string | undefined): Promise<Active> {
   const current = state().active
   if (current) throw new RecordError(`already recording ${current.manifest.id} ("${current.manifest.name}") — record stop first`)
-  const robot = await CalibrationStore.readManifest(cwd)
+  const robot = await ProfileStore.readManifest(cwd)
   if (!robot) throw new RecordError("no robot is onboarded in this project — nothing to record")
   const robotID = robot.identity.id
   const config = recordConfig(await loadConfig(cwd))
@@ -441,7 +439,7 @@ async function open(cwd: string, kind: RecordingManifest["kind"], sessionID: str
   const writer = createWriter()
   const active: Active = {
     cwd,
-    workspace: await CalibrationStore.workspaceDir(cwd),
+    workspace: await ProfileStore.workspaceDir(cwd),
     dir,
     config,
     manifest,

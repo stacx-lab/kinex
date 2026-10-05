@@ -30,12 +30,12 @@ async function custom(cwd, name, body) {
 
 for (const denied of [
   { name: 'device', args: { deviceID: 'sensor', action: 'load' } },
-  { name: 'calib_write', args: { kind: 'robot', data: { identity: { name: 'must not change' } } } },
+  { name: 'profile_write', args: { kind: 'robot', data: { identity: { name: 'must not change' } } } },
   { name: 'denied_controller', args: {} },
 ]) {
   test(`${denied.name} denial stops mixed-batch siblings and the session can continue`, async t => {
     const { cwd, fake, app } = await fixture(t, 'ask')
-    await writeFile(path.join(cwd, '.kinex/kinex.json'), JSON.stringify({ permission: { write: 'allow', calib_write: 'deny' } }))
+    await writeFile(path.join(cwd, '.kinex/kinex.json'), JSON.stringify({ permission: { write: 'allow', profile_write: 'deny' } }))
     await custom(cwd, 'sibling', `import {writeFile} from 'node:fs/promises';import path from 'node:path';export default {
       description:'Sibling marker',execute:async(_,ctx)=>{await writeFile(path.join(ctx.directory,'core-started'),'started');return {title:'marker',output:'started'}}
     }`)

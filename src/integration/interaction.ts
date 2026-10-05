@@ -1,3 +1,4 @@
+import { setupPermissionDefaults } from "@kinex/setup"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { PermissionDeniedError, QuestionDeclinedError, kinexPermissionAction, loadPermissionRules, type RuntimeOptions, type Question } from "@kinex/core"
@@ -40,7 +41,7 @@ export class Interaction {
       const { ctx, signal } = this.current()
       const key = `${ctx.sessionManager.getSessionId()}:${request.permission}`
       if (request.permission === "device_stop" || this.mode !== "ask" || this.grants.has(key)) return
-      const action = kinexPermissionAction(request.permission, await loadPermissionRules(ctx.cwd))
+      const action = kinexPermissionAction(request.permission, await loadPermissionRules(ctx.cwd), setupPermissionDefaults)
       if (action === "allow") return
       if (action === "ask" && ctx.hasUI) {
         const choice = await this.dialog(() => ctx.ui.select(`Kinex: ${request.permission}\n${request.description}`, ["Allow once", "Allow for this session", "Deny"], { signal }))

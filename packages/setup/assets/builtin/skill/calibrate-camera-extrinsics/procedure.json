@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "roles": {
+    "target": {
+      "types": [
+        "rgb",
+        "rgbd"
+      ]
+    },
+    "arm": {
+      "types": [
+        "joint"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "target",
+      "pointer": "/intrinsics/color/projection"
+    },
+    {
+      "role": "target",
+      "pointer": "/intrinsics/color/distortion"
+    },
+    {
+      "role": "arm",
+      "pointer": "/intrinsics/model"
+    }
+  ],
+  "produces": [
+    {
+      "role": "target",
+      "pointer": "/extrinsics/mount"
+    }
+  ],
+  "computes": [
+    "camera-extrinsics"
+  ],
+  "quality": "At least 5 diverse pairs; rotation residual <= 2 degrees and translation residual <= 10 mm."
+}

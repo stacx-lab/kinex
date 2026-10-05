@@ -3,7 +3,7 @@ import { scoped } from "../scope.ts"
 import { spawnProcess } from "../util/process.ts"
 import { pythonDiagnostic } from "../python/environment.ts"
 import path from "node:path"
-import { CalibrationStore } from "../calibration/store.ts"
+import { ProfileStore } from "./profile/store.ts"
 import { pythonLaunch } from "../python/launch.ts"
 import { NamedError } from "../util/error.ts"
 import { exists } from "../util/filesystem.ts"
@@ -42,7 +42,7 @@ function timeoutMs(device: Device): number {
 export async function driverPath(cwd: string, device: Device): Promise<string | undefined> {
   const driver = device.access?.driver
   if (!driver) return undefined
-  return path.join(await CalibrationStore.deviceDir(cwd, device.name), driver.entry)
+  return path.join(await ProfileStore.deviceDir(cwd, device.name), driver.entry)
 }
 
 // Declared AND present on disk — what the access:<device> calibration item checks.
@@ -92,13 +92,13 @@ interface DriverProcess extends ServeProcess {
 const serving = scoped(() => new Map<string, DriverProcess>())
 
 export async function isServing(cwd: string, deviceName: string): Promise<boolean> {
-  const entry = serving().get(await CalibrationStore.deviceDir(cwd, deviceName))
+  const entry = serving().get(await ProfileStore.deviceDir(cwd, deviceName))
   return entry !== undefined && entry.stopping === undefined && entry.proc.exitCode === null
 }
 
 // The /unload half of the lifecycle: close stdin and await exit (no-op when none).
 export async function stopServing(cwd: string, deviceName: string): Promise<void> {
-  const key = await CalibrationStore.deviceDir(cwd, deviceName)
+  const key = await ProfileStore.deviceDir(cwd, deviceName)
   const entry = serving().get(key)
   if (!entry) return
   await terminate(entry, true)
@@ -114,7 +114,7 @@ function failServing(entry: DriverProcess, error: unknown): void {
 // Control frame, never a model-visible device action. A scoped stop also
 // cancels cooperative SDK hooks in the other drivers it physically affects.
 export async function interruptServing(cwd: string, name: string, requestID?: string): Promise<void> {
-  const entry = serving().get(await CalibrationStore.deviceDir(cwd, name))
+  const entry = serving().get(await ProfileStore.deviceDir(cwd, name))
   if (!entry || entry.stopping || entry.proc.exitCode !== null) return
   const id = crypto.randomUUID()
   const response = Promise.withResolvers<Record<string, unknown>>()
@@ -164,7 +164,7 @@ async function runServe(
   signal?: AbortSignal,
   admission?: CommandAdmission,
 ): Promise<DeviceReading> {
-  const key = await CalibrationStore.deviceDir(cwd, device.name)
+  const key = await ProfileStore.deviceDir(cwd, device.name)
   const entry = await (async () => {
     const existing = serving().get(key)
     if (existing?.stopping) await existing.stopping

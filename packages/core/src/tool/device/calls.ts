@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { CalibrationStore } from "../../calibration/store.ts"
+import { ProfileStore } from "../../device/profile/store.ts"
 import { dispatchDevice } from "../../device/dispatch.ts"
 import { lifecycleAction } from "../../device/lifecycle.ts"
 import { isCommandAction } from "../../device/interface.ts"
@@ -32,11 +32,11 @@ class DeviceCallError extends NamedError {
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 export async function callDevices(calls: Call[], ctx: Context, options: Options = {}): Promise<CallResult[]> {
-  const robot = await CalibrationStore.readManifest(ctx.directory)
-  if (!robot) throw new DeviceCallError("No robot is configured. Run /onboarding first.")
+  const robot = await ProfileStore.readManifest(ctx.directory)
+  if (!robot) throw new DeviceCallError("No robot is configured. Configure the workspace manifest and device profiles first.")
   const prepared = await Promise.all(calls.map(async call => {
     try {
-      const device = await CalibrationStore.readDevice(ctx.directory, call.deviceID)
+      const device = await ProfileStore.readDevice(ctx.directory, call.deviceID)
       if (!device) throw new DeviceCallError(`no device "${call.deviceID}" in this workspace`)
       const lifecycle = call.action === "load" || call.action === "unload"
       if (options.kind && lifecycle) throw new DeviceCallError("load/unload are unavailable inside Python tools; use the device tool")

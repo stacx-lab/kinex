@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 const exec = promisify(execFile)
 const root = fileURLToPath(new URL('../', import.meta.url))
 
-test('standalone and core tarballs install and relocate without plugin packages', { timeout: 180000 }, async t => {
+test('standalone, setup and core tarballs install and relocate without plugin packages', { timeout: 180000 }, async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'kinex-install-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const pack = async cwd => {
@@ -17,9 +17,10 @@ test('standalone and core tarballs install and relocate without plugin packages'
     return path.join(directory, JSON.parse(stdout)[0].filename)
   }
   const core = await pack(path.join(root, 'packages/core'))
+  const setup = await pack(path.join(root, 'packages/setup'))
   const standalone = await pack(root)
   const installed = path.join(directory, 'installed')
-  await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', installed, core, standalone])
+  await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', installed, core, setup, standalone])
   const relocated = path.join(directory, 'relocated')
   await rename(installed, relocated)
   for (const name of ['pi', 'opencode', 'codex']) await assert.rejects(stat(path.join(relocated, 'node_modules/@kinex', name)), { code: 'ENOENT' })

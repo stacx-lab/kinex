@@ -1,13 +1,15 @@
 # Design
 
-Kinex combines one robotics core with standalone and native-host entrypoints.
+Kinex combines an operational robotics core and optional setup features with
+standalone and native-host entrypoints.
 Hardware and simulators share the same device contracts.
 
 ## Structure
 
 | Location | Owns |
 | --- | --- |
-| `packages/core/src`, `packages/core/assets` | Robotics runtime, business rules and shipped content; no agent/UI dependencies. |
+| `packages/core/src`, `packages/core/assets` | Device registration/removal, provisioning, runtime, schemas, validation, Python/tools, setup-device and complete device guides; no setup/agent/UI dependencies. |
+| `packages/setup` | Onboarding and calibration tools, procedures and assets; depends on core. |
 | `src` | Standalone CLI, isolated coding storage and product policy; published Pi SDKs supply the coding harness and TUI. |
 | `src/integration` | Standalone Pi integration and product policy, independent of native plugins. |
 | `../kinex-plugins` (separate project) | Native Pi, OpenCode and Codex integrations consuming a packed core snapshot. |
@@ -15,8 +17,13 @@ Hardware and simulators share the same device contracts.
 `KinexContribution` exposes tools, skills, commands and context. Products explicitly
 compose contributions; adapters translate host APIs. Compatible feature changes
 flow through these catalogs without per-feature adapter code. New interaction or
-lifecycle semantics still require adaptation. Future `real-world` can use this
-contract; extraction and a shared default composition module remain deferred.
+lifecycle semantics still require adaptation. Standalone composes core and setup by
+default. Core-only consumers retain all
+utilities needed to provision, register, remove and operate devices, including lifecycle, transforms,
+kinematics, perception, control, recording and lazy Python preparation. Setup borrows
+the runtime through tracked operations/tool execution; the runtime owns cancellation,
+recording attribution and disposal. Unregister lives in core and holds its device
+transition fence through deactivation and deletion.
 
 ## Core contracts
 
@@ -64,7 +71,10 @@ contract; extraction and a shared default composition module remain deferred.
   poses attached to its child and parent frames, using declared,
   live and call-local estimated edges, preferring fewer estimates; samples are
   cached only within a call. `???` is unresolved; `null` follows field semantics.
-  Calibration writes are validated and planning is read-only. FK/IK uses declared
+  Calibration writes are validated; plan inspection is read-only. Setup owns a persisted,
+  agent-authored DAG with task-selected prerequisites and evidence-backed outcomes.
+  Unrelated or incomplete calibration never becomes a global execution gate.
+  Profile completeness is descriptive; each operation retains its own validation. FK/IK uses declared
   geometry or driver solvers; readiness, world bounds and IK do not certify safe
   or collision-free motion.
   Shared Python pose validation and call-local frame estimates normalize xyzw
@@ -138,14 +148,17 @@ project; core remains host-independent.
 
 ## Delivery
 
-This npm workspace releases standalone and core with aligned versions and an exact
-internal dependency. Node >=22.19; standalone uses Pi SDK 0.87.1. Native plugins
+This npm workspace releases standalone, core and setup with aligned versions and
+exact internal dependencies. Setup imports core package exports; core never imports
+setup. Provisioning copies runtime driver support into the workspace so configured
+devices continue operating after setup is uninstalled. Node >=22.19; standalone uses
+Pi SDK 0.87.1. Native plugins
 have independent versions and SDK dependencies in `kinex-plugins`. They import
 `@kinex/core` through its package exports, consuming a checked-in tarball snapshot
 with checksum and source provenance; no core source is maintained in that project.
 Standalone and the native Pi plugin own separate host glue so their SDK upgrades
 are independent. Core does not import either host integration.
 
-CI checks core, standalone, real PTY behavior and relocated packages before
-producing two tarballs. See [core API](packages/core/README.md),
-[usage](README.md) and [progress](PLAN.md).
+CI checks core, setup, standalone, real PTY behavior and relocated packages before
+producing three tarballs. See [core API](packages/core/README.md),
+[setup API](packages/setup/README.md), [usage](README.md) and [progress](PLAN.md).

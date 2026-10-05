@@ -9,7 +9,7 @@ export { dispatchDevice } from "../../device/dispatch.ts"
 export function noRobot(): Result {
   return {
     title: "no robot configured",
-    output: "No robot is configured in this project. Run the /onboarding command first.",
+    output: "No robot is configured in this project. Configure the workspace manifest and device profiles first.",
     isError: true,
   }
 }
@@ -17,7 +17,7 @@ export function noRobot(): Result {
 export function unknownDevice(deviceID: string): Result {
   return {
     title: "unknown device",
-    output: `no device "${deviceID}" in this workspace — see the <robot> block or run calib_plan`,
+    output: `no device "${deviceID}" in this workspace — see the <robot> block`,
     isError: true,
   }
 }

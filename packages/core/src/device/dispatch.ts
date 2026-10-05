@@ -12,7 +12,7 @@ import { imuReading } from "./imu.ts"
 import { modelOperation, modelInput, modelOutput } from "./model.ts"
 import { forceTorqueReading } from "./force-torque.ts"
 import path from "node:path"
-import { CalibrationStore } from "../calibration/store.ts"
+import { ProfileStore } from "./profile/store.ts"
 import { known, isJoint, type Device } from "./profile/schema.ts"
 import { runDriver, isServing, stopServing, interruptServing, type DeviceReading } from "./driver.ts"
 import { mockAct } from "./virtual.ts"
@@ -59,7 +59,7 @@ export async function dispatchDevice(
   origin?: string,
   signal?: AbortSignal,
 ): Promise<DeviceReading> {
-  const workspace = await CalibrationStore.workspaceDir(cwd)
+  const workspace = await ProfileStore.workspaceDir(cwd)
   return dispatchInWorkspace(workspace, device, action, args, origin, signal)
 }
 
@@ -140,7 +140,7 @@ export async function probeDevice(cwd: string, device: Device): Promise<ProbeRes
 }
 
 export async function queueActivation(cwd: string, device: Device, signal?: AbortSignal) {
-  const workspace = await CalibrationStore.workspaceDir(cwd)
+  const workspace = await ProfileStore.workspaceDir(cwd)
   signal?.throwIfAborted()
   const ready = dispatchInWorkspace(workspace, device, "load", {}, undefined, signal)
   void ready.catch(() => {})
@@ -148,7 +148,7 @@ export async function queueActivation(cwd: string, device: Device, signal?: Abor
 }
 
 export async function deactivateDevice(cwd: string, device: Device): Promise<void> {
-  const workspace = await CalibrationStore.workspaceDir(cwd)
+  const workspace = await ProfileStore.workspaceDir(cwd)
   inactive().add(path.join(workspace, "devices", device.name))
   const errors: unknown[] = []
   if (device.access?.driver?.actions.includes("stop") || "stop" in device.intrinsics)
@@ -161,9 +161,9 @@ export async function deactivateDevice(cwd: string, device: Device): Promise<voi
 }
 
 export async function stopOwnedMotions(cwd: string, owner: string): Promise<void> {
-  const workspace = await CalibrationStore.workspaceDir(cwd)
+  const workspace = await ProfileStore.workspaceDir(cwd)
   const results = await Promise.allSettled(ownedMotions(owner).filter(key => path.dirname(key) === path.join(workspace, "devices")).map(async key => {
-    const device = await CalibrationStore.readDevice(cwd, path.basename(key))
+    const device = await ProfileStore.readDevice(cwd, path.basename(key))
     if (device?.loaded) await dispatchDevice(cwd, device, "stop", {}, owner)
   }))
   const failures = results.filter(result => result.status === "rejected")

@@ -1,9 +1,0 @@
-Read one calibration sample into .kinex/calib/<routine>/samples.json. Returns the
-new sample and running count. Use note to identify the collection step. Samples
-contain measured state and timestamps; this tool cannot command or load devices.
-
-Optional settle waits for the declared measured velocity channels to remain below
-the threshold over distinct samples. Unsupported/malformed feedback and faults are
-errors. Cached readings do not establish stability. A timeout after a reading saves
-that reading with settled:false; cancellation saves nothing. Without settle, the
-sample makes no claim of stationary motion.

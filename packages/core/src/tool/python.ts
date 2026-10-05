@@ -11,7 +11,7 @@ const requiresNote = (manifest: ToolManifest) => {
     parts.push(`Needs loaded devices: ${manifest.devices.join(", ")} — the run is refused when a type has no loaded instance.`)
   for (const [parameter, input] of Object.entries(manifest.device_inputs))
     parts.push(`Device input ${parameter}: ${input.types.join(" | ")} (checked against the selected device).`)
-  if (manifest.requires) parts.push(`Requires calibration: ${manifest.requires} — check calib_plan before relying on the result.`)
+  if (manifest.requires) parts.push(`Requires calibration: ${manifest.requires} — check profile readiness before relying on the result.`)
   return parts.length > 0 ? `\n\n${parts.join("\n")}` : ""
 }
 

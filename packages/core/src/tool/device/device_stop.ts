@@ -2,21 +2,22 @@ import { stopDevices } from "../../device/stop.ts"
 import { z } from "zod"
 import { define } from "../tool.ts"
 import { noRobot } from "./shared.ts"
-import { CalibrationStore } from "../../calibration/store.ts"
+import { ProfileStore } from "../../device/profile/store.ts"
 import { known, isActuated } from "../../device/profile/schema.ts"
 import DESCRIPTION from "./device_stop.txt"
 
 // Deliberately never permission-gated: a stop must not wait on a prompt.
 export const DeviceStopTool = define("device_stop", {
   description: DESCRIPTION,
+  recordingOrigin: "agent",
   parameters: z.object({
     deviceID: z.string().optional().describe("device to stop; omit to stop every loaded actuated device"),
     reason: z.string().optional().describe("why the stop was triggered"),
   }),
   execute: async (args, ctx) => {
-    const robot = await CalibrationStore.readManifest(ctx.directory)
+    const robot = await ProfileStore.readManifest(ctx.directory)
     if (!robot) return noRobot()
-    const devices = await CalibrationStore.listDevices(ctx.directory)
+    const devices = await ProfileStore.listDevices(ctx.directory)
     const targets = devices.filter((device) =>
       args.deviceID
         ? device.name === args.deviceID
