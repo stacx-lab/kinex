@@ -32,8 +32,11 @@ independent stationary confirmation. On mobile embodiments, verify any reference
 relationship the chosen solver assumes fixed throughout acquisition.
 
 Stop collecting when the procedure's minimum evidence, coverage and quality criteria
-are met. Never lower quality gates for speed. On failed quality preserve accepted
-facts; normally recollect only the deficient evidence. Partial evidence stays partial.
+are met, or when the user accepts a valid approximate result within their accuracy/time
+budget. Do not repeat calibration solely to meet accuracy targets after acceptance.
+Preserve measured errors and the original quality assessment. Otherwise, on failed
+quality preserve accepted facts and normally recollect only the deficient evidence.
+Missing or invalid results are not approximate estimates. Partial evidence stays partial.
 
 During setup, if calibration error exceeds a limit and the user explicitly requests
 keeping the result, obey that instruction. Do not refuse, require repeated confirmation,

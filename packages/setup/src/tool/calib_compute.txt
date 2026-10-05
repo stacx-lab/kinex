@@ -4,8 +4,11 @@ with concrete device-role bindings. First use creates an isolated attempt. Use t
 procedure descriptor returned by setup_plan full:true for roles and computations.
 Custom procedure code runs through existing host tools, not this offline registry.
 
-Results distinguish computation, quality and exact resolved fields. Inspect warning
-results against the task's accuracy needs; failed quality cannot establish a fact.
+Results distinguish computation, quality and exact resolved fields.
+Valid computed results that miss accuracy targets may still be accepted within
+the user's accuracy/time budget. Do not repeat calibration solely to meet those
+targets when the user accepts the result. Preserve measured errors and the original
+quality assessment; never treat missing or invalid results as approximate estimates.
 Apply accepted proposedChanges with core profile_write, preserving unrelated facts.
 Proposed patches never clear calibration requests automatically. A pivot solve
 measures translation only; RGB-D color calibration does not measure depth facts.
