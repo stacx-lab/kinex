@@ -6,6 +6,7 @@ import {
   ModelRuntime, SessionManager, type CreateAgentSessionOptions,
 } from "@earendil-works/pi-coding-agent"
 import { paths, sessionDirectory, settings } from "./settings.ts"
+import { prepareAuthPath } from "./auth.ts"
 import { RoboticsOwner } from "./integration/owner.ts"
 import { kinexExtension } from "./integration/extension.ts"
 import { createCompactionControl } from "./integration/compaction.ts"
@@ -28,9 +29,10 @@ export interface ApplicationOptions {
 export async function createApplication(options: ApplicationOptions) {
   const cwd = path.resolve(options.cwd)
   const storage = paths()
+  const authPath = await prepareAuthPath(storage.agent, storage.state)
   const owner = new RoboticsOwner(options.enableRecording ?? false, options.mode ?? "ask")
   const modelRuntime = await ModelRuntime.create({
-    authPath: path.join(storage.state, "auth.json"), modelsPath: path.join(storage.agent, "models.json"),
+    authPath, modelsPath: path.join(storage.agent, "models.json"),
     modelsStorePath: path.join(storage.state, "models-cache.json"), allowModelNetwork: false,
   })
   const sessionDir = sessionDirectory(cwd)

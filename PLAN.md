@@ -1,5 +1,19 @@
 # Current work
 
+## Extension child-session credentials
+
+- [x] Keep credentials in data storage and provide a managed Pi agent-directory auth link.
+- [x] Use the same credential entrypoint and OAuth lock in the host and SDK-default child sessions.
+- [x] Preserve conflicting auth files; cover concurrent startup, empty SDK files and credential updates.
+- [x] Complete final standalone validation and remove the local btw workaround.
+
+Validation: build/typecheck and diff checks passed. The standalone run passed 73
+checks; ten failures (including the package parent result) used unsupported system
+Python 3.8. With Python 3.11, all 24 auth, extension, shutdown, PTY and packed-consumer
+checks passed, including the final auth changes. The installed btw extension is
+restored to its original version. Restart Kinex to establish the managed auth link;
+real provider requests were not used for validation.
+
 ## Quadruped base template
 
 - [x] Add an independent quadruped_base template requiring a custom instance Use guide.

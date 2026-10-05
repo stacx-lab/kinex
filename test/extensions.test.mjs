@@ -86,3 +86,59 @@ test('extension settings require arrays and unrelated resources remain disabled'
     await assert.rejects(createApplication({ cwd, model: 'fake/test' }), new RegExp(`${key} (must be an array|is not supported)`))
   }
 })
+
+test('SDK-default extension child sessions share Kinex OAuth credentials and auth locks', async t => {
+  const cwd = await workspace(t)
+  await fakeProvider(t, isolation.root)
+  const state = path.join(isolation.root, 'data', 'agent')
+  await mkdir(state, { recursive: true })
+  const authFile = path.join(state, 'auth.json')
+  const credential = { type: 'oauth', access: 'test-access', refresh: 'test-refresh', expires: Date.now() + 3600000 }
+  await writeFile(authFile, JSON.stringify({ 'openai-codex': credential }))
+  t.after(() => rm(authFile, { force: true }))
+  const file = path.join(cwd, 'child-session.ts')
+  await writeFile(file, `
+    import assert from 'node:assert/strict'
+    import { ModelRuntime, createAgentSession, DefaultResourceLoader, SessionManager, getAgentDir } from '@earendil-works/pi-coding-agent'
+    import { AuthStorage } from '${new URL('../node_modules/@earendil-works/pi-coding-agent/dist/core/auth-storage.js', import.meta.url).href}'
+    import { lock } from '${new URL('../node_modules/proper-lockfile/index.js', import.meta.url).href}'
+    import { join } from 'node:path'
+    export default function (pi) {
+      pi.registerCommand('probe-child-auth', {
+        async handler(_args, ctx) {
+          const model = ctx.modelRegistry.find('openai-codex', 'gpt-5.4') ?? ctx.modelRegistry.getAll().find(m => m.provider === 'openai-codex')
+          assert.ok(model)
+          const runtime = await ModelRuntime.create({ allowModelNetwork: false })
+          const loader = new DefaultResourceLoader({ cwd: ctx.cwd, agentDir: getAgentDir(), noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true })
+          await loader.reload()
+          const { session } = await createAgentSession({ cwd: ctx.cwd, model, sessionManager: SessionManager.inMemory(ctx.cwd), resourceLoader: loader, noTools: true })
+          try {
+            assert.equal((await runtime.getAuth(model)).auth.apiKey, 'test-access')
+            assert.equal((await session.modelRuntime.getAuth(model)).auth.apiKey, 'test-access')
+            assert.equal((await ctx.modelRegistry.getApiKeyAndHeaders(model)).apiKey, 'test-access')
+            const auth = AuthStorage.create()
+            const release = await lock(join(getAgentDir(), 'auth.json'), { realpath: false })
+            let finished = false
+            const update = auth.modify('openai-codex', current => ({ ...current, access: 'updated-test-access' })).then(() => { finished = true })
+            try {
+              await new Promise(resolve => setTimeout(resolve, 50))
+              assert.equal(finished, false, 'SDK credential updates wait for the shared auth lock')
+            } finally { await release() }
+            await update
+            assert.equal((await runtime.getAuth(model)).auth.apiKey, 'updated-test-access')
+            assert.equal((await session.modelRuntime.getAuth(model)).auth.apiKey, 'updated-test-access')
+            assert.equal((await ctx.modelRegistry.getApiKeyAndHeaders(model)).apiKey, 'updated-test-access')
+            pi.appendEntry('child-auth-passed', {})
+          } finally { session.dispose() }
+        }
+      })
+    }
+  `)
+  await configure(path.join(cwd, '.kinex', 'agent', 'settings.json'), { extensions: [file] })
+  const app = await createApplication({ cwd, model: 'fake/test' })
+  t.after(() => app.dispose())
+  await bind(app)
+  await app.host.session.prompt('/probe-child-auth')
+  assert.ok(app.host.session.sessionManager.getEntries().some(entry => entry.type === 'custom' && entry.customType === 'child-auth-passed'))
+  assert.equal(JSON.parse(await readFile(authFile, 'utf8'))['openai-codex'].access, 'updated-test-access')
+})

@@ -247,7 +247,11 @@ transition fence through deactivation and deletion.
 
 ## Host contracts
 
-Trusted commands and model calls stay separate. Hosts own approval UI, session
+Trusted commands and model calls stay separate. Standalone credentials remain
+in Kinex data storage. A managed agent-directory auth link
+gives the host and SDK-default extension child sessions the same credential and
+lock path, including OAuth refreshes. Conflicting auth entries are never overwritten.
+Hosts own approval UI, session
 identity and cancellation. Standalone retains devices across same-workspace
 sessions while ending outgoing recordings; workspace replacement/quit disposes them.
 Robotics-containing batches execute in order. Denial/cancellation stops subsequent

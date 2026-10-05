@@ -290,6 +290,7 @@ Kinex uses separate storage from Pi and from legacy Kinex coding sessions:
 | `$KINEX_CONFIG_DIR/agent/settings.json` | Pi-format coding settings. |
 | `$KINEX_CONFIG_DIR/agent/models.json` | Pi-format custom providers and models. |
 | `$KINEX_DATA_DIR/agent/auth.json` | SDK credentials. |
+| `$KINEX_CONFIG_DIR/agent/auth.json` | Managed link to the data-directory credentials, shared with Pi extension child sessions. |
 | `$KINEX_DATA_DIR/agent/sessions/` | SDK JSONL sessions, grouped by workspace. |
 | `.kinex/agent/settings.json` | Project coding settings. |
 | `.kinex/kinex.json` or `kinex.json` | Existing core permissions and recording settings. |
@@ -303,6 +304,11 @@ agent-directory override to the Kinex configuration directory. It does not use
 command templates and session formats are not migrated.
 
 Kinex supports Pi extensions.
+At startup Kinex creates the credential link above, replacing an empty SDK auth
+file if necessary. Existing nonempty files or links to another destination cause
+a startup error and are left untouched. The host and SDK-default child sessions
+use the configuration-directory entrypoint and its lock for OAuth refreshes.
+Restart Kinex after upgrading; extensions do not need a Kinex-specific auth path.
 
 For a local model, for example, `agent/models.json` can contain:
 
