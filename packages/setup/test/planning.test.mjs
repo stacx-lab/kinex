@@ -74,7 +74,7 @@ test('reject cycles, missing dependencies, wrong task targets and stale revision
 
 test('facts, evidence and transitive dependencies invalidate only affected branches', async t => {
   const { runtime, setup, save, evidence, done } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', intrinsics: { frames: { tcp: [0, 0, 0, 0, 0, 0, 1] } } })
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] } } } })
   await evidence()
   await save([node('tcp', { outputs: [fact('arm', '/intrinsics/frames/tcp')] }),
     node('reach', { dependsOn: ['tcp'] }), node('independent')], ['reach'])
@@ -83,7 +83,7 @@ test('facts, evidence and transitive dependencies invalidate only affected branc
   assert.equal((await setup.plan.inspect()).taskSatisfied, true)
   await runtime.profiles.writeDevice({ name: 'arm', loaded: true })
   assert.equal((await setup.plan.inspect()).taskSatisfied, true)
-  await runtime.profiles.writeDevice({ name: 'arm', intrinsics: { frames: { tcp: [0.1, 0, 0, 0, 0, 0, 1] } } })
+  await runtime.profiles.writeDevice({ name: 'arm', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: [0.1, 0, 0], rotation_xyzw: [0, 0, 0, 1] } } } })
   const states = Object.fromEntries((await setup.plan.inspect()).nodes.map(node => [node.id, node.status]))
   assert.deepEqual(states, { tcp: 'stale', reach: 'stale', independent: 'done' })
   await done('tcp')
@@ -125,7 +125,7 @@ test('a usable base mode is not blocked by unknown bounds in an unused mode', as
   const unused = { velocity: { frame: 'body', components: [{ axis: 'wz', units: 'rad/s', bounds: '???' }] }, posture: null }
   await runtime.profiles.writeDevice({ name: 'base', type: 'velocity', intrinsics: {
     control: { mode: 'motion', body_frame: 'base', modes: { drive, unused } },
-    feedback: { clock: 'simulation', pose_frame: null, velocity_frame: 'base', velocity_components: ['vx'] },
+    feedback: { velocity_frame: 'base', velocity_components: ['vx'] },
     stop: { behavior: 'halt', affected_devices: ['base'] },
   } })
   await save([node('drive-check', { kind: 'verify', skill: 'verify-base-motion', bindings: { base: 'base' },
@@ -179,13 +179,13 @@ test('reference compositions preserve moving attachments without forcing world c
     await runtime.profiles.writeManifest({ identity: { id: composition.kind, name: composition.kind, platform: 'sim', kind: composition.kind } })
     await runtime.profiles.writeDevice({ name: 'world', type: 'world' })
     if (composition.parent !== 'world') {
-      await runtime.profiles.writeDevice({ name: 'base', type: 'velocity', intrinsics: { frames: { torso: null },
-        feedback: { pose_frame: null, velocity_frame: 'base', velocity_components: ['vx', 'vy', 'wz'], clock: 'simulation' } } })
+      await runtime.profiles.writeDevice({ name: 'base', type: 'velocity', intrinsics: { frames: { torso: { parent_frame: null, translation_m: null, rotation_xyzw: null } },
+        feedback: { velocity_frame: 'base', velocity_components: ['vx', 'vy', 'wz'] } } })
       if (composition.parent !== 'base') await runtime.profiles.writeDevice({ name: composition.parent, type: 'joint',
-        intrinsics: { frames: { [composition.frame]: null } }, extrinsics: { mount: { parent: 'base', parent_frame: 'base' } } })
+        intrinsics: { frames: { [composition.frame]: { parent_frame: null, translation_m: null, rotation_xyzw: null } } }, extrinsics: { mount: { parent: 'base', parent_frame: 'base' } } })
     }
     for (const arm of composition.arms) await runtime.profiles.writeDevice({ name: arm, type: 'joint',
-      intrinsics: { frames: { flange: null } }, extrinsics: { mount: { parent: composition.parent, parent_frame: composition.frame,
+      intrinsics: { frames: { flange: { parent_frame: null, translation_m: null, rotation_xyzw: null } } }, extrinsics: { mount: { parent: composition.parent, parent_frame: composition.frame,
         translation_m: '???', rotation_xyzw: '???' } } })
     for (const [index, tool] of composition.tools.entries()) await runtime.profiles.writeDevice({ name: tool,
       type: tool.endsWith('hand') ? 'dexterous_hand' : 'gripper',

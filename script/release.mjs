@@ -4,20 +4,12 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { checkVersion } from './version.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const locations = ['packages/core', 'packages/setup', '.']
-const packages = await Promise.all(locations.map(async location => ({ location, ...JSON.parse(await readFile(path.join(root, location, 'package.json'), 'utf8')) })))
-const version = packages.at(-1).version
+const { version, packages } = await checkVersion(root)
 const tagIndex = process.argv.indexOf('--tag')
 if (tagIndex >= 0) assert.equal(process.argv[tagIndex + 1], `v${version}`, 'Release tag must match package versions')
-for (const pkg of packages) {
-  assert.equal(pkg.version, version, `${pkg.name} version differs`)
-  for (const dependency of packages) {
-    const requested = pkg.dependencies?.[dependency.name]
-    if (requested) assert.equal(requested, dependency.version, `${pkg.name} must pin ${dependency.name}`)
-  }
-}
 if (!process.argv.includes('--check')) {
   const output = process.argv[2]
   if (!output || output.startsWith('--')) throw new Error('Usage: node script/release.mjs OUTPUT_DIRECTORY [--tag vVERSION], or --check [--tag vVERSION]')

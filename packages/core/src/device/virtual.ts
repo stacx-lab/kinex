@@ -1,3 +1,7 @@
+import { mkdirSync, writeFileSync } from "node:fs"
+import path from "node:path"
+import { crc32, deflateSync } from "node:zlib"
+import { shortID } from "../util/id.ts"
 import { scoped } from "../scope.ts"
 import { z } from "zod"
 import { NamedError } from "../util/error.ts"
@@ -40,17 +44,68 @@ function mockState(workspace: string, device: Device): MockState {
   return created
 }
 
+function pngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length)
+  const chunk = Buffer.concat([Buffer.from(type), data])
+  const checksum = Buffer.alloc(4)
+  checksum.writeUInt32BE(crc32(chunk))
+  return Buffer.concat([length, chunk, checksum])
+}
+
+function mockCamera(workspace: string, device: Extract<Device, { type: "rgb" | "rgbd" }>, output: unknown, timestamp: number): DeviceReading {
+  if (!known(device.intrinsics.color)) throw new NamedError("DeviceProfileError", "Mock camera needs color geometry")
+  const { width, height } = device.intrinsics.color
+  if (!known(width) || !known(height)) throw new NamedError("DeviceProfileError", "Mock camera needs known dimensions")
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8
+  header[9] = 2
+  const images: Record<string, Buffer> = { color: Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(Buffer.alloc(height * (width * 3 + 1)))), pngChunk("IEND", Buffer.alloc(0)),
+  ]) }
+  if (device.type === "rgbd") {
+    const depth = device.intrinsics.depth
+    if (!known(depth) || !known(depth.width) || !known(depth.height)) throw new NamedError("DeviceProfileError", "Mock camera needs known depth dimensions")
+    const pixels = Buffer.alloc(depth.width * depth.height * 2)
+    for (let offset = 0; offset < pixels.length; offset += 2) pixels.writeUInt16BE(depth.invalid_value, offset)
+    images.depth = Buffer.concat([Buffer.from(`P5\n${depth.width} ${depth.height}\n65535\n`), pixels])
+  }
+  const reading: DeviceReading = { deviceID: device.name, kind: device.type, data: { timestamp } }
+  if (output !== undefined && output !== "file") {
+    reading.data = { timestamp, ...Object.fromEntries(Object.entries(images).map(([key, bytes]) => [key, bytes.toString("base64")])) }
+    return reading
+  }
+  const directory = path.join(workspace, "devices", device.name, "out")
+  mkdirSync(directory, { recursive: true })
+  const id = shortID()
+  for (const [key, bytes] of Object.entries(images)) {
+    const file = path.join(directory, `${id}.${key === "color" ? "png" : "pgm"}`)
+    writeFileSync(file, bytes)
+    if (key === "color") reading.filePath = file
+    else reading.data = { ...reading.data, depth_file: file }
+  }
+  return reading
+}
+
 function mockRead(workspace: string, device: Device): DeviceReading {
   const state = mockState(workspace, device)
   if (device.type === "world") return { deviceID: device.name, kind: device.type, data: { time_s: clocks().get(workspace) ?? 0 } }
   const frames = "frames" in device.intrinsics ? device.intrinsics.frames : {}
-  const poses = Object.fromEntries(Object.keys(frames).filter((name) => frames[name] === null).map((name) => [name, [0, 0, 0, 0, 0, 0, 1]]))
+  const poses = Object.fromEntries(Object.keys(frames).filter((name) => frames[name]!.translation_m === null || frames[name]!.rotation_xyzw === null).map((name) => [name, [0, 0, 0, 0, 0, 0, 1]]))
   if (isVelocity(device) && known(device.intrinsics.feedback)) return {
     deviceID: device.name, kind: device.type,
-    data: { pose: device.intrinsics.feedback.pose_frame === null ? null : { translation_m: [0, 0, state.posture.height ?? 0], rotation_xyzw: [0, 0, 0, 1] },
+    data: {
       velocities: known(device.intrinsics.feedback.velocity_components) ? device.intrinsics.feedback.velocity_components.map(() => 0) : [],
-      frame_poses: poses,
-      faults: [], sample_time_s: state.clock, note: "synthetic stationary mock, no balance simulation" },
+      ...(Object.keys(poses).length ? { frame_poses: poses } : {}),
+      faults: [], timestamp: state.clock, note: "synthetic stationary mock, no balance simulation" },
+  }
+  if (device.type === "gripper") return {
+    deviceID: device.name, kind: device.type,
+    data: { aperture_m: known(device.intrinsics.feedback) && device.intrinsics.feedback.aperture_m ? 0 : null,
+      faults: [], stopped: state.stopped, timestamp: state.clock },
   }
   return {
     deviceID: device.name,
@@ -60,10 +115,10 @@ function mockRead(workspace: string, device: Device): DeviceReading {
       positions: [...state.positions],
       velocities: isJoint(device) && known(device.intrinsics.feedback) && !device.intrinsics.feedback.velocities ? [] : state.positions.map(() => 0),
       efforts: isJoint(device) && known(device.intrinsics.feedback) && device.intrinsics.feedback.efforts ? state.positions.map(() => 0) : [],
-      frame_poses: poses,
+      ...(!isJoint(device) ? { frame_poses: poses } : {}),
       faults: [],
       stopped: state.stopped,
-      sample_time_s: state.clock,
+      timestamp: state.clock,
     },
   }
 }
@@ -80,7 +135,8 @@ export function mockAct(
     state.stopped = true
     return { deviceID: device.name, kind: device.type, data: { stopped: true } }
   }
-  if (action === "read") return mockRead(workspace, device)
+  if (action === "read") return device.type === "rgb" || device.type === "rgbd"
+    ? mockCamera(workspace, device, args.output, state.clock) : mockRead(workspace, device)
   if (action === "status") return { deviceID: device.name, kind: device.type, data: { loaded: device.loaded, mock: true } }
   if (action === "load" || action === "unload") return { deviceID: device.name, kind: device.type, data: { done: action } }
   if (device.type === "world" && action === "wait") {
@@ -97,7 +153,7 @@ export function mockAct(
       if (elapsed > 0 && pending.actions[index]) peer.positions = [...pending.actions[index]!]
       if (elapsed >= pending.duration) peer.pending = undefined
     }
-    return { deviceID: device.name, kind: device.type, data: { time_s: time, elapsed_s: duration } }
+    return { deviceID: device.name, kind: device.type, data: { time_s: time, waited_s: duration } }
   }
   if (action === "write") {
     const duration = z.number().positive().parse(args.duration_s)
@@ -108,7 +164,7 @@ export function mockAct(
     state.pending = { actions, start: clocks().get(workspace) ?? 0, duration }
     state.stopped = false
     return { deviceID: device.name, kind: device.type, data: {
-      execution_id: crypto.randomUUID(), elapsed_s: 0, state: mockRead(workspace, device).data,
+      execution_id: shortID(), state: mockRead(workspace, device).data,
     } }
   }
   throw new NamedError("DeviceActionError", `unsupported mock device action "${action}"`)

@@ -21,6 +21,7 @@ received = b""
 keys = json.loads(os.environ.get("TUI_TEST_KEYS", "[]"))
 trigger = os.environ.get("TUI_TEST_TRIGGER", "").encode()
 next_key = None
+started = False
 try:
     while time.monotonic() < deadline:
         readable, _, _ = select.select([master], [], [], 0.1)
@@ -36,12 +37,22 @@ try:
             sys.stdout.buffer.write(chunk)
             sys.stdout.buffer.flush()
             received += chunk
-            if keys and next_key is None and trigger in received:
-                next_key = time.monotonic() + keys[0][0]
-        if keys and next_key is not None and time.monotonic() >= next_key:
-            _, text = keys.pop(0)
-            os.write(master, text.encode())
-            next_key = time.monotonic() + keys[0][0] if keys else None
+        if not started and trigger in received:
+            started = True
+            received = b""
+        if keys and started:
+            wait, text = keys[0]
+            if isinstance(wait, str):
+                ready = wait.encode() in received
+            else:
+                if next_key is None:
+                    next_key = time.monotonic() + wait
+                ready = time.monotonic() >= next_key
+            if ready:
+                keys.pop(0)
+                os.write(master, text.encode())
+                received = b""
+                next_key = None
         found, value = os.waitpid(pid, os.WNOHANG)
         if found:
             status = value

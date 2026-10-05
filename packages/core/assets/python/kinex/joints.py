@@ -3,8 +3,9 @@
 
 from kinex.geometry import compose_rt, invert_rt, xyzq_to_rt
 from kinex.kinematics import Kinematics
+from kinex.local_frames import fixed_transform, frame_definitions
 from kinex.motion import flat, joint_target, pose, pose_error, vector
-from kinex.joint_control import joint_model, command
+from kinex.joint_control import joint_model, command, project_seed
 
 
 def settings(directory):
@@ -18,6 +19,7 @@ def settings(directory):
 class JointDevice:
     def __init__(self, profile, directory=None, native_fk=None, native_ik=None):
         self.profile, self.intrinsics = profile, profile["intrinsics"]
+        self.frames = frame_definitions(profile)
         self.model = joint_model(profile, directory)
         self.joints = self.model["joints"]
         self.kinematics = self.intrinsics.get("kinematics")
@@ -36,40 +38,69 @@ class JointDevice:
             raise ValueError("Numerical IK requires model geometry")
 
     def project(self, value):
-        q = vector(value, len(self.joints), "joints")
-        return [max(j["limits"]["min"], min(j["limits"]["max"], v)) if j["limits"] else v for j, v in zip(self.joints, q)]
+        return project_seed(value, self.joints)
 
     def command(self, args):
         return command(self.profile, args, self.model)
 
-    def fk(self, joints):
-        if not self.kinematics or not self.kinematics["fk"]:
-            raise ValueError("FK is unsupported")
-        q = joint_target(joints, self.joints)
-        if self.kinematics["fk"] == "numerical":
-            return self.solver.fk(q)
-        if self.native_fk is None:
-            raise ValueError("Driver FK hook is required")
-        reported = pose(self.native_fk(q))
-        return {"pose": flat(compose_rt(xyzq_to_rt(reported), invert_rt(xyzq_to_rt(self.kinematics["frame_to_reported"]))))}
+    def frame_pair(self, frame, reference_frame):
+        if frame is None:
+            if not self.kinematics:
+                raise ValueError("Specify a modeled frame")
+            frame = self.kinematics["frame"]
+        if not isinstance(frame, str) or frame not in self.frames:
+            raise ValueError("Frame must name a declared device-local frame")
+        return frame, fixed_transform(self.frames, reference_frame)
 
-    def ik(self, target, seed):
+    def fk(self, joints, frame=None, reference_frame=None):
+        q = vector(joints, len(self.joints), "joints")
+        frame, reference = self.frame_pair(frame, reference_frame)
+        frames = self.frames
+        anchor, seen = frame, set()
+        while anchor not in frames or "source" not in frames[anchor]:
+            if anchor is None or anchor not in frames or anchor in seen:
+                raise ValueError("Frame is not a modeled endpoint or fixed descendant")
+            seen.add(anchor)
+            anchor = frames[anchor]["parent_frame"]
+        offset = fixed_transform(frames, frame, anchor)
+        if frames[anchor]["source"] == "hand":
+            from kinex.hand import forward
+            poses = forward({**self.profile, "resolved_model": self.model}, q)
+            current = compose_rt(xyzq_to_rt(poses[anchor]), offset)
+        else:
+            if not self.kinematics or not self.kinematics["fk"]:
+                raise ValueError("FK is unsupported")
+            if self.kinematics["fk"] == "numerical":
+                endpoint = self.solver.forward(q)[0]
+            else:
+                if self.native_fk is None:
+                    raise ValueError("Driver FK hook is required")
+                reported = pose(self.native_fk(q))
+                endpoint = flat(compose_rt(xyzq_to_rt(reported), invert_rt(xyzq_to_rt(self.kinematics["frame_to_reported"]))))
+            current = compose_rt(xyzq_to_rt(endpoint), offset)
+        return {"pose": flat(compose_rt(invert_rt(reference), current)),
+                "frame": frame, "reference_frame": reference_frame}
+
+    def ik(self, target, seed, frame=None, reference_frame=None):
         if not self.options:
             raise ValueError("IK is unsupported")
         target = pose(target)
         seed = joint_target(seed, self.joints)
+        frame, reference = self.frame_pair(frame, reference_frame)
+        offset = fixed_transform(self.frames, frame, self.kinematics["frame"])
+        endpoint = flat(compose_rt(compose_rt(reference, xyzq_to_rt(target)), invert_rt(offset)))
         if self.options["backend"] == "numerical":
-            result = self.solver.ik(target, seed)
+            result = self.solver.ik(endpoint, seed)
         else:
             if self.native_ik is None:
                 raise ValueError("Driver IK hook is required")
-            native_target = flat(compose_rt(xyzq_to_rt(target), xyzq_to_rt(self.options["frame_to_solver"])))
+            native_target = flat(compose_rt(xyzq_to_rt(endpoint), xyzq_to_rt(self.options["frame_to_solver"])))
             result = {"joints": self.native_ik(native_target, seed)}
         joint_target(result["joints"], self.joints)
-        error = pose_error(target, self.fk(result["joints"])["pose"])
+        error = pose_error(target, self.fk(result["joints"], frame, reference_frame)["pose"])
         if error["position_m"] > self.options["position_tolerance_m"] or error["rotation_rad"] > self.options["rotation_tolerance_rad"]:
             raise ValueError("IK result failed FK residual verification")
-        return result
+        return {**result, "frame": frame, "reference_frame": reference_frame}
 
     def reading(self, state):
         feedback = self.intrinsics["feedback"]
@@ -83,31 +114,5 @@ class JointDevice:
         if not isinstance(faults, list) or any(not isinstance(f, dict) or set(f) != {"code"} or not isinstance(f["code"], str) for f in faults):
             raise ValueError("read.faults must contain {code: string} entries")
         result["faults"] = faults
-        timestamp = state.get("sample_time_s")
-        if timestamp is not None:
-            vector([timestamp], 1, "sample_time_s")
-        result["sample_time_s"] = timestamp
-        if timestamp is None:
-            vector([state.get("received_time_s")], 1, "received_time_s")
-            result["received_time_s"] = state["received_time_s"]
-        result["frame_poses"] = dict(state.get("frame_poses", {}))
-        if self.kinematics:
-            frame = self.kinematics["frame"]
-            if self.intrinsics.get("frames", {}).get(frame) is None:
-                result["frame_poses"][frame] = self.frame_pose(positions, state)
+        result["timestamp"] = vector([state.get("timestamp")], 1, "timestamp")[0]
         return result
-
-    def frame_pose(self, positions, state):
-        k = self.kinematics
-        if k["feedback"] == "driver":
-            frames = state.get("frame_poses", {})
-            if k["frame"] in frames:
-                return pose(frames[k["frame"]], "read.frame_poses")
-            reported = pose(state.get("reported_pose"), "read.reported_pose")
-            return flat(compose_rt(xyzq_to_rt(reported), invert_rt(xyzq_to_rt(k["frame_to_reported"]))))
-        if k["fk"] == "numerical":
-            return self.solver.forward(positions)[0]
-        if self.native_fk is None:
-            raise ValueError("Driver FK hook is required for feedback")
-        reported = pose(self.native_fk(positions))
-        return flat(compose_rt(xyzq_to_rt(reported), invert_rt(xyzq_to_rt(k["frame_to_reported"]))))

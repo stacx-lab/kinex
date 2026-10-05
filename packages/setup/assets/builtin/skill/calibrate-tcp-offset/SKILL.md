@@ -5,14 +5,14 @@ description: Measure flange-to-tool-tip translation by pivot touches when a task
 
 # Calibrate tcp offset
 
-Bind `target` to a gripper whose canonical frame is its TCP, and `arm` to its
-actual parent arm. If TCP is a named local frame, use an explicit custom procedure
-for that field instead of overwriting the device mount.
+Bind `target` to the gripper and `arm` to its parent arm. Require a known
+mount in the sampled arm frame. The fit updates `intrinsics.frames.tcp`, relative
+to the gripper base, preserving TCP orientation and the existing mount.
 
 Prefer verified controller TCP settings or a matching tool datasheet. Archive the
 source with provenance rather than repeating measurement. Otherwise require
-measured attachment-frame poses; driver frame conversion has already removed any
-reported TCP offset, so do not subtract it twice.
+attachment-frame poses computed through FK from measured joints. Native FK
+conversion already removes the reported TCP offset; do not subtract it twice.
 
 Prefer hand-guiding a rigid pointed tool to one fixed reference point. Two repeated
 touches from the same orientation should agree within about 3 mm; otherwise fix
@@ -21,7 +21,7 @@ Never command motion while touching. When powered approaches are needed, retract
 before reorientation and approach in user-confirmed approximately 5 mm steps at
 an appropriate low speed. Wait for execution and verify measured arrival.
 
-Capture with `calib_sample` into one attempt, using settling only when supported
+Capture with `calib_sample frame:<attachment-frame>` into one attempt, using settling only when supported
 by measured velocity feedback. Collect at least 4 orientations separated by roughly
 20 degrees; 6–8 are typical. From sample 4 onward run `calib_compute operation:fit-tcp`
 with `samples` and the actual attachment `frame`, reusing the run ID. Stop collecting

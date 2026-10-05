@@ -28,13 +28,17 @@ class ScalarDriver(Driver):
         raise NotImplementedError("Return the hardware control period")
 
     def read_state(self, handle):
-        raise NotImplementedError("Read measured feedback and faults")
+        raise NotImplementedError("Read measured aperture_m (null if unsupported), faults and timestamp")
 
     def set_target(self, handle, command):
         raise NotImplementedError("Set target and optional native_speed without waiting")
 
     def halt(self, handle, target):
-        raise NotImplementedError("Perform the declared stop behavior")
+        raise NotImplementedError(
+            "Retain the last applied target and gripping effort; stop direction integration "
+            "without replacing its accumulated goal with measured aperture. "
+            "target is the last applied reference or None before any write; do not close on None"
+        )
 
 
 if __name__ == "__main__":

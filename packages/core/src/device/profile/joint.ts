@@ -21,14 +21,18 @@ export const JointKinematics = z.strictObject({
   fk: z.enum(["numerical", "driver"]).nullable(),
   ik: z.discriminatedUnion("backend", [
     z.strictObject({ backend: z.literal("numerical"), method: z.literal("damped_least_squares"), ...tolerances,
-      max_iterations: z.number().int().positive(), damping: positive }),
+      max_iterations: z.number().int().positive(), damping: positive,
+      search: z.strictObject({
+        max_attempts: z.number().int().positive().default(5),
+        attempt_time_s: positive.default(0.02),
+        max_time_s: positive.default(0.1),
+      }).optional() }),
     z.strictObject({ backend: z.literal("driver"), frame_to_solver: Pose, ...tolerances }),
   ]).nullable(),
-  feedback: z.enum(["driver", "fk"]),
   frame_to_reported: Pose,
 }).superRefine((k, ctx) => {
-  if ((k.ik !== null || k.feedback === "fk") && k.fk === null)
-    ctx.addIssue({ code: "custom", message: "IK verification and FK feedback require FK" })
+  if (k.ik !== null && k.fk === null)
+    ctx.addIssue({ code: "custom", message: "IK verification requires FK" })
 })
 
 export const jointShape = {
@@ -40,7 +44,7 @@ export const jointShape = {
   kinematics: JointKinematics.nullable().default(null),
   home: field(z.record(z.string().min(1), z.number()).nullable()),
   control: field(z.strictObject({ mode: z.literal("position"), limit_handling: z.literal("native").optional() })),
-  feedback: field(z.strictObject({ velocities: z.boolean(), efforts: z.boolean(), clock: z.enum(["unix", "monotonic", "simulation"]) })),
+  feedback: field(z.strictObject({ velocities: z.boolean(), efforts: z.boolean() })),
   stop: field(z.strictObject({ behavior: z.enum(["hold", "halt", "controller_emergency_stop"]),
     affected_devices: z.array(z.string().min(1)).min(1).refine((v) => new Set(v).size === v.length, "affected_devices must be unique") })),
 }

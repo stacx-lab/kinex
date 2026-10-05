@@ -13,7 +13,8 @@ def relative(a):
     local_parent = xyzq_to_rt(pose(parent.get("pose", identity), "parent.pose"))
     relation = frames.pose(child["frame"], parent["frame"], estimates=a.get("estimates"))
     result = rt_to_pose(compose_rt(invert_rt(local_parent), compose_rt(pose_to_rt(relation), local_child)))
-    return {**relation, **result, "pose": result["translation"] + result["rotation"]}
+    return {"pose": result["translation"] + result["rotation"],
+            "path": relation["path"], "estimated_links": relation["estimated_links"]}
 
 
 if __name__ == "__main__":

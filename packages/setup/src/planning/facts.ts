@@ -1,5 +1,6 @@
+import { shortID } from "@kinex/core/util/id"
 import path from "node:path"
-import { createHash, randomUUID } from "node:crypto"
+import { createHash } from "node:crypto"
 import { readFile, mkdir, rename, writeFile } from "node:fs/promises"
 import { ProfileStore } from "@kinex/core/device/profile/store"
 import { parse as parseYaml } from "yaml"
@@ -23,7 +24,7 @@ export async function optionalText(file: string): Promise<string | undefined> {
 }
 export async function atomicJSON(file: string, value: unknown) {
   await mkdir(path.dirname(file), { recursive: true })
-  const temporary = `${file}.${randomUUID()}.tmp`
+  const temporary = `${file}.${shortID()}.tmp`
   await writeFile(temporary, JSON.stringify(value, null, 2) + "\n")
   await rename(temporary, file)
 }

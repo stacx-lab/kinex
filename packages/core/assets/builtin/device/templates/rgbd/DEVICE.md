@@ -115,13 +115,14 @@ needs_calibration:null; put measurement diagnostics in calibration results.
 
 ### Driver and recording
 
-`grab` returns a dictionary containing color and its acquisition sample_time_s
-in Unix seconds, plus depth and depth_sample_time_s.
-Map hardware clocks to this shared timebase; cached reads retain capture time.
-When the transport has no acquisition timestamp, return sample_time_s: null
-(and depth_sample_time_s: null for RGBD) plus received_time_s. Never label
-network receipt as sensor acquisition.
-Shared kinex.capture validates array dtype/resolution and writes files.
+`grab` returns color (and depth for RGBD) with one finite numeric `timestamp`
+in seconds on the device clock. Use acquisition time, or receipt time when acquisition is unknown.
+For RGBD, use `kinex.validation.observation_timestamp(rgb_time, depth_time,
+received=receipt_time)` in the source hook to choose the later component time.
+Use one timebase for both components and receipt time; cached reads retain the original timestamp.
+The supplied skeleton uses Unix receipt time when the hook omits a timestamp;
+a hook using another clock must provide its own timestamp.
+Shared kinex.capture validates array dtype/resolution and encodes the requested output.
 introspect returns a patch with intrinsics.color, intrinsics.depth, and native extrinsics.depth_to_color.
 Unknowns stay unknown; inspect actual stream calibration after SDK conversion.
 
@@ -167,6 +168,16 @@ which comes from measurement or a specification and can remain unknown.
 Verify one depth using a known target distance and the declared quantity.
 The driver read does not duplicate scale: tools read scale_m_per_unit from
 the profile. Recording metadata may copy it for standalone playback.
+
+### Capture contract
+
+SDK acquisition must produce a consistent snapshot. Serialize access and copy
+reused buffers; file paths identify immutable per-response artifacts. Finish
+recorder shutdown before disconnecting the source. Convert output to file,
+array or base64 in the driver without changing source/server transport. Arrays
+cross JSON boundaries as encoded images and are decoded in the Python client.
+Pixel outer edges are -0.5 and size-0.5; the profile describes the full output,
+including projection/distortion. Native recording requires a persistent driver.
 
 ### Profile
 
@@ -214,10 +225,18 @@ extrinsics:
 
 ## Use
 
-read returns a color file plus depth_file, dimensions and acquisition sample_time_s/depth_sample_time_s. Color is uint8 RGB PNG; depth is uint16 pgm16_be (P5, maxval 65535), for numerical processing.
+`read()` returns `file` (RGB8 PNG), `depth_file` (uint16 PGM16) and one
+`timestamp` for the pair: the later acquisition/fallback receipt time.
+Images are saved, not attached; inspect RGB with the host file-reading tool.
+Dimensions and calibration come from the profile.
 
-Optical axes: X right, Y down, Z forward. Pixel center (0,0) is top-left; u right, v down; outer edges are -0.5 and size-0.5. Mount places the color optical frame in parent_frame. Projection/distortion come from the profile; use kinex.camera helpers. FOV is derived; changed image geometry needs matching calibration.
+Python tools may request `output="array"` for NumPy `color`/`depth`, or
+`"base64"` for PNG/PGM16 strings. These are programmatic formats, not model image
+input. File output is the default.
 
-Depth metres = raw * scale_m_per_unit. quantity:z is optical Z; range is ray length. Reject invalid_value and values outside valid_range_m; reliable_range_m describes quality. registration:color shares the color grid/calibration/frame. registration:native uses depth's projection/distortion and depth_to_color maps depth into color. Never assume depth scale or registration from pixels.
-
-Color/depth timestamps share acquisition Unix seconds; cached frames retain them. Unavailable acquisition times are null with separate received_time_s. Keep paired capture and calibration consistent. fps:null means on-demand. Native recording requires a persistent driver.
+Optical axes are X right, Y down, Z forward; (0,0) is the top-left pixel center.
+Mount places the color frame. Depth metres = raw * scale_m_per_unit;
+`quantity` selects optical Z or ray range. Reject `invalid_value` and samples
+outside `valid_range_m`.
+Color-registered depth shares the color grid; native depth uses its own
+calibration and `depth_to_color`. Use `kinex.camera`; never infer scale or registration.

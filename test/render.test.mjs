@@ -68,7 +68,7 @@ test('tool expansion reveals arguments and results, while collapsed views bound 
   assert.deepEqual(colors, ['error'])
   const image = { type: 'image', mimeType: 'image/png', data: 'image-bytes' }
   const withImage = { content: [...result.content, image] }
-  assert.match(plain(renderers.renderResult(withImage, { expanded: true }, theme, context)), /image\/png/)
+  assert.equal(plain(renderers.renderResult(withImage, { expanded: true }, theme, context)), full)
   const capabilities = getCapabilities()
   t.after(() => setCapabilities(capabilities))
   setCapabilities({ ...capabilities, images: 'kitty' })
@@ -135,4 +135,19 @@ test('recording footer rejects stale updates and restores the host footer on shu
   assert.equal(listener, undefined)
   await indicator.bind(runtime, { hasUI: false })
   assert.equal(pending.length, 0)
+})
+
+test('world time display removes float noise without changing tool data or joint precision', () => {
+  const value = { time_s: 13793.14999993953, waited_s: .9999999999854481,
+    budget: { used_s: 13788.800000000001, max_s: null }, positions: [.3359920570733036] }
+  const result = { content: [{ type: 'text', text: JSON.stringify(value) }] }
+  const before = structuredClone(result)
+  for (const compact of [false, true]) {
+    const component = toolRenderers('device').renderResult(result, { expanded: true }, theme,
+      { ...context, args: { compact } })
+    const displayed = component.render(1000).map(stripTerminalSequences).join('\n').trim()
+    assert.deepEqual(JSON.parse(displayed), { ...value, time_s: 13793.15, waited_s: 1,
+      budget: { used_s: 13788.8, max_s: null } })
+    assert.deepEqual(result, before)
+  }
 })

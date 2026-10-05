@@ -12,7 +12,7 @@ def command(profile, args):
     if not isinstance(actions, list) or not actions:
         raise ValueError("actions must be a nonempty sequence of numbers")
     control = profile["intrinsics"]["control"]
-    if not isinstance(control, dict) or control["mode"] == "none":
+    if not isinstance(control, dict):
         raise ValueError("This tool has no calibrated command interface")
     result = segment(args, {"actions": [target(control, value) for value in actions]})
     speed = control.get("speed") if control["mode"] == "position" else None
@@ -57,46 +57,55 @@ def target(control, value):
 
 def reading(profile, sample):
     feedback = profile["intrinsics"]["feedback"]
-    count = len(feedback["positions"])
     result = dict(sample)
-    for key, size in (("positions", count), ("velocities", count if feedback["velocities"] else 0)):
-        values = sample[key]
-        if not isinstance(values, list) or len(values) != size:
-            raise ValueError(f"{key} must have {size} values in feedback channel order")
-        for value in values:
-            number(value, key)
-    if sample["sample_time_s"] is None:
-        number(sample["received_time_s"], "received_time_s")
+    if profile["type"] == "gripper":
+        for key in ("positions", "velocities", "frame_poses", "force_n", "pressure_pa", "object_detected"):
+            result.pop(key, None)
+        value = sample.get("aperture_m")
+        if feedback["aperture_m"]:
+            if number(value, "aperture_m") < 0:
+                raise ValueError("aperture_m must be nonnegative")
+        elif value is not None:
+            raise ValueError("aperture_m is unsupported by the profile")
+        result["aperture_m"] = value
     else:
-        number(sample["sample_time_s"], "sample_time_s")
+        count = len(feedback["positions"])
+        for key, size in (("positions", count), ("velocities", count if feedback["velocities"] else 0)):
+            values = sample[key]
+            if not isinstance(values, list) or len(values) != size:
+                raise ValueError(f"{key} must have {size} values in feedback channel order")
+            for value in values:
+                number(value, key)
+    number(sample.get("timestamp"), "timestamp")
     if not isinstance(sample["faults"], list):
         raise ValueError("faults must be a list of objects with string code")
     for fault in sample["faults"]:
         if not isinstance(fault, dict) or set(fault) != {"code"} or not isinstance(fault["code"], str):
             raise ValueError("faults must be a list of objects with string code")
-    sensors = feedback.get("sensors", [])
-    for key in ("force_n", "pressure_pa", "object_detected"):
-        value = sample.get(key)
-        if key in sensors:
-            if key == "object_detected" and not isinstance(value, bool):
-                raise ValueError("object_detected must be boolean when supported")
-            if key != "object_detected":
-                number(value, key)
-        if key not in sensors and value is not None:
-            raise ValueError(f"{key} is unsupported by the profile")
-        result[key] = value
-    model = feedback.get("aperture_model")
-    result["aperture_m"] = None
-    if isinstance(model, dict) and model["model"] == "affine":
-        if len(model["coefficients"]) != count:
-            raise ValueError("aperture conversion must match feedback dimensions")
-        # Physical opening cannot be negative (soft contact can slightly overlap).
-        result["aperture_m"] = max(0.0, model["offset_m"] + sum(a * b for a, b in zip(model["coefficients"], sample["positions"])))
+    if profile["type"] == "suction":
+        sensors = feedback.get("sensors", [])
+        for key in ("force_n", "pressure_pa", "object_detected"):
+            value = sample.get(key)
+            if key in sensors:
+                if key == "object_detected" and not isinstance(value, bool):
+                    raise ValueError("object_detected must be boolean when supported")
+                if key != "object_detected":
+                    number(value, key)
+            if key not in sensors and value is not None:
+                raise ValueError(f"{key} is unsupported by the profile")
+            result[key] = value
+        model = feedback.get("aperture_model")
+        result["aperture_m"] = None
+        if isinstance(model, dict) and model["model"] == "affine":
+            if len(model["coefficients"]) != count:
+                raise ValueError("aperture conversion must match feedback dimensions")
+            result["aperture_m"] = max(0.0, model["offset_m"] + sum(
+                a * b for a, b in zip(model["coefficients"], sample["positions"])))
     return result
 
 
 def stopped(profile):
     stop = profile["intrinsics"]["stop"]
-    if not isinstance(stop, dict) or stop["behavior"] == "none":
+    if not isinstance(stop, dict):
         raise ValueError("This tool has no calibrated stop interface")
     return {"stopped": True, "behavior": stop["behavior"], "affected_devices": stop["affected_devices"]}

@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process'
 import { readdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { checkVersion } from '../../../script/version.mjs'
 const root = fileURLToPath(new URL('../', import.meta.url))
+await checkVersion(path.resolve(root, '../..'))
 await rm(path.join(root, 'dist'), { recursive: true, force: true })
 execFileSync(process.execPath, [path.join(root, '../../node_modules/typescript/bin/tsc'), '-p', path.join(root, 'tsconfig.json')], { stdio: 'inherit' })
 for (const entry of await readdir(path.join(root, 'src'), { recursive: true })) {

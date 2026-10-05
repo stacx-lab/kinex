@@ -11,7 +11,8 @@ measured pose/control capabilities. Calibration of an unrelated gripper is irrel
 The second arm's mount is the output. Neither arm needs a surveyed world mount.
 
 Collect shared fixed fiducials reachable by both TCPs, recording each touched
-point in that arm's BASE frame. Move one arm at a time; park the other clear.
+point in that arm's BASE frame. Compose arm FK, gripper mount and
+`intrinsics.frames.tcp` to obtain the touched point. Move one arm at a time; park the other clear.
 Use supported low speed and user-confirmed approximately 5 mm contact approaches.
 Never move while touching; retract before switching arms. Keep the arm-base
 relationship fixed during measurement, including mobile-base/torso posture.

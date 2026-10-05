@@ -1,6 +1,6 @@
+import { shortID } from "@kinex/core/util/id"
 import path from "node:path"
 import { readdir, mkdir, copyFile } from "node:fs/promises"
-import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { spawnProcess } from "@kinex/core/util/process"
 import { pythonRuntime } from "@kinex/core/python/environment"
@@ -55,7 +55,7 @@ export function quality(operation: ComputeInput["operation"], data: Record<strin
   return rms >= .5 || z.array(z.string()).parse(data.coverage_warnings).length ? "warning" : "passed"
 }
 export async function compute(cwd: string, input: ComputeInput, abort: AbortSignal) {
-  const key = await location(cwd, `calib/${input.run ?? randomUUID()}`)
+  const key = await location(cwd, `calib/${input.run ?? shortID()}`)
   return serialized(key, () => executeCompute(cwd, input, abort))
 }
 async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSignal) {
@@ -76,13 +76,19 @@ async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSign
     const archived = async (file: string) => archive(cwd, run, path.resolve(cwd, file))
     const argv: string[] = []
     if (args.operation === "fit-mount" || args.operation === "fit-dual") argv.push("--points", await archived(args.points))
-    if (args.operation === "fit-tcp") argv.push("--samples", await archived(args.samples), "--frame", args.frame)
+    if (args.operation === "fit-tcp") {
+      const target = await ProfileStore.readDevice(cwd, run.bindings.target ?? fail("Bind target"))
+      const mount = target?.extrinsics?.mount
+      if (!mount || mount === "???" || mount.parent !== run.bindings.arm || mount.parent_frame !== args.frame ||
+          mount.translation_m === "???" || mount.rotation_xyzw === "???") fail("TCP fitting requires a known mount in the sampled arm frame")
+      argv.push("--samples", await archived(args.samples), "--frame", args.frame, "--mount", JSON.stringify(mount))
+    }
     if (args.operation === "camera-extrinsics") argv.push("--samples", await archived(args.samples), "--mode", args.mode,
       "--device", run.bindings.arm ?? fail("Bind arm"), "--frame", args.frame)
     if (args.operation === "verify-base") argv.push("--measurements", await archived(args.measurements))
     if (args.operation === "camera-intrinsics") {
       // A distinct image directory avoids mixing previous solves or other artifacts.
-      const images = path.join(directory, "artifacts", randomUUID())
+      const images = path.join(directory, "artifacts", shortID())
       await mkdir(images)
       for (const [index, image] of args.images.entries()) await copyFile(path.resolve(cwd, image), path.join(images, `${index}${path.extname(image)}`))
       argv.push("--images", path.join(images, "*"), "--board", args.board, "--square-mm", String(args.square_mm),
@@ -119,15 +125,22 @@ async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSign
       const color = { width: data.width, height: data.height, projection: data.projection, distortion: data.distortion }
       patches.push({ kind: "device", data: { name: target, intrinsics: { ...measured, method: args.board, color } } })
       for (const [field, value] of Object.entries(color)) resolved.push({ device: target, pointer: `/intrinsics/color/${field}`, value })
-    } else if (["fit-mount", "fit-dual", "fit-tcp", "camera-extrinsics"].includes(args.operation)) {
+    } else if (args.operation === "fit-tcp") {
+      const profile = await ProfileStore.readDevice(cwd, target)
+      const tcp = profile?.type === "gripper" ? profile.intrinsics.frames.tcp : undefined
+      const frame = { parent_frame: null, translation_m: data.tcp_translation_m,
+        rotation_xyzw: tcp?.rotation_xyzw ?? null }
+      if (tcp?.parent_frame) fail("TCP fitting requires tcp to be relative to the gripper base")
+      patches.push({ kind: "device", data: { name: target, intrinsics: { ...measured,
+        method: "tcp_pivot", frames: { tcp: frame } } } })
+      resolved.push({ device: target, pointer: "/intrinsics/frames/tcp/translation_m", value: frame.translation_m })
+    } else if (["fit-mount", "fit-dual", "camera-extrinsics"].includes(args.operation)) {
       const parent = run.bindings.parent ?? run.bindings.anchor ?? run.bindings.arm ?? fail("Bind parent, anchor or arm")
       const frame = args.operation === "fit-mount" ? args.parent_frame : args.operation === "fit-dual" ? parent :
         args.operation === "camera-extrinsics" && args.mode === "eye_to_hand" ? parent : "frame" in args ? args.frame : parent
-      const translation = args.operation === "fit-tcp" ? data.tcp_translation_m : data.translation_m
-      const mount = { parent, parent_frame: frame, translation_m: translation,
-        ...(args.operation === "fit-tcp" ? {} : { rotation_xyzw: data.rotation_xyzw }) }
+      const mount = { parent, parent_frame: frame, translation_m: data.translation_m, rotation_xyzw: data.rotation_xyzw }
       patches.push({ kind: "device", data: { name: target, extrinsics: { ...measured,
-        method: args.operation === "fit-tcp" ? "tcp_pivot" : args.operation === "camera-extrinsics" ? "hand_eye" : "survey", mount } } })
+        method: args.operation === "camera-extrinsics" ? "hand_eye" : "survey", mount } } })
       for (const [field, value] of Object.entries(mount)) resolved.push({ device: target, pointer: `/extrinsics/mount/${field}`, value })
     }
   }

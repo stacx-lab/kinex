@@ -1,4 +1,4 @@
-import { Mount, Transform, Pose, ControlConnection } from "./common.ts"
+import { Mount, Transform, LocalFrame, ControlConnection } from "./common.ts"
 import { ModelConnection, modelShape } from "./model.ts"
 import { perceptionOperations } from "./perception.ts"
 import { imuShape } from "./imu.ts"
@@ -11,6 +11,7 @@ import { VelocityControl, VelocityFeedback, VelocityStop } from "./velocity.ts"
 import { gripperShape, suctionShape } from "./gripper.ts"
 import { jointShape, refineJoint, jointModel } from "./joint.ts"
 import { HandGeometry, refineHand } from "./hand.ts"
+import { deviceFrames, modelFrames } from "./frames.ts"
 import { CameraCalibration, CameraColor, CameraConnection, CameraDepth } from "./camera.ts"
 
 import { MISSING, may, known, Source, section, measured, OtherConnection, DriverSpec, driverWith, observationActions, streamActions, actuatedActions } from "./common.ts"
@@ -60,11 +61,11 @@ const SpatialShape = {
   mount: may(Mount).optional(),
   pose_frame: may(z.string().min(1).nullable()).optional(),
 }
-// Named transforms in the canonical device frame: null is supplied by read.frame_poses.
+// Parent-relative local frames; null components are unknown, never identity.
 const localFrames = {
   frames: z.record(
     z.string().min(1).refine((name) => !name.includes(":"), "frame names cannot contain ':'"),
-    may(Pose.nullable()),
+    LocalFrame,
   ).default({}),
 }
 const SpatialExtrinsics = z.strictObject(SpatialShape).prefault({})
@@ -114,11 +115,7 @@ const VelocityAccess = z.strictObject({
   ...velocityState, connection: may(ControlConnection).default(MISSING),
   driver: driverWith(actuatedActions),
 })
-const GripperIntrinsics = z.strictObject({ ...endEffectorState, ...localFrames, ...gripperShape }).superRefine((value, ctx) => {
-  for (const [name, contact] of Object.entries(value.geometry?.contacts ?? {})) {
-    if (!Object.hasOwn(value.frames, contact.frame)) ctx.addIssue({ code: "custom", path: ["geometry", "contacts", name, "frame"], message: "contact must reference a declared intrinsic frame" })
-  }
-}).prefault({})
+const GripperIntrinsics = z.strictObject({ ...endEffectorState, ...localFrames, ...gripperShape }).prefault({})
 const SuctionIntrinsics = z.strictObject({ ...endEffectorState, ...localFrames, ...suctionShape }).prefault({})
 const EndEffectorAccess = z.strictObject({
   ...endEffectorState,
@@ -167,7 +164,6 @@ const MiscIntrinsics = z
   .strictObject({
     ...section,
     ...localFrames,
-    notes: z.string().optional(),
   })
   .prefault({})
 
@@ -189,9 +185,8 @@ export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...deviceBase, type: z.literal("velocity"),
     access: VelocityAccess.optional(), intrinsics: VelocityIntrinsics,
   }).superRefine((device, ctx) => {
-    if (device.extrinsics.mount !== undefined) ctx.addIssue({ code: "custom", path: ["extrinsics", "mount"], message: "velocity placement comes from feedback.pose_frame" })
-    const { feedback } = device.intrinsics
-    if (known(feedback) && feedback.pose_frame?.split(":")[0] === device.name) ctx.addIssue({ code: "custom", message: "pose reference must be external" })
+    for (const key of ["mount", "pose_frame"] as const)
+      if (device.extrinsics[key] !== undefined) ctx.addIssue({ code: "custom", path: ["extrinsics", key], message: "velocity devices are unlocalized roots; use explicit frame estimates" })
   }),
   z.strictObject({ ...deviceBase, type: z.literal("dexterous_hand"), access: JointDeviceAccess.optional(), intrinsics: HandIntrinsics }),
   z.strictObject({ ...deviceBase, type: z.literal("suction"), access: EndEffectorAccess.optional(), intrinsics: SuctionIntrinsics }),
@@ -230,17 +225,31 @@ export const Device = z.discriminatedUnion("type", [
   }),
   z.strictObject({ ...deviceBase, type: z.literal("other"), intrinsics: MiscIntrinsics }),
 ]).superRefine((device, ctx) => {
-  if ((device.type === "joint" || device.type === "dexterous_hand") && device.intrinsics.kinematics && !Object.hasOwn(device.intrinsics.frames, device.intrinsics.kinematics.frame))
-    ctx.addIssue({ code: "custom", path: ["intrinsics", "frames"], message: "declare the kinematics frame" })
   if ("stop" in device.intrinsics) {
     const stop = device.intrinsics.stop
     if (known(stop) && !stop.affected_devices.includes(device.name)) ctx.addIssue({ code: "custom", path: ["intrinsics", "stop"], message: "stop scope must include this device" })
   }
   if ("frames" in device.intrinsics) {
-    if (Object.hasOwn(device.intrinsics.frames, device.name))
+    const explicit = device.intrinsics.frames
+    const computed = modelFrames(device)
+    if (new Set(computed).size !== computed.length || computed.some(name => Object.hasOwn(explicit, name)))
+      ctx.addIssue({ code: "custom", path: ["intrinsics", "frames"], message: "model-defined frames must be unique; remove duplicate frames entries" })
+    const frames = deviceFrames(device)
+    if (Object.hasOwn(frames, device.name))
       ctx.addIssue({ code: "custom", path: ["intrinsics", "frames"], message: "named frames must differ from canonical device frame" })
-    if (device.type === "world" && Object.values(device.intrinsics.frames).includes(null))
-      ctx.addIssue({ code: "custom", path: ["intrinsics", "frames"], message: "world frames must be fixed" })
+    for (const name of Object.keys(frames)) {
+      if (name.includes(":")) ctx.addIssue({ code: "custom", path: ["intrinsics", "frames"], message: "frame names cannot contain ':'" })
+      const seen = new Set<string>()
+      let current: string | null = name
+      while (current !== null) {
+        if (seen.has(current) || !Object.hasOwn(frames, current)) {
+          ctx.addIssue({ code: "custom", path: ["intrinsics", "frames", name], message: "frame parents must exist and be acyclic" })
+          break
+        }
+        seen.add(current)
+        current = frames[current]!.parent_frame
+      }
+    }
   }
   const spatial = device.extrinsics
   if (!spatial) return
@@ -373,7 +382,7 @@ export function deviceHome(device: Device): number[] | undefined {
 
 // Measured roots declare an external pose reference.
 export function devicePoseFeedback(device: Device) {
-  if (device.type === "velocity") return device.intrinsics.feedback
+  if (device.type === "velocity") return undefined
   if (device.extrinsics?.pose_frame !== undefined) return { pose_frame: device.extrinsics.pose_frame }
   return undefined
 }

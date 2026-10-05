@@ -27,10 +27,10 @@ class ScalarDriver(Driver):
         raise NotImplementedError("Return the hardware control period")
 
     def read_state(self, handle):
-        raise NotImplementedError("Read measured feedback and faults")
+        raise NotImplementedError("Read declared positions, velocities, sensors, faults and timestamp")
 
     def set_target(self, handle, command):
-        raise NotImplementedError("Set target and optional native_speed without waiting")
+        raise NotImplementedError("Set the binary target without waiting")
 
     def halt(self, handle, target):
         raise NotImplementedError("Perform the declared stop behavior")

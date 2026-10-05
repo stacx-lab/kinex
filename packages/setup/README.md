@@ -46,6 +46,13 @@ inspection do not create a workspace or initialize Python.
 | `calib_sample` | Capture one measured sample into an isolated, participant-bound attempt. |
 | `calib_compute` | Run bundled offline solvers or model introspection and propose exact profile changes. |
 
+`calib_sample.settle` supports joint devices, dexterous hands and velocity devices
+with declared measured velocities. Only distinct device timestamps count toward
+stability. A timeout after a reading saves `settled: false`, including requested
+FK; caller cancellation saves no sample. The sampler does not advance simulator
+time, so arrange world waits outside it. RGBD evidence copies both color and depth
+into attempt artifacts before appending the sample.
+
 `/onboarding [objective]` prepares the embodiment and follows only the requested
 objective's prerequisite subgraph. Without a task it prepares profiles/drivers and
 reports possible next steps, leaving measurements deferred. `/calibrate [scope]`

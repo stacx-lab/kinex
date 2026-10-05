@@ -4,6 +4,7 @@ import math
 
 from kinex import device
 from kinex.frames import pose as frame_pose
+from kinex.joint_control import project_seed
 from kinex.geometry import compose_rt, invert_rt, pose_to_rt, xyzq_to_rt
 from kinex.motion import flat, joint_target, pose
 from kinex.validation import vector
@@ -42,7 +43,7 @@ def joint_sequence(entry, actions):
     state = device(name).get("data") or {}
     if state.get("faults"):
         raise ValueError(f"{name} reports faults before policy planning")
-    seed = vector(state.get("positions"), len(entry["model"]["joints"]), "IK seed")
+    seed = project_seed(state.get("positions"), entry["model"]["joints"])
     readings = {name: state}
     offset = frame_pose(target, ik_frame, readings=readings)
     if any(edge["kind"] != "static" for edge in offset["path"]):
@@ -59,6 +60,8 @@ def joint_sequence(entry, actions):
             solved = device(name, "ik", pose=goal, seed=seed).get("data") or {}
             seed = joint_target(solved.get("joints"), entry["model"]["joints"])
         except (RuntimeError, ValueError) as error:
+            if getattr(error, "code", None) == "stop_failed":
+                raise
             return result, {"device": name, "action_index": len(result), "error": str(error)}
         result.append(seed)
     return result, None

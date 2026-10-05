@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { PermissionDeniedError, QuestionDeclinedError } from "./errors.ts"
+import { PermissionDeniedError, QuestionDeclinedError, failure, renderFailure } from "./errors.ts"
 import type { Question } from "./interaction.ts"
 
 export interface Context {
@@ -71,9 +71,11 @@ export async function execute(def: Def, input: unknown, ctx: Context): Promise<R
     // with their next message.
     if (error instanceof PermissionDeniedError) throw error
     if (error instanceof QuestionDeclinedError) throw error
+    const fields = failure(error)
     return {
       title: "error",
-      output: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      output: fields.code !== undefined || fields.details !== undefined ? renderFailure(fields)
+        : error instanceof Error ? `${error.name}: ${error.message}` : String(error),
       isError: true,
     }
   })

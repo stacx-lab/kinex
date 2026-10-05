@@ -35,18 +35,24 @@ def command(profile, args, model=None):
     return segment(args, {"actions": actions})
 
 
+def project_seed(value, joints):
+    """Bound a solver seed without changing the measured configuration used for FK."""
+    values = vector(value, len(joints), "IK seed")
+    return [max(j["limits"]["min"], min(j["limits"]["max"], v)) if j["limits"] else v
+            for j, v in zip(joints, values)]
+
+
 class Arrival:
-    """Arrival is established with fresh device-clock samples, not cached reads."""
+    """Gate evidence on device timestamps; optionally time stability in world seconds."""
 
     def __init__(self, joints, target, spec):
         self.joints, self.target, self.spec = joints, target, spec
         self.since = None
         self.stamp = None
 
-    def sample(self, state):
-        stamp = state.get("sample_time_s")
-        if stamp is None:
-            stamp = state["received_time_s"]
+    def sample(self, state, *, time_s=None):
+        stamp = vector([state.get("timestamp")], 1, "timestamp")[0]
+        now = stamp if time_s is None else vector([time_s], 1, "time_s")[0]
         if self.stamp is not None and stamp < self.stamp:
             raise ValueError("device sample clock moved backwards")
         fresh = self.stamp is None or stamp > self.stamp
@@ -61,6 +67,8 @@ class Arrival:
         if not within:
             self.since = None
             return False
-        if self.since is None and fresh:
-            self.since = stamp
-        return self.since is not None and stamp - self.since + 1e-9 >= self.spec.get("stable_s", 0)
+        if not fresh:
+            return False
+        if self.since is None:
+            self.since = now
+        return now - self.since + 1e-9 >= self.spec.get("stable_s", 0)

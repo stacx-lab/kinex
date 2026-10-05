@@ -42,7 +42,7 @@ def main():
         "reference": reference, "mode": "depth" if depth is not None else "rgbd",
         "label": detection.get("label", a["prompt"]), "detection_score": detection["score"],
         "instance": instance, "detections": count,
-        "sample_time_s": data.get("sample_time_s"),
+        "timestamp": data.get("timestamp"),
     }, file=detected.get("file"))
 
 

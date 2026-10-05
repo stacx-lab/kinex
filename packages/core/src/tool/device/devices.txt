@@ -1,6 +1,6 @@
 Call several devices concurrently. Each call takes deviceID, action (default read),
 and args. Results remain in input order and include deviceID, action, ok, and data,
-file or error. Camera files are also attached as images. Calls are permission-checked
+file or error. Camera files are returned as paths; use the host file-reading tool to inspect images when needed. Calls are permission-checked
 before dispatch; failures are reported per entry. Cancellation interrupts the batch.
 Sampling is not simultaneous and effects are not atomic. Device scheduling still
 applies. Use device for a single call and device_stop for an immediate stop.

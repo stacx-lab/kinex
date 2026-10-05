@@ -3,7 +3,9 @@
 import math
 
 from kinex.geometry import apply_rt, compose_rt, invert_rt, mat_to_quat, xyzq_to_rt
+from kinex.ik_search import checkpoint, search
 from kinex.motion import flat, pose as validate_pose, vector
+from kinex.validation import number
 
 
 def cross(a, b):
@@ -92,33 +94,67 @@ class Kinematics:
 
 
 def solve_tasks(joints, options, tasks, seed):
-    """Damped least squares over simultaneous chain tasks and shared joint variables."""
+    """Bounded DLS search over simultaneous tasks and shared joint variables."""
     from kinex.motion import joint_target
 
-    q = joint_target(seed, joints)
+    seed = joint_target(seed, joints)
+    iterations = options["max_iterations"]
+    if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations <= 0:
+        raise ValueError("IK max_iterations must be a positive integer")
+    for key in ("damping", "position_tolerance_m", "rotation_tolerance_rad"):
+        if number(options[key], f"IK {key}") <= 0:
+            raise ValueError(f"IK {key} must be positive")
+    targets = []
+    for _, indexes, position, orientation in tasks:
+        vector(position, 3, "IK position")
+        if orientation is not None:
+            validate_pose([*position, *orientation])
+        targets.append([indexes, position, orientation])
+
+    def verify(q):
+        _, _, position, rotation = task_system(tasks, q, len(joints))
+        return reached(options, position, rotation)
+
+    return search(joints, options, targets, seed,
+                  lambda q, deadline, progress: solve_attempt(joints, options, tasks, q, deadline, progress), verify)
+
+
+def task_system(tasks, q, count):
+    rows, residual = [], []
+    position_error, rotation_error_rad = 0.0, 0.0
+    for chain, indexes, position, orientation in tasks:
+        current, axes = chain.forward([q[i] for i in indexes])
+        linear = [a - b for a, b in zip(position, current[:3], strict=True)]
+        angular = rotation_error([*position, *orientation], current) if orientation is not None else []
+        position_error = max(position_error, math.hypot(*linear))
+        rotation_error_rad = max(rotation_error_rad, math.hypot(*angular))
+        columns = [axis + [0, 0, 0] if joint["type"] == "prismatic" else
+                   cross(axis, [current[i] - anchor[i] for i in range(3)]) + axis
+                   for joint, (axis, anchor) in zip(chain.joints, axes, strict=True)]
+        for component in range(len(linear + angular)):
+            row = [0.0] * count
+            for index, column in zip(indexes, columns, strict=True):
+                row[index] = column[component]
+            rows.append(row)
+        residual.extend(linear + angular)
+    return rows, residual, position_error, rotation_error_rad
+
+
+def reached(options, position, rotation):
+    return position <= options["position_tolerance_m"] and rotation <= options["rotation_tolerance_rad"]
+
+
+def solve_attempt(joints, options, tasks, seed, deadline, progress):
+    q = list(seed)
     bounds = [(j["limits"]["min"], j["limits"]["max"]) if j["limits"] else (-math.inf, math.inf) for j in joints]
     count = len(joints)
     for _ in range(options["max_iterations"]):
-        rows, residual = [], []
-        reached = True
-        for chain, indexes, position, orientation in tasks:
-            current, axes = chain.forward([q[i] for i in indexes])
-            linear = [a - b for a, b in zip(position, current[:3], strict=True)]
-            angular = rotation_error([*position, *orientation], current) if orientation is not None else []
-            reached = reached and math.hypot(*linear) <= options["position_tolerance_m"]
-            if orientation is not None:
-                reached = reached and math.hypot(*angular) <= options["rotation_tolerance_rad"]
-            columns = [axis + [0, 0, 0] if joint["type"] == "prismatic" else
-                       cross(axis, [current[i] - anchor[i] for i in range(3)]) + axis
-                       for joint, (axis, anchor) in zip(chain.joints, axes, strict=True)]
-            for component in range(len(linear + angular)):
-                row = [0.0] * count
-                for index, column in zip(indexes, columns, strict=True):
-                    row[index] = column[component]
-                rows.append(row)
-            residual.extend(linear + angular)
-        if reached:
-            return {"joints": q}
+        if not checkpoint(deadline):
+            return None
+        rows, residual, position, rotation = task_system(tasks, q, count)
+        progress.observe(position, rotation, options)
+        if reached(options, position, rotation):
+            return q
         matrix = [[sum(row[i]*row[j] for row in rows) + (options["damping"]**2 if i == j else 0)
                    for j in range(count)] for i in range(count)]
         gradient = [sum(row[i]*error for row, error in zip(rows, residual, strict=True)) for i in range(count)]
@@ -126,4 +162,4 @@ def solve_tasks(joints, options, tasks, seed):
         steps = [(hi-lo)*0.05 if math.isfinite(hi-lo) else math.pi*0.05 for lo, hi in bounds]
         scale = max(1.0, *(abs(d)/step for d, step in zip(delta, steps, strict=True)))
         q = [max(lo, min(hi, v + d/scale)) for v, d, (lo, hi) in zip(q, delta, bounds, strict=True)]
-    raise ValueError("No IK solution found within limits from the supplied seed")
+    return None

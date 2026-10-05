@@ -1,37 +1,18 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, readFile, rm, rename, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 const exec = promisify(execFile)
 const root = fileURLToPath(new URL('../', import.meta.url))
 
-test('packed setup composes with core in a relocated workspace and can be removed', { timeout: 180000 }, async t => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-setup-package-'))
-  t.after(() => rm(directory, { recursive: true, force: true }))
-  const pack = async location => {
-    const result = await exec('npm', ['pack', '--json', '--pack-destination', directory], { cwd: location })
-    return JSON.parse(result.stdout)[0]
-  }
-  const core = await pack(path.join(root, '../core'))
-  const setup = await pack(root)
+export async function checkSetupPackage(relocated, installed, env, setup) {
   assert.ok(!setup.files.some(file => file.path.includes('assets/builtin/device/') || file.path.includes('/setup-device/')))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/calibrate-camera-intrinsics/SKILL.md'))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/verify-base-motion/procedure.json'))
   assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_base.py'))
-  for (const name of ['driver.py', 'setup.sh', 'provision.py', 'fastwam_config.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
-    assert.ok(core.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/') || file.path.endsWith('.pyc')))
-  assert.ok(core.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
-  const installed = path.join(directory, 'installed')
-  await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', installed,
-    path.join(directory, core.filename), path.join(directory, setup.filename), '@types/node@22'])
-  const relocated = path.join(directory, 'relocated')
-  await rename(installed, relocated)
-  const env = { ...process.env, KINEX_CONFIG_DIR: path.join(directory, 'config'), KINEX_DATA_DIR: path.join(directory, 'data'), PYTHONDONTWRITEBYTECODE: '1' }
   await writeFile(path.join(relocated, 'consumer.mts'), `
 import { createKinexRuntime } from '@kinex/core'
 import { composeContributions, coreContribution } from '@kinex/core/integration'
@@ -71,7 +52,7 @@ try {
   assert.equal((await setup.plan.inspect()).taskSatisfied, null)
 } finally {await runtime.dispose()}
 `], { cwd: relocated, env })
-  await rm(path.join(relocated, 'node_modules/@kinex/setup'), { recursive: true })
+  await rm(path.join(installed, 'node_modules/@kinex/setup'), { recursive: true })
   await exec(process.execPath, ['--input-type=module', '--eval', `
 import assert from 'node:assert/strict'
 import { mkdir, symlink, writeFile, stat } from 'node:fs/promises'
@@ -113,4 +94,4 @@ try {
 } finally {await runtime.dispose()}
 `], { cwd: relocated, env })
   assert.ok(await readFile(path.join(relocated, '.kinex/devices/world/profile.yaml'), 'utf8'))
-})
+}

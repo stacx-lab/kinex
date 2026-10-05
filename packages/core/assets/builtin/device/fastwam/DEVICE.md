@@ -58,7 +58,7 @@ Pass the observation to `run_policy`. For the LIBERO Panda workspace:
   "observation": {"images": ["agent.png", "wrist.png"], "state": [0,0,0,0,0,0,0,0]},
   "task": "open the top drawer of the cabinet and put the bowl in it",
   "command": [
-    {"device": "arm", "space": "pose_delta", "frame": "world", "target_frame": "gripper"},
+    {"device": "arm", "space": "pose_delta", "frame": "world", "target_frame": "gripper:tcp"},
     {"device": "gripper"}
   ],
   "action_hz": 20,
@@ -72,7 +72,11 @@ giving a 0.5-second execution horizon. Use `track` with fresh observations and
 discarded. IK rejection may shorten the executed prefix further.
 
 Replace the example images/state with actual observations. A workspace perception
-tool must obtain them through Kinex reads and declared frames. RoboEnv LIBERO PNGs
+tool must obtain them through available measurements and declared frames.
+The generic gripper read exposes aperture only; it cannot supply the two native
+finger coordinates this checkpoint requires. Use a model-specific observation
+adapter that supplies those measurements; do not invent them from aperture.
+RoboEnv LIBERO PNGs
 are vertically corrected already: horizontally flip them to match FastWAM's
 180-degree rotation of raw OpenGL images. Do not rotate the corrected PNGs twice.
 

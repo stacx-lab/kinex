@@ -26,7 +26,6 @@ any tool. A refused call raises RuntimeError.
 import json
 import os
 import sys
-import time
 
 # Protocol channel: the real stdout, captured only INSIDE a tool dialog (the
 # harness marks its spawns with KINEX_TOOL_DIALOG=1). Everything print()ed
@@ -55,6 +54,31 @@ def _emit(payload):
     _out.flush()
 
 
+class RPCError(RuntimeError):
+    """A device or composed-tool failure retaining its public protocol metadata."""
+
+    def __init__(self, message, *, code=None, details=None):
+        super().__init__(message)
+        self.code, self.details = code, details
+
+    def payload(self):
+        return {"error": str(self),
+                **({"code": self.code} if self.code is not None else {}),
+                **({"details": self.details} if self.details is not None else {})}
+
+
+if _out is not None:
+    _previous_excepthook = sys.excepthook
+
+    def _excepthook(kind, error, traceback):
+        if isinstance(error, RPCError) and (error.code is not None or error.details is not None):
+            _emit(error.payload())
+        else:
+            _previous_excepthook(kind, error, traceback)
+
+    sys.excepthook = _excepthook
+
+
 def _rpc(payload):
     _emit(payload)
     line = sys.stdin.readline()
@@ -62,7 +86,8 @@ def _rpc(payload):
         raise RuntimeError("harness closed the dialog")
     response = json.loads(line)
     if not response.get("ok", False):
-        raise RuntimeError(response.get("error", "harness call failed"))
+        raise RPCError(response.get("error", "harness call failed"),
+                       code=response.get("code"), details=response.get("details"))
     response.pop("ok", None)
     return response
 
@@ -74,11 +99,21 @@ def args():
     return json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
 
 
+def _camera_result(name, action, kwargs, result):
+    if action == "read" and kwargs.get("output") == "array" and result.get("ok", True):
+        from kinex.capture import arrays
+        result["data"] = arrays(profile(name), result["data"])
+    return result
+
+
 def device(name, action="read", **kwargs):
     """Dispatch one action of a device's driver interface: returns
-    {"data": {...}?, "file": "/abs/path"?}. Commands (write/stop/custom verbs on
-    an actuated device) are controller-tool-only; load/unload use the separate device tool, not Python tools."""
-    return _rpc({"call": "device", "device": name, "action": action, "args": kwargs})
+    {"data": {...}?, "file": "/abs/path"?}.
+    Camera output="array" returns NumPy color/depth in data; "base64" returns
+    PNG/PGM strings; "file" (default) returns paths. Commands on
+    an actuated device are controller-tool-only; load/unload use the separate device tool, not Python tools."""
+    result = _rpc({"call": "device", "device": name, "action": action, "args": kwargs})
+    return _camera_result(name, action, kwargs, result)
 
 
 def devices(commands):
@@ -89,12 +124,20 @@ def devices(commands):
     replaces prior motion on that device; reads bypass writes. Calls do not
     promise simultaneous sampling or atomic effects across devices.
     """
-    return _rpc({"call": "devices", "commands": commands})["results"]
+    results = _rpc({"call": "devices", "commands": commands})["results"]
+    return [_camera_result(command["device"], command.get("action", "read"), command.get("args", {}), result)
+            for command, result in zip(commands, results)]
 
 
 def call(tool, **kwargs):
     """Compose a Python tool or device/devices; returns its structured result."""
-    return _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
+    result = _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
+    if tool == "device":
+        return _camera_result(kwargs["deviceID"], kwargs.get("action", "read"), kwargs.get("args", {}), {"data": result})["data"]
+    if tool == "devices":
+        result["results"] = [_camera_result(command["deviceID"], command.get("action", "read"), command.get("args", {}), value)
+                             for command, value in zip(kwargs["calls"], result["results"])]
+    return result
 
 
 def inline(source, values, *, kind="perception"):

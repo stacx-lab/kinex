@@ -1,12 +1,12 @@
 """Velocity driver lifecycle and asynchronous reference execution."""
 
+import copy
 import sys
 import threading
-import time
 
 from kinex.buffer import Buffer
 
-from kinex.driver_protocol import run, release
+from kinex.driver_protocol import run, release, check_cancelled
 from kinex.velocity import command, reading
 from kinex.validation import settings
 
@@ -37,7 +37,7 @@ class Driver:
         raise NotImplementedError("Release connection; do not disable balance control")
 
     def read_state(self, handle):
-        raise NotImplementedError("Read body pose, velocities, height, frames and timestamp")
+        raise NotImplementedError("Read velocities, optional body measurements/local frames, faults and timestamp")
 
     @property
     def period_s(self):
@@ -48,6 +48,13 @@ class Driver:
 
     def halt(self, handle, target):
         raise NotImplementedError("Apply profile stop behavior, preserving posture/balance; target is the last command or None")
+
+    def apply_reference(self, handle, reference):
+        held = copy.deepcopy(reference)
+        self.set_target(handle, reference)
+        if self.profile["type"] == "gripper":
+            # Stop keeps the applied goal, never the unconsumed end of a buffer.
+            self.target = held
 
     def connection(self):
         if self.handle is None:
@@ -92,22 +99,25 @@ class Driver:
                 raise ValueError("local buffers require a persistent driver")
             value = self.command(args)
             handle = self.connection()
-            self.target = value
+            references = self.references(value)
             if self.buffer is None:
-                self.buffer = Buffer(self.period_s, lambda target: self.set_target(handle, target),
+                self.buffer = Buffer(self.period_s, lambda target: self.apply_reference(handle, target),
                                      lambda: self.halt(handle, self.target), expire=self.profile["type"] == "velocity")
-            start = time.monotonic()
-            identity = self.buffer.submit(self.references(value), value["duration_s"])
-            state = self.execute("read", {})
-            return {"execution_id": identity, "elapsed_s": time.monotonic() - start,
-                    "state": state}
+            with self.buffer.condition:
+                check_cancelled()
+                identity = self.buffer.submit(references, value["duration_s"])
+                if self.profile["type"] != "gripper":
+                    self.target = value
+            return self.buffer.result(identity, lambda: self.execute("read", {}))
         raise ValueError(f"Unsupported base action: {action}")
 
     def dispatch(self, action, args):
         try:
             return {"ok": True, **self.execute(action, args)}
         except Exception as error:
-            return {"ok": False, "error": f"{type(error).__name__}: {error}"}
+            return {"ok": False, "error": f"{type(error).__name__}: {error}",
+                    "code": getattr(error, "code", None),
+                    "details": getattr(error, "details", None)}
 
     def close(self, stop=None):
         with self.lock:

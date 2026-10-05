@@ -2,7 +2,6 @@
 
 import sys
 import threading
-import time
 
 from kinex.buffer import Buffer
 
@@ -30,7 +29,7 @@ class Driver:
         raise NotImplementedError("release controller connection and owned services, never a shared external server")
 
     def read_state(self, handle):
-        raise NotImplementedError("read positions/velocities/efforts/faults, acquisition time and reported_pose")
+        raise NotImplementedError("read positions/velocities/efforts/faults, timestamp")
 
     @property
     def period_s(self):
@@ -54,12 +53,10 @@ class Driver:
         if self.buffer is None:
             self.buffer = Buffer(self.period_s, lambda target: self.set_target(handle, target),
                                  lambda: self.stop_motion(handle))
-        check_cancelled()
-        start = time.monotonic()
-        identity = self.buffer.submit(command["actions"], command["duration_s"])
-        state = self.sample()
-        return {"execution_id": identity, "elapsed_s": time.monotonic() - start,
-                "state": state}
+        with self.buffer.condition:
+            check_cancelled()
+            identity = self.buffer.submit(command["actions"], command["duration_s"])
+        return self.buffer.result(identity, self.sample)
 
     def halt(self, handle):
         raise NotImplementedError("perform the declared stop behavior and scope")
@@ -122,17 +119,17 @@ class Driver:
                 self.stop_motion(self.connection())
             return {"stopped": True, **stop}
         if action == "fk":
-            if set(args) != {"joints"}:
-                raise ValueError("fk requires only joints")
-            return self.model().fk(args["joints"])
+            if set(args) - {"joints", "frame", "reference_frame"} or "joints" not in args:
+                raise ValueError("fk requires joints and optional frame/reference_frame")
+            return self.model().fk(**args)
         if action == "ik":
-            if set(args) - {"pose", "seed"} or "pose" not in args:
-                raise ValueError("ik requires pose and optional seed")
+            if set(args) - {"pose", "seed", "frame", "reference_frame"} or "pose" not in args:
+                raise ValueError("ik requires pose and optional seed/frame/reference_frame")
             model = self.model()
             seed = args.get("seed")
             if seed is None:
                 seed = model.project(self.execute("read", {})["positions"])
-            return model.ik(args["pose"], seed)
+            return model.ik(args["pose"], seed, args.get("frame"), args.get("reference_frame"))
         if action == "record_start":
             from kinex.stream import StateRecorder
             if not self.profile["access"]["driver"].get("persistent", True):

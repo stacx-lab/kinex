@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util"
+import { readFile } from "node:fs/promises"
 import { InteractiveMode, runPrintMode } from "@earendil-works/pi-coding-agent"
 import { createApplication } from "./application.ts"
 import { executeRoboticsCommand } from "@kinex/core"
@@ -36,7 +37,11 @@ async function main(): Promise<void> {
     "enable-recording": { type: "boolean" }, record: { type: "string" }, seed: { type: "string" }, json: { type: "boolean" },
   } })
   if (values.help) { console.log(help); return }
-  if (values.version) { console.log("0.9.0"); return }
+  if (values.version) {
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+    console.log(manifest.version)
+    return
+  }
   if (values.export !== undefined) {
     if (!values.export || positionals.length > 1 || positionals[0] === "") throw new Error("Usage: kinex --export <session.jsonl> [output.html]")
     process.exitCode = await exportSession(values.export, positionals[0])

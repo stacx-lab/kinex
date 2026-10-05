@@ -38,7 +38,10 @@ early returns and async/await. Avoid `any`, unnecessary casts/catches and obsole
 compatibility layers; retain typed errors (`NamedError`). Imported prose belongs
 in sibling `.txt` files; discovered content belongs in its owning package assets.
 
-- Integration: `npm run typecheck`, `npm test`, `npm run test:core`, `npm run test:setup`.
+- Full integration: `npm run check` builds/typechecks once, then runs core, setup,
+  standalone, PTY and packed-consumer checks. Focused edits may use `npm test`,
+  `npm run test:core` or `npm run test:setup`; package independence is checked by
+  `npm test`/`npm run check`.
 - Build/package: `npm run build`, then `npm run pack -- OUTPUT_DIRECTORY`.
 
 Builds replace output: never rebuild packages concurrently with consumer tests.

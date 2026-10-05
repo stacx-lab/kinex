@@ -15,6 +15,10 @@ def number(value, name="value"):
     return value
 
 
+def observation_timestamp(*acquired, received):
+    return max(number(received if stamp is None else stamp, "timestamp") for stamp in acquired)
+
+
 def vector(value, size, name="components"):
     if not isinstance(value, list) or len(value) != size:
         raise ValueError(f"{name} needs {size} numbers")
@@ -24,7 +28,7 @@ def vector(value, size, name="components"):
 
 
 def segment(args, command):
-    """Attach a validated duration to a velocity or scalar command."""
+    """Attach a validated buffer duration to an actuator command."""
     budget = number(args.get("duration_s"), "duration_s")
     if budget <= 0:
         raise ValueError("duration_s must be positive")

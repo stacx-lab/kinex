@@ -1,3 +1,4 @@
+import { shortID } from "../util/id.ts"
 import type { CommandAdmission } from "./scheduler.ts"
 import { scoped } from "../scope.ts"
 import { spawnProcess } from "../util/process.ts"
@@ -24,7 +25,7 @@ class DriverError extends NamedError {
 export interface DeviceReading {
   deviceID: string
   kind: string
-  // Small payloads inline; large ones (images) written to a file with the path here.
+  // Camera bytes are base64 in data, or saved under filePath for file output.
   data?: Record<string, unknown>
   filePath?: string
 }
@@ -116,7 +117,7 @@ function failServing(entry: DriverProcess, error: unknown): void {
 export async function interruptServing(cwd: string, name: string, requestID?: string): Promise<void> {
   const entry = serving().get(await ProfileStore.deviceDir(cwd, name))
   if (!entry || entry.stopping || entry.proc.exitCode !== null) return
-  const id = crypto.randomUUID()
+  const id = shortID()
   const response = Promise.withResolvers<Record<string, unknown>>()
   entry.pending.set(id, response)
   const timer = setTimeout(() => failServing(entry, new DriverError("driver interrupt timed out")), 1000)
@@ -192,7 +193,7 @@ async function runServe(
   // Stop may have arrived during asynchronous path/environment preparation.
   // Check admission immediately before putting a command on the driver's pipe.
   admission?.check()
-  const id = crypto.randomUUID()
+  const id = shortID()
   const response = Promise.withResolvers<Record<string, unknown>>()
   entry.pending.set(id, response)
   const abort = () => {

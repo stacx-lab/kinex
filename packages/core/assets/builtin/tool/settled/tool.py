@@ -5,11 +5,12 @@ from kinex import args, finish, profile
 from kinex.control import read
 from kinex.joint_control import Arrival
 from kinex.motion import joint_target, vector
+from kinex.validation import number
 
 
 def check(a):
     context = a["context"]
-    now = context["time_s"]
+    now = number(context["time_s"], "context.time_s")
     previous = a.get("state") or {}
     if now < previous.get("time_s", now):
         raise ValueError("world clock moved backwards")
@@ -36,14 +37,15 @@ def check(a):
     spec = {"joint_tolerance": tolerance("joint_tolerance", 0.01),
             "quiet_velocity": tolerance("quiet_velocity", 0.005), "stable_s": a.get("stable_s", 0.1)}
     arrival = Arrival(joints, goal, spec)
-    if state.get("device") == name and state.get("joints") == goal:
-        arrival.since = state.get("since_s")
-        arrival.stamp = previous.get("time_s")
+    if state.get("device") == name:
+        arrival.stamp = previous.get("sample_timestamp")
+        if arrival.stamp is not None and state.get("joints") == goal:
+            arrival.since = state.get("since_s")
     measured = read(name)
     if measured["faults"]:
         raise RuntimeError(f"{name}: device fault")
-    done = arrival.sample({**measured, "sample_time_s": now})
-    state.update(device=name, joints=goal, since_s=arrival.since)
+    done = arrival.sample(measured, time_s=now)
+    state.update(device=name, joints=goal, since_s=arrival.since, sample_timestamp=arrival.stamp)
     return {"done": done, "reason": "settled" if done else None, "state": state}
 
 

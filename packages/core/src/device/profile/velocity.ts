@@ -43,10 +43,8 @@ export const VelocityStop = z.strictObject({
   affected_devices: z.array(z.string().min(1)).min(1).refine(unique, "duplicate stop member"),
 })
 export const VelocityFeedback = z.strictObject({
-  pose_frame: field(z.string().min(1).nullable()),
   velocity_frame: field(z.string().min(1).nullable()),
   velocity_components: field(z.array(axis).refine(unique, "duplicate measured axis")),
-  clock: field(z.enum(["unix", "monotonic", "simulation"])),
 }).superRefine((v, ctx) => {
   if (v.velocity_components === "???" || v.velocity_frame === "???") return
   if ((v.velocity_components.length === 0) !== (v.velocity_frame === null))

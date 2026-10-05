@@ -1,9 +1,9 @@
 import { z } from "zod"
 import { define } from "../tool.ts"
 import { renderReading } from "./shared.ts"
-import { imageMime } from "../../util/media.ts"
 import { callDevices, DeviceCallSchema } from "./calls.ts"
 import DESCRIPTION from "./device.txt"
+import { failureMetadata, renderFailure } from "../errors.ts"
 
 export const DeviceTool = define("device", {
   description: DESCRIPTION,
@@ -14,11 +14,10 @@ export const DeviceTool = define("device", {
   }),
   execute: async (args, ctx) => {
     const [result] = await callDevices([args], ctx)
-    if (!result?.ok) return { title: `device ${args.deviceID}`, output: result?.error ?? "device call failed", isError: true }
+    if (!result?.ok) return { title: `device ${args.deviceID}`,
+      output: renderFailure({ error: result?.error ?? "device call failed", ...failureMetadata({ ...result }) }), isError: true }
     const reading = { deviceID: args.deviceID, kind: args.action, data: result.data, filePath: result.file }
     const output = renderReading(reading, args.verbose || !["read", "write"].includes(args.action), args.compact)
-    const mime = reading.filePath ? await imageMime(reading.filePath) : undefined
-    const attachments = mime && reading.filePath ? [{ mime, path: reading.filePath }] : undefined
-    return { title: `${args.action} on ${args.deviceID}`, output, attachments }
+    return { title: `${args.action} on ${args.deviceID}`, output }
   },
 })

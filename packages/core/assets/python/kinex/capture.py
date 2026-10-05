@@ -1,9 +1,10 @@
 """Camera driver output validation and encoding shared by RGB/RGBD skeletons."""
 
-from kinex.validation import settings
+from kinex.validation import settings as settings, number
 
-import math
-import uuid
+import base64
+import io
+import secrets
 from pathlib import Path
 
 
@@ -13,11 +14,7 @@ def validate(profile, sample):
     meta = profile["intrinsics"]["color"]
     if color.dtype != np.uint8 or color.shape != (meta["height"], meta["width"], 3):
         raise ValueError("color must be uint8 RGB at the profile resolution")
-    stamp = sample["sample_time_s"]
-    if stamp is not None and not math.isfinite(stamp):
-        raise ValueError("sample_time_s must be acquisition Unix seconds or null")
-    if stamp is None and not math.isfinite(sample["received_time_s"]):
-        raise ValueError("unknown acquisition time requires received_time_s")
+    number(sample.get("timestamp"), "timestamp")
     if profile["type"] != "rgbd":
         return sample
     depth = np.asarray(sample["depth"])
@@ -29,34 +26,54 @@ def validate(profile, sample):
     limits = meta["valid_range_m"]
     if np.any((metres < limits["min"]) | (metres > limits["max"])):
         raise ValueError("driver must map out-of-range depth to invalid_value before encoding")
-    stamp = sample["depth_sample_time_s"]
-    if stamp is not None and not math.isfinite(stamp):
-        raise ValueError("depth_sample_time_s must be acquisition Unix seconds or null")
-    if stamp is None and not math.isfinite(sample["received_time_s"]):
-        raise ValueError("unknown depth acquisition time requires received_time_s")
     return sample
 
 
-def save(profile, sample, directory):
+def output_mode(value="file"):
+    if value not in ("file", "array", "base64"):
+        raise ValueError("camera output must be file, array or base64")
+    return value
+
+
+def save(profile, sample, directory, output="file"):
+    """Array requests use base64 on the wire; the Python client decodes them."""
     import numpy as np
     from PIL import Image
+    output_mode(output)
     validate(profile, sample)
+    stream = io.BytesIO()
+    Image.fromarray(sample["color"]).save(stream, format="PNG")
+    images = {"color": stream.getvalue()}
+    if profile["type"] == "rgbd":
+        meta = profile["intrinsics"]["depth"]
+        header = f'P5\n{meta["width"]} {meta["height"]}\n65535\n'.encode()
+        images["depth"] = header + np.asarray(sample["depth"]).astype(">u2").tobytes()
+    result = {"timestamp": sample["timestamp"]}
+    if output != "file":
+        return {**result, **{key: base64.b64encode(value).decode("ascii") for key, value in images.items()}}
     out = Path(directory)
-    out.mkdir(exist_ok=True)
-    stamp = uuid.uuid4().hex
-    color_path = out / f"color-{stamp}.png"
-    Image.fromarray(sample["color"]).save(color_path)
-    color = profile["intrinsics"]["color"]
-    result = {"file": str(color_path), "width": color["width"], "height": color["height"],
-              "sample_time_s": sample["sample_time_s"]}
-    if "received_time_s" in sample:
-        result["received_time_s"] = sample["received_time_s"]
-    if profile["type"] != "rgbd":
-        return result
-    meta = profile["intrinsics"]["depth"]
-    depth_path = out / f"depth-{stamp}.pgm"
-    header = f'P5\n{meta["width"]} {meta["height"]}\n65535\n'.encode()
-    depth_path.write_bytes(header + np.asarray(sample["depth"]).astype(">u2").tobytes())
-    result.update(depth_file=str(depth_path), depth_width=meta["width"], depth_height=meta["height"],
-                  depth_sample_time_s=sample["depth_sample_time_s"])
+    out.mkdir(parents=True, exist_ok=True)
+    stamp = secrets.token_hex(8)
+    for key, value in images.items():
+        path = out / f"{key}-{stamp}.{'png' if key == 'color' else 'pgm'}"
+        path.write_bytes(value)
+        result["file" if key == "color" else "depth_file"] = str(path)
     return result
+
+
+def arrays(profile, data):
+    import numpy as np
+    from PIL import Image
+    result = dict(data)
+    for key in ("color", "depth") if profile["type"] == "rgbd" else ("color",):
+        raw = base64.b64decode(data[key], validate=True)
+        meta = profile["intrinsics"][key]
+        with Image.open(io.BytesIO(raw)) as image:
+            if image.size != (meta["width"], meta["height"]):
+                raise ValueError("camera dimensions differ from the profile")
+            if key == "color" and (image.format != "PNG" or image.mode != "RGB"):
+                raise ValueError("color must be an RGB8 PNG")
+            if key == "depth" and not raw.startswith(f'P5\n{meta["width"]} {meta["height"]}\n65535\n'.encode()):
+                raise ValueError("depth must be PGM16")
+            result[key] = np.array(image, dtype=np.uint8 if key == "color" else np.uint16, copy=True)
+    return validate(profile, result)

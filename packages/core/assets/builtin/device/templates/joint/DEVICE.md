@@ -12,9 +12,23 @@ Use `???` for unresolved facts and `null` only where the schema permits it.
 
 intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {format:serial_chain,joints,chain}, or {format:urdf,path,base_link,tip_link}. Each joint declares name, type (revolute/continuous/prismatic), limits (null only for continuous), max_velocity and max_effort (nullable); max_acceleration is optional. Geometry is optional.
 
-kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), feedback (driver/fk), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. Declare the tip under intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
+kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. kinematics.frame declares the computed endpoint; do not repeat it in intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
 
-home names every joint or is null. feedback declares velocities, efforts and clock (unix/monotonic/simulation). stop declares behavior and affected_devices. intrinsics.frames maps local names to fixed poses or null for read.frame_poses feedback. extrinsics supplies only a mount or measured pose_frame.
+Numerical `ik.search` optionally sets `max_attempts` (5 total), `attempt_time_s`
+(0.02) and `max_time_s` (0.1). Existing profiles inherit these defaults;
+`max_iterations` also limits each attempt. The original seed is tried first,
+then deterministic nearby and broader seeds; fallback selection prefers the
+nearest valid configuration. Tolerances remain strict. Budgets are cooperative
+and apply per target; nearest preference is not a hard waypoint-step limit.
+
+home names every joint or is null. feedback declares velocities and efforts. stop declares behavior and affected_devices. intrinsics.frames declares additional references as {parent_frame, translation_m, rotation_xyzw}. A null parent means the device base; either transform component may be null when unknown. extrinsics supplies only a mount or measured pose_frame.
+
+### Frame feedback
+
+Reads and write states omit `frame_poses`; resolve live frames through FK from
+measured joint positions. FK must preserve measured limit overshoot, while IK
+solutions and explicit seeds satisfy limits. Return the selected `frame` and
+`reference_frame` with FK/IK results; fail on unknown required transforms.
 
 ### Profile
 
@@ -56,9 +70,13 @@ extrinsics:
 
 ## Use
 
-`write({actions, duration_s})` submits absolute joint vectors in model order
-(radians/metres). The driver consumes the buffer at its fixed control cadence.
-The last reference remains active after the buffer completes.
-New valid writes replace pending actions without stopping. Results contain
-`execution_id`, actual `elapsed_s` and measured `state`.
-Use `world.wait({duration_s})` to wait for execution. Stop clears the buffer.
+`write({actions, duration_s})` takes a sequence of absolute joint vectors in
+model order (radians/metres); the final reference remains active.
+`read()` returns positions, velocities, efforts, faults and timestamp.
+Unsupported velocity/effort channels are empty arrays; poses come from FK.
+
+FK takes `joints`; IK takes `pose` and optional `seed`. Both name `frame`
+(default `kinematics.frame`) and `reference_frame` (null means device base).
+Targets are the modeled endpoint or fixed descendants; references must be fixed
+to the base. FK preserves measured limit overshoot; IK enforces limits.
+Use `relative_pose` for external frames and `servo` for motion goals.

@@ -145,10 +145,16 @@ function boundedData(data: Record<string, unknown> | undefined): Record<string, 
   return { truncated: true, chars: text.length, keys: Object.keys(data) }
 }
 
-function stage(active: Active, device: Device, seq: number, source: string, suffix: string, passive: boolean): { rel: string; bytes: number } | undefined {
+function stage(active: Active, device: Device, seq: number, source: string | Buffer, suffix: string, passive: boolean): { rel: string; bytes: number } | undefined {
   const rel = frameFile(device.name, seq, suffix, passive)
   const bytes = (() => {
-    try { return stageFile(source, path.join(active.dir, rel)) }
+    try {
+      const target = path.join(active.dir, rel)
+      if (typeof source === "string") return stageFile(source, target)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, source)
+      return source.length
+    }
     catch (error) {
       active.manifest.error = `${rel}: ${error instanceof Error ? error.message : String(error)}`
       return undefined
@@ -183,22 +189,25 @@ function onDeviceEvent(event: DeviceEvent) {
   }
   const reading = event.reading
   if (reading) {
-    row.data = boundedData(reading.data)
+    const camera = event.device.type === "rgb" || event.device.type === "rgbd"
+    const { color, depth: depthContent, ...metadata } = reading.data ?? {}
+    row.data = boundedData(camera ? metadata : reading.data)
     // Scheduled samples feed continuous capture. Other reads retain their own
     // artifacts without changing the configured sampling cadence.
     const fed = event.origin === "sampler" && event.action === "read" && !event.error && !passive && active.streams.feed(event.device.name, reading, event.wall + event.latencyMs)
     if (fed) row.stream = true
     const still = !fed && event.origin !== "stream"
-    if (still && reading.filePath) {
-      const staged = stage(active, event.device, seq, reading.filePath, path.extname(reading.filePath) || ".bin", passive)
+    const image = reading.filePath ?? (camera && typeof color === "string" ? Buffer.from(color, "base64") : undefined)
+    if (still && image) {
+      const staged = stage(active, event.device, seq, image, reading.filePath ? path.extname(reading.filePath) || ".bin" : ".png", passive)
       if (staged) {
         row.file = staged.rel
         stats.frames += 1
         stats.bytes += staged.bytes
       }
     }
-    const depth = reading.data?.["depth_file"]
-    if (still && typeof depth === "string") {
+    const depth = reading.data?.["depth_file"] ?? (camera && typeof depthContent === "string" ? Buffer.from(depthContent, "base64") : undefined)
+    if (still && (typeof depth === "string" || Buffer.isBuffer(depth))) {
       const staged = stage(active, event.device, seq, depth, ".depth.pgm", passive)
       if (staged) {
         row.depthFile = staged.rel

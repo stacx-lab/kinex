@@ -70,11 +70,6 @@ interface Node {
 const GATING_TYPES: readonly DeviceType[] = ["velocity", "joint", "dexterous_hand", "gripper", "suction", "rgb", "rgbd"]
 
 function intrinsicsCheck(device: Device): Check {
-  if ("frames" in device.intrinsics) {
-    const contacts = new Set(device.type === "gripper" ? Object.values(device.intrinsics.geometry?.contacts ?? {}).map((c) => c.frame) : [])
-    if (Object.entries(device.intrinsics.frames).some(([name, pose]) => hasMissing(pose) && !contacts.has(name)))
-      return { done: false, detail: "intrinsics.frames contains uncalibrated transforms" }
-  }
   switch (device.type) {
     case "rgb":
     case "rgbd": {
@@ -148,6 +143,7 @@ function extrinsicsCheck(device: Device): Check {
   if (device.type === "rgbd" && known(device.intrinsics.depth) && device.intrinsics.depth.registration === "native"
     && cameraMissing(device.extrinsics.depth_to_color))
     return { done: false, detail: "extrinsics.depth_to_color is incomplete" }
+  if (device.type === "velocity") return { done: true, detail: "unlocalized device root" }
   const mount = deviceMount(device)
   if ((device.type === "force_torque" || device.type === "imu") && hasMissing(device.extrinsics))
     return { done: false, detail: "measurement frame is incomplete" }

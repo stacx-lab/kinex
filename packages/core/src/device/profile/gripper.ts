@@ -4,16 +4,10 @@ import { z } from "zod"
 const positive = z.number().positive()
 const axis = xyz.refine((v) => Math.abs(Math.hypot(...v) - 1) < 1e-6, "unit axis required")
 
-// Contact frames use local XY for the patch and +Z toward the object. Their
-// poses may be fixed, measured, or unknown; no mechanism or finger count is assumed.
 export const GripperGeometry = z.strictObject({
-  description: z.string().min(1),
+  description: z.string().min(1).optional(),
   approach_axis: field(axis.nullable()),
   closing_axis: field(axis.nullable()),
-  contacts: z.record(z.string().min(1), z.strictObject({
-    frame: z.string().min(1),
-    size_m: field(z.tuple([positive, positive]).nullable()),
-  })).default({}),
 })
 const bounds = z.strictObject({ min: z.number(), max: z.number() }).refine((v) => v.min < v.max, "min must be below max")
 const physicalRange = z.strictObject({ min: z.number().nonnegative(), max: positive }).refine((v) => v.min < v.max, "min must be below max")
@@ -25,7 +19,7 @@ const speed = z.strictObject({
 
 export const EndEffectorControl = z.discriminatedUnion("mode", [
   z.strictObject({ mode: z.literal("position"), units, bounds, resolution: positive.nullable(), open_target: z.number(), close_target: z.number(), speed: field(speed) }),
-  z.strictObject({ mode: z.literal("direction"), open_target: z.number(), close_target: z.number(), increment_per_interval: field(positive) }),
+  z.strictObject({ mode: z.literal("direction"), open_target: z.number(), close_target: z.number() }),
 ]).superRefine((control, ctx) => {
   if (control.open_target === control.close_target) ctx.addIssue({ code: "custom", message: "open/close targets must differ" })
   if (control.mode === "direction") {
@@ -43,12 +37,11 @@ export const EndEffectorControl = z.discriminatedUnion("mode", [
     ctx.addIssue({ code: "custom", path: ["speed", "native_bounds"], message: "speed bounds must be nonnegative" })
 })
 
-export const EndEffectorFeedback = z.strictObject({
+const SuctionFeedback = z.strictObject({
   positions: z.array(z.strictObject({ name: z.string().min(1), units })),
   velocities: z.boolean(),
   sensors: z.array(z.enum(["force_n", "object_detected", "pressure_pa"])).default([])
     .refine((v) => new Set(v).size === v.length, "duplicate sensor"),
-  clock: z.enum(["unix", "monotonic", "simulation"]),
   aperture_model: z.strictObject({ model: z.literal("affine"), coefficients: z.array(z.number()).min(1), offset_m: z.number() }).nullable().default(null),
 }).superRefine((feedback, ctx) => {
   if (new Set(feedback.positions.map((p) => p.name)).size !== feedback.positions.length)
@@ -56,6 +49,8 @@ export const EndEffectorFeedback = z.strictObject({
   if (feedback.aperture_model !== null && feedback.aperture_model.coefficients.length !== feedback.positions.length)
     ctx.addIssue({ code: "custom", path: ["aperture_model"], message: "one coefficient is required per measured position" })
 })
+
+const GripperFeedback = z.strictObject({ aperture_m: z.boolean() })
 
 export const EndEffectorStop = z.strictObject({
   behavior: z.enum(["hold", "halt", "controller_emergency_stop"]),
@@ -66,9 +61,9 @@ export const EndEffectorStop = z.strictObject({
 export const gripperShape = {
   geometry: GripperGeometry.optional(),
   aperture_m: physicalRange.nullable().default(null),
-  control: field(EndEffectorControl), feedback: field(EndEffectorFeedback), stop: field(EndEffectorStop),
+  control: field(EndEffectorControl), feedback: field(GripperFeedback), stop: field(EndEffectorStop),
 }
 export const suctionShape = {
   control: field(z.strictObject({ mode: z.literal("binary"), off_target: z.number(), on_target: z.number() }).refine((v) => v.off_target !== v.on_target, "on/off targets must differ")),
-  feedback: field(EndEffectorFeedback), stop: field(EndEffectorStop),
+  feedback: field(SuctionFeedback), stop: field(EndEffectorStop),
 }

@@ -1,7 +1,8 @@
+import { shortID } from "@kinex/core/util/id"
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import os from "node:os"
-import { createHash, randomUUID } from "node:crypto"
+import { createHash } from "node:crypto"
 import { SettingsManager, VERSION } from "@earendil-works/pi-coding-agent"
 import { lockSync } from "proper-lockfile"
 
@@ -42,7 +43,7 @@ export function settings(cwd: string): SettingsManager {
         const current = existsSync(file) ? readFileSync(file, "utf8") : undefined
         const next = update(effective(current))
         if (next === undefined || next === current) return
-        const temporary = `${file}.${randomUUID()}.tmp`
+        const temporary = `${file}.${shortID()}.tmp`
         writeFileSync(temporary, next, { mode: 0o600 })
         renameSync(temporary, file)
       } finally { unlock() }

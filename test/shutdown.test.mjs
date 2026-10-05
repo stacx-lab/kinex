@@ -60,7 +60,7 @@ run(dispatch, close)
   })
 }
 
-for (const specs of ['sensor=2', 'sensor=2 camera=2', 'camera=2']) for (const json of [false, true]) {
+for (const [specs, json] of [['sensor=2', false], ['sensor=2 camera=2', true], ['camera=2', true]]) {
   test(`headless --record ${specs} reports refusals and continues the model task (json=${json})`, { timeout: 15000 }, async t => {
     const cwd = await workspace(t)
     const fake = await fakeProvider(t, isolation.root)

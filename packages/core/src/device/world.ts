@@ -2,7 +2,7 @@ import { z } from "zod"
 import type { DeviceReading } from "./driver.ts"
 
 const budget = z.strictObject({
-  elapsed_s: z.number().nonnegative(),
+  used_s: z.number().nonnegative(),
   max_s: z.number().positive().nullable(),
 })
 
@@ -15,7 +15,7 @@ export function worldCommand(action: string, args: Record<string, unknown>): Rec
 export function worldResult(action: string, reading: DeviceReading): DeviceReading {
   const shape = { time_s: z.number().nonnegative() }
   const data = (action === "wait"
-    ? z.object({ ...shape, elapsed_s: z.number().nonnegative() })
+    ? z.object({ ...shape, waited_s: z.number().nonnegative() })
     : z.object({ ...shape, budget: budget.optional() })).parse(reading.data)
   return { ...reading, data }
 }

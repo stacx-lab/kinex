@@ -25,24 +25,22 @@ def forward(profile, positions):
     by_name = {joint["name"]: (joint, value) for joint, value in zip(joints, values, strict=True)}
     if len(by_name) != len(joints):
         raise ValueError("Hand model requires unique joints")
-    frames = intrinsics["frames"]
-    for frame in (geometry["palm_frame"], geometry["reference_frame"]):
-        pose(frames.get(frame), "fixed hand frame")
     result = {}
     for finger in geometry["fingers"].values():
-        names = finger["joints"]
-        if len(set(names)) != len(names) or any(name not in by_name for name in names):
+        names = [link["joint"] for link in finger["chain"] if "joint" in link]
+        if not names or len(set(names)) != len(names) or any(name not in by_name for name in names):
             raise ValueError("Finger requires unique, known model joints")
         frame = finger["tip_frame"]
-        if frame not in frames or frames[frame] is not None or frame in result:
-            raise ValueError("Fingertip requires a distinct declared dynamic frame")
-        chain = Kinematics({"joints": [by_name[name][0] for name in names], "chain": finger["chain"]}, None)
+        indexes = {name: index for index, name in enumerate(names)}
+        links = [{**link, "joint": indexes[link["joint"]]} if "joint" in link else link
+                 for link in finger["chain"]]
+        chain = Kinematics({"joints": [by_name[name][0] for name in names], "chain": links}, None)
         tip = chain.forward([by_name[name][1] for name in names])[0]
         result[frame] = flat(compose_rt(xyzq_to_rt(tip), xyzq_to_rt(pose(finger["tip_offset"]))))
-    center = geometry["center"]
+    center = geometry.get("center")
+    if center is None:
+        return result
     frame = center["frame"]
-    if frame not in frames or frames[frame] is not None or frame in result:
-        raise ValueError("Center requires a distinct declared dynamic frame")
     weights = center["weights"]
     if any(name not in geometry["fingers"] or number(weight) < 0 for name, weight in weights.items()):
         raise ValueError("Center weights require known fingers and nonnegative numbers")

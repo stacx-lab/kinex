@@ -12,7 +12,7 @@ class JointDeviceDriver(Driver):
         raise NotImplementedError("Release the connection and owned services; leave shared external services running")
 
     def read_state(self, handle):
-        raise NotImplementedError("Read positions, velocities, efforts, faults, acquisition time and declared frame poses")
+        raise NotImplementedError("Read positions, velocities, efforts, faults, timestamp")
 
     @property
     def period_s(self):

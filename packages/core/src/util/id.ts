@@ -1,3 +1,7 @@
+import { randomBytes } from "node:crypto"
+
+export function shortID(): string { return randomBytes(8).toString("hex") }
+
 const state = { last: 0, counter: 0 }
 
 // Monotonic, lexicographically ascending ids: <prefix>_<time base36 padded><counter base36 padded>

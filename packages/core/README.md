@@ -86,41 +86,67 @@ The existing root APIs remain available without adopting contributions.
 `device` calls one device; `devices` accepts `calls: [{deviceID, action?, args?}]`.
 Batch permissions are checked before dispatch. Calls run concurrently under each
 device's scheduler; results stay in input order and report individual errors.
-Camera files are attached as images. Sampling is not simultaneous and effects
+Camera reads return file paths in JSON; use the host file-reading tool to inspect
+images. Python tools may request array or base64 output for computation.
+Sampling is not simultaneous and effects
 are not atomic. Python tools may compose these tools without gaining lifecycle
 or controller capabilities.
 
-Actuator writes submit validated buffers with `duration_s` and return immediately.
+Actuator writes submit validated buffers with `duration_s` and return immediately
+with `{execution_id, state}`. State is measured at submission, not completion.
 Devices consume them at their fixed cadence. Position devices retain the last
 reference; velocity devices expire to zero velocity while retaining posture.
 `world.read` returns `time_s`; `world.wait(duration_s)` waits on the driver's clock.
-Reads may also include `budget: {elapsed_s, max_s}`: episode time consumed and
-allowed, in seconds. `elapsed_s` is finite and nonnegative; `max_s` is finite and
+Reads may also include `budget: {used_s, max_s}`: episode time consumed and
+allowed, in seconds. `used_s` is finite and nonnegative; `max_s` is finite and
 positive, or `null` for no cap. Omission means the driver supplies no budget.
 The information is reported as supplied, even if elapsed time exceeds the allowance;
 Kinex does not infer it from `time_s`, enforce it, or change control behavior.
-Wait results remain `{time_s, elapsed_s}`, with elapsed time for that wait only.
+Wait results remain `{time_s, waited_s}`, with elapsed time for that wait only.
 Drivers must convert native counts to seconds before reporting a budget. Legacy
 `used`, `max` and `unit` members are rejected, as are malformed budget objects.
 
 - `servo` plans and submits a full joint trajectory from measured state. It
   accepts joints or a pose and returns immediately, with no duration input.
-  Results report computed `duration_s`, requested/IK-resolved target `joints`, and
-  final commanded reference `end_joints`. Continuous-joint references may differ
-  from the target by a full revolution. These are plan information, not measured
-  arrival: allow execution with `world.wait` and verify using feedback. Planning
-  defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
+  Results report `device`, the driver's `execution_id`, requested/IK-resolved
+  target `joints`, computed `duration_s` and `actions_submitted`. The execution ID
+  identifies the submission, not completion. Driver feedback is validated before
+  success; allow execution with `world.wait` and verify arrival using fresh feedback.
+  Planning defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
   capped by known limits. Lower `speedFraction` lengthens the computed duration.
+- Numerical IK uses bounded DLS restarts for both `servo` and Cartesian policy
+  actions. The supplied/measured seed is tried first; an initial solution returns
+  immediately. Otherwise, two nearby perturbations precede broader bounded seeds,
+  and the nearest verified fallback is selected. Only continuous-joint distances
+  wrap. Nearest preference does not enforce a maximum waypoint step.
+  Optional `intrinsics.kinematics.ik.search` accepts `max_attempts` (default 5,
+  including the original seed), `attempt_time_s` (0.02) and `max_time_s` (0.1).
+  Counts must be positive integers and times positive finite seconds; omitted
+  fields use these defaults. `max_iterations` remains a per-attempt limit.
+  Deadlines and cancellation are checked between iterations; the current iteration
+  or final verification can overrun a deadline. Search exhaustion reports seed
+  attempts, iterations, elapsed time and best residuals without claiming
+  unreachability. Pose tolerances remain strict. Native driver IK is unchanged.
 - `run_policy` infers once, splits the selected chunk across devices, and submits
   buffers concurrently. Cartesian `pose` and `pose_delta` actions use frozen
   reference frames and seeded IK; `target_frame` must be rigidly attached to the
-  IK frame. It returns submission results without waiting.
+  IK frame. Initial IK seeds are projected to joint limits; measured positions
+  used for FK remain unchanged. Results are `actions_submitted`, `duration_s`,
+  `execution_ids` (device to execution ID) and `ik_failure`, without waiting.
+  `execution_ids` replaces the former `writes` response map and is empty when
+  nothing was submitted. Read devices separately for measured state.
   Gripper/suction writes use flat `actions: [value, ...]`; joint and dexterous-hand
   writes use sequences of joint vectors. Both require `duration_s`.
+  Each Cartesian waypoint has its own IK search budget, so planning time can
+  accumulate across a chunk. Failed search retains the existing shared-prefix
+  truncation behavior, including leaving existing buffers intact for an empty prefix.
 - `relative_pose` accepts `child` and `parent`, each `{frame, pose?}`. A local pose
   is `[x,y,z,qx,qy,qz,qw]` in metres with a unit quaternion, defaulting to identity.
   Both local transforms participate. The result expresses child in parent and
-  includes `translation`, `rotation`, `pose`, `path` and `estimated_links`.
+  contains only `pose` in the same format, `path` and `estimated_links`.
+  The duplicate `translation` and `rotation` result fields have been removed;
+  use `pose[:3]` and `pose[3:]` in Python. The underlying Python `frames.pose()`
+  API retains its separate translation/rotation representation.
   Shipped joint IK, `servo`, `run_policy` and `relative_pose` normalize xyzw
   quaternions with norms in `[0.999, 1.001]`, including frame estimates. Values
   outside that range are rejected with the received norm. Persisted profiles
@@ -131,6 +157,10 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   to source paths in the preceding result. With mappings, only selected values
   are injected. Null results or selected null values count as misses; missing
   paths are errors. `settled` checks arrival and optional world-time timeout.
+  Its state retains the device `sample_timestamp` separately from world time;
+  cached samples cannot establish arrival and backwards clocks are errors.
+  Changing the target resets stability without restarting the timeout. Older
+  state without `sample_timestamp` starts a new stability interval.
   Each stage accepts either `tool` or `python`, alongside the same `args` and
   mappings. Inline Python is a lambda or source defining `main`; it receives
   keyword arguments and returns JSON data without calling `finish`.
@@ -158,10 +188,17 @@ requesting controller capability requires a controller caller.
 Track stops owned motion on misses, errors, cancellation and final exit.
 `stop_after_control` also stops it after each round's wait. Cleanup cannot stop
 another invocation's replacement. Uncertain writes are never retried.
+Device failures preserve optional `code` and `details` through direct tools,
+batches, nested Python calls and inline stages. Structured tool errors are JSON
+with `error`, `code` and/or `details`; plain errors retain readable text. Python
+raises `kinex.RPCError`, a `RuntimeError` subclass exposing `.code` and `.details`.
+`run_policy` propagates `stop_failed` instead of reporting a normal IK rejection.
 `wait_s` is the observation/replanning interval; a new control call can replace
 the remaining references of a full servo plan before it completes.
 
 Migration: remove `duration_s` from servo arguments; obsolete input is rejected.
+Servo results expose `execution_id` directly and omit `write` and `end_joints`;
+device write responses retain their existing feedback contract.
 The Python `kinex.trajectory.trajectory(...)` helper also removes its `duration_s`
 keyword and now returns a `Trajectory` dataclass instead of a reference list.
 Use `plan.actions` and `plan.duration_s` together when submitting a device write.
@@ -285,11 +322,12 @@ handles this and the existing persistent protocol. Custom scripts parsing payloa
 from `sys.argv` must migrate to these helpers. Executable paths and `--serve` stay
 in argv; payload size no longer selects a transport.
 
-Images stay in files. For example, perception can return
+Camera reads default to files. For example, perception can return
 `{"image": device("camera")["file"]}`; with an identity processing stage, the
 controller mapping `"inputs": {"/observation/images/0": "/image"}` passes the
 current file path each round. Consumers open the file, and image tools can display
-it to the model. No image bytes need to appear in generated tool arguments.
+it to the model. Python consumers may instead request `output="array"` or
+`output="base64"` within their runtime; base64 text is not model image input.
 
 From the repository root:
 
@@ -319,3 +357,17 @@ and Python `devices()`. Stop interrupts its declared device scope and rejects ol
 queued writes. Load/unload/reload fence connections and capture ownership.
 Persistent drivers must echo request IDs and permit out-of-order replies; migrate
 custom loops using the shipped `kinex.driver_protocol.run` and reload devices.
+
+Joint `kinematics.frame` and hand geometry declare computed frames relative to the
+device base. Keep only additional references in `intrinsics.frames`; frame queries
+resolve FK on demand from measured joints.
+
+Velocity writes use named axes, for example
+`{mode: "drive", velocity: {vx: 0.05, vy: 0, wz: 0}, duration_s: 0.5}`.
+Consult the profile for units and input bounds. Velocity reads expose measured
+velocities, faults and timestamp, plus available body/local-frame measurements;
+they omit global pose. World-relative transforms require explicit frame estimates.
+Existing velocity profiles must remove `feedback.pose_frame`; drivers must omit
+`pose` from both reads and write-result states.
+Refresh copied RoboEnv profiles and drivers together, restart the simulation service,
+and reload the base after upgrading an existing workspace.

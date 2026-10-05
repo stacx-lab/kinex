@@ -19,7 +19,7 @@ def dispatch(action, args):
             check_cancelled()
             time.sleep(min(remaining, 0.05))
         now = time.monotonic()
-        return {"ok": True, "time_s": now, "elapsed_s": now - start}
+        return {"ok": True, "time_s": now, "waited_s": now - start}
     if args:
         raise ValueError(f"{action} takes no arguments")
     if action == "read":

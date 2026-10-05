@@ -1,9 +1,11 @@
+import { z } from "zod"
 import { worldCommand, worldResult } from "./world.ts"
 import { claimMotion, ownsMotion, ownedMotions } from "./ownership.ts"
 import { isCommandAction } from "./interface.ts"
 import { scheduleDevice, type CommandAdmission } from "./scheduler.ts"
 import { scoped } from "../scope.ts"
-import { jointReading, jointResult } from "./joint.ts"
+import { jointReading } from "./joint.ts"
+import { gripperReading } from "./gripper.ts"
 import { spatialReading } from "./spatial.ts"
 import { velocityReading } from "./velocity.ts"
 import { writeCommand } from "./command.ts"
@@ -13,7 +15,7 @@ import { modelOperation, modelInput, modelOutput } from "./model.ts"
 import { forceTorqueReading } from "./force-torque.ts"
 import path from "node:path"
 import { ProfileStore } from "./profile/store.ts"
-import { known, isJoint, type Device } from "./profile/schema.ts"
+import { known, isActuated, type Device } from "./profile/schema.ts"
 import { runDriver, isServing, stopServing, interruptServing, type DeviceReading } from "./driver.ts"
 import { mockAct } from "./virtual.ts"
 import { notifyDevice, notifyDeactivation } from "./observe.ts"
@@ -40,15 +42,29 @@ export function route(cwd: string, device: Device, action: string, args: Record<
 const inactive = scoped(() => new Set<string>())
 
 export function validateReading(device: Device, reading: DeviceReading): DeviceReading {
+  if (["rgb", "rgbd", "suction", "imu", "force_torque"].includes(device.type))
+    z.number().parse(reading.data?.timestamp)
   const spatial = spatialReading(device, reading)
   switch (device.type) {
     case "joint":
     case "dexterous_hand": return jointReading(device, spatial)
+    case "gripper": return gripperReading(device, spatial)
     case "velocity": return velocityReading(device, spatial)
     case "imu": return imuReading(device, spatial)
     case "force_torque": return forceTorqueReading(device, spatial)
     default: return spatial
   }
+}
+
+export function validateWriteResult(device: Device, reading: DeviceReading): DeviceReading {
+  const result = z.object({
+    execution_id: z.string().min(1), state: z.record(z.string(), z.unknown()),
+    elapsed_s: z.never().optional(),
+  }).passthrough().parse(reading.data)
+  const state = validateReading(device, { ...reading, data: result.state }).data
+  if (z.object({ faults: z.array(z.strictObject({ code: z.string() })) }).parse(state).faults.length)
+    throw new NamedError("DeviceResultError", `${device.name} write reported faults`)
+  return { ...reading, data: { ...result, state } }
 }
 
 export async function dispatchDevice(
@@ -70,6 +86,8 @@ function dispatchInWorkspace(workspace: string, device: Device, action: string, 
   // Preflight before replacement; the driver independently validates at its boundary.
   const operation = modelOperation(device, action)
   args = modelInput(operation, args)
+  if (action === "read" && (device.type === "rgb" || device.type === "rgbd"))
+    z.enum(["file", "array", "base64"]).parse(args.output === undefined ? "file" : args.output)
   if (action === "write") args = writeCommand(device, args)
   if (device.type === "world") args = worldCommand(action, args)
   if (action === "stop" && origin && !ownsMotion(key, origin))
@@ -93,9 +111,9 @@ function dispatchInWorkspace(workspace: string, device: Device, action: string, 
     const failures = (await interruptions).filter(result => result.status === "rejected")
     if (failures.length) throw new NamedError("DeviceStopError", "stop applied but an affected driver could not acknowledge interruption")
     if (action === "load") inactive().delete(key)
-    if (isJoint(device) && action === "write") {
+    if (isActuated(device) && action === "write") {
       try {
-        return jointResult(device, reading)
+        return validateWriteResult(device, reading)
       } catch (error) {
         await route(workspace, device, "stop", {})
         throw error

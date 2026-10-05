@@ -16,6 +16,12 @@ export const Pose = z.tuple([z.number(), z.number(), z.number(), z.number(), z.n
   .refine((v) => Math.abs(Math.hypot(...v.slice(3)) - 1) < 1e-6, "unit quaternion required")
 export const Transform = z.strictObject({ translation_m: field(xyz), rotation_xyzw: field(quaternion) })
 export const Mount = Transform.extend({ parent: z.string().min(1), parent_frame: z.string().min(1) })
+export const LocalFrame = z.strictObject({
+  parent_frame: z.string().min(1).nullable(),
+  translation_m: xyz.nullable(),
+  rotation_xyzw: quaternion.nullable(),
+})
+export type LocalFrame = z.infer<typeof LocalFrame>
 
 export function hasMissing(value: unknown): boolean {
   if (value === MISSING) return true
@@ -36,7 +42,7 @@ export const OtherConnection = z.discriminatedUnion("kind", [Tcp, Url, Serial, S
   z.strictObject({ kind: z.literal("process") }),
 ])
 
-// Scalar and velocity writes hold a command for a bounded device-time duration.
+// Actuator buffer duration in seconds on the device clock.
 export const segmentFields = { duration_s: z.number().positive() }
 
 export const lifecycle = ["load", "unload", "status"] as const

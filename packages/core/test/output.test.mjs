@@ -2,6 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { formatJSON, omitEmptyOptional } from '../dist/util/json.js'
 import { renderReading } from '../dist/tool/device/shared.js'
+import { Device } from '../dist/device/profile/schema.js'
+import { validateReading } from '../dist/device/dispatch.js'
 import { recordingOutput } from '../dist/record/output.js'
 
 test('JSON indents only two levels and retains JSON serialization semantics', () => {
@@ -25,15 +27,15 @@ test('optional cleanup is explicit, nonmutating and preserves meaningful falsy v
 })
 
 test('device output defaults to full data and only drops empty optional feedback', () => {
-  const data = { accepted: true, elapsed_s: 0, reached: false, state: {
-    positions: [0], velocities: [], efforts: [], frame_poses: {}, faults: [], sample_time_s: null, received_time_s: 0, custom: [],
+  const data = { execution_id: 'test', state: {
+    positions: [0], velocities: [], efforts: [], frame_poses: {}, faults: [], timestamp: 0, custom: [],
   } }
   const reading = { data, filePath: '/tmp/frame.png' }
   assert.deepEqual(JSON.parse(renderReading({ data })), data)
   const concise = JSON.parse(renderReading({ data }, false))
-  assert.deepEqual(concise, { ...data, state: { positions: [0], faults: [], sample_time_s: null, received_time_s: 0, custom: [] } })
+  assert.deepEqual(concise, { ...data, state: { positions: [0], faults: [], timestamp: 0, custom: [] } })
   assert.deepEqual(JSON.parse(renderReading({ data: { velocities: [0], frame_poses: { tool: [0, 1] } } }, false)), { velocities: [0], frame_poses: { tool: [0, 1] } })
-  assert.equal(renderReading(reading, false, true), `written to /tmp/frame.png\n${JSON.stringify(concise)}`)
+  assert.equal(renderReading(reading, false, true), JSON.stringify({ ...concise, file: '/tmp/frame.png' }))
   assert.deepEqual(data.state.velocities, [])
 })
 
@@ -47,4 +49,12 @@ test('recording output cleans only optional empty annotations and bookkeeping', 
   assert.deepEqual(JSON.parse(recordingOutput({ running: null, recent: [manifest], refusals: { arm: 'unloaded' } }, false)), {
     running: null, recent: [{ id: 'recording', devices: {}, bytes: 0, quotaHit: false, error: '' }], refusals: { arm: 'unloaded' },
   })
+})
+
+test('camera observations require a finite timestamp and preserve it', () => {
+  const device = Device.parse({ name: 'camera', type: 'rgbd', meta: { created_at: '2026-10-01', updated_at: '2026-10-01' } })
+  const reading = timestamp => ({ deviceID: 'camera', kind: 'rgbd', data: { timestamp } })
+  assert.deepEqual(validateReading(device, reading(0)).data, { timestamp: 0 })
+  for (const timestamp of [undefined, null, true, NaN, Infinity])
+    assert.throws(() => validateReading(device, reading(timestamp)))
 })

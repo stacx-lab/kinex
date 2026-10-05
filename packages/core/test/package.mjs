@@ -1,28 +1,21 @@
-import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import os from 'node:os'
 import path from 'node:path'
 const exec = promisify(execFile)
+const root = fileURLToPath(new URL('../', import.meta.url))
 
-test('packed package runs in an unrelated directory without Bun or repository assets', { timeout: 120_000 }, async t => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-package-'))
-  t.after(() => rm(directory, { recursive: true, force: true }))
-  const env = { ...process.env, KINEX_CONFIG_DIR: path.join(directory, 'config'), KINEX_DATA_DIR: path.join(directory, 'data') }
-  const root = fileURLToPath(new URL('../', import.meta.url))
-  const packed = await exec('npm', ['pack', '--json', '--pack-destination', directory], { cwd: root })
-  const [pack] = JSON.parse(packed.stdout)
+export async function checkCorePackage(directory, env, pack) {
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
   for (const name of ['driver.py', 'setup.sh', 'provision.py', 'fastwam_config.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
     assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/policy.py'))
+  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/ik_search.py'))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
-  await exec('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', path.join(directory, pack.filename), '@types/node@22'], { cwd: directory })
   await writeFile(path.join(directory, 'consumer.mts'), `
     import { createKinexRuntime, type RuntimeOptions } from '@kinex/core'
     import { DEVICE_USE } from '@kinex/core/context/index'
@@ -85,6 +78,16 @@ test('packed package runs in an unrelated directory without Bun or repository as
       execFileSync('python3', ['-c', 'import kinex; import kinex.driver_protocol; import kinex.stream; import kinex.policy; import kinex.kinematics'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
+      execFileSync('python3', ['-c', [
+        'from kinex.ik_search import search_options',
+        'from kinex.kinematics import Kinematics',
+        'assert search_options({}) == dict(max_attempts=5, attempt_time_s=.02, max_time_s=.1)',
+        'joints = [dict(name="x", type="prismatic", limits=dict(min=0, max=1))]',
+        'chain = [dict(origin=[0,0,0,0,0,0,1], joint=0, axis=[1,0,0], anchor=[0,0,0], reference=0)]',
+        'ik = dict(max_iterations=200, damping=.01, position_tolerance_m=.001, rotation_tolerance_rad=.001)',
+        'model = Kinematics(dict(joints=joints, chain=chain), ik)',
+        'assert model.ik([.4,0,0,0,0,0,1], [.4]) == dict(joints=[.4])',
+      ].join('\\n')], { env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'} })
       const tools = await runtime.tools.list()
       assert.ok(tools.tools.some(tool => tool.name === 'device'))
       await mkdir('.kinex/tool', {recursive:true})
@@ -95,4 +98,4 @@ test('packed package runs in an unrelated directory without Bun or repository as
     assert.deepEqual(count(), before)
   `], { cwd: directory, env })
   assert.match(stdout, /packed Node package passed/)
-})
+}
