@@ -36,8 +36,8 @@ def goal_joints(a, name, prof):
 def control(a):
     name = a["device"]
     prof = profile(name)
-    if prof.get("type") != "joint":
-        raise ValueError("servo requires a joint device")
+    if prof.get("type") not in {"joint", "dexterous_hand"}:
+        raise ValueError("servo requires a joint or dexterous_hand device")
     if a.get("frame") is not None and a.get("pose") is None:
         raise ValueError("frame requires a pose goal")
     joints = prof["resolved_model"]["joints"]

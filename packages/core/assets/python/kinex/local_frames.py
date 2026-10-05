@@ -13,8 +13,9 @@ def frame_definitions(profile):
     computed = [(kinematics["frame"], "kinematics")] if kinematics else []
     geometry = facts.get("geometry")
     if geometry:
-        computed.extend((finger["tip_frame"], "hand") for finger in geometry["fingers"].values())
-        computed.append((geometry["center"]["frame"], "hand"))
+        computed.extend((finger["tip_frame"], "hand") for finger in geometry.get("fingers", {}).values())
+        if geometry.get("center"):
+            computed.append((geometry["center"]["frame"], "hand"))
     for name, source in computed:
         if name in frames:
             raise ValueError(f"Duplicate model-defined frame {name!r}; remove its frames entry")

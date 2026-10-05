@@ -12,7 +12,7 @@ const toolDir = path.join(root, 'assets', 'builtin', 'tool')
 const python = process.env.PYTHON ?? 'python3'
 const tool = (name) => path.join(toolDir, name, 'tool.py')
 
-function arm({ dof = 2, rate = 1, ik = null }) {
+function arm({ dof = 2, rate = 1, ik = null, type = 'joint' }) {
   const self = {
     positions: Array(dof).fill(0), target: Array(dof).fill(0), clock: 0,
     writes: 0, reads: 0, stops: 0, history: [], ik,
@@ -39,7 +39,7 @@ function arm({ dof = 2, rate = 1, ik = null }) {
   self.advance = seconds => { if (self.pending) self.target = self.pending.actions.at(-1); advance(seconds) }
   self.stop = () => { self.pending = null; self.stops++; self.target = [...self.positions]; return { stopped: true } }
   self.profile = () => ({
-    name: 'arm', type: 'joint', loaded: true,
+    name: 'arm', type, loaded: true,
     resolved_model: { joints: self.positions.map((_, i) => ({ name: `j${i}`, type: 'revolute', limits: { min: -3.2, max: 3.2 }, max_velocity: 2 })), chain: null },
     intrinsics: {
       control: { mode: 'position' },
@@ -404,8 +404,8 @@ test('servo submits the full planned trajectory without waiting or stopping', as
   assert.equal(result.actions_submitted, armDevice.history.length)
 })
 
-test('servo resolves pose targets through IK and computes short move duration', async () => {
-  const armDevice = arm({ ik: [0.01, 0.02] })
+for (const type of ['joint', 'dexterous_hand']) test(`servo resolves ${type} pose targets through declared IK`, async () => {
+  const armDevice = arm({ ik: [0.01, 0.02], type })
   const { result, stderr } = await dialog(tool('servo'), { device: 'arm', pose: [0, 0, 0, 0, 0, 0, 1] }, { arm: armDevice })
   assert.ok(result, stderr)
   assert.deepEqual(armDevice.history.at(-1), [.01, .02])

@@ -450,3 +450,17 @@ pending actions. Use an explicit open command to release. Direction grippers fre
 the accumulated target; they do not reset it to measured aperture. Update custom
 vendor stop hooks and refresh copied gripper drivers and `kinex/velocity_driver.py`
 before reloading. RoboEnv services need the matching runtime update and owner restart.
+
+Dexterous-hand geometry now uses named joints directly in each finger chain.
+To migrate an existing profile, replace each numeric chain `joint` with the name
+at that index in the finger's old `joints` list, then remove that list and
+`geometry.palm_frame`/`geometry.reference_frame`. Preserve the ordinary fixed
+`frames` entries, tip offsets, model, mount, connection and calibration facts.
+`geometry.center` is optional; removing it also removes its computed frame, so
+update any descendants or callers. `geometry.description` can stand alone and
+never enables FK. The schema rejects the old shape; there is no legacy parser.
+For SIMPLE G1, refresh matching RoboEnv catalog profiles and copied Kinex Python
+resources together, restart owned services and reload the hands. Regenerate into
+a fresh workspace or replace migrated geometry deliberately to preserve calibration.
+With `profile_write`, supply the complete migrated `intrinsics` section and
+`replace: ["intrinsics"]`; ordinary patches deep-merge and retain obsolete keys.

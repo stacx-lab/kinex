@@ -12,7 +12,7 @@ export function requiredActions(device: Device): string[] {
   const base = ["read", ...lifecycle]
   if (device.type === "joint" || device.type === "dexterous_hand") {
     const k = device.intrinsics.kinematics
-    return [...base, "write", "stop", ...(k?.fk || (device.type === "dexterous_hand" && device.intrinsics.geometry) ? ["fk"] : []), ...(k?.ik ? ["ik"] : [])]
+    return [...base, "write", "stop", ...(k?.fk || (device.type === "dexterous_hand" && device.intrinsics.geometry?.fingers) ? ["fk"] : []), ...(k?.ik ? ["ik"] : [])]
   }
   if (isActuated(device)) return [...base, "write", "stop"]
   if (isModel(device)) return [...base, ...device.intrinsics.operations.map((operation) => operation.name)]

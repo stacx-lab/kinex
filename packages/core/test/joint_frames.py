@@ -148,13 +148,52 @@ class FrameTests(unittest.TestCase):
         intrinsics["model"]["format"] = "joints"
         intrinsics["kinematics"] = None
         intrinsics["frames"] = {"palm": definition(IDENTITY), "reference": definition(IDENTITY)}
-        intrinsics["geometry"] = {"palm_frame": "palm", "reference_frame": "reference",
-            "fingers": {"finger": {"joints": ["j"], "chain": chain, "tip_frame": "tip", "tip_offset": IDENTITY}},
+        chain = [{**link, "joint": "j"} if "joint" in link else link for link in chain]
+        intrinsics["geometry"] = {
+            "fingers": {"finger": {"chain": chain, "tip_frame": "tip", "tip_offset": IDENTITY}},
             "center": {"frame": "center", "weights": {"finger": 1}, "rotation_xyzw": [0, 0, 0, 1]}}
         model = JointDevice(facts)
         self.assert_pose(model.fk([.4], "tip", "reference")["pose"], JointDevice(profile()).fk([.4])["pose"])
         with patch.object(frames, "profile", return_value=facts), patch.object(frames, "device", return_value={"data": {"positions": [.4]}}):
             self.assertAlmostEqual(frames.pose("arm:center", "arm")["translation"][0], math.cos(.4))
+
+    def test_hand_optional_geometry_shared_joints_and_fixed_references(self):
+        from kinex.hand import forward
+        facts = profile()
+        facts["type"] = "dexterous_hand"
+        intrinsics = facts["intrinsics"]
+        old_model = JointDevice(profile())
+        chain = intrinsics["model"].pop("chain")
+        intrinsics["model"]["format"] = "joints"
+        intrinsics["kinematics"] = None
+        # Fixed references need no palm/reference selectors and may be unknown.
+        intrinsics["frames"] = {"reference": definition(IDENTITY), "unknown": definition()}
+        intrinsics["geometry"] = {"description": "One finger."}
+        model = JointDevice(facts)
+        self.assertEqual(set(model.frames), {"reference", "unknown"})
+        with self.assertRaisesRegex(ValueError, "unavailable"):
+            forward(facts, [.4])
+        with patch.object(frames, "profile", return_value=facts), patch.object(frames, "device") as read:
+            self.assertEqual(frames.pose("arm:reference", "arm")["translation"], [0, 0, 0])
+            read.assert_not_called()
+        chain = [{**link, "joint": "j"} if "joint" in link else link for link in chain]
+        intrinsics["geometry"]["fingers"] = {
+            name: {"chain": chain, "tip_frame": name, "tip_offset": IDENTITY}
+            for name in ("tip", "shared_tip")}
+        intrinsics["frames"]["pad"] = definition([0, 0, .1, 0, 0, 0, 1], "tip")
+        model = JointDevice(facts)
+        for q in (0, -1, 1, 1.002, -.37, .83):
+            tips = forward(facts, [q])
+            self.assertEqual(set(tips), {"tip", "shared_tip"})
+            self.assert_pose(tips["tip"], old_model.fk([q])["pose"])
+            self.assert_pose(tips["shared_tip"], tips["tip"])
+            self.assert_pose(model.fk([q], "pad", "reference")["pose"],
+                             flat(compose_rt(xyzq_to_rt(tips["tip"]), xyzq_to_rt([0, 0, .1, 0, 0, 0, 1]))))
+        for invalid in ("missing", 0):
+            bad = copy.deepcopy(facts)
+            bad["intrinsics"]["geometry"]["fingers"]["tip"]["chain"][0]["joint"] = invalid
+            with self.assertRaisesRegex(ValueError, "known model joints"):
+                forward(bad, [.4])
 
     def test_mobile_local_frames_and_explicit_world_estimates(self):
         def fail(message):

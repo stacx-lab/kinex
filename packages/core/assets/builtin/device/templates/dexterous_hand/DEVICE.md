@@ -10,25 +10,30 @@ Follow setup-device for registration and lifecycle ownership. Load waits for
 readiness; status only observes; unload stops motion and releases owned resources.
 Use `???` for unresolved facts and `null` only where the schema permits it.
 
-Optional hand-specific `geometry` declares `palm_frame`,
-`reference_frame`, `fingers`, and `center`. Each finger declares `joints` (ordered
-names from the main model), `chain` (standard serial-chain links indexed within
-that subset, starting in the canonical hand frame), `tip_offset` (distal-link to
-nominal tip, metres and xyzw), and `tip_frame`. The center declares `frame`,
-nonnegative `weights` keyed by finger whose sum is one, and a fixed
-`rotation_xyzw` in hand coordinates. Declare palm/reference as distinct fixed
-frames. Geometry itself declares distinct tip and center frames; omit their entries from intrinsics.frames. Ordinary joint profiles do not
-accept this geometry field.
+Optional `geometry.description` describes documented finger arrangement, shape
+and limitations. It can stand alone without a kinematic model of the fingers.
+Optional `geometry.fingers` predicts nominal fingertip poses. Each finger declares
+`chain`, `tip_frame`, and `tip_offset` (distal-link to nominal tip, metres and xyzw).
+Moving chain links name a joint from `intrinsics.model` directly in `joint`, with
+`origin`, `axis`, `anchor`, and `reference`; fixed links contain only `origin`.
+Chain order defines traversal order. Each finger must use at least one joint,
+without repetitions; different fingers may share joints. Do not declare a separate
+finger `joints` list. Ordinary joint profiles do not accept hand geometry.
 
-Geometry predicts poses in the canonical hand frame; local frame definitions
-use their declared parents. Each chain link's
-origin is relative to the preceding link, starting in that canonical frame;
-`palm_frame` does not change the chain origin.
-Finger subsets may share model joints. Center weights may omit fingers (zero
-weight); its orientation stays fixed in hand coordinates as its position moves.
-Reads return joint measurements without frame poses. Named tips and center resolve
-on demand through local geometry at the sampled joint positions; advertise `fk`
-when geometry is present and specify the desired hand frame.
+Every chain starts at the device base. Palm and fixed grasp/TCP references are
+ordinary entries in `intrinsics.frames`; they do not change the chain origin.
+Geometry declares computed tip frames directly; omit duplicate entries from frames.
+For example, a moving link uses `joint: index_knuckle`, not a numeric local index.
+
+Optional `geometry.center` declares a computed `frame`, nonnegative `weights`
+keyed by finger whose sum is one, and `rotation_xyzw` in hand coordinates.
+It requires finger geometry. Omitted fingers have zero weight; center orientation
+stays fixed while its weighted fingertip position moves. It is a convenience
+reference, not a contact measurement, object center, or recommended grasp target.
+
+Reads return joint measurements without frame poses. Named tips and optional
+center resolve on demand at sampled joint positions; advertise `fk` only when
+finger geometry or endpoint FK is present. Description alone does not enable FK.
 URDF joint references are checked when the harness resolves the model; an
 unresolved model cannot support prediction.
 
@@ -92,14 +97,24 @@ extrinsics:
 
 ## Use
 
+`servo({device, joints, speedFraction?})` plans and submits a smooth trajectory
+from measured finger positions. It returns immediately; use world time and
+observations to check execution. Pose goals require declared endpoint IK;
+finger geometry alone supplies predictions, not pose-goal control.
+
 `write({actions, duration_s})` takes absolute joint vectors in model order
 (radians/metres); the final reference remains active. Reads return positions,
 velocities, efforts, faults and timestamp. Unsupported velocity/effort channels
 are empty arrays; reads omit frame poses.
 
-FK takes `joints` and resolves modeled tips, grasp center or fixed descendants.
+FK takes `joints` and resolves modeled tips, an optional center or fixed descendants.
 Specify `frame` when `kinematics` is null; otherwise it defaults to
 `kinematics.frame`. `reference_frame` is null for the hand base or a fixed base
 frame. These poses are geometric predictions, not contact measurements.
 IK takes `pose` and optional `seed`, requires a declared solver, and targets its
 endpoint or fixed descendants. FK preserves measured overshoot; IK enforces limits.
+
+For arm positioning, use an explicitly declared fixed hand reference and the
+hand-to-arm mount. A moving center is not a fixed tool offset. Finger FK predicts
+poses but does not choose closing postures or solve multi-finger IK; `home` does
+not necessarily mean open. Observe the object to verify a grasp.

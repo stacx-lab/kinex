@@ -624,15 +624,20 @@ test('native motion stop failures preserve progress and fence subsequent command
 })
 
 
-test('servo validates inputs and submits complete, replaceable plans through the runtime', async t => {
+for (const deviceType of ['joint', 'dexterous_hand']) test(`servo plans and validates ${deviceType} motion through the runtime`, async t => {
+  const name = deviceType === 'joint' ? 'arm' : 'hand'
   const { runtime, directory } = await fixture(t, { host })
   await runtime.profiles.writeDevice({ name: 'world', type: 'world', loaded: true, access: { connection: { kind: 'mock' } } })
-  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
+  await runtime.profiles.writeDevice({ name, type: deviceType, loaded: true,
     access: { connection: { kind: 'mock' } }, intrinsics: {
       model: { format: 'joints', joints: [0, 1].map(i => ({ name: `j${i}`, type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: 1, max_acceleration: 3, max_effort: null })) },
+      ...(deviceType === 'dexterous_hand' ? { geometry: { fingers: { index: {
+        chain: [{ joint: 'j0', origin: [0, 0, 0, 0, 0, 0, 1], axis: [0, 0, 1], anchor: [0, 0, 0], reference: 0 }],
+        tip_frame: 'index_tip', tip_offset: [0, 0, .05, 0, 0, 0, 1],
+      } } } } : {}),
       home: null, control: { mode: 'position' },
       feedback: { velocities: true, efforts: false },
-      stop: { behavior: 'hold', affected_devices: ['arm'] },
+      stop: { behavior: 'hold', affected_devices: [name] },
     },
   })
   const dir = path.join(directory, '.kinex/tool/servo')
@@ -643,30 +648,34 @@ test('servo validates inputs and submits complete, replaceable plans through the
   }
   const events = []
   t.after(runtime.subscribe(({ type, event }) => { if (type === 'device') events.push(event) }))
-  const obsolete = await runtime.tools.call('servo', { device: 'arm', joints: [2, 1], duration_s: 2.5 }, { sessionID: 's' })
+  const obsolete = await runtime.tools.call('servo', { device: name, joints: [2, 1], duration_s: 2.5 }, { sessionID: 's' })
   assert.equal(obsolete.isError, true)
   assert.match(obsolete.output, /duration_s/)
   assert.ok(!events.some(event => event.action === 'write'))
-  const response = await runtime.tools.call('servo', { device: 'arm', joints: [2, 1] }, { sessionID: 's' })
+  const pose = await runtime.tools.call('servo', { device: name, pose: [0, 0, 0, 0, 0, 0, 1] }, { sessionID: 's' })
+  assert.equal(pose.isError, true)
+  assert.match(pose.output, /pose goals require declared IK/)
+  assert.ok(!events.some(event => event.action === 'ik' || event.action === 'write'))
+  const response = await runtime.tools.call('servo', { device: name, joints: [2, 1] }, { sessionID: 's' })
   assert.ok(!response.isError, response.output)
   const result = JSON.parse(response.output)
   const submission = events.find(event => event.action === 'write').reading.data
   assert.match(submission.execution_id, /^[0-9a-f]{16}$/)
-  assert.deepEqual(result, { device: 'arm', execution_id: submission.execution_id,
+  assert.deepEqual(result, { device: name, execution_id: submission.execution_id,
     joints: [2, 1], duration_s: 3.75, actions_submitted: 375 })
   assert.deepEqual(submission.state.positions, [0, 0])
-  assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, [0, 0])
+  assert.deepEqual((await runtime.devices.dispatch(name, 'read')).data.positions, [0, 0])
   assert.ok(!events.some(event => event.action === 'wait' || event.action === 'stop'))
   await runtime.devices.dispatch('world', 'wait', { duration_s: 2.5 })
-  const midway = (await runtime.devices.dispatch('arm', 'read')).data.positions
+  const midway = (await runtime.devices.dispatch(name, 'read')).data.positions
   assert.ok(Math.abs(midway[0] - 1.5802469135802466) < 1e-12)
   await runtime.devices.dispatch('world', 'wait', { duration_s: result.duration_s - 2.5 })
-  assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, [2, 1])
+  assert.deepEqual((await runtime.devices.dispatch(name, 'read')).data.positions, [2, 1])
   await runtime.devices.dispatch('world', 'wait', { duration_s: 10 })
-  assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, [2, 1])
+  assert.deepEqual((await runtime.devices.dispatch(name, 'read')).data.positions, [2, 1])
 
   const submit = async joints => {
-    const response = await runtime.tools.call('servo', { device: 'arm', joints }, { sessionID: 's' })
+    const response = await runtime.tools.call('servo', { device: name, joints }, { sessionID: 's' })
     assert.ok(!response.isError, response.output)
     return JSON.parse(response.output)
   }
@@ -674,13 +683,13 @@ test('servo validates inputs and submits complete, replaceable plans through the
   await runtime.devices.dispatch('world', 'wait', { duration_s: .1 })
   const replacement = await submit([1, .5])
   await runtime.devices.dispatch('world', 'wait', { duration_s: replacement.duration_s + 10 })
-  assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, [1, .5])
+  assert.deepEqual((await runtime.devices.dispatch(name, 'read')).data.positions, [1, .5])
   const interrupted = await submit([0, 0])
   await runtime.devices.dispatch('world', 'wait', { duration_s: .1 })
-  await runtime.devices.dispatch('arm', 'stop')
-  const stopped = (await runtime.devices.dispatch('arm', 'read')).data.positions
+  await runtime.devices.dispatch(name, 'stop')
+  const stopped = (await runtime.devices.dispatch(name, 'read')).data.positions
   await runtime.devices.dispatch('world', 'wait', { duration_s: interrupted.duration_s + 10 })
-  assert.deepEqual((await runtime.devices.dispatch('arm', 'read')).data.positions, stopped)
+  assert.deepEqual((await runtime.devices.dispatch(name, 'read')).data.positions, stopped)
 })
 
 test('servo and policy reject invalid write feedback and faults through core validation', async t => {

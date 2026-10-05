@@ -140,9 +140,17 @@ transition fence through deactivation and deletion.
   Reads and write states omit finger poses. Finger measurements and aperture conversion remain private
   to the driver. The mount locates the gripper base; `intrinsics.frames.tcp` locates
   the tool point. Gripper geometry retains axes and an optional finger description,
-  with no contact-frame entries. Other device profile prose remains in guides.
+  with no contact-frame entries. Gripper and hand physical descriptions may live
+  in `geometry.description`; other device profile prose remains in guides.
   Dispatch validates actuator write states with the same checks as reads and
   stops the device if a write returns invalid state or faults.
+- Dexterous hands retain joint-vector control and optional fingertip geometry.
+  Finger chains name model joints directly in traversal order, starting at the
+  device base; no separate finger joint list or palm/reference selectors are used.
+  Fixed palm and grasp references are ordinary local frames. Geometry may contain
+  only a physical description; FK requires fingers or declared endpoint kinematics.
+  An optional weighted center is a geometric reference with fixed orientation,
+  not contact feedback. Tip offsets remain explicit; joint metadata stays in model.
 - World provides time and waiting. Device feedback retains timestamps without a
   clock-type label; removing labels does not convert or synchronize timestamps.
 - **Tools, skills and Python.** Tools declare schemas, capabilities and timeouts;
@@ -150,9 +158,11 @@ transition fence through deactivation and deletion.
   procedures. Shared device context and setup guidance cover cross-type contracts;
   each device guide owns its Setup details and a concise, model-visible Use section.
   Detection/segmentation feed perception; depth localization respects
-  masks and reports camera-relative measurements. `servo` plans from measured
-  joint positions and submits a full trajectory at its computed duration, without
-  waiting, stopping, settling or arrival checks. It accepts no duration override;
+  masks and reports camera-relative measurements. `servo` accepts joint and
+  dexterous-hand devices. Joint targets need no geometry; pose targets require
+  declared endpoint IK, which fingertip geometry alone does not provide. It plans
+  from measured joint positions and submits a full trajectory at its computed
+  duration, without waiting, stopping, settling or arrival checks. It accepts no duration override;
   results report `device`, the driver's `execution_id`, requested/IK-resolved
   target `joints`, computed `duration_s` and `actions_submitted`, not measured
   arrival. Driver feedback remains validated before returning. Planning rates

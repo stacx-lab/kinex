@@ -1,5 +1,76 @@
 # Current work
 
+## RoboEnv launch success policy
+
+- [x] Add --stop-on-success / --no-stop-on-success and Python stop_on_success overrides.
+- [x] Preserve YAML policy when omitted; persist explicit overrides in worker definitions.
+- [x] Validate booleans and supported backends before provisioning or starting processes.
+- [x] Document CLI/Python usage and pass 89 focused policy/lifecycle tests.
+- [x] Complete RoboEnv CPU, privacy and wheel checks.
+
+Validation: full RoboEnv check passed 1,253 tests (35 skips), lint, privacy and
+SDK/runtime wheel checks. CLI help exposes both mutually exclusive flags;
+tests cover YAML precedence, retained worker configuration and early rejection.
+
+## SIMPLE task catalog in RoboEnv
+
+- [x] Include all 12 decoupled GR00T tasks with native language instructions and concrete default target names.
+- [x] Default catalog/discovery to realtime and stop_on_success to false, matching LIBERO.
+- [x] Retain native success without freezing control; let the worker own automatic stopping.
+- [x] Pin and prepare articulated assets and four additional HSSD scenes.
+- [x] Check all native predicates, catalog bindings and asset dependencies on CPU.
+- [x] Complete RoboEnv checks and the two requested Isaac boot/control probes.
+
+Implementation is in sibling RoboEnv. Robot profiles and current workspace connections
+are unchanged by this task. Isaac scope is open-oven and pick-and-place-and-hug-container;
+startup/control checks do not establish task-solving success.
+
+Validation: RoboEnv check passed 1,234 tests (35 skips), lint, privacy and both
+wheel checks. Both Isaac probes passed 60 intervals of stereo/base/arm/hand
+checks and exited normally. All 12 default asset dependencies were audited,
+five articulated MuJoCo models compiled, and extracted assets passed checksum
+verification after the probes. Local evidence is retained under RoboEnv's
+`.cache/simple/catalog-validation.json`; no task-solving or fresh replay claim.
+The subsequent realtime-default revision passed 103 focused tests (1 skip),
+catalog regeneration and diff checks; the two native probes above used stepped.
+Catalog instruction targets now resolve from effective native defaults, including
+the hug task's constructor override to apple; fixture instructions retain the
+object used by their success predicate. This revision passed 85 focused tests
+(1 skip), lint, regeneration and diff checks.
+
+## Servo hand support
+
+- [x] Accept dexterous hands in servo discovery and execution with the existing joint planner.
+- [x] Keep pose goals gated by declared endpoint IK and document hand usage.
+- [x] Verify hand trajectories, replacement/stop semantics and pose capability checks.
+
+Validation: Node 22.19 core build and all 154 core tests passed. Runtime tests
+exercise hand trajectory submission, retained targets, replacement and stop;
+pose tests cover declared IK and reject fingertip-only geometry before writes.
+Diff checks passed.
+
+## Simplified hand profiles
+
+- [x] Use named chain joints; remove redundant palm/reference selectors and joint lists.
+- [x] Support physical descriptions, optional finger geometry and optional centers.
+- [x] Update Kinex FK/frame discovery and RoboEnv generation/export without changing control.
+- [x] Verify schema, frame semantics, old/new FK equivalence and native CPU geometry.
+- [x] Complete sequential repository checks and document migration results.
+
+Joint control and measured feedback remain unchanged. Existing profiles require
+explicit migration and matching copied Python resources; native plugin snapshots
+remain separate. Grasp planning, posture libraries and the obsolete grasp.target
+helper are deferred.
+
+Validation: Node 22.19 full Kinex check passed 251 tests, including packed consumers.
+RoboEnv lint, 1,208 tests (35 skips), privacy audit and both wheel checks passed.
+Old and simplified G1 profiles produced identical fingertip and center poses over
+208 deterministic configurations. The native MuJoCo CPU probe passed 102
+configurations with maximum transform error 2.0e-15. Each hand profile is 66 lines
+shorter; fixed frames, tip offsets and joint metadata are preserved. These checks
+do not establish grasp success or GPU replay. Diff checks passed; documentation
+links resolve except the pre-existing unavailable sibling plugin README.
+
 ## Gripper hold and test consolidation
 
 - [x] Retain applied gripper references at stop, including buffered hardware drivers.

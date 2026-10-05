@@ -47,8 +47,10 @@ function deviceLine(device: Device): string {
       bits.push(joints.length ? ` ${joints.length} dof; model resolved` : " model: ???")
       if (device.type === "dexterous_hand") {
         const geometry = device.intrinsics.geometry
-        if (!geometry) bits.push("; fingertip/grasp geometry unavailable")
-        if (geometry) bits.push(`; local prediction: kinex.hand.forward; fixed grasp reference ${device.name}:${geometry.reference_frame}; moving center ${device.name}:${geometry.center.frame}; tips ${Object.values(geometry.fingers).map((finger) => `${device.name}:${finger.tip_frame}`).join(", ")}`)
+        if (geometry?.description) bits.push(`; ${geometry.description}`)
+        if (!geometry?.fingers) bits.push("; fingertip geometry unavailable")
+        if (geometry?.fingers) bits.push(`; local fingertip prediction: ${Object.values(geometry.fingers).map((finger) => `${device.name}:${finger.tip_frame}`).join(", ")}`)
+        if (geometry?.center) bits.push(`; predicted center ${device.name}:${geometry.center.frame}`)
       }
       break
     }

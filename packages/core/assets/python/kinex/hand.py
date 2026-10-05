@@ -7,7 +7,6 @@ Measured joint-limit overshoot is preserved; validate candidate writes separatel
 
 from kinex.geometry import compose_rt, xyzq_to_rt
 from kinex.joint_control import joint_model
-from kinex.local_frames import fixed_transform, frame_definitions
 from kinex.kinematics import Kinematics
 from kinex.motion import flat, pose, vector
 from kinex.validation import number
@@ -26,19 +25,21 @@ def forward(profile, positions):
     by_name = {joint["name"]: (joint, value) for joint, value in zip(joints, values, strict=True)}
     if len(by_name) != len(joints):
         raise ValueError("Hand model requires unique joints")
-    frames = frame_definitions(profile)
-    for frame in (geometry["palm_frame"], geometry["reference_frame"]):
-        fixed_transform(frames, frame)
     result = {}
     for finger in geometry["fingers"].values():
-        names = finger["joints"]
-        if len(set(names)) != len(names) or any(name not in by_name for name in names):
+        names = [link["joint"] for link in finger["chain"] if "joint" in link]
+        if not names or len(set(names)) != len(names) or any(name not in by_name for name in names):
             raise ValueError("Finger requires unique, known model joints")
         frame = finger["tip_frame"]
-        chain = Kinematics({"joints": [by_name[name][0] for name in names], "chain": finger["chain"]}, None)
+        indexes = {name: index for index, name in enumerate(names)}
+        links = [{**link, "joint": indexes[link["joint"]]} if "joint" in link else link
+                 for link in finger["chain"]]
+        chain = Kinematics({"joints": [by_name[name][0] for name in names], "chain": links}, None)
         tip = chain.forward([by_name[name][1] for name in names])[0]
         result[frame] = flat(compose_rt(xyzq_to_rt(tip), xyzq_to_rt(pose(finger["tip_offset"]))))
-    center = geometry["center"]
+    center = geometry.get("center")
+    if center is None:
+        return result
     frame = center["frame"]
     weights = center["weights"]
     if any(name not in geometry["fingers"] or number(weight) < 0 for name, weight in weights.items()):

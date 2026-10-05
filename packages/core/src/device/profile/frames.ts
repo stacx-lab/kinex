@@ -7,7 +7,8 @@ export function modelFrames(device: Device): string[] {
   const geometry = "geometry" in facts ? facts.geometry : undefined
   return [
     ...(facts.kinematics ? [facts.kinematics.frame] : []),
-    ...(geometry ? [...Object.values(geometry.fingers).map(finger => finger.tip_frame), geometry.center.frame] : []),
+    ...Object.values(geometry?.fingers ?? {}).map(finger => finger.tip_frame),
+    ...(geometry?.center ? [geometry.center.frame] : []),
   ]
 }
 
