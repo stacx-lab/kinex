@@ -17,6 +17,8 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
 import { createKinexRuntime } from '@kinex/core'
 import { composeContributions, coreContribution } from '@kinex/core/integration'
 import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } from '@kinex/setup'
+import { setupPiExtensions } from '@kinex/setup/extensions'
+const extensions: { name: string; path: string }[] = setupPiExtensions()
 const runtime = createKinexRuntime({ directory: process.cwd(), builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames })
 const setup = createKinexSetup(runtime)
 const capabilities = composeContributions([coreContribution(runtime), setupContribution(setup)])
@@ -27,11 +29,20 @@ await runtime.dispose()
   await exec(process.execPath, [path.join(root, '../../node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2023', '--lib', 'ES2024', '--types', 'node', 'consumer.mts'], { cwd: relocated, env })
   await exec(process.execPath, ['--input-type=module', '--eval', `
 import assert from 'node:assert/strict'
-import { copyFile, stat } from 'node:fs/promises'
+import { copyFile, stat, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createKinexRuntime } from '@kinex/core'
 import { deviceGuideProfile } from '@kinex/core/device/guide'
 import { createKinexSetup, setupSkillRoots } from '@kinex/setup'
+import { setupPiExtensions } from '@kinex/setup/extensions'
+const extensions = setupPiExtensions()
+assert.deepEqual(extensions.map(extension => extension.name), ['pi-web-search', 'pi-btw'])
+for (const extension of extensions) {
+  const manifest = JSON.parse(await readFile(path.join(extension.path, 'package.json'), 'utf8'))
+  assert.equal(manifest.name, extension.name)
+  assert.equal(manifest.version, extension.name === 'pi-web-search' ? '1.6.0' : '0.7.1')
+  for (const entry of manifest.pi.extensions) assert.ok((await stat(path.join(extension.path, entry))).isFile())
+}
 const runtime = createKinexRuntime({directory: process.cwd(), builtinSkillRoots: setupSkillRoots, host: {ask: async () => {}}})
 const setup = createKinexSetup(runtime)
 try {

@@ -45,6 +45,7 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
   const entry = path.join(relocated, 'node_modules/kinex/bin/kinex.mjs')
   const invoke = (...args) => exec(process.execPath, [entry, ...args], { cwd: relocated, env, timeout: 20000 })
   const manifest = JSON.parse(await readFile(path.join(relocated, 'node_modules/kinex/package.json'), 'utf8'))
+  for (const name of ['pi-web-search', 'pi-btw']) assert.equal(manifest.dependencies[name], undefined)
   assert.equal((await invoke('--version')).stdout.trim(), manifest.version)
   for (const name of ['core', 'setup']) {
     const dependency = JSON.parse(await readFile(path.join(relocated, `node_modules/@kinex/${name}/package.json`), 'utf8'))
@@ -54,6 +55,16 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
   }
   assert.match((await invoke('--help')).stdout, /--enable-recording/)
   assert.match((await invoke('run', '/devices')).stdout, /No devices/)
+  await exec(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict'
+    import { createApplication } from './node_modules/kinex/dist/application.js'
+    const app = await createApplication({ cwd: process.cwd() })
+    try {
+      await app.host.session.bindExtensions({ mode: 'print' })
+      assert.ok(app.host.session.getAllTools().some(tool => tool.name === 'web_search'))
+      assert.ok(app.host.session.extensionRunner.getCommand('btw'))
+    } finally { await app.dispose() }
+  `], { cwd: relocated, env, timeout: 20000 })
   const session = JSON.stringify({ type: 'session', version: 2, id: 'packaged-export', timestamp: new Date().toISOString(), cwd: relocated }) + '\n'
   await writeFile(path.join(relocated, 'session.jsonl'), session)
   assert.match((await invoke('--export', 'session.jsonl')).stdout, /Exported to: pi-session-session.html/)

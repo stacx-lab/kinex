@@ -1,7 +1,8 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises'
 import path from 'node:path'
+import { setupPiExtensions } from '@kinex/setup/extensions'
 import { isolate, fakeProvider, workspace, bind } from './helpers.mjs'
 
 const isolation = await isolate()
@@ -25,6 +26,41 @@ async function configure(file, extra) {
     return '{}'
   })
   await writeFile(file, JSON.stringify({ ...JSON.parse(existing), ...extra }))
+}
+
+for (const configured of [false, true]) {
+  test(`default web search and btw load and reload${configured ? ' with existing npm settings' : ''}`, async t => {
+    const cwd = await workspace(t)
+    const fake = await fakeProvider(t, isolation.root)
+    if (configured) {
+      const agent = path.join(isolation.root, 'config', 'agent')
+      const modules = path.join(agent, 'npm', 'node_modules')
+      await mkdir(modules, { recursive: true })
+      for (const extension of setupPiExtensions()) {
+        await symlink(extension.path, path.join(modules, extension.name))
+      }
+      await configure(path.join(agent, 'settings.json'), { packages: ['npm:pi-web-search', 'npm:pi-btw'] })
+    }
+    const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+    t.after(() => app.dispose())
+    await bind(app)
+    for (const reload of [false, true]) {
+      if (reload) await app.host.session.reload()
+      const tools = app.host.session.getAllTools().map(tool => tool.name)
+      assert.equal(tools.filter(name => name === 'web_search').length, 1)
+      assert.ok(tools.includes('url_context'))
+      assert.ok(app.host.session.extensionRunner.getCommand('btw'))
+      assert.ok(app.host.session.extensionRunner.getCommand('btw:ask'))
+      await app.host.session.prompt('Reply briefly')
+      const active = fake.requests.at(-1).tools.map(tool => tool.function.name)
+      assert.ok(active.includes('web_search'))
+      assert.ok(!active.includes('url_context'), 'URL context stays inactive for non-Gemini models')
+    }
+    const before = fake.requests.length
+    await app.host.session.prompt('/btw:ask What is this workspace?')
+    assert.ok(fake.requests.length > before, 'btw runs a child session using the configured provider')
+    assert.ok(fake.requests.at(-1).tools.every(tool => ['read', 'grep', 'find', 'ls'].includes(tool.function.name)))
+  })
 }
 
 for (const source of ['global-file', 'project-file', 'global-autoload', 'project-autoload', 'project-package']) {

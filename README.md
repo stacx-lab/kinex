@@ -303,7 +303,9 @@ agent-directory override to the Kinex configuration directory. It does not use
 `CLAUDE.md` instructions are loaded through the SDK. Legacy coding settings,
 command templates and session formats are not migrated.
 
-Kinex supports Pi extensions.
+Kinex supports Pi extensions. `@kinex/setup` bundles `pi-web-search` and `pi-btw`,
+which standalone Kinex loads by default.
+
 At startup Kinex creates the credential link above, replacing an empty SDK auth
 file if necessary. Existing nonempty files or links to another destination cause
 a startup error and are left untouched. The host and SDK-default child sessions

@@ -38,6 +38,14 @@ global and packaged precedence. Setup borrows core's tracked runtime, cancellati
 recording attribution, Python and owned-process lifecycle. Construction and plan
 inspection do not create a workspace or initialize Python.
 
+Setup also bundles `pi-web-search` 1.6.0 and `pi-btw` 0.7.1 as npm dependencies.
+`setupPiExtensions()` from `@kinex/setup/extensions` returns their package names
+and absolute package directories for a Pi host's resource loader. Standalone
+loads these extensions by default; other hosts opt in through this export.
+Importing setup does not activate a Pi session or load these extensions.
+Web search uses the host's model and credentials. BTW creates upstream Pi side
+sessions; those sessions do not inherit Kinex robotics tools or permission hooks.
+
 ## Tools and workflows
 
 | Tool | Responsibility |

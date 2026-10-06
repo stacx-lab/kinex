@@ -29,6 +29,8 @@
   ],
   "dependencies": {
     "@kinex/core": "0.10.1",
+    "pi-btw": "0.7.1",
+    "pi-web-search": "1.6.0",
     "zod": "^4.4.3",
     "yaml": "2.9.0"
   },

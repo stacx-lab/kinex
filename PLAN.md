@@ -1,5 +1,32 @@
 # Current work
 
+## Default web search and BTW
+
+- [x] Bundle the workspace's pi-web-search 1.6.0 and pi-btw 0.7.1 in setup.
+- [x] Export setup-owned package locations for standalone's default extension loader.
+- [x] Load upstream extensions by default while honoring explicit npm package settings.
+- [x] Document search availability and BTW child-session behavior.
+- [x] Validate startup, reload, child sessions and packed standalone installation.
+
+Validation: build/typecheck and all 85 standalone checks passed with Node 22.22.2
+and Python 3.11, including default/explicit extension loading, BTW read-only
+child sessions, PTY interaction and relocated package consumption. Version and
+diff checks passed. No live provider search requests were made.
+
+After moving dependency ownership to setup, build/typecheck and all 13 focused
+extension/package checks passed, including setup-only installation, exported
+plugin locations after relocation, standalone loading and shared credentials.
+
+## Robot context safety fields
+
+- [x] Remove safety limits, keep-out zones and notes from the robot context summary.
+- [x] Remove safety.notes from the workspace manifest schema.
+- [x] Validate the core build, context/manifest smoke checks and diff formatting.
+
+Validation: core build/typecheck and smoke checks passed. With Python 3.11,
+167 core tests passed; two camera tests failed because that interpreter lacks
+NumPy. The default Python 3.8 also fails existing modern-Python code.
+
 ## Setup receipt simplification
 
 - [x] Remove unused definition, input, output, evidence and dependency hashes from plan receipts.

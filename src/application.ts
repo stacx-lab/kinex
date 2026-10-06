@@ -10,6 +10,7 @@ import { prepareAuthPath } from "./auth.ts"
 import { RoboticsOwner } from "./integration/owner.ts"
 import { kinexExtension } from "./integration/extension.ts"
 import { createCompactionControl } from "./integration/compaction.ts"
+import { defaultExtensionPaths } from "./integration/default-extensions.ts"
 import type { Mode } from "./integration/interaction.ts"
 import type { KinexRuntime } from "@kinex/core"
 import { composeContributions, coreContribution, type KinexContribution } from "@kinex/core/integration"
@@ -53,6 +54,7 @@ export async function createApplication(options: ApplicationOptions) {
       const services = await createAgentSessionServices({
         cwd: directory, agentDir: storage.agent, modelRuntime, settingsManager,
         resourceLoaderOptions: {
+          additionalExtensionPaths: defaultExtensionPaths(settingsManager),
           noExtensions: false, noSkills: true, noPromptTemplates: true, noThemes: true,
           systemPrompt: "", appendSystemPrompt: [],
           extensionFactories: [{ name: "kinex", factory: kinexExtension(owner, core, capabilities, options.report ?? (() => {}), {

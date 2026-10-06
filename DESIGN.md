@@ -264,6 +264,13 @@ Stable instructions accompany a dynamic context snapshot restored after compacti
 Images enter history as bytes. Native host contracts belong to the separate plugin
 project; core remains host-independent.
 
+Setup bundles pinned upstream `pi-web-search` and `pi-btw` packages and exposes
+their locations through `@kinex/setup/extensions`. Standalone loads them through
+Pi's resource loader. Explicit npm package settings take precedence at
+startup. Core remains independent of these extensions; BTW child sessions use
+upstream coding tools and shared credentials, without Kinex's robotics runtime
+or permission hooks.
+
 ## Delivery
 
 This npm workspace releases standalone, core and setup with aligned versions and
