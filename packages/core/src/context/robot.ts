@@ -249,17 +249,6 @@ export async function renderRobotSummary(cwd: string, snapshot?: ProfileSnapshot
       )
   }
 
-  const safety: string[] = []
-  if (known(robot.safety.max_cartesian_velocity)) safety.push(robot.safety.max_cartesian_velocity === null
-    ? "cartesian velocity: no additional cap"
-    : `cartesian velocity <= ${robot.safety.max_cartesian_velocity} m/s`)
-  if (known(robot.safety.max_joint_velocity)) safety.push(robot.safety.max_joint_velocity === null
-    ? "joint velocity: no additional cap"
-    : `joint velocity <= ${robot.safety.max_joint_velocity} rad/s`)
-  for (const zone of robot.safety.keep_out_zones) safety.push(`keep-out [${zone.min.join(",")}] to [${zone.max.join(",")}] m`)
-  if (safety.length > 0) lines.push(`  safety: ${safety.join("; ")}`)
-  if (robot.safety.notes) lines.push(`  safety notes: ${robot.safety.notes}`)
-
   lines.push(...statusLines(plan))
   lines.push("</robot>")
 

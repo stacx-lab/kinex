@@ -306,7 +306,6 @@ export const RobotManifest = z.strictObject({
       max_cartesian_velocity: may(z.number().nullable()).default(MISSING).describe("m/s; null = no additional cap; ??? = unspecified"),
       max_joint_velocity: may(z.number().nullable()).default(MISSING).describe("rad/s; null = no additional cap; ??? = unspecified"),
       keep_out_zones: z.array(Aabb).default([]),
-      notes: z.string().optional(),
     })
     .prefault({}),
   meta: z.object({
