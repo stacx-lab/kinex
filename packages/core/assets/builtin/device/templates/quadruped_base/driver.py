@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from kinex.driver_protocol import run, release, check_cancelled
-from kinex.validation import settings
+from kinex.validation import settings, segment
 
 
 class QuadrupedDriver:
@@ -22,10 +22,10 @@ class QuadrupedDriver:
         raise NotImplementedError("Validate read arguments; query SDK state/skill APIs; return timestamp, faults and measured mode when declared")
 
     def write(self, args):
-        raise NotImplementedError("Validate control.write and live state; use mode as the single selector with velocity/posture/duration_s; map to SDK motion with expiry to zero; handle skills without restarting active requests; return execution_id and measured state")
+        raise NotImplementedError("Validate control.write; reject unknown/undeclared current modes and disallowed transitions; require positive duration_s for velocity/posture and omit motion fields when changing modes; recheck live state before effects; use mode as the single selector with velocity/posture/duration_s; map to SDK motion with expiry to zero; handle skills without restarting active requests; return execution_id and measured state")
 
     def stop(self):
-        raise NotImplementedError("Cancel owned SDK motion/skills; preserve required balance; report profile stop scope and failures")
+        raise NotImplementedError("Stop cancellable SDK motion; preserve required balance; report stop limits and failures")
 
     def execute(self, action, args):
         if not isinstance(args, dict):
@@ -51,6 +51,8 @@ class QuadrupedDriver:
         if action == "write":
             if self.stop_error is not None:
                 raise RuntimeError(f"stop failed; recover before writing: {self.stop_error}")
+            if "velocity" in args or "posture" in args:
+                args = segment(args, args)
             return self.write(args)
         if action == "stop":
             return self.stop_owned()

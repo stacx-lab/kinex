@@ -24,6 +24,7 @@ kinematics, perception, control, recording and lazy Python preparation. Setup bo
 the runtime through tracked operations/tool execution; the runtime owns cancellation,
 recording attribution and disposal. Unregister lives in core and holds its device
 transition fence through deactivation and deletion.
+Unregister also removes unloaded devices without starting their drivers.
 
 ## Core contracts
 
@@ -39,7 +40,8 @@ transition fence through deactivation and deletion.
   dispatch preflights commands once before admission and observes traffic; drivers
   validate again at the device boundary. A per-device scheduler replaces prior motion.
   Reads run alongside writes; independent devices write concurrently. Stop
-  interrupts affected commands and clears their queued writes. Lifecycle
+  interrupts affected driver calls and clears their queued writes; physical
+  interruption follows the device's declared operation-specific stop scope. Lifecycle
   transitions fence resource users before releasing connections.
   Persistent drivers use JSONL; one-shot drivers read one `{action,args}` stdin
   line and release temporary clients. Core
@@ -169,6 +171,8 @@ transition fence through deactivation and deletion.
   state/mode selector for writes and measured readback. Motion uses named-axis velocity,
   optional posture and duration_s with velocity expiry to zero. State changes and
   optional skills extend that interface without artificial motion fields.
+  Quadruped stand/crouch transitions need not support reliable interruption;
+  document their stop limits rather than disabling them for that reason.
   Detection/segmentation feed perception; depth localization respects
   masks and reports camera-relative measurements. `servo` accepts joint and
   dexterous-hand devices. Joint targets need no geometry; pose targets require

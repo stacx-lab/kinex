@@ -118,6 +118,34 @@ test('unregister confirms, finalizes capture and fences queued load until deleti
   await runtime.recording.stop()
 })
 
+test('unregister removes unloaded drivers without starting them', async t => {
+  for (const persistent of [true, false]) {
+    const { runtime, directory, capabilities } = await fixture(t)
+    await seed(runtime)
+    await runtime.profiles.writeDevice({ name: 'sensor', access: {
+      connection: { kind: 'process' },
+      driver: { persistent, interpreter: 'missing-interpreter', actions: ['load', 'unload', 'status', 'stop'] },
+    } })
+    const command = capabilities.commands.find(command => command.name === 'unregister')
+    assert.equal((await command.execute('sensor', { ...call, confirm: async () => true })).text, 'sensor unregistered')
+    assert.deepEqual(await runtime.devices.list(), [])
+    await assert.rejects(stat(path.join(directory, '.kinex/devices/sensor')), { code: 'ENOENT' })
+    await assert.rejects(stat(path.join(directory, '.kinex/python')), { code: 'ENOENT' })
+  }
+})
+
+test('unregister succeeds after unloading a persistent driver with stop', async t => {
+  const { runtime, directory } = await fixture(t)
+  await pythonSensor(runtime, directory)
+  await runtime.profiles.writeDevice({ name: 'sensor', access: { driver: {
+    actions: ['load', 'unload', 'status', 'read', 'stop'],
+  } } })
+  await runtime.devices.unload('sensor')
+  await runtime.devices.unregister('sensor')
+  assert.deepEqual(await runtime.devices.list(), [])
+  await assert.rejects(stat(path.join(directory, '.kinex/devices/sensor')), { code: 'ENOENT' })
+})
+
 test('failed deactivation keeps the registered profile and driver', async t => {
   const { runtime, directory } = await fixture(t)
   await pythonSensor(runtime, directory, { fail: true })

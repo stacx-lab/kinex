@@ -69,7 +69,7 @@ environments run without syncing. The ordinary shell environment stays unchanged
 | `/unload <device|all>` | Stop capture, release the device and its owned resources. |
 | `/reload <device|all>` | Restart device drivers. Bare `/reload` reloads agent resources. |
 | `/ping <device|all>` | Inspect existing services without starting them. |
-| `/stop [device]` | Cancel the current agent response and stop loaded actuators. |
+| `/stop [device]` | Cancel the current agent response and stop loaded actuators within their declared stop scope. |
 | `/unregister <device>` | Confirm, unload, and delete the device's local files. |
 | `/record start arm=10 camera=2` | Start recording with per-device rates. |
 | `/record snap <devices>` | Capture an observation. |

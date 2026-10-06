@@ -72,7 +72,25 @@ test('reject cycles, missing dependencies, wrong task targets and stale revision
   assert.deepEqual((await setup.plan.inspect()).next, [])
 })
 
-test('inspection ignores content hashes but missing facts and dependencies still invalidate affected branches', async t => {
+test('receipts omit hashes and existing receipts are cleaned on the next write', async t => {
+  const { directory, setup, save, evidence, done } = await fixture(t)
+  await evidence()
+  await save([node('check')], ['check'])
+  await done('check')
+  const file = path.join(directory, '.kinex/setup/plan.json')
+  const stored = JSON.parse(await readFile(file, 'utf8'))
+  const receipt = stored.receipts.check
+  assert.deepEqual(Object.keys(receipt).sort(), ['at', 'evidence', 'note', 'status'])
+  stored.receipts.check = { ...receipt, definition: 'old', inputs: 'old', outputs: 'old',
+    evidenceHash: 'old', dependencies: 'old' }
+  await writeFile(file, JSON.stringify(stored))
+  assert.equal((await setup.plan.inspect()).taskSatisfied, true)
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), stored)
+  await setup.plan.select(null, stored.revision)
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).receipts.check, receipt)
+})
+
+test('inspection ignores content changes but missing facts and dependencies still invalidate affected branches', async t => {
   const { directory, runtime, setup, save, evidence, done } = await fixture(t)
   await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] } } } })
   await evidence()

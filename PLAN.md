@@ -1,5 +1,33 @@
 # Current work
 
+## Setup receipt simplification
+
+- [x] Remove unused definition, input, output, evidence and dependency hashes from plan receipts.
+- [x] Read existing receipts without their old hash fields; drop them on the next plan write.
+- [x] Retain calibration attempt/result fingerprint checks and plan fact validation.
+
+Validation: core/setup build and typecheck, all 28 setup tests, and changed-file
+diff checks passed. Tests were rerun outside the sandbox after its Python spawn
+restriction blocked the URDF test.
+
+## Quadruped transition stop scope
+
+- [x] Clarify that stand/crouch transitions need not be interruptible; align setup and driver guidance.
+
+Validation: changed-file diff checks and scaffold syntax passed; runtime unchanged.
+
+## Unregister unloaded devices
+
+- [x] Make stop cleanup idempotent when the driver is inactive, matching unload.
+- [x] Cover never-loaded drivers and unregister after explicit unload.
+- [x] Preserve lifecycle fences, recording cleanup and real deactivation errors.
+
+Validation: core build/typecheck and all ten device-management tests passed,
+including unloaded persistent/one-shot drivers without an available interpreter.
+The scheduler regression and 19 of 20 focused runtime checks passed with system
+Python. The remaining persistent-driver close check passed when rerun with Python
+3.11 instead of the unsupported system Python 3.8.
+
 ## Extension child-session credentials
 
 - [x] Keep credentials in data storage and provide a managed Pi agent-directory auth link.
@@ -13,6 +41,13 @@ Python 3.8. With Python 3.11, all 24 auth, extension, shutdown, PTY and packed-c
 checks passed, including the final auth changes. The installed btw extension is
 restored to its original version. Restart Kinex to establish the managed auth link;
 real provider requests were not used for validation.
+
+## Calibration acceptance guidance
+
+- [x] Align tool guidance and workflow stopping conditions with user-accepted approximate results and accuracy/time budgets.
+- [x] Preserve measured errors, original quality assessments and invalid-result exclusions.
+
+Validation: documentation diff checks passed; no links added or changed.
 
 ## Quadruped base template
 

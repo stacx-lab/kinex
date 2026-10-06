@@ -2,7 +2,7 @@
 
 Onboarding prepares an embodiment through an agent-authored DAG. Use setup_plan to
 inspect/save nodes and select only the current task's target nodes and prerequisites.
-No plan, incomplete profiles, or unrelated calibration requests prevent task execution;
+No plan, incomplete profiles prevent task execution;
 existing operation-specific validation and host permissions still apply. Global profile
 completeness is descriptive. Return to the task as soon as its required facts exist.
 
@@ -12,9 +12,4 @@ partial calibration can satisfy a narrower task. Optional work stays deferred.
 Bind procedures to actual devices and frames; morphology does not imply an interface.
 The frame graph and setup dependency DAG are different graphs.
 
-Core owns setup-device, guides, provisioning, profile_write, drivers and lifecycle.
-Setup owns procedure descriptors, attempts, evidence and planning. Prepare profiles
-and drivers incrementally before collecting measurements. Record results with
-setup_plan only after verifying persisted outputs. Clear profile requests explicitly
-only when their complete section is resolved. A stale plan result affects its own
-requirements, never unrelated device operation. Refresh the task scope when intent changes.
+Avoid adding new tests unless necessary. Skip python tests during task execution or setup attempts.

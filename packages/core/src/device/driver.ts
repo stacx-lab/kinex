@@ -253,9 +253,10 @@ export async function runDriver(
   const active = driver.persistent && await isServing(cwd, device.name)
   if (action === "status" && !active)
     return { deviceID: device.name, kind: device.type, data: { loaded: device.loaded, ready: false, serving: false, persistent: driver.persistent } }
-  if (action === "unload" && !(driver.persistent ? active : device.loaded)) {
-    await stopServing(cwd, device.name)
-    return { deviceID: device.name, kind: device.type, data: { unloaded: true } }
+  // Cleanup is idempotent and must not launch a driver just to stop it.
+  if ((action === "stop" || action === "unload") && !(driver.persistent ? active : device.loaded)) {
+    if (action === "unload") await stopServing(cwd, device.name)
+    return { deviceID: device.name, kind: device.type, data: action === "stop" ? { stopped: true } : { unloaded: true } }
   }
   if (action === "load") {
     const missing = ["load", "unload", "status"].filter(action => !driver.actions.includes(action))

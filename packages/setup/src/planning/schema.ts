@@ -30,8 +30,6 @@ export const Outcome = z.strictObject({
   note: z.string().min(1), evidence: z.array(RelativePath).min(1),
 })
 export type Outcome = z.infer<typeof Outcome>
-export const Receipt = Outcome.extend({
-  at: z.string(), definition: z.string(), inputs: z.string(), outputs: z.string(), evidenceHash: z.string(), dependencies: z.string(),
-})
+export const Receipt = Outcome.extend({ at: z.string() }).strip()
 export const StoredPlan = Plan.extend({ revision: z.number().int().nonnegative(), receipts: z.record(ID, Receipt).default({}) })
 export type StoredPlan = z.infer<typeof StoredPlan>

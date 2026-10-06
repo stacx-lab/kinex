@@ -147,13 +147,13 @@ export async function recordOutcome(cwd: string, id: string, input: Outcome, rev
     const node = plan.nodes.find(node => node.id === id)
     if (!node) fail(`Unknown node ${id}`)
     const outcome = Outcome.parse(input)
-    const inputs = await inspectFacts(cwd, await requirements(cwd, node))
-    const outputs = await inspectFacts(cwd, node.outputs)
-    const evidence = await inspectFacts(cwd, outcome.evidence.map(path => ({ kind: "file", path })))
-    if (evidence.missing.length) fail("Evidence files must exist")
+    const inputs = await missingFacts(cwd, await requirements(cwd, node))
+    const outputs = await missingFacts(cwd, node.outputs)
+    const evidence = await missingFacts(cwd, outcome.evidence.map(path => ({ kind: "file", path })))
+    if (evidence.length) fail("Evidence files must exist")
     if (outcome.status === "done") {
       const view = await inspectPlan(cwd)
-      if (inputs.missing.length || outputs.missing.length || node.dependsOn.some(id => view.nodes.find(node => node.id === id)?.status !== "done"))
+      if (inputs.length || outputs.length || node.dependsOn.some(id => view.nodes.find(node => node.id === id)?.status !== "done"))
         fail("Cannot complete a node with missing facts, outputs or prerequisites")
       for (const artifact of outcome.evidence) {
         if (!/\/result(?:-\d+)?\.json$/.test(artifact)) continue
@@ -175,8 +175,7 @@ export async function recordOutcome(cwd: string, id: string, input: Outcome, rev
         if ((await inspectFacts(cwd, expected)).missing.length) fail("Apply and verify the solver's resolved output values first")
       }
     }
-    const receipt = { ...outcome, at: new Date().toISOString(), definition: digest(node), inputs: inputs.hash,
-      outputs: outputs.hash, evidenceHash: evidence.hash, dependencies: dependencies(plan, node) }
+    const receipt = { ...outcome, at: new Date().toISOString() }
     currentSignal()?.throwIfAborted()
     await atomicJSON(file, { ...plan, revision: revision + 1, receipts: { ...plan.receipts, [id]: receipt } })
     return inspectPlan(cwd)

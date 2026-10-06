@@ -105,8 +105,11 @@ skills extend that interface; the driver maps it to the SDK. They still
 validate before effects, return execution_id and measured state, and retain
 replacement, cancellation and stop ownership. Their Setup requires a custom
 device DEVICE.md documenting the verified read/write and state/skill contracts.
+Quadruped stand/crouch transitions need not support reliable interruption;
+document their stop limits rather than disabling them for that reason.
 Read/load must not initiate motion or silently clear faults; unload releases
-resources and safely stops active actuation. Attempt recorder shutdown, halt,
+resources and stops actuation within the declared stop scope. Attempt recorder
+shutdown, halt,
 disconnect and owned-service cleanup even if an earlier stage fails; use
 kinex.driver_protocol.release for independent stages. Retain cleanup handles
 and required configuration so unload does not depend on rereading profile.yaml.
