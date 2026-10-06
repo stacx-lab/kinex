@@ -25,7 +25,7 @@ home names every joint or is null. feedback declares velocities and efforts. sto
 
 Confirm whether the joint devices have physical brakes `intrinsics.has_brake` during setup.
 For real devices with `has_brake: false`: 
-1. The driver should move the device back to home pose and release hold when unloading it.
+1. The driver should hold the arm when unloading it / catching execution error.
 2. `home_start_tolerance_deg` (default 0.5) allows potentially
 start from joint pos outside the limits. Prismatic joints,
 other goals, and absent/unknown brake settings retain strict limits. Native
