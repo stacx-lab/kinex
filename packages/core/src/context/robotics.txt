@@ -5,8 +5,8 @@ capabilities. Only drivers access SDKs/services directly. Use the device tool or
 Kinex device APIs for lifecycle, readings and commands.
 
 Perception tools read and compute; controller tools command devices and run feedback
-loops. Prefer servo, track or run_policy over manual control loops. Skills
-supply procedures that require judgment.
+loops. Consult each tool's description for its execution and completion semantics.
+Skills supply procedures that require judgment.
 
 Follow the profiles' units, limits and declared safety constraints. Read state before
 motion, use small/slow motions when uncertain, and do not assume missing profile

@@ -1,5 +1,31 @@
 # Current work
 
+## Velocity usage clarification
+
+- [x] Explain automatic velocity expiry, retained posture and when an explicit stop is useful.
+- [x] Shorten feedback guidance while retaining units and frame semantics.
+
+Validation: documentation-only diff checks passed; no links or runtime behavior changed.
+
+## Closed-loop tool simplification
+
+- [x] Rename track to closed_loop across built-ins, context, rendering and consumers.
+- [x] Make all four stages optional; omitted/null stages return an empty dict.
+- [x] Default missing predicate done to false and document minimal fixed-target calls.
+- [x] Add optional-stage, predicate-validation and renamed-consumer regression coverage.
+- [x] Complete the full check and documentation/diff validation.
+- [x] Keep servo, run_policy and FastWAM guidance independent; closed_loop owns feedback-loop rationale and composition recipes.
+
+The rename has no compatibility alias; refresh copied workspace tools explicitly.
+Servo timing and repeated-trajectory replacement behavior are unchanged.
+
+Validation: Node 22.19 full check passed all 258 tests, including packed consumers
+and PTY integration. Diff checks passed. Checked local documentation links resolve
+except the pre-existing unavailable sibling plugin README. The existing user edit
+to the joint device guide is preserved.
+The subsequent guidance-only revision passed manifest-schema, independent-guidance,
+link and diff checks; the same pre-existing sibling README link remains unavailable.
+
 ## RoboEnv launch success policy
 
 - [x] Add --stop-on-success / --no-stop-on-success and Python stop_on_success overrides.
@@ -174,7 +200,7 @@ its stability interval while retaining its timeout.
 - [x] Run core tests and documentation/diff checks.
 
 Validation on Node 22.19: all 141 core tests passed, including transform inversion,
-identity, quaternion normalization, estimates and track-to-servo composition.
+identity, quaternion normalization, estimates and closed_loop-to-servo composition.
 In-repository documentation links and `git diff --check` passed.
 
 ## Servo results

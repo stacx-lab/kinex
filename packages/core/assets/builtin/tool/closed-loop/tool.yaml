@@ -1,6 +1,14 @@
-name: track
+name: closed_loop
 kind: controller
-description: Compose tools or inline Python for perceive, process, control and until, with world-time waits. Stops owned motion on misses and exit.
+description: >-
+  A successful control call does not guarantee the intended physical outcome.
+  Close the gap between commanded and measured results by observing feedback
+  and repeating or adjusting control until a stopping condition or round limit,
+  using world-time waits. For joint arrival, use servo as control and settled as
+  until; for repeated policy inference, use run_policy with fresh observations.
+  Optional perceive, process, control and until stages accept tools or inline
+  Python; omitted or null stages return an empty object. Stops owned motion on
+  misses and exit.
 parameters:
   type: object
   additionalProperties: false
@@ -9,7 +17,9 @@ parameters:
     wait_s: {type: number, exclusiveMinimum: 0, description: 'Observation/replanning interval in world seconds after each control call. The next call may replace a pending trajectory before it completes.'}
     stop_after_control: {type: boolean, default: false, description: Stop owned motion after each wait.}
     perceive:
+      default: null
       oneOf: &call
+        - {type: 'null'}
         - type: object
           additionalProperties: false
           properties:
@@ -23,7 +33,9 @@ parameters:
             args: {type: object}
           required: [python]
     process:
+      default: null
       oneOf: &stage
+        - {type: 'null'}
         - type: object
           additionalProperties: false
           properties:
@@ -42,16 +54,18 @@ parameters:
             args: {type: object}
             inputs: *inputs
           required: [python]
-      description: Receives observation by default. With inputs, receives only mapped fields and static args. Returns a dict or null to skip control.
+      description: Receives observation by default. With inputs, receives only mapped fields and static args. Returns a dict or null to skip control. Omitted or null stage returns an empty object, without forwarding observation.
     control:
+      default: null
       oneOf: *stage
       description: Process fields override args by default; inputs selects fields explicitly. Result is passed to until.
     until:
+      default: null
       oneOf: *call
-      description: Receives context and previous state; returns done, state and optional reason. Checked before the first round and after each wait.
+      description: Receives context and previous state; returns optional done (boolean, default false), state and reason. Checked before the first round and after each wait. Omitted or null stage never ends the loop early.
     max_misses: {type: integer, minimum: 1, default: 3}
     max_rounds: {type: integer, minimum: 1, default: 200}
-  required: [perceive, process, control, until, world, wait_s]
+  required: [world, wait_s]
 timeout_s: 900
 device_inputs:
   world:

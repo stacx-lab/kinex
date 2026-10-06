@@ -370,11 +370,11 @@ test('cancelling a controller before motion does not stop unowned devices', { ti
   const pred = path.join(directory, '.kinex/tool/settled')
   await mkdir(pred, { recursive: true })
   for (const name of ['tool.py', 'tool.yaml']) await writeFile(path.join(pred, name), await readFile(new URL(`../assets/builtin/tool/settled/${name}`, import.meta.url), 'utf8') + (name.endsWith('yaml') ? '\ninterpreter: python3\n' : ''))
-  const track = path.join(directory, '.kinex/tool/track')
-  await mkdir(track, { recursive: true })
+  const closedLoop = path.join(directory, '.kinex/tool/closed-loop')
+  await mkdir(closedLoop, { recursive: true })
   for (const name of ['tool.py', 'tool.yaml']) {
-    const source = await readFile(new URL(`../assets/builtin/tool/track/${name}`, import.meta.url), 'utf8')
-    await writeFile(path.join(track, name), source + (name.endsWith('yaml') ? '\ninterpreter: python3\n' : ''))
+    const source = await readFile(new URL(`../assets/builtin/tool/closed-loop/${name}`, import.meta.url), 'utf8')
+    await writeFile(path.join(closedLoop, name), source + (name.endsWith('yaml') ? '\ninterpreter: python3\n' : ''))
   }
   const perception = path.join(directory, '.kinex/tool/slow-point')
   await mkdir(perception, { recursive: true })
@@ -391,13 +391,13 @@ test('cancelling a controller before motion does not stop unowned devices', { ti
   t.after(unsubscribe)
   const abort = new AbortController()
   t.after(() => abort.abort())
-  const pending = runtime.tools.call('track', {
+  const pending = runtime.tools.call('closed_loop', {
     perceive: { tool: 'slow_point' }, process: { tool: 'relative_pose', args: { parent: { frame: 'arm' } }, inputs: { '/child': '' } },
     control: { tool: 'servo', args: { device: 'arm' } },
     world: 'world', wait_s: .1, until: { tool: 'settled' },
   }, { sessionID: 's', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]) })
   const settled = pending.then(result => ({ result }), error => ({ error }))
-  await Promise.race([ready, settled.then(outcome => { throw new Error(`track exited before perception: ${JSON.stringify(outcome)}`) })])
+  await Promise.race([ready, settled.then(outcome => { throw new Error(`closed_loop exited before perception: ${JSON.stringify(outcome)}`) })])
   abort.abort()
   const outcome = await settled
   assert.ok(outcome.error || outcome.result?.isError)
@@ -770,8 +770,8 @@ async function trackingFixture(t) {
     await writeFile(path.join(dir, 'tool.yaml'), `${manifest}\ninterpreter: python3\n`)
     await writeFile(path.join(dir, 'tool.py'), code)
   }
-  await install('track', await readFile(new URL('../assets/builtin/tool/track/tool.yaml', import.meta.url), 'utf8'),
-    await readFile(new URL('../assets/builtin/tool/track/tool.py', import.meta.url), 'utf8'))
+  await install('closed-loop', await readFile(new URL('../assets/builtin/tool/closed-loop/tool.yaml', import.meta.url), 'utf8'),
+    await readFile(new URL('../assets/builtin/tool/closed-loop/tool.py', import.meta.url), 'utf8'))
   await install('sample', 'name: sample\nkind: perception\ndescription: test',
     'from kinex import device, finish\nfinish(device("arm")["data"])\n')
   await install('convert', 'name: convert\nkind: perception\ndescription: test\nparameters: {type: object}', `import time
@@ -812,6 +812,107 @@ finish({'custom': True})
   return { ...value, args, events }
 }
 
+test('closed_loop discovers the new name and treats omitted and null stages as empty callables', async t => {
+  const { runtime, events } = await trackingFixture(t)
+  const names = (await runtime.tools.list()).tools.map(tool => tool.name)
+  assert.ok(names.includes('closed_loop'))
+  assert.ok(!names.includes('track'))
+  const stages = ['perceive', 'process', 'control', 'until']
+  for (const optional of [{}, Object.fromEntries(stages.map(stage => [stage, null])),
+    Object.fromEntries(stages.map(stage => [stage, { python: 'lambda **kwargs: {}' }]))]) {
+    events.length = 0
+    const response = await runtime.tools.call('closed_loop', {
+      world: 'world', wait_s: .1, max_rounds: 2, ...optional,
+    }, { sessionID: 's' })
+    assert.ok(!response.isError, response.output)
+    assert.deepEqual(JSON.parse(response.output), {
+      terminated_by: 'max_rounds', rounds: 2, perception_misses: 0, last: {}, until_state: null,
+    })
+    assert.equal(events.filter(event => event.action === 'wait').length, 2)
+    assert.ok(!events.some(event => ['write', 'stop'].includes(event.action)))
+  }
+})
+
+test('closed_loop uses static control arguments without perception or processing', async t => {
+  const { runtime, events } = await trackingFixture(t)
+  for (const optional of [{}, { perceive: null, process: null, until: null }]) {
+    events.length = 0
+    const response = await runtime.tools.call('closed_loop', {
+      world: 'world', wait_s: .1, max_rounds: 2,
+      control: { tool: 'act', args: { target: .2 } }, ...optional,
+    }, { sessionID: 's' })
+    assert.ok(!response.isError, response.output)
+    const result = JSON.parse(response.output)
+    assert.equal(result.terminated_by, 'max_rounds')
+    assert.equal(result.perception_misses, 0)
+    assert.deepEqual(result.last, { custom: true })
+    assert.equal(events.filter(event => event.action === 'write').length, 4)
+    for (const name of ['arm', 'hand']) assert.equal((await runtime.devices.dispatch(name, 'read')).data.stopped, true)
+  }
+})
+
+test('closed_loop supplies empty observations and discards observations when processing is disabled', async t => {
+  const { runtime } = await trackingFixture(t)
+  for (const explicit of [false, true]) for (const skipped of ['perceive', 'process']) {
+    const stages = skipped === 'perceive' ? {
+      process: { python: "def main(observation):\n    assert observation == {}\n    return {'target': .2}" },
+    } : { perceive: { python: "lambda: {'target': .9}" } }
+    const response = await runtime.tools.call('closed_loop', {
+      world: 'world', wait_s: .1, max_rounds: 2, ...stages,
+      ...(explicit ? { [skipped]: null } : {}),
+      control: { tool: 'act', args: { target: .2 } },
+      until: { python: `def main(context, state):
+    if context['round']:
+        assert context['control_args'] == {'target': .2}
+        assert context['control_result'] == {'custom': True}
+    return {'done': context['round'] == 1}
+` },
+    }, { sessionID: 's' })
+    assert.ok(!response.isError, response.output)
+    assert.equal(JSON.parse(response.output).terminated_by, 'until')
+    assert.equal(JSON.parse(response.output).rounds, 1)
+  }
+})
+
+test('closed_loop monitors a predicate without control and defaults missing done to false', async t => {
+  const { runtime, events } = await trackingFixture(t)
+  for (const optional of [{}, { control: null }]) {
+    events.length = 0
+    const response = await runtime.tools.call('closed_loop', {
+      world: 'world', wait_s: .1, max_rounds: 3, ...optional,
+      until: { python: `def main(context, state):
+    if context['round']:
+        assert context['control_result'] == {}
+    checks = (state or 0) + 1
+    return {'state': checks, **({'done': True} if checks == 3 else {})}
+` },
+    }, { sessionID: 's' })
+    assert.ok(!response.isError, response.output)
+    assert.deepEqual(JSON.parse(response.output), {
+      terminated_by: 'until', rounds: 2, perception_misses: 0, last: {}, until_state: 3,
+    })
+    assert.equal(events.filter(event => event.action === 'wait').length, 2)
+    assert.ok(!events.some(event => ['write', 'stop'].includes(event.action)))
+  }
+})
+
+test('closed_loop still rejects malformed stages and predicate results', async t => {
+  const { runtime, events } = await trackingFixture(t)
+  const base = { world: 'world', wait_s: .1, max_rounds: 1 }
+  for (const stage of ['perceive', 'process', 'control', 'until']) {
+    const response = await runtime.tools.call('closed_loop', { ...base, [stage]: {} }, { sessionID: 's' })
+    assert.equal(response.isError, true)
+  }
+  for (const value of ['None', '[]', 'False', "{'done': None}", "{'done': 1}", "{'done': 'false'}"]) {
+    const response = await runtime.tools.call('closed_loop', {
+      ...base, until: { python: `lambda **kwargs: ${value}` },
+    }, { sessionID: 's' })
+    assert.equal(response.isError, true)
+    assert.match(response.output, /until must return a dict with optional done: boolean/)
+  }
+  assert.ok(!events.some(event => ['write', 'wait'].includes(event.action)))
+})
+
 test('failed large startup writes in composed tools stop owned motion', async t => {
   const { runtime, directory, events } = await trackingFixture(t)
   await pythonTool(directory, 'blocked', 'import time\ntime.sleep(30)\n', 'perception', 1)
@@ -826,7 +927,7 @@ finish(call('blocked', value=args()['value']))
   assert.equal((await runtime.devices.dispatch('arm', 'read')).data.stopped, true)
 })
 
-test('track maps fresh camera file entries to controllers without encoding image bytes', async t => {
+test('closed_loop maps fresh camera file entries to controllers without encoding image bytes', async t => {
   const { runtime, directory, args } = await trackingFixture(t)
   const dir = await pythonDriver(runtime, directory, false)
   await writeFile(path.join(dir, 'source.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64'))
@@ -843,7 +944,7 @@ run(dispatch, lambda: None)
   assert.ok(!image.isError, image.output)
   assert.equal(image.attachments, undefined)
   assert.match(JSON.parse(image.output).file, /\.png$/)
-  const result = await runtime.tools.call('track', { ...args, max_rounds: 2,
+  const result = await runtime.tools.call('closed_loop', { ...args, max_rounds: 2,
     perceive: { python: 'from kinex import device\ndef main():\n    return {"image": device("sensor")["file"]}\n' },
     process: { python: 'lambda observation: observation' },
     control: { python: `from pathlib import Path
@@ -861,9 +962,9 @@ def main(observation):
   for (const file of value.until_state) assert.deepEqual(await readFile(file), await readFile(path.join(dir, 'source.png')))
 })
 
-test('track passes large generated observations through stages and predicate context', async t => {
+test('closed_loop passes large generated observations through stages and predicate context', async t => {
   const { runtime, args } = await trackingFixture(t)
-  const result = await runtime.tools.call('track', { ...args,
+  const result = await runtime.tools.call('closed_loop', { ...args,
     perceive: { python: 'lambda: {"samples": list(range(60000))}' },
     process: { python: 'lambda observation: observation' },
     control: { python: 'lambda samples: {"count": len(samples)}' },
@@ -881,7 +982,7 @@ test('track passes large generated observations through stages and predicate con
   })
 })
 
-test('track stops owned actuators on misses and errors, excluding model inference and unrelated motion', async t => {
+test('closed_loop stops owned actuators on misses and errors, excluding model inference and unrelated motion', async t => {
   for (const mode of ['model', 'fail']) {
     await t.test(mode, async t => {
       const { runtime, directory, args, events } = await trackingFixture(t)
@@ -894,7 +995,7 @@ test('track stops owned actuators on misses and errors, excluding model inferenc
         'from kinex.driver_protocol import run\nrun(lambda action, args: {"ok": True}, lambda: None)\n')
       await (await runtime.devices.load('policy')).ready
       await runtime.devices.dispatch('unrelated', 'write', { actions: [[.5]], duration_s: .1 })
-      const response = await runtime.tools.call('track', { ...args, process: { tool: 'convert', args: { mode } } }, { sessionID: 's' })
+      const response = await runtime.tools.call('closed_loop', { ...args, process: { tool: 'convert', args: { mode } } }, { sessionID: 's' })
       if (mode === 'fail') {
         assert.equal(response.isError, true)
         assert.match(response.output, /processing failed after motion/)
@@ -913,14 +1014,14 @@ test('track stops owned actuators on misses and errors, excluding model inferenc
 test('processing retains perception permissions and generated controller arguments are validated', async t => {
   const { runtime, args, events } = await trackingFixture(t)
   for (const [mode, error] of [['stop', /only controller tools/], ['write', /may not command/], ['compose', /may only compose/], ['invalid', /target/]]) {
-    const response = await runtime.tools.call('track', { ...args, process: { tool: 'convert', args: { mode } } }, { sessionID: 's' })
+    const response = await runtime.tools.call('closed_loop', { ...args, process: { tool: 'convert', args: { mode } } }, { sessionID: 's' })
     assert.equal(response.isError, true, mode)
     assert.match(response.output, error)
   }
   assert.ok(!events.some(e => e.action === 'write' || e.action === 'stop'))
 })
 
-test('cancelling track during processing stops owned motion without stopping its replacement', { timeout: 15000 }, async t => {
+test('cancelling closed_loop during processing stops owned motion without stopping its replacement', { timeout: 15000 }, async t => {
   const { runtime, args, events } = await trackingFixture(t)
   let started
   const ready = new Promise(resolve => { started = resolve })
@@ -929,9 +1030,9 @@ test('cancelling track during processing stops owned motion without stopping its
   }))
   const abort = new AbortController()
   t.after(() => abort.abort())
-  const pending = runtime.tools.call('track', { ...args, process: { tool: 'convert', args: { mode: 'wait' } } },
+  const pending = runtime.tools.call('closed_loop', { ...args, process: { tool: 'convert', args: { mode: 'wait' } } },
     { sessionID: 's', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]) })
-  await Promise.race([ready, pending.then(response => { throw Error(`track exited before processing wait: ${response.output}`) })])
+  await Promise.race([ready, pending.then(response => { throw Error(`closed_loop exited before processing wait: ${response.output}`) })])
   await runtime.devices.dispatch('arm', 'write', { actions: [[.8]], duration_s: .1 })
   abort.abort()
   assert.equal((await pending).isError, true)
@@ -1248,13 +1349,13 @@ test('Python composes device tools without gaining lifecycle or motion capabilit
   assert.equal(events.length, 1)
 })
 
-test('track consumes devices results through nested input mappings', async t => {
+test('closed_loop consumes devices results through nested input mappings', async t => {
   const { runtime, directory, args } = await trackingFixture(t)
   const dir = path.join(directory, '.kinex/tool/extract')
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'tool.yaml'), 'name: extract\nkind: perception\ndescription: test\ninterpreter: python3\nparameters: {type: object}\n')
   await writeFile(path.join(dir, 'tool.py'), 'from kinex import args, finish\nassert args()["position"] == 0\nfinish({"goal": .2, "unused": True})\n')
-  const result = await runtime.tools.call('track', { ...args, max_rounds: 1,
+  const result = await runtime.tools.call('closed_loop', { ...args, max_rounds: 1,
     perceive: { tool: 'devices', args: { calls: [{ deviceID: 'arm' }] } },
     process: { tool: 'extract', inputs: { '/position': '/results/0/data/positions/0' } },
     control: { tool: 'act', inputs: { '/target': '/goal' } },
@@ -1264,12 +1365,12 @@ test('track consumes devices results through nested input mappings', async t => 
   for (const name of ['arm', 'hand']) assert.equal((await runtime.devices.dispatch(name, 'read')).data.stopped, true)
 })
 
-test('track executes inline stages immediately with mappings, fresh globals and predicate state', async t => {
+test('closed_loop executes inline stages immediately with mappings, fresh globals and predicate state', async t => {
   const { runtime, directory, args, events } = await trackingFixture(t)
-  const track = path.join(directory, '.kinex/tool/track')
-  await writeFile(path.join(track, 'offset.json'), '0.1')
+  const closedLoop = path.join(directory, '.kinex/tool/closed-loop')
+  await writeFile(path.join(closedLoop, 'offset.json'), '0.1')
   const files = await readdir(path.join(directory, '.kinex/tool'), { recursive: true })
-  const result = await runtime.tools.call('track', { ...args,
+  const result = await runtime.tools.call('closed_loop', { ...args,
     perceive: { python: 'lambda target: {"measured": target}', args: { target: .1 } },
     process: {
       python: `import json
@@ -1310,7 +1411,7 @@ test('inline control composes tools and preserves owned cleanup on nulls and fai
   const { runtime, args, events } = await trackingFixture(t)
   for (const failure of [false, true]) {
     events.length = 0
-    const result = await runtime.tools.call('track', { ...args,
+    const result = await runtime.tools.call('closed_loop', { ...args,
       process: { python: `def main(observation, failure):
     if observation['positions'][0] > 0:
         if failure:
@@ -1350,7 +1451,7 @@ test('inline perception cannot acquire controller or lifecycle capabilities', as
     ['control', 'device("arm", "unload")', /inside Python/],
   ]
   for (const [stage, expression, error] of cases) {
-    const result = await runtime.tools.call('track', { ...args,
+    const result = await runtime.tools.call('closed_loop', { ...args,
       [stage]: { python: `from kinex import device, call, inline, stop_owned\ndef main(**kwargs):\n    return ${expression}\n` },
     }, { sessionID: 's' })
     assert.equal(result.isError, true, expression)
@@ -1368,22 +1469,22 @@ test('inline definition and return errors are visible without dispatching contro
     ['lambda missing: {}', /unexpected keyword argument/],
     ['lambda observation: []', /process must return a dict/],
   ]) {
-    const result = await runtime.tools.call('track', { ...args, process: { python } }, { sessionID: 's' })
+    const result = await runtime.tools.call('closed_loop', { ...args, process: { python } }, { sessionID: 's' })
     assert.equal(result.isError, true)
     assert.match(result.output, error)
   }
   for (const process of [{}, { python: '' }, { tool: 'convert', python: 'lambda observation: {}' }, { python: 'lambda observation: {}', extra: true }]) {
-    const result = await runtime.tools.call('track', { ...args, process }, { sessionID: 's' })
+    const result = await runtime.tools.call('closed_loop', { ...args, process }, { sessionID: 's' })
     assert.equal(result.isError, true)
   }
   assert.ok(!events.some(e => e.action === 'write'))
 })
 
-test('inline execution inherits cancellation and the track deadline', { timeout: 20000 }, async t => {
+test('inline execution inherits cancellation and the closed_loop deadline', { timeout: 20000 }, async t => {
   for (const mode of ['cancel', 'timeout']) await t.test(mode, async t => {
     const { runtime, directory, args, events } = await trackingFixture(t)
     if (mode === 'timeout') {
-      const manifest = path.join(directory, '.kinex/tool/track/tool.yaml')
+      const manifest = path.join(directory, '.kinex/tool/closed-loop/tool.yaml')
       await writeFile(manifest, (await readFile(manifest, 'utf8')).replace('timeout_s: 900', 'timeout_s: 1'))
     }
     let started
@@ -1393,7 +1494,7 @@ test('inline execution inherits cancellation and the track deadline', { timeout:
     }))
     const abort = new AbortController()
     t.after(() => abort.abort())
-    const pending = runtime.tools.call('track', { ...args,
+    const pending = runtime.tools.call('closed_loop', { ...args,
       process: { python: `import time
 from kinex import device
 def main(observation):
@@ -1403,7 +1504,7 @@ def main(observation):
     return {'target': 0.2}
 ` },
     }, { sessionID: 's', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(12000)]) })
-    await Promise.race([ready, pending.then(response => { throw Error(`track exited before inline wait: ${response.output}`) })])
+    await Promise.race([ready, pending.then(response => { throw Error(`closed_loop exited before inline wait: ${response.output}`) })])
     await runtime.devices.dispatch('arm', 'write', { actions: [[.8]], duration_s: .1 })
     if (mode === 'cancel') abort.abort()
     const response = await pending

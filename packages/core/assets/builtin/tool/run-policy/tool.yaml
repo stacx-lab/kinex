@@ -46,7 +46,7 @@ parameters:
     max_actions:
       type: integer
       minimum: 1
-      description: "Execution horizon: submit at most the first N inferred actions, discarding the remainder before validation and IK. Omit to use the whole chunk. Each call infers anew; use track with fresh observations for receding horizon control. IK rejection may shorten this prefix further."
+      description: "Execution horizon: submit at most the first N inferred actions, discarding the remainder before validation and IK. Omit to use the whole chunk. Each call infers anew from the supplied observation. IK rejection may shorten this prefix further."
   required: [model, observation, command]
 timeout_s: 600
 device_inputs:

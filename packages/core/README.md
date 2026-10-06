@@ -151,7 +151,13 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   quaternions with norms in `[0.999, 1.001]`, including frame estimates. Values
   outside that range are rejected with the received norm. Persisted profiles
   and velocity readings retain their stricter validation.
-- `track` composes perceive → process → control → world.wait → optional stop → until.
+- `closed_loop` composes perceive → process → control → world.wait → optional stop → until.
+  A successful control call does not guarantee the intended physical outcome;
+  the loop uses feedback to repeat or adjust control toward a stopping condition.
+  Only `world` and `wait_s` are required. All four stages default to null; omitted
+  or null stages return `{}` without execution. A disabled process does not
+  forward observation. A predicate dict without `done` means false; supplied
+  `done` must be boolean. Without a stopping decision, round and timeout limits apply.
   Process receives `observation` and returns a dict that overrides `control.args`.
   Optional `inputs` on process/control maps destination argument JSON Pointers
   to source paths in the preceding result. With mappings, only selected values
@@ -168,7 +174,7 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
 For a workspace perception tool returning `{frame, pose}`:
 
 ```python
-call("track", world="world", wait_s=0.1,
+call("closed_loop", world="world", wait_s=0.1,
      perceive={"tool": "target_pose"},
      process={"tool": "relative_pose", "args": {"parent": {"frame": "arm"}},
               "inputs": {"/child/frame": "/frame", "/child/pose": "/pose"}},
@@ -177,15 +183,24 @@ call("track", world="world", wait_s=0.1,
      until={"tool": "settled", "args": {"timeout_s": 10}})
 ```
 
-For a fixed target, use `perceive={"python": "lambda target: target", "args":
-{"target": {"frame": "arm", "pose": [0.3, 0, 0.2, 0, 0, 0, 1]}}}`.
+For a fixed target, omit perception and processing:
+
+```python
+call("closed_loop", world="world", wait_s=0.1,
+     control={"tool": "servo", "args": {"device": "arm", "pose": [0.3, 0, 0.2, 0, 0, 0, 1]}},
+     until={"tool": "settled", "args": {"timeout_s": 10}})
+```
+
+The old `track` name has no alias. Update calls and refresh workspace tool copies
+from `builtin/tool/closed-loop`, removing obsolete `track` manifests.
+
 Inline stages bypass discovery and run in fresh subprocesses through the existing
 JSONL dialog, inheriting the caller's interpreter, working directory and deadline.
 Only inline control has controller capabilities. Until state is passed explicitly
 between rounds. Python tools can also use `inline(source, values, kind="perception")`;
 requesting controller capability requires a controller caller.
 
-Track stops owned motion on misses, errors, cancellation and final exit.
+`closed_loop` stops owned motion on misses, errors, cancellation and final exit.
 `stop_after_control` also stops it after each round's wait. Cleanup cannot stop
 another invocation's replacement. Uncertain writes are never retried.
 Device failures preserve optional `code` and `details` through direct tools,

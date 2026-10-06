@@ -453,10 +453,10 @@ test('servo submits wrapped continuous references while settled checks the reque
   assert.equal(quiet.result.reason, 'settled')
 })
 
-test('track waits after submission and optionally stops before until', async () => {
+test('closed_loop waits after submission and optionally stops before until', async () => {
   for (const stop_after_control of [false, true]) {
     const armDevice = arm({}), world = clock(armDevice), observed = []
-    const { result, stderr } = await dialog(tool('track'), { ...tracking, stop_after_control }, { arm: armDevice, world }, {
+    const { result, stderr } = await dialog(tool('closed-loop'), { ...tracking, stop_after_control }, { arm: armDevice, world }, {
       ...stages, done: ({ context, state }) => { observed.push([context.round, world.time, armDevice.stops]); return { done: false, state: (state ?? 0) + 1 } },
     })
     assert.ok(result, stderr)
@@ -469,7 +469,7 @@ test('track waits after submission and optionally stops before until', async () 
   }
 })
 
-test('track continues through partial and empty policy prefixes without interpreting IK diagnostics', async () => {
+test('closed_loop continues through partial and empty policy prefixes without interpreting IK diagnostics', async () => {
   const armDevice = cartesianArm(), world = clock(armDevice), observed = []
   world.profile = () => ({ name: 'world', type: 'world', intrinsics: { frames: {} } })
   const model = policy([{ actions: Array(3).fill([.1, 0, 0, 0, 0, 0]) }])
@@ -478,7 +478,7 @@ test('track continues through partial and empty policy prefixes without interpre
     if (model.calls === 2 || model.calls === 1 && armDevice.solves.length === 2) throw new Error('unreachable')
     return [.1 * model.calls, 0]
   }
-  const { result, stderr } = await dialog(tool('track'), {
+  const { result, stderr } = await dialog(tool('closed-loop'), {
     ...tracking,
     control: { tool: 'run_policy', args: { model: 'policy', action_hz: 10,
       command: [{ device: 'arm', space: 'pose_delta' }] } },
@@ -506,7 +506,7 @@ test('track continues through partial and empty policy prefixes without interpre
   assert.ok(Math.abs(world.time - .3) < 1e-9)
 })
 
-test('track replans each capped policy horizon from a fresh observation', async () => {
+test('closed_loop replans each capped policy horizon from a fresh observation', async () => {
   const self = arm({}), world = clock(self), observations = [], submissions = []
   const chunks = [
     { actions: [[.1, 0], [.2, 0], [99, 0]] },
@@ -514,7 +514,7 @@ test('track replans each capped policy horizon from a fresh observation', async 
     { actions: [[.5, 0], [.6, 0], [99, 0]] },
   ]
   const model = policy(chunks)
-  const { result, stderr } = await dialog(tool('track'), {
+  const { result, stderr } = await dialog(tool('closed-loop'), {
     ...tracking, wait_s: .1,
     control: { tool: 'run_policy', args: { model: 'policy', max_actions: 2,
       action_hz: 20, command: [{ device: 'arm' }] } },
@@ -542,10 +542,10 @@ test('track replans each capped policy horizon from a fresh observation', async 
   assert.equal(self.writes, 3)
 })
 
-test('track waits on misses, resets consecutive misses and propagates predicate state', async () => {
+test('closed_loop waits on misses, resets consecutive misses and propagates predicate state', async () => {
   const armDevice = arm({}), world = clock(armDevice)
   let rounds = 0
-  const { result, stderr } = await dialog(tool('track'), { ...tracking, max_rounds: 6, max_misses: 2 }, { arm: armDevice, world }, {
+  const { result, stderr } = await dialog(tool('closed-loop'), { ...tracking, max_rounds: 6, max_misses: 2 }, { arm: armDevice, world }, {
     ...stages, process: ({ observation }) => ++rounds === 2 ? observation : null,
   })
   assert.ok(result, stderr)
@@ -555,10 +555,10 @@ test('track waits on misses, resets consecutive misses and propagates predicate 
   assert.equal(world.time, .4)
 })
 
-test('track propagates stage failures and stops owned motion', async () => {
+test('closed_loop propagates stage failures and stops owned motion', async () => {
   const armDevice = arm({}), world = clock(armDevice)
   let rounds = 0
-  const { result, stderr } = await dialog(tool('track'), tracking, { arm: armDevice, world }, {
+  const { result, stderr } = await dialog(tool('closed-loop'), tracking, { arm: armDevice, world }, {
     ...stages, process: ({ observation }) => { if (++rounds === 2) throw Error('processing failed'); return observation },
   })
   assert.equal(result, undefined)
@@ -669,14 +669,14 @@ test('run_policy submits complete chunks without advancing time', async () => {
   assert.equal(armDevice.stops, 0)
 })
 
-test('track maps a measured pose through relative_pose into servo', async () => {
+test('closed_loop maps a measured pose through relative_pose into servo', async () => {
   const device = arm({ ik: [0.1, 0.2] }), prof = device.profile, world = clock(device)
   device.profile = () => { const p = prof(); p.intrinsics.frames.camera = { parent_frame: null, translation_m: [1, 2, 3], rotation_xyzw: [0, 0, 0, 1] }; return p }
   const options = { ...tracking, max_rounds: 1,
     process: { tool: 'relative_pose', args: { parent: { frame: 'arm' } },
       inputs: { '/child/frame': '/frame', '/child/pose': '/poses/0' } },
     control: { ...tracking.control, inputs: { '/pose': '/pose' } } }
-  const { result, stderr } = await dialog(tool('track'), options, { arm: device, world }, {
+  const { result, stderr } = await dialog(tool('closed-loop'), options, { arm: device, world }, {
     ...stages, target: () => ({ frame: 'arm:camera', poses: [[0.1, 0.2, 0.3, 0, 0, 1, 0]] }) })
   assert.ok(result, stderr)
   assert.deepEqual(device.ikArgs.pose, [1.1, 2.2, 3.3, 0, 0, 1, 0])
@@ -685,10 +685,10 @@ test('track maps a measured pose through relative_pose into servo', async () => 
   assert.equal(device.stops, 1)
 })
 
-test('track input mapping handles array destinations, escaped keys, nulls and missing paths', async () => {
+test('closed_loop input mapping handles array destinations, escaped keys, nulls and missing paths', async () => {
   for (const mode of ['valid', 'null', 'missing', 'invalid']) {
     const device = arm({}), world = clock(device)
-    const { result, stderr } = await dialog(tool('track'), { ...tracking, max_rounds: 1, max_misses: 1,
+    const { result, stderr } = await dialog(tool('closed-loop'), { ...tracking, max_rounds: 1, max_misses: 1,
       process: { tool: 'process', args: { retained: true }, inputs: { '/values/0': '/a~1b/~0key' } },
       control: { ...tracking.control, inputs: { '/joints': mode === 'missing' ? '/missing' : '/goal' } },
     }, { arm: device, world }, { ...stages,

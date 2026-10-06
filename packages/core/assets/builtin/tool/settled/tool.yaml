@@ -1,6 +1,6 @@
 name: settled
 kind: perception
-description: Check quiet joint arrival and optional world-time timeout for track.until.
+description: Check quiet joint arrival and optional world-time timeout for closed_loop.until.
 parameters:
   type: object
   additionalProperties: false

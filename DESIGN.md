@@ -171,8 +171,17 @@ transition fence through deactivation and deletion.
   The Python planner returns references and duration together. Position devices
   retain the final reference; later writes or stop can interrupt the plan.
   Planning does not promise collision avoidance.
-  `track` composes perceive → process → control → world.wait → optional stop → until.
-  Each stage references a tool or supplies inline Python: a lambda or source
+  `closed_loop` composes perceive → process → control → world.wait → optional stop → until.
+  It addresses the gap between commanded and measured outcomes through feedback
+  and repeated control. Its guidance owns composition recipes; individual
+  controllers and model devices describe their own contracts independently.
+  It supplies repeated observations and world waits for receding horizon control
+  and treats controller results, including normal IK rejection, as opaque data.
+  Only world and wait_s are required. Omitted or null stages return an empty dict
+  without execution; a disabled process does not forward observation. Predicate
+  results must be dicts; missing done means false, and supplied done must be boolean.
+  Without a stopping predicate, round limits and the outer timeout still apply.
+  Each configured stage references a tool or supplies inline Python: a lambda or source
   defining `main`, called with keyword arguments and returning JSON data.
   Inline calls bypass discovery and use fresh subprocesses with the caller's
   interpreter, working directory, cancellation and deadline. Python tools consume
@@ -183,7 +192,7 @@ transition fence through deactivation and deletion.
   Pointers from the previous result into arguments. Nulls are misses; absent paths
   are errors. It passes context and predicate state explicitly. `stop_after_control` defaults
   false; misses, errors, cancellation and final exit stop owned motion.
-  `track.wait_s` sets the observation/replanning interval; each control call may
+  `closed_loop.wait_s` sets the observation/replanning interval; each control call may
   replace the remaining references, and exit or `stop_after_control` may interrupt
   the plan. `settled` checks joint error, quiet velocity and stable world time,
   using strictly advancing device timestamps as fresh evidence and an optional
@@ -200,12 +209,11 @@ transition fence through deactivation and deletion.
   Its initial seed projects measured positions to joint limits while FK retains
   the measured configuration; subsequent solves use the preceding solution.
   Optional `max_actions` caps the execution horizon before action validation and
-  IK, discarding the remainder; each call infers anew. `track` supplies repeated
-  observations and world waits for receding horizon control.
+  IK, discarding the remainder; each call infers anew.
   IK failure truncates all buffers to the shared valid prefix, preserving action
   cadence and reporting the failed device, zero-based action index and error.
   IK rejection returns normally, including an empty prefix that leaves existing
-  buffers intact. `track` treats controller results as opaque data.
+  buffers intact.
   `stop_failed` remains a failure, never a normal IK truncation.
   It returns `actions_submitted`, `duration_s`, `execution_ids` (device to driver
   execution ID) and `ik_failure`, without waiting or claiming arrival. An empty

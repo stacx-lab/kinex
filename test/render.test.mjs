@@ -20,7 +20,9 @@ test('important tools show action and target, including streamed arguments and a
     ['record', { action: 'snap', devices: ['arm', 'camera'] }, 'record snap arm, camera'],
     ['device_stop', {}, 'device_stop all'],
     ['servo', { device: 'arm', joints: [1, 2] }, 'servo arm joints'],
-    ['track', { control: { args: { device: 'arm' } }, perceive: { tool: 'devices' } }, 'track arm devices'],
+    ['closed_loop', { control: { args: { device: 'arm' } }, perceive: { tool: 'devices' } }, 'closed_loop arm devices'],
+    ['closed_loop', {}, 'closed_loop'],
+    ['closed_loop', { control: null, perceive: null }, 'closed_loop'],
   ]) assert.equal(plain(toolRenderers(name).renderCall(args, theme, context)), expected)
   for (const args of [undefined, null, {}, { devices: { arm: null } }]) {
     assert.doesNotThrow(() => plain(toolRenderers('record').renderCall(args, theme, context)))

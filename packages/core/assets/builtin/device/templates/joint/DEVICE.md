@@ -79,4 +79,4 @@ FK takes `joints`; IK takes `pose` and optional `seed`. Both name `frame`
 (default `kinematics.frame`) and `reference_frame` (null means device base).
 Targets are the modeled endpoint or fixed descendants; references must be fixed
 to the base. FK preserves measured limit overshoot; IK enforces limits.
-Use `relative_pose` for external frames and `servo` for motion goals.
+Use `relative_pose` for external frames.

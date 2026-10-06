@@ -123,10 +123,24 @@ computed `duration_s` and `actions_submitted`. It accepts no duration override.
 Use `world.wait` to allow execution time and measured feedback to verify arrival;
 neither submission nor elapsed duration confirms arrival. Position devices retain
 the final reference.
-`track` composes perception, processing, control and an `until` predicate, waiting
-`wait_s` each round. This is its observation/replanning interval: a new control
+`closed_loop` addresses the gap between a successful control call and the intended
+physical outcome: it observes feedback and repeats or adjusts control until a
+stopping condition or limit. It composes perception, processing, control and an
+`until` predicate, waiting `wait_s` each round. This is its observation/replanning
+interval: a new control
 call can replace the remaining references, and exit or `stop_after_control` can
 interrupt a plan.
+
+Only `world` and `wait_s` are required. Omitted or null stages behave like a
+callable returning `{}`: no perception, no processing output, no control command,
+or no predicate stopping decision. A disabled process does not forward perception
+output. Without an `until` decision, the loop runs to `max_rounds` (default 200)
+or its wall-clock timeout. Executed stages retain their existing null-result semantics.
+
+`closed_loop` replaces `track`; there is no compatibility alias. Update tool calls
+and references in custom tools. Refresh workspace copies under `.kinex/tool/track`
+from the new `closed-loop` built-in and change their manifest name to `closed_loop`;
+remove obsolete copies to avoid continuing to expose `track`.
 
 For existing servo calls, remove the `duration_s` argument; obsolete input is
 rejected. The returned duration now comes from the planner. Device writes and
@@ -172,43 +186,51 @@ metres and a unit quaternion in xyzw order. Results contain only `pose`, `path`
 and `estimated_links`; the duplicate `translation` and `rotation` fields have
 been removed. Pass the returned `pose` directly to `servo.pose`.
 
-Any stage can use inline Python instead of a tool name, without creating files
-or waiting for discovery. For a previously measured target in the arm frame:
+For a previously measured target in the arm frame, call `closed_loop` with only
+control and a stopping predicate:
 
 ```json
 {
   "world": "world",
   "wait_s": 0.1,
-  "perceive": {
-    "python": "lambda target: target",
-    "args": {"target": {"pose": [0.3, 0, 0.2, 0, 0, 0, 1]}}
+  "control": {
+    "tool": "servo",
+    "args": {"device": "arm", "pose": [0.3, 0, 0.2, 0, 0, 0, 1]}
   },
-  "process": {"python": "lambda observation: observation"},
-  "control": {"tool": "servo", "args": {"device": "arm"}},
   "until": {"tool": "settled", "args": {"timeout_s": 10}}
 }
 ```
 
-`python` accepts a lambda or source defining `main`, including imports and helper
-functions. Functions receive keyword arguments and return JSON data directly.
+Any stage can use inline Python instead of a tool name, without creating files
+or waiting for discovery. `python` accepts a lambda or source defining `main`,
+including imports and helper functions. Functions receive keyword arguments and
+return JSON data directly.
 Each call runs in a fresh Python process with the caller's interpreter and working
 directory. Runtime transfers arguments and results through JSONL pipes. Inline
 control may command devices; the other inline stages have perception capabilities.
-Until receives `context` and `state`, returning `done`, optional `state` and `reason`.
+Until receives `context` and `state`, returning a dict with optional `done`, `state`
+and `reason`. Missing `done` means false; a supplied `done` must be boolean.
 
 Replace perception/processing with live observation tools for closed-loop control.
-`stop_after_control` stops owned motion after each world wait; track always stops
+`stop_after_control` stops owned motion after each world wait; `closed_loop` always stops
 owned motion on exit. `settled` checks measured joint error and quiet velocity
 for a stable interval in world time, accepting only fresh device timestamps as
 arrival evidence. Cached samples cannot establish arrival. Changing the target
 restarts stability but preserves the optional world-time timeout.
 
+For repeated policy inference, `closed_loop` can supply fresh observations to
+`run_policy` each round. For example, `max_actions: 10` at `action_hz: 20` submits
+at most 0.5 seconds of actions; `wait_s: 0.5` requests the next observation after
+that window. A shorter wait replaces pending actions sooner. The loop treats
+controller results as opaque data, so a normal IK-rejection result does not itself
+end the loop or change its wait interval.
+
 `run_policy` infers once and submits an action chunk. If IK fails partway through,
 all commanded devices receive the shared valid prefix at the original `action_hz`.
 The result includes `ik_failure` with `device`, zero-based `action_index` and
-`error`, or null when no IK failure occurred. IK rejection returns normally, so
-`track` waits and continues. An empty prefix submits nothing and leaves existing
-buffers intact. Results contain `actions_submitted`, `duration_s`, `execution_ids`
+`error`, or null when no IK failure occurred. IK rejection returns normally.
+An empty prefix submits nothing and leaves existing buffers intact. Results
+contain `actions_submitted`, `duration_s`, `execution_ids`
 (device to execution ID) and `ik_failure`. Migrate consumers of the former `writes`
 map to `execution_ids`; use fresh reads for measured state. Structured failures,
 including `stop_failed`, preserve `error`, `code` and `details` across tool calls
@@ -233,10 +255,8 @@ For receding horizon control, set `run_policy.max_actions` to the maximum number
 of actions to execute from each inference. The remaining predictions are discarded
 before validation and IK; each call infers a new chunk. Omit `max_actions` to use
 the whole chunk. For example, `max_actions: 10` and `action_hz: 20` submit at most
-0.5 seconds of actions. Compose this controller with fresh observations in `track`
-and `wait_s: 0.5` to replan after that window. A shorter wait replaces pending
-actions sooner; IK rejection or a shorter inferred chunk can reduce the submitted
-duration without changing `track.wait_s`.
+0.5 seconds of actions. IK rejection or a shorter inferred chunk can reduce the
+submitted duration further.
 
 ## Headless
 

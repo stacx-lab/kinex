@@ -67,9 +67,9 @@ Pass the observation to `run_policy`. For the LIBERO Panda workspace:
 ```
 
 Here `max_actions: 10` executes at most the first 10 predictions at 20 Hz,
-giving a 0.5-second execution horizon. Use `track` with fresh observations and
-`wait_s: 0.5` to infer a new chunk after each window; unused predictions are
-discarded. IK rejection may shorten the executed prefix further.
+giving a 0.5-second execution horizon. Unused predictions are discarded;
+each inference uses the supplied observations. IK rejection may shorten the
+executed prefix further.
 
 Replace the example images/state with actual observations. A workspace perception
 tool must obtain them through available measurements and declared frames.
@@ -83,8 +83,8 @@ are vertically corrected already: horizontally flip them to match FastWAM's
 `run_policy` converts Cartesian actions through seeded IK before submitting
 absolute joint buffers. On IK failure, it submits the shared valid
 prefix for arm and gripper at the same action rate and returns `ik_failure` with
-the device, zero-based action index and error. IK rejection returns normally so
-`track` can continue; an empty prefix leaves existing buffers intact.
+the device, zero-based action index and error. IK rejection returns normally;
+an empty prefix leaves existing buffers intact.
 This differs from upstream OSC feedback;
 successful chunk execution does not establish benchmark task success.
 `inference_args` forwards additional model options, e.g. Optional IDM's mode.

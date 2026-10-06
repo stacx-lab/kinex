@@ -30,7 +30,7 @@ packages. Native plugins consume explicitly updated packed snapshots.
 | Assets | Complete device guides, driver templates, FastWAM/SAM3/GroundingDINO bundles, setup-device, runtime Python and operational tools | Calibration skills and scripts |
 | Context | Device facts, guide roots, readiness details, frames, Use conventions, Python paths and recording state | Onboarding/calibration instructions and actionable calibration guidance |
 
-Core retains all control utilities, including `servo`, `track`, `settled`,
+Core retains all control utilities, including `servo`, `closed_loop`, `settled`,
 `relative_pose`, `locate_object_3d` and `run_policy`. Calibration facts are shared
 runtime data: core validates profiles and explicit marker clears even without
 setup installed. Setup performs the procedures that obtain those facts.
