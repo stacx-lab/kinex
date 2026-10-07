@@ -1,5 +1,31 @@
 # Current work
 
+## Velocity setup guidance
+
+- [x] Keep SDK conversion, actual observations and stop-scope rules in setup-device.
+- [x] Document velocity profile fields, buffered hooks, halt-on-expiry and focused checks.
+- [x] Clarify required command channels, posture defaults and feedback absence in Use.
+
+Validation: Kinex parsers preserve metadata and the unchanged starter YAML;
+profile validation, guide separation and relative-link checks passed. Local
+validators cover documented commands/feedback, missing posture, unsupported or
+missing axes, invalid durations, dynamic frames and stop scope. Diff checks
+passed; no hardware or model calls were made.
+Cross-checked all four RoboEnv base profiles: locomotion combines velocity and
+posture, while drive is velocity-only. The guide's Go2-shaped moving and stationary
+commands both pass Kinex validation under the same locomotion mode.
+
+## Setup-device skill simplification
+
+- [x] Shorten setup-device to guide selection, provisioning, driver obligations and focused verification.
+- [x] Remove migration history, protocol internals and duplicated type guidance; correct buffer replacement wording.
+- [x] Preserve discovery metadata, activation rules, cancellation and resource ownership.
+
+Validation: reduced the skill from 1,305 to 656 words. Kinex frontmatter parsing
+preserves all metadata; referenced helpers and guides exist. Reviewed new-device,
+driver-repair and separate-interpreter workflows against current contracts.
+Documentation diff checks passed; no runtime, hardware or model tests were needed.
+
 ## PR #18 integration on main
 
 - [x] Rebase only the 13 commits after 33d20de; exclude the already-merged old target.

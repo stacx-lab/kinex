@@ -6,11 +6,33 @@ description: velocity control and observation contract.
 
 ## Setup
 
-Follow setup-device for registration and lifecycle ownership. Load waits for
-readiness; status only observes; unload stops motion and releases owned resources.
-Use `???` for unresolved facts and `null` only where the schema permits it.
+Follow setup-device for provisioning, registration, lifecycle and shared checks.
+The base is an unlocalized root: omit `extrinsics.mount` and `pose_frame`.
 
-control contains mode:motion, body_frame and modes. Each preset has nullable velocity {frame:body|heading,components:[{axis,units,bounds}]} and posture {reference,components:[{axis,units,bounds,default}]}. Implement period_s and nonblocking set_target hooks; the shared driver owns the buffer. feedback declares velocity_frame and velocity_components. The base is an unlocalized root: omit mount and pose_frame. Declare normalized input bounds when known; limit_handling:native delegates saturation to the controller.
+### Profile fields
+
+| Field | Contract |
+| --- | --- |
+| `control` | `mode: motion` identifies the control contract; `body_frame` names the body frame. Each entry in `modes` combines `velocity` and `posture` channels; use `null` for an unsupported channel. At least one channel must be supported. |
+| `control.modes.<name>.velocity` | `{frame: body\|heading, components: [{axis, units, bounds}]}`. Unique axes: `vx/vy/vz` in m/s, `wx/wy/wz` in rad/s, or explicitly `normalized` inputs. |
+| `control.modes.<name>.posture` | `{reference, components: [{axis, units, bounds, default}]}`. Unique axes: `height` in m, `roll/pitch/yaw` in rad. Defaults must satisfy bounds; height bounds must be positive. |
+| Component `bounds` | `{min, max}` with `min < max`; velocity bounds include zero. `null` means no declared bound; velocity `???` remains unresolved. `control.limit_handling: native` delegates saturation to the controller. |
+| `feedback` | `velocity_components` lists measured axes in return order; `velocity_frame` names their frame. With no velocity measurement, use `[]` and `null`, respectively. |
+| `stop` | `{behavior, affected_devices}`. Behavior is `stand`, `hold`, `halt` or `controller_emergency_stop`; choose the implemented behavior and scope. |
+
+### Driver hooks
+
+Complete the sibling [driver scaffold](driver.py); its buffer requires
+`persistent: true`. `period_s` is a positive command period in seconds.
+`set_target(handle, command)` receives the validated command dictionary repeatedly
+during its interval; apply it without waiting for `duration_s` or restarting a
+whole-duration SDK operation on every tick. `read_state` returns the Use feedback.
+
+Expiry calls `halt(handle, target)` rather than sending zero velocity itself.
+Implement zero travel while preserving posture/balance for expiry, explicit stop
+and cleanup. Handle `target=None` before the first write. Declaring `stop` does
+not implement it. Verify replacement, expiry and explicit stop, including before
+the first write, with posture retained.
 
 ### Profile
 
@@ -48,18 +70,26 @@ extrinsics:
 
 ## Use
 
-`write({mode, velocity?, posture?, duration_s})` requires named-axis dictionaries,
-for example `{mode:"drive", velocity:{vx:0.05, vy:0, wz:0}, duration_s:0.5}`.
-Use the axes, units and frames in `control.modes`; normalized inputs are not m/s.
-Velocity automatically becomes zero after `duration_s`; posture remains active.
-No explicit stop is needed for normal completion. Use stop to interrupt early or
-respond to faults. A stop immediately after write cuts the command short.
+`mode` selects a named profile entry, such as `locomotion` or `drive`.
+Velocity and posture are fields within that mode, not separate modes: velocity
+sets travel rates, while posture sets height/orientation targets.
+`write({mode, velocity?, posture?, duration_s})` requires positive `duration_s`
+and every channel and axis declared by the selected mode. Use named-axis
+dictionaries; omit unsupported channels. Posture defaults do not fill omitted
+arguments. Follow `control.modes` units and frames; normalized inputs are not m/s.
+For a locomotion mode declaring `vx/vy/wz` and `height/roll/pitch` in metric units:
+`{mode:"locomotion", velocity:{vx:0.05, vy:0, wz:0}, posture:{height:0.3, roll:0, pitch:0}, duration_s:0.5}`.
+Zero velocity requests stationary posture control in the same mode.
 
-Actual displacement may differ from velocity × duration due to imperfect tracking and startup delays;
-very short commands may produce no visible motion.
+Velocity expires to zero; posture remains active. Stop interrupts early or
+responds to faults; immediately stopping after write cuts motion short.
+Displacement may differ from velocity × duration; short commands may not visibly move.
 
-Reads and write states return `velocities`, `faults` and `timestamp`, without
-global `pose`. Velocity order and frame follow `feedback.velocity_components`
-and `feedback.velocity_frame`, in m/s and rad/s. Optional feedback includes
-`height_m` and parent-relative `frame_poses`. Use frame queries to compose
-transforms and call-local estimates to relate the base to world.
+Reads and write states return `velocities` in `feedback.velocity_components`
+order and `feedback.velocity_frame`, in m/s and rad/s; use `[]` when no axes are measured.
+They also return `faults: [{code: string}]` (`[]` when clear) and numeric
+`timestamp` in seconds, without global `pose`. Optional `height_m` is metres.
+Optional `frame_poses` maps declared dynamic frame names to parent-relative
+`[x,y,z,qx,qy,qz,qw]`, with metre translations and unit xyzw quaternions. Declare them in
+`intrinsics.frames` with unknown translation or rotation (`null`). Use frame
+queries and explicit estimates for base-to-world relationships.
