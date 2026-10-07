@@ -2,7 +2,7 @@
 
 Onboarding prepares an embodiment through an agent-authored DAG. Use setup_plan to
 inspect/save nodes and select only the current task's target nodes and prerequisites.
-No plan, incomplete profiles prevent task execution;
+Missing plans and incomplete profiles do not by themselves prevent task execution;
 existing operation-specific validation and host permissions still apply. Global profile
 completeness is descriptive. Return to the task as soon as its required facts exist.
 

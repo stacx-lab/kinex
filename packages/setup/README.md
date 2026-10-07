@@ -95,8 +95,9 @@ Use narrow profile pointers for both inputs and outputs, tracking only facts rel
 to the node's conclusion. Keep volatile loaded/meta fields and live poses out of
 persistent calibration dependencies and outputs. World motion does not invalidate
 arm-to-base geometry.
-Record required driver/model files as inputs; URDF requirements also fingerprint
-model bytes. Planning never resolves models or reads hardware.
+Record required driver/model files as inputs. Plan inspection checks their presence;
+calibration attempts separately fingerprint input contents, including URDF bytes.
+Planning never resolves models or reads hardware.
 
 A task has `objective`, `targets` (node IDs), and optional direct `facts`. Only the
 targets and their transitive prerequisites are required now. Empty targets can
@@ -109,8 +110,14 @@ Save/select/record require the returned revision. Invalid references, cycles,
 participant mismatches and missing producer dependencies are rejected. Outcomes
 are `done`, `partial`, `failed` or `needs-input`; observation also derives `ready`,
 `blocked` and `stale`. Completion requires existing evidence and expected outputs.
-Changed relevant facts/files/evidence or prerequisite completion invalidate affected
-receipts. Malformed deferred procedures are reported without gating unrelated tasks.
+Completed nodes become stale when required facts, outputs, evidence files or completed
+prerequisites are missing, including when an explicit profile value no longer matches.
+Content changes, node-definition edits and re-recorded completed prerequisites alone
+do not invalidate receipts. Reassess their relevance when modifying a completed plan.
+Receipts contain status, note, evidence and time; old hash fields are ignored on read
+and removed on the next plan write. Calibration attempts and solver results retain
+their separate input, definition and prerequisite checks. Malformed deferred
+procedures are reported without gating unrelated tasks.
 
 For example, establish an existing camera connection without calibrating geometry:
 

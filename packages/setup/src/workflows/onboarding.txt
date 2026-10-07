@@ -26,7 +26,7 @@ Use setup_plan save with version:1, nodes and an optional current task. Each nod
 an id, title, kind, selected skill, role bindings, dependsOn IDs, precise input facts
 and expected outputs. Inspect full:true for procedure roles and requirements.
 Keep alternate methods as a choice, not cumulative prerequisites. Include required
-model/driver files in inputs so edits invalidate relevant evidence. Use narrow profile
+model/driver files in inputs so missing files invalidate completion. Use narrow profile
 pointers for both inputs and outputs. Track only facts relevant to the node's
 conclusion. Keep volatile loaded/meta fields and live poses out of persistent
 calibration dependencies and outputs. World motion does not invalidate arm-to-base

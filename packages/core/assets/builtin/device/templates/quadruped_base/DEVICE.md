@@ -16,16 +16,15 @@ do not invent a world pose or mount.
 
 ### Custom operating guide and device modes
 
-**Setup can write `.kinex/devices/<name>/DEVICE.md` with a nonempty `## Use`
-section explaining specific usage instructions of the base.**
-The custom Use section should document special movement.
+Setup must write `.kinex/devices/<name>/DEVICE.md` with a nonempty `## Use`
+section explaining the base's verified operating interface and special movement.
 
 Document supported modes and their acceptable parameters, units, bounds,
 state observation fields, allowed state transitions, prerequisites, completion
 checks, stop behavior and errors. Include concrete read/write examples matching
 the implemented driver. Keep Use concise enough to inject during normal operation.
 
-### device modes and control
+### Device modes and control
 
 Map SDK states to `control.device_modes`, starting with `crouched_down` and `drive`.
 `control.write` defines accepted arguments; `mode` selects the destination.
@@ -33,8 +32,10 @@ Drivers check the measured mode's `transitions` before changing modes and reject
 writes in unknown or undeclared modes.
 
 ### Warmup time to drive
-legged devices need longer warm up time to build velocity. Larger speed and longer time 
-is encouraged such as 0.2m/s and 1s.
+
+Legged devices may need longer to build velocity. Use the device's verified
+operating range to choose an adequate speed and duration; 0.2 m/s for 1 s is an
+example to verify during setup, not a universal device default.
 
 ### Profile
 
@@ -99,7 +100,7 @@ extrinsics:
 
 ## Use
 
-The baseline states are `crouched_down`, and `drive`.
+The baseline states are `crouched_down` and `drive`.
 Selecting `drive` enables locomotion control. Additional states and optional SDK skills are available only after setup for a user's need; do not assume they exist.
 
 Read the device's custom Use guide for its verified state machine and SDK skills.
@@ -124,4 +125,3 @@ Motion requires positive `duration_s`.
 The driver verifies state readiness before motion. Equivalent readback uses
 velocity-device field names and measured units. Consult the custom Use guide for
 supported fields and user-requested skill extensions.
-

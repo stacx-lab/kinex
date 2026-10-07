@@ -357,6 +357,11 @@ fallback. Shared fallback text is included once and scoped to its devices.
 Setup sections are excluded; an override must have a nonempty Use section.
 Edits are picked up on the next context refresh.
 
+Robot context no longer includes workspace safety limits or keep-out zones, though
+those structured fields remain in the manifest. `safety.notes` is no longer supported:
+existing notes are ignored when parsing and removed on the next manifest write.
+Move operating guidance that should reach the model into the relevant device's Use section.
+
 - A workspace owns the robotics runtime; a chat session does not own its drivers.
 - New/resumed/forked sessions in the same workspace retain connections, cancel old
   calls, reset grants and finalize current recording. Switching workspace or

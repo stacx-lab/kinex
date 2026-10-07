@@ -111,6 +111,9 @@ Unregister also removes unloaded devices without starting their drivers.
   translation and rotation fields. `???` is unresolved; `null` follows field semantics.
   Calibration writes are validated; plan inspection is read-only. Setup owns a persisted,
   agent-authored DAG with task-selected prerequisites and evidence-backed outcomes.
+  Completed plan nodes check fact availability, explicit values and completed
+  prerequisites, without comparing receipt hashes after content or definition edits.
+  Calibration attempts and solver results retain their own fingerprint checks.
   Calibration settling requires fresh declared velocity feedback (including hands);
   it never advances simulator time. A settle timeout after a read saves that sample
   as `settled:false`; FK and archival retain caller cancellation independently of
@@ -214,6 +217,10 @@ Unregister also removes unloaded devices without starting their drivers.
   using strictly advancing device timestamps as fresh evidence and an optional
   world-time timeout. Changing targets resets stability but retains the timeout;
   predicate state retains `sample_timestamp` separately from world time.
+  When joint velocity feedback is unavailable, `settled` estimates velocity from
+  up to three fresh position samples using device time and continuous-joint wrapping.
+  Three samples are required for completion; calibration sampling still requires
+  declared measured velocity feedback.
   `device` and `devices` share execution; batches
   authorize before dispatch, preserve result order and report per-entry failures.
   Public failure `code` and `details` survive direct tools, batches and Python
@@ -263,6 +270,8 @@ scoped calls without rolling back completed work. Tools/skills refresh within ta
 Stable instructions accompany a dynamic context snapshot restored after compaction.
 Images enter history as bytes. Native host contracts belong to the separate plugin
 project; core remains host-independent.
+Robot context omits workspace safety limits and keep-out zones. Those fields remain
+in the manifest; `safety.notes` is no longer part of its schema.
 
 Setup bundles pinned upstream `pi-web-search` and `pi-btw` packages and exposes
 their locations through `@kinex/setup/extensions`. Standalone loads them through

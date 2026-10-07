@@ -1,5 +1,20 @@
 # Current work
 
+## PR #18 integration on main
+
+- [x] Rebase only the 13 commits after 33d20de; exclude the already-merged old target.
+- [x] Preserve 0.10.1 versions and internal pins while retaining setup's extension dependencies.
+- [x] Retain receipt simplification and robot-context changes; correct contracts and migration guidance.
+- [x] Clarify joint home recovery, position-based settling and the quadruped instance guide.
+- [x] Complete full integration, version, documentation and diff checks.
+- [x] Verify the rebased range excludes already-merged work and preserves runtime implementation.
+- [x] Retarget PR #18 to main and confirm GitHub reports a conflict-free merge.
+
+Validation: Node 22.19 and Python 3.12 full check passed all 281 tests, including
+PTY interaction and packed consumers, plus build/typecheck and release metadata
+checks. Version and diff checks passed. All 15 checked relative documentation
+links resolve except the pre-existing unavailable sibling plugin README.
+
 ## Default web search and BTW
 
 - [x] Bundle the workspace's pi-web-search 1.6.0 and pi-btw 0.7.1 in setup.
@@ -80,7 +95,7 @@ Validation: documentation diff checks passed; no links added or changed.
 
 - [x] Add an independent quadruped_base template requiring a custom instance Use guide.
 - [x] Describe minimal SDK states/skills, measured readback and explicit writes.
-- [x] Seed crouched_down, stand_still and drive; add states/optional skills only for user needs.
+- [x] Seed crouched_down and drive; add states/optional skills only for user needs.
 - [x] Declare control.device_modes and use mode consistently for writes and measured feedback.
 - [x] Prefer velocity-compatible motion parameters, feedback names and expiry semantics; adapt SDK details in drivers.
 - [x] Support SDK-defined writes, optional state graphs and observed state feedback.
