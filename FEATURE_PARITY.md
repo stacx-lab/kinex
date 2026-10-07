@@ -102,7 +102,7 @@
 | 同一 assistant batch 串行执行，拒绝后后续工具均未开始 | 变化／core 合同已恢复 | core 和 question 标记 sequential，包含它们的整批（含 coding 混合调用）按序执行；拒绝/取消后后续调用不启动，已完成调用不回滚。纯 coding 批次按已确认选择保持 Pi 并行。覆盖设备、校准、Python controller、question、运行中取消及恢复的回归通过。 |
 | 连续三次相同调用触发 doom_loop 审批 | 缺失 | 新版未实现，检查的 Pi loop 中无同等 guard。旧版也是一次 permission ask，auto/yolo 会放行，不能将恢复旧 guard 等同于无人值守任务有硬性循环上限。 |
 | auto 放行权限、继续采访；yolo 放行且禁采访 | 保留 | 策略与旧版一致；auto/yolo 仍覆盖配置 deny。 |
-| headless/yolo 的 autonomous system instructions | 变化 | question 立即返回“无用户答案”；模型收到当前模式和采访可用性，明确禁止工具或文字采访及请求手动帮助，要求收集证据、自主尝试可行替代方案以完成任务。模式切换和压缩后恢复同步上下文。 |
+| headless/yolo 的 autonomous system instructions | 变化 | YOLO/headless 不向模型提供 question 工具（底层采访回调仍保留无用户答案兜底）；模型收到当前模式和采访可用性，明确禁止工具或文字采访及请求手动帮助，要求收集证据、自主尝试可行替代方案以完成任务。模式切换和压缩后恢复同步上下文。 |
 | device_stop 始终允许 | 保留 | core 行为保留，新版另加用户 `/stop`。 |
 | calibration、Python controller、record 权限 | 保留 | 由原 core 校验及 host callback 实现。 |
 

@@ -60,11 +60,14 @@ export function toolBridge(pi: ExtensionAPI, runtime: Pick<KinexCapabilities, "t
       for (const name of next) present.add(name)
       return { problems, added, removed }
     },
-    async refreshActive(_ctx: ExtensionContext) {
+    async refreshActive(ctx: ExtensionContext) {
       const result = await this.refresh(true)
-      if (result.added.length || result.removed.size) pi.setActiveTools([...new Set([
-        ...pi.getActiveTools().filter(name => !result.removed.has(name)), ...result.added,
-      ])])
+      const current = pi.getActiveTools()
+      const next = [...new Set([
+        ...current.filter(name => !result.removed.has(name)), ...result.added,
+      ])].filter(name => name !== "question")
+      if (interaction.mode !== "yolo" && ctx.hasUI) next.push("question")
+      if (next.length !== current.length || next.some((name, index) => name !== current[index])) pi.setActiveTools(next)
       return result.problems
     },
   }
