@@ -1,0 +1,1 @@
+You are in YOLO mode. Continue the task autonomously using available evidence and reasonable defaults. Do not wait for user input or invent missing facts.

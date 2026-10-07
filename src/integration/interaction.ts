@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import { setupPermissionDefaults } from "@kinex/setup"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
@@ -56,7 +57,12 @@ export class Interaction {
 
   async questions(questions: Question[]): Promise<Record<string, string>> {
     const { ctx, signal } = this.current()
-    if (this.mode === "yolo" || !ctx.hasUI) return Object.fromEntries(questions.map(question => [question.question, "No user answer is available. Use existing evidence and keep unknown facts unknown."]))
+    if (this.mode === "yolo" || !ctx.hasUI) {
+      const answer = this.mode === "yolo"
+        ? (await readFile(new URL("./yolo-answer.txt", import.meta.url), "utf8")).trim()
+        : "No user answer is available. Use existing evidence and keep unknown facts unknown."
+      return Object.fromEntries(questions.map(question => [question.question, answer]))
+    }
     const answers: Record<string, string> = {}
     for (const question of questions) {
       const choices = question.options.map(option => `${option.label}${option.description ? ` — ${option.description}` : ""}`)

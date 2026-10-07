@@ -144,13 +144,16 @@ const interactionUI = {
 }
 
 for (const [mode, ui] of [['yolo', interactionUI], ['auto', undefined], ['ask', undefined]]) {
-  test(`${mode} with interviews unavailable omits question from model tools`, async t => {
+  test(`${mode} with interviews unavailable auto-answers questions without changing tools`, async t => {
     const { fake, app } = await fixture(t, mode)
     await bind(app, ui)
-    fake.steps.push({ text: 'done' })
+    fake.steps.push({ tools: [{ name: 'question', args: { questions: [{ header: 'Choice', question: 'Continue?', options: [{ label: 'Yes' }] }] } }] }, { text: 'done' })
     await app.host.session.prompt('complete the task independently')
-    assert.ok(!app.host.session.getActiveToolNames().includes('question'))
-    assert.ok(!fake.requests[0].tools.some(tool => tool.function?.name === 'question'))
+    assert.equal(fake.requests.length, 2)
+    assert.match(JSON.stringify(fake.requests[1].messages), mode === 'yolo' ? /You are in YOLO mode. Continue the task autonomously/ : /No user answer is available/)
+    assert.deepEqual(fake.requests[1].tools, fake.requests[0].tools)
+    assert.ok(app.host.session.getActiveToolNames().includes('question'))
+    assert.ok(fake.requests[0].tools.some(tool => tool.function?.name === 'question'))
     assert.match(JSON.stringify(fake.requests[0]), /proceed autonomously without questions, manual help, or confirmation/)
     assert.match(contexts(app).at(-1).details.interaction, /interviews: unavailable/)
   })
@@ -172,8 +175,8 @@ test('mode changes reach the next request during a run and replace YOLO on resum
   await app.host.session.prompt('start in auto and switch while running')
   assert.equal(fake.requests.length, 2)
   assert.ok(fake.requests[0].tools.some(tool => tool.function?.name === 'question'))
-  assert.ok(!fake.requests[1].tools.some(tool => tool.function?.name === 'question'))
-  assert.ok(!app.host.session.getActiveToolNames().includes('question'))
+  assert.deepEqual(fake.requests[1].tools, fake.requests[0].tools, 'mode switching must preserve tool definitions')
+  assert.ok(app.host.session.getActiveToolNames().includes('question'))
   assert.match(JSON.stringify(fake.requests[1]), /mode: yolo/)
   assert.equal(contexts(app).at(-1).details.interaction, 'mode: yolo\ninterviews: unavailable')
   await app.host.session.prompt('/mode auto')
@@ -181,7 +184,7 @@ test('mode changes reach the next request during a run and replace YOLO on resum
   assert.equal(contexts(app).at(-1).details.interaction, 'mode: auto\ninterviews: available')
   assert.ok(app.host.session.getActiveToolNames().includes('question'))
   await app.host.session.prompt('continue in auto')
-  assert.ok(fake.requests.at(-1).tools.some(tool => tool.function?.name === 'question'))
+  assert.deepEqual(fake.requests.at(-1).tools, fake.requests[0].tools)
   assert.match(messageText(fake.requests.at(-1).messages.findLast(m => messageText(m).includes('interaction:\n'))), /mode: auto/)
   const session = app.host.session.sessionFile
   await app.dispose()
@@ -189,7 +192,7 @@ test('mode changes reach the next request during a run and replace YOLO on resum
   t.after(() => resumed.dispose())
   await bind(resumed, interactionUI)
   await resumed.host.session.prompt('resume in yolo')
-  assert.ok(!fake.requests.at(-1).tools.some(tool => tool.function?.name === 'question'))
+  assert.deepEqual(fake.requests.at(-1).tools, fake.requests[0].tools)
   assert.equal(contexts(resumed).at(-1).details.interaction, 'mode: yolo\ninterviews: unavailable')
 })
 
@@ -203,7 +206,7 @@ function assertSnapshot(app) {
   for (const section of ['core.python', 'core.guides', 'core.conventions', 'core.skills', 'core.recording', 'interaction', 'problems']) assert.ok(snapshot.content.includes(`${section}:\n`), section)
   for (const section of ['core.devices', 'core.readiness', 'setup.plan']) assert.ok(!Object.hasOwn(snapshot.details, section), section)
   assert.ok(app.host.session.agent.state.messages.some(message => message.role === 'custom' && message.content === snapshot.content))
-  assert.ok(!app.host.session.getActiveToolNames().includes('question'), 'compaction must not restore interviews in headless mode')
+  assert.ok(app.host.session.getActiveToolNames().includes('question'), 'question stays available after compaction')
   return snapshot
 }
 
