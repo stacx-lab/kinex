@@ -1,6 +1,6 @@
 {
   "name": "kinex",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Standalone robotics coding agent powered by Pi",
   "type": "module",
   "bin": {
@@ -38,10 +38,10 @@
     "@earendil-works/pi-ai": "0.87.1",
     "@earendil-works/pi-coding-agent": "0.87.1",
     "@earendil-works/pi-tui": "0.87.1",
-    "@kinex/core": "0.10.1",
+    "@kinex/core": "0.10.2",
     "proper-lockfile": "4.1.2",
     "typebox": "1.3.27",
-    "@kinex/setup": "0.10.1"
+    "@kinex/setup": "0.10.2"
   },
   "devDependencies": {
     "@types/node": "22.20.4",

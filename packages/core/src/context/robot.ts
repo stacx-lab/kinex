@@ -24,7 +24,7 @@ function deviceLine(device: Device): string {
     `${device.name} (${device.type}${accessBit(device)})${device.loaded ? "" : " [UNLOADED]"}`,
   ]
   switch (device.type) {
-    case "quadruped_base": {
+    case "legged_base": {
       const { control } = device.intrinsics
       if (known(control)) {
         if (control.device_modes) bits.push(`, device states: ${Object.keys(control.device_modes).join(", ")}`)
@@ -140,7 +140,7 @@ function mountTreeLines(devices: Device[]): string[] {
     const mount = deviceMount(device)
     if (mount === undefined || !known(mount)) {
       const feedback = devicePoseFeedback(device)
-      if (device.type === "velocity" || device.type === "quadruped_base" || (feedback !== undefined && known(feedback) && feedback.pose_frame === null)) continue
+      if (device.type === "velocity" || device.type === "legged_base" || (feedback !== undefined && known(feedback) && feedback.pose_frame === null)) continue
       unplaced.push(device.name)
       continue
     }

@@ -67,13 +67,13 @@ interface Node {
 }
 
 // Loaded devices of these types gate task readiness; world geometry is optional.
-const GATING_TYPES: readonly DeviceType[] = ["velocity", "quadruped_base", "joint", "dexterous_hand", "gripper", "suction", "rgb", "rgbd"]
+const GATING_TYPES: readonly DeviceType[] = ["velocity", "legged_base", "joint", "dexterous_hand", "gripper", "suction", "rgb", "rgbd"]
 
 function intrinsicsCheck(device: Device): Check {
   switch (device.type) {
-    case "quadruped_base": {
-      if (hasMissing(device.intrinsics)) return { done: false, detail: "quadruped control or stop is incomplete" }
-      return { done: true, detail: "SDK-defined quadruped control" }
+    case "legged_base": {
+      if (hasMissing(device.intrinsics)) return { done: false, detail: "legged control or stop is incomplete" }
+      return { done: true, detail: "SDK-defined legged control" }
     }
     case "rgb":
     case "rgbd": {
@@ -147,7 +147,7 @@ function extrinsicsCheck(device: Device): Check {
   if (device.type === "rgbd" && known(device.intrinsics.depth) && device.intrinsics.depth.registration === "native"
     && cameraMissing(device.extrinsics.depth_to_color))
     return { done: false, detail: "extrinsics.depth_to_color is incomplete" }
-  if (device.type === "velocity" || device.type === "quadruped_base") return { done: true, detail: "unlocalized device root" }
+  if (device.type === "velocity" || device.type === "legged_base") return { done: true, detail: "unlocalized device root" }
   const mount = deviceMount(device)
   if ((device.type === "force_torque" || device.type === "imu") && hasMissing(device.extrinsics))
     return { done: false, detail: "measurement frame is incomplete" }

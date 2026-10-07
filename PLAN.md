@@ -1,33 +1,59 @@
 # Current work
 
-## Nested home tolerance
+## PR #18 merge preparation
 
-- [x] Replace home_start_tolerance_deg with home.tolerance_deg and place named positions in home.joints.
-- [x] Update schema validation, TypeScript/Python consumers, guides and the IK fixture.
-- [x] Preserve null/unknown home values and the default 0.5-degree recovery tolerance.
+- [x] Merge main, retaining v0.10.2 fixes and resolving dependency conflicts.
+- [x] Restore plain home maps and use a fixed 1° inward home-recovery margin.
+- [x] Complete the legged_base rename across profiles, runtime and guides.
+- [x] Pass full checks before publishing the updated PR head.
 
-Validation: workspace build/typecheck, native-limits and control suites, 13 Python
-motion-execution tests, 11 joint-frame tests, 14 IK tests and diff checks passed.
-The IK Node wrapper reports spawnSync EPERM despite its Python child passing;
-the direct Python run passed too. Existing home maps must move under home.joints.
+Validation: Node 22.19 `npm run check` passed all 298 tests, build/typecheck,
+PTY and packed-consumer/release checks. Home recovery and legged-base discovery
+passed; compaction assertions now match the reduced contributed context.
+No physical robot or live provider calls were made.
 
-## Joint brake field removal
+## Version 0.10.2
 
-- [x] Remove intrinsics.has_brake from joint schemas and the joint template.
-- [x] Keep home recovery independent of brake metadata, retaining angular tolerance and inward-only limits.
-- [x] Update schema, preflight, Python and servo recovery coverage.
+- [x] Bump VERSION for world-wait recovery and IK continuity improvements.
+- [x] Synchronize all three package versions, internal dependency pins and the lockfile.
+- [x] Validate the separate PR branch against main.
 
-Validation: workspace build/typecheck, native-limits and control suites, all 13
-Python motion-execution tests and diff checks passed. Existing profiles must omit
-the removed field.
+Validation on Node 22.19: version consistency, all 273 tests in `npm run check`,
+packed consumers, PTY integration, release validation for `v0.10.2` and diff
+checks passed. Native GPU replay was not performed.
 
-## PR #18 pre-push validation
+## Servo travel checks and IK continuity
 
-Workspace build/typecheck and diff checks passed on Node 24.21 / Python 3.12.
-Full check: 275 tests passed, 7 failed. Failures cover the known legged_base
-template/schema mismatch, core readiness guidance, and five Python camera/solver
-checks in an environment missing NumPy. The test failure prevented the final
-release metadata check from running.
+- [x] Normalize rotary IK solutions within limits and compare verified candidates within existing search budgets.
+- [x] Seed and plan servo from one measured state; check caller-selected travel limits before submission.
+- [x] Add opt-in max_joint_delta and recorded dual-shoe motion regressions.
+- [x] Complete core, integration, packed-consumer and diff checks after making the travel cap opt-in.
+
+The travel cap applies only when max_joint_delta is supplied; omission imposes
+no travel cap. IK normalization and nearest-candidate selection remain enabled.
+Servo remains asynchronous.
+Usage guidance, closed_loop behavior and RoboEnv are unchanged. This preflight
+check does not diagnose native velocity spikes or guarantee collision avoidance.
+
+Validation: Node 22.19 `npm run check` passed all 273 tests, including runtime,
+PTY and packed-consumer checks, with 20 Python IK/controller regressions.
+Diff checks passed. Native GPU replay was not run.
+
+## World wait timeout recovery
+
+- [x] Cancel timed-out world waits individually and reuse the driver timeout for recovery.
+- [x] Cover recovery, concurrent waits, cancellation races, failure cleanup and public timeout errors.
+- [x] Complete Kinex checks and RoboEnv CPU cancellation/clock checks.
+
+The per-call deadline remains 60 seconds by default, configurable through
+`access.driver.timeout_s`; cancellation reuses that budget instead of a separate
+fixed grace period. Successful cancellation preserves the driver;
+`wait_timeout` reports no elapsed simulation time. No workspace migration is required.
+
+Validation: Node 22.19 full check passed all 270 tests, including the new timeout
+regressions, packed consumers and PTY integration. RoboEnv's existing CPU clock
+and motion suites passed all 39 tests. Diff checks passed; no native GPU replay
+was run and no RoboEnv sources changed.
 
 ## Smaller injected context
 
@@ -45,8 +71,7 @@ Existing session history retains previously injected sections.
 
 Validation: core build/typecheck, both focused guide tests and scoped diff checks
 passed. The device-management suite passed 10 of 11 tests; guide discovery fails
-because the edited template declares legged_base while the profile schema still
-accepts quadruped_base. The broader type rename remains unchanged.
+in the earlier partial rename; the PR preparation completes the schema and template rename.
 
 ## RGBD setup guidance
 
@@ -95,7 +120,7 @@ against the current helper implementation and passed scoped diff checks.
 - [x] Rebase only the 13 commits after 33d20de; exclude the already-merged old target.
 - [x] Preserve 0.10.1 versions and internal pins while retaining setup's extension dependencies.
 - [x] Retain receipt simplification and robot-context changes; correct contracts and migration guidance.
-- [x] Clarify joint home recovery, position-based settling and the quadruped instance guide.
+- [x] Clarify joint home recovery, position-based settling and the legged instance guide.
 - [x] Complete full integration, version, documentation and diff checks.
 - [x] Verify the rebased range excludes already-merged work and preserves runtime implementation.
 - [x] Retarget PR #18 to main and confirm GitHub reports a conflict-free merge.
@@ -142,7 +167,7 @@ Validation: core/setup build and typecheck, all 28 setup tests, and changed-file
 diff checks passed. Tests were rerun outside the sandbox after its Python spawn
 restriction blocked the URDF test.
 
-## Quadruped transition stop scope
+## Legged transition stop scope
 
 - [x] Clarify that stand/crouch transitions need not be interruptible; align setup and driver guidance.
 
@@ -181,9 +206,9 @@ real provider requests were not used for validation.
 
 Validation: documentation diff checks passed; no links added or changed.
 
-## Quadruped base template
+## Legged base template
 
-- [x] Add an independent quadruped_base template requiring a custom instance Use guide.
+- [x] Add an independent legged_base template requiring a custom instance Use guide.
 - [x] Describe minimal SDK states/skills, measured readback and explicit writes.
 - [x] Seed crouched_down and drive; add states/optional skills only for user needs.
 - [x] Declare control.device_modes and use mode consistently for writes and measured feedback.
@@ -192,9 +217,9 @@ Validation: documentation diff checks passed; no links added or changed.
 - [x] Validate template resolution, profile schema and state-control contracts.
 
 Validation: full workspace build/typecheck, eight device-management tests, three
-quadruped tests (including the SDK mock scaffold), and frame/readiness/architecture/
+legged tests (including the SDK mock scaffold), and frame/readiness/architecture/
 contribution regressions passed. Vendor SDK hooks remain to be implemented during
-device setup; no physical quadruped was exercised.
+device setup; no physical legged was exercised.
 
 ## Device-specific context
 
@@ -364,26 +389,15 @@ Bounded DLS restarts shared by servo and Cartesian policy actions are complete.
 ## Bounded IK search
 
 - [x] Add deterministic local/broad seeds, cooperative budgets and cancellation.
-- [x] Prefer the nearest verified fallback and preserve the original-seed fast path.
+- [x] Prefer the nearest verified candidate after normalizing equivalent rotary angles.
 - [x] Add optional profile settings, diagnostics and operating guidance.
 - [x] Add controlled-clock, numerical, controller and packaged-runtime coverage.
 - [x] Re-run the self-contained Panda benchmark and waypoint sequences.
 - [x] Complete typecheck, standalone/core/setup suites, build and local packaging.
 
-Validation on Node 22.19: typecheck, 70 standalone, 149 core and 27 setup tests,
-including 14 Python IK/controller regressions and independent packed consumption;
-build and local tarballs passed. Diff checks passed. Documentation links resolve
-except the existing link to the unavailable sibling plugin checkout.
-
-The self-contained Panda benchmark (Python 3.13.7, unchanged 0.1 mm / 0.001 rad
-tolerances) solved 388/400 poses with bounded restarts versus 359/400 with the
-single-seed DLS reference. Median latency was 2.33 ms versus 2.31 ms; p95 was
-90.48 ms versus 56.52 ms. All accepted poses passed independent FK and joint-limit
-checks; all ten out-of-reach controls were rejected. The 30 twenty-waypoint
-sequences completed 90/90 repeated runs versus 87/90, with median chunk latency
-26.63 ms for both. Nearest fallback preference remains a soft choice: the largest
-joint step was 2.99 rad versus 0.040 rad for the single-seed reference's accepted
-prefixes. These offline results do not establish real-device task success.
+Current IK continuity and servo validation are tracked above. Candidate search
+keeps its existing time and attempt budgets; successful initial solutions now
+compete with later candidates, so latency can increase within those budgets.
 
 Reproduce with `PYTHONPATH=packages/core/assets/python python3 packages/core/test/benchmark_ik.py --output /tmp/kinex-ik.json`.
 Existing profiles inherit the defaults. Reload persistent drivers after upgrading;

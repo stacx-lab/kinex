@@ -129,10 +129,10 @@ class MotionTests(unittest.TestCase):
     def test_joint_home_recovery(self):
         from kinex.joint_control import command, home_start_tolerance
         profile = copy.deepcopy(PROFILE)
-        profile["intrinsics"].update(home={"joints": {"j": 0}})
+        profile["intrinsics"].update(home={"j": 0})
         joints = profile["intrinsics"]["model"]["joints"]
         tolerance = home_start_tolerance(profile, joints, [0])
-        self.assertEqual(tolerance, math.radians(0.5))
+        self.assertEqual(tolerance, math.radians(1))
         for sign in (-1, 1):
             plan = trajectory(joints, [sign * (2 + tolerance)], [0], .01, start_tolerance=tolerance)
             command(profile, {"actions": plan.actions, "duration_s": plan.duration_s})
@@ -144,8 +144,9 @@ class MotionTests(unittest.TestCase):
             self.assertEqual(home_start_tolerance(profile, joints, [0]), 0)
             with self.assertRaises(ValueError):
                 command(profile, {"actions": [[2.004], [0]], "duration_s": 1})
-        profile["intrinsics"].update(home={"joints": {"j": 0}, "tolerance_deg": 10})
-        command(profile, {"actions": [[2.1], [0]], "duration_s": 1})
+        profile["intrinsics"].update(home={"j": 0})
+        with self.assertRaises(ValueError):
+            command(profile, {"actions": [[2 + math.radians(1.01)], [0]], "duration_s": 1})
         self.assertEqual(home_start_tolerance(profile, joints, [.1]), 0)
         joints[0]["type"] = "prismatic"
         with self.assertRaises(ValueError):

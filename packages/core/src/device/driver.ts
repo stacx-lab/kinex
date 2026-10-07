@@ -117,15 +117,23 @@ function failServing(entry: DriverProcess, error: unknown): void {
 export async function interruptServing(cwd: string, name: string, requestID?: string): Promise<void> {
   const entry = serving().get(await ProfileStore.deviceDir(cwd, name))
   if (!entry || entry.stopping || entry.proc.exitCode !== null) return
+  await interruptDriver(entry, requestID)
+}
+
+// Wait cancellation must drain both replies before reporting recovery.
+async function interruptDriver(entry: DriverProcess, requestID?: string, completion?: { promise: Promise<unknown>; timeoutMs: number }): Promise<void> {
   const id = shortID()
   const response = Promise.withResolvers<Record<string, unknown>>()
   entry.pending.set(id, response)
-  const timer = setTimeout(() => failServing(entry, new DriverError("driver interrupt timed out")), 1000)
+  const timer = setTimeout(() => failServing(entry, new DriverError(completion
+    ? "world wait cancellation timed out; load the device before retrying"
+    : "driver interrupt timed out")), completion?.timeoutMs ?? 1000)
   try {
     entry.proc.stdin.write(JSON.stringify({ id, interrupt: requestID ?? true }) + "\n")
     void Promise.resolve(entry.proc.stdin.flush()).catch(error => failServing(entry, error))
-    const result = await response.promise
-    if (result.ok !== true) throw new DriverError(`driver interrupt failed: ${String(result.error)}`)
+    await Promise.all([response.promise.then(result => {
+      if (result.ok !== true) throw new DriverError(`driver interrupt failed: ${String(result.error)}`)
+    }), completion?.promise])
   } finally {
     clearTimeout(timer)
   }
@@ -196,15 +204,27 @@ async function runServe(
   const id = shortID()
   const response = Promise.withResolvers<Record<string, unknown>>()
   entry.pending.set(id, response)
+  const worldWait = device.type === "world" && action === "wait"
+  let timedOut = false
+  let cancellation: Promise<void> | undefined
+  const cancelWait = () => {
+    cancellation ??= interruptDriver(entry, id, { promise: response.promise, timeoutMs: timeoutMs(device) })
+    void cancellation.catch(error => failServing(entry, error))
+  }
   const abort = () => {
-    if (action === "wait") void interruptServing(cwd, device.name, id).catch(error => failServing(entry, error))
+    if (worldWait) cancelWait()
+    else if (action === "wait") void interruptServing(cwd, device.name, id).catch(error => failServing(entry, error))
     else failServing(entry, signal?.reason ?? new DriverError("driver request aborted"))
   }
   signal?.addEventListener("abort", abort, { once: true })
   const interrupt = () => { void interruptServing(cwd, device.name).catch(error => failServing(entry, error)) }
   admission?.interrupted?.addEventListener("abort", interrupt, { once: true })
   if (admission?.interrupted?.aborted) interrupt()
-  const timer = setTimeout(() => failServing(entry, new DriverError("persistent driver timed out")), timeoutMs(device))
+  const timer = setTimeout(() => {
+    if (!worldWait) return failServing(entry, new DriverError("persistent driver timed out"))
+    timedOut = true
+    cancelWait()
+  }, timeoutMs(device))
   const payload = await (async () => {
     if (signal?.aborted) {
       entry.pending.delete(id)
@@ -213,14 +233,17 @@ async function runServe(
       entry.proc.stdin.write(JSON.stringify({ id, action, args }) + "\n")
       void Promise.resolve(entry.proc.stdin.flush()).catch(error => failServing(entry, error))
     }
-    return response.promise
+    const payload = await response.promise
+    await cancellation
+    return payload
   })().catch(async (error: unknown) => {
     if (action === "wait" && signal?.aborted) throw error
     failServing(entry, error)
     await terminate(entry)
     if (serving().get(key) === entry) serving().delete(key)
     if (signal?.aborted) throw error
-    throw new DriverError(pythonDiagnostic(`driver for "${device.name}" failed: ${String(error)}\n${entry.stderr.tail.trim()}`, entry.interpreter), { stderr: entry.stderr.tail.trim() })
+    const reason = cancellation ? `world wait cancellation failed; load the device before retrying: ${String(error)}` : String(error)
+    throw new DriverError(pythonDiagnostic(`driver for "${device.name}" failed: ${reason}\n${entry.stderr.tail.trim()}`, entry.interpreter), { stderr: entry.stderr.tail.trim() })
   }).finally(() => {
     clearTimeout(timer)
     admission?.interrupted?.removeEventListener("abort", interrupt)
@@ -228,6 +251,7 @@ async function runServe(
   })
   try {
     signal?.throwIfAborted()
+    if (timedOut) throw new DriverError(`world wait timed out for "${device.name}"`, { code: "wait_timeout" })
     const reading = toReading(device, payload, entry.stderr.tail, entry.interpreter)
     if (action === "load") entry.loaded = true
     return reading

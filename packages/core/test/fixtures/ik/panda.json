@@ -276,15 +276,13 @@
       }
     },
     "home": {
-      "joints": {
-        "robot0_joint1": 0.0,
-        "robot0_joint2": -0.003650459151,
-        "robot0_joint3": 0.0,
-        "robot0_joint4": -2.617993877991,
-        "robot0_joint5": 0.0,
-        "robot0_joint6": 2.74159265359,
-        "robot0_joint7": 0.785398163397
-      }
+      "robot0_joint1": 0.0,
+      "robot0_joint2": -0.003650459151,
+      "robot0_joint3": 0.0,
+      "robot0_joint4": -2.617993877991,
+      "robot0_joint5": 0.0,
+      "robot0_joint6": 2.74159265359,
+      "robot0_joint7": 0.785398163397
     },
     "control": {
       "mode": "position",

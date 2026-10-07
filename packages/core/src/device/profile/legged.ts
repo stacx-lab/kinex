@@ -13,13 +13,13 @@ const deviceModes = z.record(z.string().min(1), z.strictObject({
   }
 })
 
-export const QuadrupedControl = z.strictObject({
+export const LeggedControl = z.strictObject({
   device_modes: deviceModes.optional(),
   skills: z.record(z.string().min(1), z.string().min(1)).default({}),
   write: ModelValue.refine(value => value.type === "object" && !value.nullable, "write contract must be a non-null object"),
 })
 
-export const QuadrupedStop = z.strictObject({
+export const LeggedStop = z.strictObject({
   behavior: z.string().min(1),
   affected_devices: z.array(z.string().min(1)).min(1).refine(v => new Set(v).size === v.length, "duplicate stop member"),
 })

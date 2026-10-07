@@ -70,8 +70,19 @@ def seeds(joints, targets, original, count):
 
 
 def nearest_representation(joints, candidate, original):
-    return [start + math.atan2(math.sin(q-start), math.cos(q-start)) if joint["type"] == "continuous" else q
-            for joint, q, start in zip(joints, candidate, original, strict=True)]
+    """Choose equivalent rotary angles near the seed without crossing limits."""
+    result = []
+    for joint, q, start in zip(joints, candidate, original, strict=True):
+        if joint["type"] == "continuous":
+            q = start + math.atan2(math.sin(q-start), math.cos(q-start))
+        elif joint["type"] == "revolute":
+            limits = joint["limits"]
+            lower = math.ceil((limits["min"] - q) / math.tau)
+            upper = math.floor((limits["max"] - q) / math.tau)
+            turns = max(lower, min(upper, round((start - q) / math.tau)))
+            q += turns * math.tau
+        result.append(q)
+    return result
 
 
 def distance(joints, candidate, original):
@@ -88,7 +99,7 @@ def distance(joints, candidate, original):
 
 
 def search(joints, options, targets, original, attempt, verify):
-    """Return the initial solution immediately, or the nearest verified fallback."""
+    """Select the nearest verified solution within the existing search budget."""
     settings = search_options(options)
     original = list(joint_target(original, joints))
     started = monotonic()
@@ -104,16 +115,16 @@ def search(joints, options, targets, original, attempt, verify):
         check_cancelled()
         if candidate is None:
             continue
-        candidate = nearest_representation(joints, joint_target(candidate, joints), original)
+        candidate = joint_target(nearest_representation(joints, joint_target(candidate, joints), original), joints)
         valid = verify(candidate)
         check_cancelled()
         if not valid:
             continue
-        if attempts == 1:
-            return {"joints": candidate}
         score = distance(joints, candidate, original)
         if score < best_distance:
             best, best_distance = candidate, score
+        if score == 0:
+            break
     check_cancelled()
     if best is not None:
         return {"joints": best}

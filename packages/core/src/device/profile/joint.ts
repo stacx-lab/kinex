@@ -42,10 +42,7 @@ export const jointShape = {
     z.strictObject({ format: z.literal("joints"), joints: Joints }),
   ])),
   kinematics: JointKinematics.nullable().default(null),
-  home: field(z.strictObject({
-    joints: z.record(z.string().min(1), z.number()),
-    tolerance_deg: z.number().nonnegative().optional(),
-  }).nullable()),
+  home: field(z.record(z.string().min(1), z.number()).nullable()),
   control: field(z.strictObject({ mode: z.literal("position"), limit_handling: z.literal("native").optional() })),
   feedback: field(z.strictObject({ velocities: z.boolean(), efforts: z.boolean() })),
   stop: field(z.strictObject({ behavior: z.enum(["hold", "halt", "controller_emergency_stop"]),

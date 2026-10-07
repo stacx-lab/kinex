@@ -656,6 +656,15 @@ for (const deviceType of ['joint', 'dexterous_hand']) test(`servo plans and vali
   assert.equal(pose.isError, true)
   assert.match(pose.output, /pose goals require declared IK/)
   assert.ok(!events.some(event => event.action === 'ik' || event.action === 'write'))
+  const excessive = await runtime.tools.call('servo', { device: name, joints: [2, 1], max_joint_delta: 1 }, { sessionID: 's' })
+  assert.equal(excessive.isError, true)
+  assert.match(excessive.output, /max_joint_delta exceeded.*j0/)
+  for (const max_joint_delta of [null, 0, [], [2, -1]]) {
+    const invalid = await runtime.tools.call('servo', { device: name, joints: [2, 1], max_joint_delta }, { sessionID: 's' })
+    assert.equal(invalid.isError, true)
+    assert.match(invalid.output, /max_joint_delta/)
+  }
+  assert.ok(!events.some(event => event.action === 'write' || event.action === 'stop'))
   const response = await runtime.tools.call('servo', { device: name, joints: [2, 1] }, { sessionID: 's' })
   assert.ok(!response.isError, response.output)
   const result = JSON.parse(response.output)

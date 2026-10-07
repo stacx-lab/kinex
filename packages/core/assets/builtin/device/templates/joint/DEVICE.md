@@ -23,11 +23,10 @@ and apply per target; nearest preference is not a hard waypoint-step limit.
 
 feedback declares velocities and efforts. stop declares behavior and affected_devices. intrinsics.frames declares additional references as {parent_frame, translation_m, rotation_xyzw}. A null parent means the device base; either transform component may be null when unknown. extrinsics supplies only a mount or measured pose_frame.
 
-home is {joints: {joint_name: position, ...}, tolerance_deg: 0.5} or null; home.joints names every joint. 
-Driver unloading should be always done at home pose. `home.tolerance_deg` (default 0.5)
-allows revolute joints to start slightly outside their limits only when recovering
-toward the declared home. Out-of-limit references must move inward, and the final
-home target must satisfy the limits.
+home names every joint or is null. Revolute joints may start up to 1° outside
+limits when returning to declared home; out-of-limit references must move inward
+and the final target must satisfy the limits. This fixed margin is not a profile
+field. Prismatic joints retain strict limits.
 
 ### Frame feedback
 
@@ -66,7 +65,6 @@ intrinsics:
   model: ???
   kinematics: null
   home: ???
-    tolerance_deg: 0.5
   control: ???
   feedback: ???
   stop: ???

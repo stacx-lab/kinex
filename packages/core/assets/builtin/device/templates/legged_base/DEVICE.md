@@ -1,7 +1,7 @@
 ---
-name: quadruped_base
+name: legged_base
 type: legged_base
-description: Quadruped base with SDK-backed locomotion, a minimal device state machine and device-specific operating guidance.
+description: Legged base with SDK-backed locomotion, a minimal device state machine and device-specific operating guidance.
 ---
 
 ## Setup
@@ -43,8 +43,8 @@ Follow the velocity guide's [response behavior procedure](../velocity/DEVICE.md#
 ### Profile
 
 ```yaml
-name: quadruped_base
-type: quadruped_base
+name: legged_base
+type: legged_base
 loaded: false
 access:
   source: unknown

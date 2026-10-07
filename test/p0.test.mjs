@@ -145,7 +145,8 @@ function assertSnapshot(app) {
   const snapshots = branch.slice(index + 1).filter(entry => entry.type === 'custom_message' && entry.customType === 'kinex-context')
   assert.equal(snapshots.length, 1)
   const snapshot = snapshots[0]
-  for (const section of ['python', 'guides', 'devices', 'conventions', 'skills', 'recording', 'problems']) assert.ok(snapshot.content.includes(`${section}:\n`), section)
+  for (const section of ['core.python', 'core.guides', 'core.conventions', 'core.skills', 'core.recording', 'problems']) assert.ok(snapshot.content.includes(`${section}:\n`), section)
+  for (const section of ['core.devices', 'core.readiness', 'setup.plan']) assert.ok(!Object.hasOwn(snapshot.details, section), section)
   assert.ok(app.host.session.agent.state.messages.some(message => message.role === 'custom' && message.content === snapshot.content))
   return snapshot
 }

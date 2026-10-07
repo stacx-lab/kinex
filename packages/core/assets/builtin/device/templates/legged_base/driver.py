@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Map shared Kinex motion parameters and declared extensions to the quadruped SDK."""
+"""Map shared Kinex motion parameters and declared extensions to the legged SDK."""
 from pathlib import Path
 
 from kinex.driver_protocol import run, release, check_cancelled
 from kinex.validation import settings, segment
 
 
-class QuadrupedDriver:
+class LeggedDriver:
     def __init__(self, directory):
         self.profile = settings(directory)
         self.handle = None
@@ -87,5 +87,5 @@ class QuadrupedDriver:
 
 
 if __name__ == "__main__":
-    driver = QuadrupedDriver(Path(__file__).parent)
+    driver = LeggedDriver(Path(__file__).parent)
     run(driver.dispatch, driver.close)

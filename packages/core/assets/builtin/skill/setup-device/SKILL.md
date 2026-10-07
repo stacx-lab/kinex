@@ -1,7 +1,7 @@
 ---
 name: setup-device
 description: Add a device or repair its driver — choose an instance or type guide, provision its runtime, fill a profile and verify the interface.
-resolves: access:velocity,access:quadruped_base,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,intrinsics:model,access:detection,intrinsics:detection,access:segmentation,intrinsics:segmentation,access:other
+resolves: access:velocity,access:legged_base,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,intrinsics:model,access:detection,intrinsics:detection,access:segmentation,intrinsics:segmentation,access:other
 ---
 
 # Set up a device

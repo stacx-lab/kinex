@@ -9,29 +9,31 @@ const joint = native => Device.parse({ meta, name: 'arm', type: 'joint', intrins
   control: { mode: 'position', ...(native ? { limit_handling: 'native' } : {}) },
 } })
 
-test('joint home recovery bounds the inward prefix without widening other commands', () => {
+test('joint home recovery uses a fixed one-degree inward prefix and plain home maps', () => {
   const device = joint(false)
   assert.throws(() => Device.parse({ ...device, intrinsics: { ...device.intrinsics, has_brake: false } }), /Unrecognized key/)
-  Object.assign(device.intrinsics, { home: { joints: { j: 0 } } })
+  device.intrinsics.home = { j: 0 }
   assert.deepEqual(deviceHome(Device.parse(device)), [0])
-  for (const home of [{ j: 0 }, { joints: {} }, { joints: { j: 2 } }])
+  for (const home of [{ joints: { j: 0 } }, {}, { j: 2 }, { j: 0, tolerance_deg: 1 }])
     assert.throws(() => Device.parse({ ...device, intrinsics: { ...device.intrinsics, home } }))
   assert.throws(() => Device.parse({ ...device, intrinsics: { ...device.intrinsics, home_start_tolerance_deg: 1 } }), /Unrecognized key/)
   const check = actions => writeCommand(device, { actions: actions.map(q => [q]), duration_s: 1 })
-  for (const sign of [-1, 1]) check([sign * (1 + 0.5 * Math.PI / 180), sign * 1.004, sign, 0])
+  for (const sign of [-1, 1]) {
+    check([sign * (1 + Math.PI / 180), sign * 1.004, sign, 0])
+    assert.throws(() => check([sign * (1 + 1.01 * Math.PI / 180), 0]), /joint limits/)
+  }
   for (const actions of [[1.09, 0], [1.004, 1.005, 0], [1.004, .9, 1.001, 0], [1.004, .1], [1.004]])
     assert.throws(() => check(actions), /joint limits/)
   for (const home of [null, '???']) {
     device.intrinsics.home = home
     assert.throws(() => check([1.004, 0]))
   }
-  device.intrinsics.home = { joints: { j: 0 } }
-  device.intrinsics.home.tolerance_deg = 10
-  check([1.1, 0])
+  device.intrinsics.home = { j: 0 }
+  device.type = 'dexterous_hand'
+  assert.throws(() => check([1.004, 0]))
+  device.type = 'joint'
   device.intrinsics.model.joints[0].type = 'prismatic'
   assert.throws(() => check([1.001, 0]))
-  for (const tolerance of [-1, Infinity, NaN])
-    assert.throws(() => Device.parse({ ...device, intrinsics: { ...device.intrinsics, home: { ...device.intrinsics.home, tolerance_deg: tolerance } } }))
 })
 
 test('native joint writes delegate range handling but retain finite dimensions and command shape', () => {

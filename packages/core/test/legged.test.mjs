@@ -7,7 +7,7 @@ import { writeCommand } from '../dist/device/command.js'
 import { validateReading, validateWriteResult } from '../dist/device/dispatch.js'
 import { isCommandAction, requiredActions } from '../dist/device/interface.js'
 
-const profile = () => Device.parse({ name: 'base', type: 'quadruped_base',
+const profile = () => Device.parse({ name: 'base', type: 'legged_base',
   meta: { created_at: '', updated_at: '' }, intrinsics: {
     control: {
       device_modes: {
@@ -28,7 +28,7 @@ const profile = () => Device.parse({ name: 'base', type: 'quadruped_base',
 })
 const sample = mode => ({ mode, faults: [], timestamp: 1, sdk_progress: 0 })
 
-test('quadruped writes use the declared SDK schema and retain actuation classification', () => {
+test('legged writes use the declared SDK schema and retain actuation classification', () => {
   const device = profile()
   assert.ok(isActuated(device))
   assert.equal(isCommandAction(device, 'write'), true)
@@ -53,7 +53,7 @@ test('quadruped writes use the declared SDK schema and retain actuation classifi
   assert.throws(() => writeCommand(device, { mode: 'stand_still' }), /unsupported device mode/)
 })
 
-test('quadruped feedback preserves SDK observations and validates measured write states', () => {
+test('legged feedback preserves SDK observations and validates measured write states', () => {
   const device = profile()
   for (const state of ['stand_still', 'sdk-transitioning', null]) {
     const data = sample(state)
@@ -68,16 +68,16 @@ test('quadruped feedback preserves SDK observations and validates measured write
   assert.doesNotThrow(() => validateReading(device, { data: { timestamp: 1, faults: [] } }))
 })
 
-test('quadruped scaffold keeps SDK hooks independent of velocity and lifecycle motion', () => {
-  const file = fileURLToPath(new URL('../assets/builtin/device/templates/quadruped_base/driver.py', import.meta.url))
+test('legged scaffold keeps SDK hooks independent of velocity and lifecycle motion', () => {
+  const file = fileURLToPath(new URL('../assets/builtin/device/templates/legged_base/driver.py', import.meta.url))
   execFileSync(process.env.PYTHON ?? 'python3', ['-c', `
 import importlib.util
 import sys
-spec = importlib.util.spec_from_file_location('quadruped_template', sys.argv[1])
+spec = importlib.util.spec_from_file_location('legged_template', sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.settings = lambda directory: {}
-class Fake(module.QuadrupedDriver):
+class Fake(module.LeggedDriver):
     current = 'crouched_down'
     requests = 0
     stops = 0

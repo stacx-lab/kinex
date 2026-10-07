@@ -6,6 +6,9 @@ from kinex.motion import joint_target, vector
 from kinex.urdf import read_chain
 
 
+HOME_RECOVERY_TOLERANCE = math.radians(1)
+
+
 def home_start_tolerance(profile, joints, target):
     """Joint devices may recover toward declared home within an angular margin."""
     joint_target(target, joints, check_limits=False)
@@ -13,14 +16,10 @@ def home_start_tolerance(profile, joints, target):
     home = intrinsics.get("home")
     if profile.get("type") != "joint" or not isinstance(home, dict):
         return 0.0
-    positions = home["joints"]
+    positions = home
     if any(j["name"] not in positions or abs(q - positions[j["name"]]) > 1e-9 for j, q in zip(joints, target)):
         return 0.0
-    from kinex.validation import number
-    tolerance = number(home.get("tolerance_deg", 0.5), "home.tolerance_deg")
-    if tolerance < 0:
-        raise ValueError("home.tolerance_deg must be nonnegative")
-    return math.radians(tolerance)
+    return HOME_RECOVERY_TOLERANCE
 
 
 def recovery_targets(actions, joints, tolerance):

@@ -8,7 +8,7 @@ import { ForceTorqueConnection, forceTorqueShape } from "./force-torque.ts"
 import { worldShape, type WorkspaceBounds } from "./world.ts"
 export { WorkspaceBounds, Surface } from "./world.ts"
 import { VelocityControl, VelocityFeedback, VelocityStop } from "./velocity.ts"
-import { QuadrupedControl, QuadrupedStop } from "./quadruped.ts"
+import { LeggedControl, LeggedStop } from "./legged.ts"
 import { gripperShape, suctionShape } from "./gripper.ts"
 import { jointShape, refineJoint, jointModel } from "./joint.ts"
 import { HandGeometry, refineHand } from "./hand.ts"
@@ -27,7 +27,7 @@ const Aabb = z.object({
 })
 
 export const DeviceType = z.enum([
-  "quadruped_base",
+  "legged_base",
   "velocity",
   "dexterous_hand",
   "suction",
@@ -113,9 +113,9 @@ const velocityState = {
   method: z.enum(["unknown", "factory", "introspection", "manual", "survey"]).default("unknown"),
 }
 const VelocityIntrinsics = z.strictObject({ ...velocityState, ...localFrames, control: may(VelocityControl).default(MISSING), feedback: may(VelocityFeedback).default(MISSING), stop: may(VelocityStop).default(MISSING) }).prefault({})
-const QuadrupedIntrinsics = z.strictObject({
+const LeggedIntrinsics = z.strictObject({
   ...velocityState, ...localFrames,
-  control: may(QuadrupedControl).default(MISSING), stop: may(QuadrupedStop).default(MISSING),
+  control: may(LeggedControl).default(MISSING), stop: may(LeggedStop).default(MISSING),
 }).prefault({})
 const VelocityAccess = z.strictObject({
   ...velocityState, connection: may(ControlConnection).default(MISSING),
@@ -188,11 +188,11 @@ const deviceBase = {
 }
 
 export const Device = z.discriminatedUnion("type", [
-  z.strictObject({ ...deviceBase, type: z.literal("quadruped_base"),
-    access: AccessSection.optional(), intrinsics: QuadrupedIntrinsics,
+  z.strictObject({ ...deviceBase, type: z.literal("legged_base"),
+    access: AccessSection.optional(), intrinsics: LeggedIntrinsics,
   }).superRefine((device, ctx) => {
     for (const key of ["mount", "pose_frame"] as const)
-      if (device.extrinsics[key] !== undefined) ctx.addIssue({ code: "custom", path: ["extrinsics", key], message: "quadruped bases are unlocalized roots; use explicit frame estimates" })
+      if (device.extrinsics[key] !== undefined) ctx.addIssue({ code: "custom", path: ["extrinsics", key], message: "legged bases are unlocalized roots; use explicit frame estimates" })
   }),
   z.strictObject({ ...deviceBase, type: z.literal("velocity"),
     access: VelocityAccess.optional(), intrinsics: VelocityIntrinsics,
@@ -348,7 +348,7 @@ export function matchesDeviceType(actual: DeviceType, required: DeviceType): boo
 
 // Control contracts determine actuation.
 export function isActuated(device: Device): boolean {
-  return ["joint", "velocity", "quadruped_base", "gripper", "dexterous_hand", "suction"].includes(device.type)
+  return ["joint", "velocity", "legged_base", "gripper", "dexterous_hand", "suction"].includes(device.type)
 }
 export function isVelocity(device: Device): device is Extract<Device, { type: "velocity" }> { return device.type === "velocity" }
 export function isJoint(device: Device): device is Extract<Device, { type: "joint" | "dexterous_hand" }> { return device.type === "joint" || device.type === "dexterous_hand" }
@@ -386,14 +386,14 @@ export function deviceHome(device: Device): number[] | undefined {
   if (isJoint(device)) {
     const home = device.intrinsics.home
     if (!known(home) || home === null) return undefined
-    return joints.map((j) => home.joints[j.name]!)
+    return joints.map((j) => home[j.name]!)
   }
   return undefined
 }
 
 // Measured roots declare an external pose reference.
 export function devicePoseFeedback(device: Device) {
-  if (device.type === "velocity" || device.type === "quadruped_base") return undefined
+  if (device.type === "velocity" || device.type === "legged_base") return undefined
   if (device.extrinsics?.pose_frame !== undefined) return { pose_frame: device.extrinsics.pose_frame }
   return undefined
 }
