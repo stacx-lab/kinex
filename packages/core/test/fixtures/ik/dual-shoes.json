@@ -1,0 +1,268 @@
+{
+  "source": "https://huggingface.co/spaces/RLE-Bench/kinex-v0.10.0-benchmark/blob/main/episodes/task03/02/seed-0-modified01/transcript.json",
+  "description": "Right arm before the shoe rotation, and the IK goal submitted by control round 62. Seed measured at simulation time 22.56 s; trajectory duration 44.27250969619103 s.",
+  "profile": {
+    "name": "right_arm",
+    "type": "joint",
+    "intrinsics": {
+      "model": {
+        "chain": [
+          {
+            "anchor": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "joint": 0,
+            "origin": [
+              0.0,
+              0.0,
+              0.058,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "reference": 0.0
+          },
+          {
+            "anchor": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "joint": 1,
+            "origin": [
+              0.025013,
+              0.00060169,
+              0.042,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "reference": 0.0
+          },
+          {
+            "anchor": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "joint": 2,
+            "origin": [
+              -0.26396,
+              0.0044548,
+              0.0,
+              -0.9999682875128689,
+              0.007963915813703695,
+              2.9253096209716244e-08,
+              -3.6730886169017837e-06
+            ],
+            "reference": 0.0
+          },
+          {
+            "anchor": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "joint": 3,
+            "origin": [
+              0.246,
+              -0.00025,
+              -0.06,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "reference": 0.0
+          },
+          {
+            "anchor": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "joint": 4,
+            "origin": [
+              0.06775,
+              0.0015,
+              -0.0855,
+              0.0,
+              0.0,
+              -0.007963915813757421,
+              0.999968287519615
+            ],
+            "reference": 0.0
+          },
+          {
+            "anchor": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "joint": 5,
+            "origin": [
+              0.03095,
+              0.0,
+              0.0855,
+              -0.9999999999932537,
+              -0.0,
+              0.0,
+              -3.673205103346574e-06
+            ],
+            "reference": 0.0
+          }
+        ],
+        "format": "serial_chain",
+        "joints": [
+          {
+            "limits": {
+              "max": 10.0,
+              "min": -10.0
+            },
+            "max_effort": null,
+            "max_velocity": null,
+            "name": "fr_joint1",
+            "type": "revolute"
+          },
+          {
+            "limits": {
+              "max": 10.0,
+              "min": -10.0
+            },
+            "max_effort": null,
+            "max_velocity": null,
+            "name": "fr_joint2",
+            "type": "revolute"
+          },
+          {
+            "limits": {
+              "max": 10.0,
+              "min": -10.0
+            },
+            "max_effort": null,
+            "max_velocity": null,
+            "name": "fr_joint3",
+            "type": "revolute"
+          },
+          {
+            "limits": {
+              "max": 10.0,
+              "min": -10.0
+            },
+            "max_effort": null,
+            "max_velocity": null,
+            "name": "fr_joint4",
+            "type": "revolute"
+          },
+          {
+            "limits": {
+              "max": 10.0,
+              "min": -10.0
+            },
+            "max_effort": null,
+            "max_velocity": null,
+            "name": "fr_joint5",
+            "type": "revolute"
+          },
+          {
+            "limits": {
+              "max": 10.0,
+              "min": -10.0
+            },
+            "max_effort": null,
+            "max_velocity": null,
+            "name": "fr_joint6",
+            "type": "revolute"
+          }
+        ]
+      },
+      "kinematics": {
+        "fk": "numerical",
+        "frame": "flange",
+        "frame_to_reported": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "ik": {
+          "backend": "numerical",
+          "damping": 0.01,
+          "max_iterations": 200,
+          "method": "damped_least_squares",
+          "position_tolerance_m": 0.0001,
+          "rotation_tolerance_rad": 0.001
+        }
+      },
+      "control": {
+        "limit_handling": "native",
+        "mode": "position"
+      },
+      "feedback": {
+        "efforts": false,
+        "velocities": true
+      },
+      "home": {
+        "fr_joint1": 0.0,
+        "fr_joint2": 0.0,
+        "fr_joint3": 0.0,
+        "fr_joint4": 0.0,
+        "fr_joint5": 0.0,
+        "fr_joint6": 0.0
+      }
+    }
+  },
+  "seed": [
+    0.20673705637454987,
+    2.2796173095703125,
+    2.0940499305725098,
+    -1.3881092071533203,
+    0.004359833896160126,
+    3.3007707595825195
+  ],
+  "target": [
+    3.375736045123721,
+    -5.724002407960729,
+    3.3418750381997513,
+    -7.495137547149419,
+    9.449161902416913,
+    1.5920087591457683
+  ]
+}

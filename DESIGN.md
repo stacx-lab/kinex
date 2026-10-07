@@ -69,7 +69,15 @@ transition fence through deactivation and deletion.
   wait. The TUI displays world time fields to at most six decimal places; tool
   results retain full precision. Drivers abstract physical and simulated clocks. Concurrent
   waits share world time and support individual cancellation. Reads never advance
-  time. Uncertain writes are never retried automatically.
+  time. Persistent world waits retain the per-call wall-clock deadline (60 seconds
+  by default, overridden by `access.driver.timeout_s`). Timeout cancels only that
+  wait, allowing one additional configured timeout interval for its response and
+  interrupt acknowledgement.
+  Successful recovery preserves the driver and reports `wait_timeout` without elapsed
+  time; failed recovery terminates the driver and requires an explicit load.
+  Caller cancellation shares the same bounded recovery. Cancellation does not reset
+  the world or clear actuator buffers: RoboEnv realtime continues, while stepped
+  execution pauses when no waits remain. Uncertain writes are never retried automatically.
   Device observations use one finite numeric `timestamp` in seconds, including
   measured state in write results. Use acquisition time, or receipt time when it is
   unavailable, in the device's clock. Combined observations use the latest component
@@ -122,10 +130,12 @@ transition fence through deactivation and deletion.
   per attempt and 0.1 seconds total per target; `max_iterations` also bounds each
   attempt. Cancellation and monotonic deadlines are checked between iterations.
   Deadlines are cooperative; the current iteration or final verification may overrun.
-  An initial solution returns immediately; fallback search selects the verified
-  candidate nearest the original seed using joint-range-normalized displacement,
-  wrapping only continuous joints. This preference is not a hard waypoint-step
-  limit. Pose tolerances and independent FK verification remain unchanged.
+  Search selects the verified candidate nearest the original seed using
+  joint-range-normalized displacement; only zero displacement ends search early.
+  Numerical and native IK normalize rotary solutions to the nearest equivalent
+  angles within joint limits before independent FK verification. Prismatic
+  coordinates are unchanged. This preference is not a hard waypoint-step limit.
+  Pose tolerances remain unchanged.
   Exhaustion reports attempts, iterations, elapsed time and best observed residuals;
   it does not establish unreachability. Native driver IK retains its own solver.
   Shared Python pose validation and call-local frame estimates normalize xyzw
@@ -168,6 +178,14 @@ transition fence through deactivation and deletion.
   arrival. Driver feedback remains validated before returning. Planning rates
   default to 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
   capped by known limits.
+  Servo reads measured positions once before IK and planning, projecting only the
+  IK seed into model bounds when needed. `max_joint_delta` bounds travel from that
+  measurement for both joint and pose goals, before submission, only when supplied.
+  It accepts a positive scalar or a positive per-joint vector in radians or metres;
+  omission imposes no travel cap. This is a caller-selected planning constraint,
+  not a hardware rating. Continuous travel takes the shortest angle; explicit
+  bounded joint targets are not wrapped. Rejection names offending joints with measured/requested
+  positions, deltas and allowed deltas, without replacing existing motion.
   The Python planner returns references and duration together. Position devices
   retain the final reference; later writes or stop can interrupt the plan.
   Planning does not promise collision avoidance.

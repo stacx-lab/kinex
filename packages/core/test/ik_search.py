@@ -20,6 +20,7 @@ from joint_frames import profile as simple_profile
 FIXTURES = Path(__file__).parent / "fixtures" / "ik"
 PANDA = json.loads((FIXTURES / "panda.json").read_text())
 CORPUS = json.loads((FIXTURES / "corpus.json").read_text())
+SHOES = json.loads((FIXTURES / "dual-shoes.json").read_text())
 RECOVERY = next(case for case in CORPUS["cases"] if case["id"] == "medium34")
 
 
@@ -44,13 +45,13 @@ class SearchTests(unittest.TestCase):
             with self.subTest(search=search), self.assertRaises(ValueError):
                 ik_search.search_options({"search": search})
 
-    def test_initial_seed_success_is_one_attempt_and_does_not_mutate_inputs(self):
+    def test_initial_seed_success_still_compares_candidates_without_mutating_inputs(self):
         seed = [.1]
         goal = self.model.fk([.4])["pose"]
         before = copy.deepcopy((seed, goal, self.options))
         with patch.object(kinematics, "solve_attempt", wraps=kinematics.solve_attempt) as attempt:
             result = self.model.ik(goal, seed)
-        self.assertEqual(attempt.call_count, 1)
+        self.assertEqual(attempt.call_count, 5)
         self.assertAlmostEqual(result["joints"][0], .4, places=5)
         self.assertEqual((seed, goal, self.options), before)
 
@@ -76,7 +77,21 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(attempt.call_count, 5)
         self.assertEqual(verify.call_count, 4)
 
-    def test_candidates_are_scaled_by_joint_range_and_only_continuous_joints_wrap(self):
+    def test_first_success_is_not_preferred_over_a_nearer_normalized_candidate(self):
+        joints = [{"name": "j", "type": "revolute", "limits": {"min": -10, "max": 10}}]
+        attempt = Mock(side_effect=[[2], [math.tau + .2], [-.8], None, None])
+        verify = Mock(return_value=True)
+        result = ik_search.search(joints, self.options, [], [0], attempt, verify)
+        self.assertAlmostEqual(result["joints"][0], .2)
+        self.assertAlmostEqual(verify.call_args_list[1].args[0][0], .2)
+
+    def test_zero_displacement_ends_search(self):
+        attempt = Mock(return_value=[0])
+        self.assertEqual(ik_search.search(self.joints, self.options, [], [0], attempt, lambda q: True),
+                         {"joints": [0]})
+        attempt.assert_called_once()
+
+    def test_candidates_are_scaled_by_joint_range_and_wrapping_respects_bounds(self):
         rotary = {"type": "revolute", "limits": {"min": -3, "max": 3}}
         continuous = {"type": "continuous", "limits": None}
         linear = {"type": "prismatic", "limits": {"min": 0, "max": .1}}
@@ -87,6 +102,36 @@ class SearchTests(unittest.TestCase):
         q = ik_search.nearest_representation([continuous, rotary], [4*math.pi+.2, -2.9], [0, 2.9])
         self.assertAlmostEqual(q[0], .2)
         self.assertEqual(q[1], -2.9)
+
+    def test_bounded_equivalence_preserves_limits_and_prismatic_coordinates(self):
+        rotary = {"type": "revolute", "limits": {"min": -10, "max": 10}}
+        linear = {"type": "prismatic", "limits": {"min": -10, "max": 10}}
+        q = ik_search.nearest_representation([rotary, linear], [math.tau + .2]*2, [0, 0])
+        self.assertAlmostEqual(q[0], .2)
+        self.assertEqual(q[1], math.tau + .2)
+        # The unconstrained nearest angle lies outside this one-sided range.
+        rotary["limits"] = {"min": 0, "max": 7}
+        q = ik_search.nearest_representation([rotary], [6], [0])[0]
+        self.assertEqual(q, 6)
+        for target, seed in [(0, 7), (7, 0)]:
+            q = ik_search.nearest_representation([rotary], [target], [seed])[0]
+            self.assertTrue(0 <= q <= 7)
+            self.assertAlmostEqual(math.cos(q), math.cos(target))
+
+    def test_native_ik_normalizes_before_independent_fk_verification(self):
+        profile = simple_profile()
+        profile["intrinsics"]["model"]["joints"][0]["limits"] = {"min": -10, "max": 10}
+        profile["intrinsics"]["kinematics"]["ik"].update(
+            backend="driver", frame_to_solver=[0, 0, 0, 0, 0, 0, 1])
+        model = JointDevice(profile, native_ik=Mock(return_value=[math.tau + .2]))
+        target = model.fk([.2])["pose"]
+        self.assertAlmostEqual(model.ik(target, [0])["joints"][0], .2)
+        model.native_ik.return_value = [math.tau + .8]
+        with self.assertRaisesRegex(ValueError, "FK residual verification"):
+            model.ik(target, [0])
+        model.native_ik.return_value = [20]
+        with self.assertRaisesRegex(ValueError, "joint limits"):
+            model.ik(target, [0])
 
     def test_seed_order_is_repeatable_bounded_and_does_not_use_global_rng(self):
         joints = [*self.joints, {"type": "continuous", "limits": None},
@@ -252,6 +297,33 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(result["joints"], self.ik_calls[0][1])
         self.assertEqual(result["actions_submitted"], len(self.pending["actions"]))
         self.assertEqual(self.pending["actions"][-1], result["joints"])
+
+    def test_opt_in_limit_rejects_shoe_motion_even_after_normalization(self):
+        self.profile = copy.deepcopy(SHOES["profile"])
+        self.profile["resolved_model"] = {key: self.profile["intrinsics"]["model"][key] for key in ("joints", "chain")}
+        self.model = JointDevice(self.profile)
+        self.positions = list(SHOES["seed"])
+        target = SHOES["target"]
+        normalized = ik_search.nearest_representation(self.model.joints, target, self.positions)
+        goal = self.model.fk(target)["pose"]
+        error = pose_error(goal, self.model.fk(normalized)["pose"])
+        self.assertLess(error["position_m"], 1e-12)
+        self.assertLess(error["rotation_rad"], 1e-12)
+        self.assertLess(max(abs(q-s) for q, s in zip(normalized, self.positions)), math.pi)
+        servo = self.tool("servo")
+        with patch.object(kinematics, "solve_attempt", return_value=target):
+            for args in ({"joints": target}, {"joints": normalized}, {"pose": goal}):
+                with self.subTest(args=args), self.assertRaisesRegex(ValueError, "max_joint_delta exceeded.*fr_joint1: measured=.*requested=.*delta=.*allowed="):
+                    servo({"device": "arm", **args, "max_joint_delta": math.pi / 2})
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.pending, {"existing": True})
+
+    def test_servo_rejects_nonfinite_and_boolean_travel_limits(self):
+        servo = self.tool("servo")
+        for value in (None, math.inf, math.nan, True, [math.inf]*len(self.positions)):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                servo({"device": "arm", "joints": self.positions, "max_joint_delta": value})
+        self.assertEqual(self.writes, [])
 
     def test_policy_recovers_seeds_from_predecessor_and_truncates_all_buffers(self):
         goal = RECOVERY["goal"]

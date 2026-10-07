@@ -1,5 +1,48 @@
 # Current work
 
+## Version 0.10.2
+
+- [x] Bump VERSION for world-wait recovery and IK continuity improvements.
+- [x] Synchronize all three package versions, internal dependency pins and the lockfile.
+- [x] Validate the separate PR branch against main.
+
+Validation on Node 22.19: version consistency, all 273 tests in `npm run check`,
+packed consumers, PTY integration, release validation for `v0.10.2` and diff
+checks passed. Native GPU replay was not performed.
+
+## Servo travel checks and IK continuity
+
+- [x] Normalize rotary IK solutions within limits and compare verified candidates within existing search budgets.
+- [x] Seed and plan servo from one measured state; check caller-selected travel limits before submission.
+- [x] Add opt-in max_joint_delta and recorded dual-shoe motion regressions.
+- [x] Complete core, integration, packed-consumer and diff checks after making the travel cap opt-in.
+
+The travel cap applies only when max_joint_delta is supplied; omission imposes
+no travel cap. IK normalization and nearest-candidate selection remain enabled.
+Servo remains asynchronous.
+Usage guidance, closed_loop behavior and RoboEnv are unchanged. This preflight
+check does not diagnose native velocity spikes or guarantee collision avoidance.
+
+Validation: Node 22.19 `npm run check` passed all 273 tests, including runtime,
+PTY and packed-consumer checks, with 20 Python IK/controller regressions.
+Diff checks passed. Native GPU replay was not run.
+
+## World wait timeout recovery
+
+- [x] Cancel timed-out world waits individually and reuse the driver timeout for recovery.
+- [x] Cover recovery, concurrent waits, cancellation races, failure cleanup and public timeout errors.
+- [x] Complete Kinex checks and RoboEnv CPU cancellation/clock checks.
+
+The per-call deadline remains 60 seconds by default, configurable through
+`access.driver.timeout_s`; cancellation reuses that budget instead of a separate
+fixed grace period. Successful cancellation preserves the driver;
+`wait_timeout` reports no elapsed simulation time. No workspace migration is required.
+
+Validation: Node 22.19 full check passed all 270 tests, including the new timeout
+regressions, packed consumers and PTY integration. RoboEnv's existing CPU clock
+and motion suites passed all 39 tests. Diff checks passed; no native GPU replay
+was run and no RoboEnv sources changed.
+
 ## Version 0.10.1
 
 - [x] Bump VERSION and synchronize all package versions, internal pins and lockfile.
@@ -157,26 +200,15 @@ Bounded DLS restarts shared by servo and Cartesian policy actions are complete.
 ## Bounded IK search
 
 - [x] Add deterministic local/broad seeds, cooperative budgets and cancellation.
-- [x] Prefer the nearest verified fallback and preserve the original-seed fast path.
+- [x] Prefer the nearest verified candidate after normalizing equivalent rotary angles.
 - [x] Add optional profile settings, diagnostics and operating guidance.
 - [x] Add controlled-clock, numerical, controller and packaged-runtime coverage.
 - [x] Re-run the self-contained Panda benchmark and waypoint sequences.
 - [x] Complete typecheck, standalone/core/setup suites, build and local packaging.
 
-Validation on Node 22.19: typecheck, 70 standalone, 149 core and 27 setup tests,
-including 14 Python IK/controller regressions and independent packed consumption;
-build and local tarballs passed. Diff checks passed. Documentation links resolve
-except the existing link to the unavailable sibling plugin checkout.
-
-The self-contained Panda benchmark (Python 3.13.7, unchanged 0.1 mm / 0.001 rad
-tolerances) solved 388/400 poses with bounded restarts versus 359/400 with the
-single-seed DLS reference. Median latency was 2.33 ms versus 2.31 ms; p95 was
-90.48 ms versus 56.52 ms. All accepted poses passed independent FK and joint-limit
-checks; all ten out-of-reach controls were rejected. The 30 twenty-waypoint
-sequences completed 90/90 repeated runs versus 87/90, with median chunk latency
-26.63 ms for both. Nearest fallback preference remains a soft choice: the largest
-joint step was 2.99 rad versus 0.040 rad for the single-seed reference's accepted
-prefixes. These offline results do not establish real-device task success.
+Current IK continuity and servo validation are tracked above. Candidate search
+keeps its existing time and attempt budgets; successful initial solutions now
+compete with later candidates, so latency can increase within those budgets.
 
 Reproduce with `PYTHONPATH=packages/core/assets/python python3 packages/core/test/benchmark_ik.py --output /tmp/kinex-ik.json`.
 Existing profiles inherit the defaults. Reload persistent drivers after upgrading;

@@ -1,6 +1,6 @@
 {
   "name": "@kinex/setup",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Host-independent onboarding and calibration for Kinex",
   "type": "module",
   "engines": {
@@ -28,7 +28,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@kinex/core": "0.10.1",
+    "@kinex/core": "0.10.2",
     "zod": "^4.4.3",
     "yaml": "2.9.0"
   },

@@ -412,6 +412,73 @@ for (const type of ['joint', 'dexterous_hand']) test(`servo resolves ${type} pos
   assert.equal(result.duration_s, Math.sqrt(10 / Math.sqrt(3) * .02 / 3))
   assert.equal(armDevice.history.length, Math.ceil(result.duration_s / .01))
   assert.deepEqual(result.joints, [.01, .02])
+  assert.deepEqual(armDevice.ikArgs.seed, [0, 0])
+  assert.equal(armDevice.reads, 1)
+})
+
+test('servo enforces opt-in travel limits without replacing existing motion or wrapping bounded targets', async () => {
+  const device = arm({ dof: 1, ik: [2] })
+  const initial = await dialog(tool('servo'), { device: 'arm', joints: [.2] }, { arm: device })
+  assert.ok(initial.result, initial.stderr)
+  const pending = device.pending
+  for (const goal of [{ joints: [2] }, { pose: [0, 0, 0, 0, 0, 0, 1] }]) {
+    const rejected = await dialog(tool('servo'), { device: 'arm', ...goal, max_joint_delta: Math.PI / 2 }, { arm: device })
+    assert.equal(rejected.result, undefined)
+    assert.match(rejected.stderr, /max_joint_delta exceeded: j0: measured=0, requested=2, delta=2, allowed=1\.5708 rad/)
+    assert.equal(device.writes, 1)
+    assert.equal(device.stops, 0)
+    assert.equal(device.pending, pending)
+  }
+  device.positions = [3.1]
+  const rejected = await dialog(tool('servo'), { device: 'arm', joints: [-3.1], max_joint_delta: 1 }, { arm: device })
+  assert.match(rejected.stderr, /delta=-6\.2/)
+  assert.equal(device.writes, 1)
+  const accepted = await dialog(tool('servo'), { device: 'arm', joints: [-3.1] }, { arm: device })
+  assert.ok(accepted.result, accepted.stderr)
+  assert.deepEqual(device.history.at(-1), [-3.1])
+})
+
+test('servo travel limits support mixed units and per-joint overrides', async () => {
+  const device = arm({}), profile = device.profile
+  device.profile = () => {
+    const value = profile()
+    value.resolved_model.joints[1].type = 'prismatic'
+    return value
+  }
+  const boundary = await dialog(tool('servo'), { device: 'arm', joints: [Math.PI / 2, .1], max_joint_delta: [Math.PI / 2, .1] }, { arm: device })
+  assert.ok(boundary.result, boundary.stderr)
+  const rejected = await dialog(tool('servo'), { device: 'arm', joints: [.2, .11], max_joint_delta: [.5, .1] }, { arm: device })
+  assert.match(rejected.stderr, /j1: measured=0, requested=0\.11, delta=0\.11, allowed=0\.1 m/)
+  const accepted = await dialog(tool('servo'), { device: 'arm', joints: [2, .2], max_joint_delta: [2, .2] }, { arm: device })
+  assert.ok(accepted.result, accepted.stderr)
+  assert.deepEqual(device.history.at(-1), [2, .2])
+  const uncapped = await dialog(tool('servo'), { device: 'arm', joints: [2, .2] }, { arm: device })
+  assert.ok(uncapped.result, uncapped.stderr)
+  assert.deepEqual(device.history.at(-1), [2, .2])
+  for (const max_joint_delta of [null, 0, -1, true, '2', [], [2], [2, 0], [2, 2, 2]]) {
+    const result = await dialog(tool('servo'), { device: 'arm', joints: [0, 0], max_joint_delta }, { arm: device })
+    assert.equal(result.result, undefined)
+    assert.match(result.stderr, /max_joint_delta/)
+  }
+  assert.equal(device.writes, 3)
+})
+
+test('servo seeds IK from the same measured state used for planning and projects only the seed', async () => {
+  const device = arm({ ik: [3.1, .2] }), profile = device.profile
+  device.profile = () => { const value = profile(); value.intrinsics.control.limit_handling = 'native'; return value }
+  device.positions = [3.201, .1]
+  device.ik = args => {
+    assert.equal(device.reads, 1)
+    assert.deepEqual(args.seed, [3.2, .1])
+    // A second read would observe different positions and change the trajectory.
+    device.positions = [0, 0]
+    return [3.1, .2]
+  }
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', pose: [0, 0, 0, 0, 0, 0, 1] }, { arm: device })
+  assert.ok(result, stderr)
+  assert.equal(device.reads, 1)
+  assert.ok(device.history[0][0] > 3.2)
+  assert.deepEqual(device.history.at(-1), [3.1, .2])
 })
 
 test('servo scales full plans and rejects oversized plans before writing', async () => {
@@ -437,7 +504,7 @@ test('servo submits wrapped continuous references while settled checks the reque
     value.resolved_model.joints[0] = { name: 'j0', type: 'continuous', limits: null }
     return value
   }
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [-Math.PI + .1] }, { arm: device })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [-Math.PI + .1], max_joint_delta: .3 }, { arm: device })
   assert.ok(result, stderr)
   assert.deepEqual(result.joints, [-Math.PI + .1])
   assert.ok(Math.abs(device.history.at(-1)[0] - (Math.PI + .1)) < 1e-12)

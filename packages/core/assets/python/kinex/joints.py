@@ -6,6 +6,7 @@ from kinex.kinematics import Kinematics
 from kinex.local_frames import fixed_transform, frame_definitions
 from kinex.motion import flat, joint_target, pose, pose_error, vector
 from kinex.joint_control import joint_model, command, project_seed
+from kinex.ik_search import nearest_representation
 
 
 def settings(directory):
@@ -95,7 +96,8 @@ class JointDevice:
             if self.native_ik is None:
                 raise ValueError("Driver IK hook is required")
             native_target = flat(compose_rt(xyzq_to_rt(endpoint), xyzq_to_rt(self.options["frame_to_solver"])))
-            result = {"joints": self.native_ik(native_target, seed)}
+            candidate = joint_target(self.native_ik(native_target, seed), self.joints)
+            result = {"joints": nearest_representation(self.joints, candidate, seed)}
         joint_target(result["joints"], self.joints)
         error = pose_error(target, self.fk(result["joints"], frame, reference_frame)["pose"])
         if error["position_m"] > self.options["position_tolerance_m"] or error["rotation_rad"] > self.options["rotation_tolerance_rad"]:

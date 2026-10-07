@@ -26,6 +26,11 @@ parameters:
       exclusiveMinimum: 0
       maximum: 1
       description: "Fraction of resolved planning velocity and acceleration rates. Lower fractions lengthen the computed duration_s."
+    max_joint_delta:
+      oneOf:
+      - {type: number, exclusiveMinimum: 0}
+      - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
+      description: "Optional maximum travel per submission, scalar or per joint in model order (radians or metres). No travel cap when omitted. Applies to joint and pose goals; continuous joints use shortest travel. This is a caller-selected planning constraint, not a hardware rating."
     max_velocity:
       oneOf:
       - {type: number, exclusiveMinimum: 0}
