@@ -111,8 +111,10 @@ Drivers validate live state prerequisites and submit SDK operations, returning
 `{execution_id, state}` with observed `timestamp`, `faults`, and `mode`
 when a state machine is declared. Unknown state is null; transient/fault states
 may be observed without being writable. Normal actuation permissions, stop,
-cancellation and ownership still apply. Provision a custom per-device DEVICE.md
-with supported Kinex read/write examples and SDK mappings using the quadruped template.
+cancellation and ownership still apply. Custom per-device `DEVICE.md` files are
+allowed only for type `legged_base`; provision that type's guide with supported
+Kinex read/write examples and SDK mappings using the quadruped template. Do not
+create or customize per-device guides for other types.
 
 `world.read` returns `time_s`; `world.wait(duration_s)` waits on the driver's clock.
 Reads may also include `budget: {used_s, max_s}`: episode time consumed and

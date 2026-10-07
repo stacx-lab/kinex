@@ -45,11 +45,8 @@ load/reload only through core lifecycle tools, with existing permissions. Driver
 need reload before live verification. Record known control/feedback/stop semantics and
 source geometry; preserve optional unknowns that the current operation does not need.
 
-Archive sources/check outputs, verify persisted facts, and record evidence-backed
-completion. Existing valid facts can complete a node without new measurement. Select
-eligible nodes from setup_plan; unresolved facts block only dependent operations.
-Use /calibrate's workflow for selected measurement nodes. Return to the requested task
-as soon as its requirements are met; never demand global profile completeness.
+Archive verify persisted facts. Existing valid facts can complete a node without new measurement.
+Unresolved facts block only dependent operations. Never demand global profile completeness.
+Keep output short, avoid writing long markdown documents.
 
-Keep updates short: what is usable for this task, its remaining necessary gap, and the
-next action. Do not repeat solved questions or show the full deferred graph by default.
+Continue until all devices are set up before stopping.

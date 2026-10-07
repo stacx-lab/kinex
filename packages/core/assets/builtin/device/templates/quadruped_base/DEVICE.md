@@ -1,6 +1,6 @@
 ---
 name: quadruped_base
-type: quadruped_base
+type: legged_base
 description: Quadruped base with SDK-backed locomotion, a minimal device state machine and device-specific operating guidance.
 ---
 
@@ -16,8 +16,10 @@ do not invent a world pose or mount.
 
 ### Custom operating guide and device modes
 
-Setup must write `.kinex/devices/<name>/DEVICE.md` with a nonempty `## Use`
-section explaining the base's verified operating interface and special movement.
+Only devices of type `legged_base` may have a custom per-device `DEVICE.md`.
+For this type, setup must write `.kinex/devices/<name>/DEVICE.md` with a nonempty
+`## Use` section explaining the base's verified operating interface and special
+movement. Do not apply this custom-guide requirement to any other device type.
 
 Document supported modes and their acceptable parameters, units, bounds,
 state observation fields, allowed state transitions, prerequisites, completion
@@ -31,11 +33,12 @@ Map SDK states to `control.device_modes`, starting with `crouched_down` and `dri
 Drivers check the measured mode's `transitions` before changing modes and reject
 writes in unknown or undeclared modes.
 
-### Warmup time to drive
+### Response behavior and warmup
 
 Legged devices may need longer to build velocity. Use the device's verified
 operating range to choose an adequate speed and duration; 0.2 m/s for 1 s is an
 example to verify during setup, not a universal device default.
+Follow the velocity guide's [response behavior procedure](../velocity/DEVICE.md#response-behavior).
 
 ### Profile
 
@@ -91,7 +94,7 @@ intrinsics:
           required: [pitch, height]
         duration_s:
           type: number
-          minimum: 0.001
+          minimum: 0.1
       required: [mode]
   stop: ???
 extrinsics:
@@ -122,6 +125,8 @@ the declared axes, units and frame; optional posture uses pitch/height.
 Velocity expires to zero while balance/posture remains active. `mode` is
 the single state/mode selector; omit motion fields when changing modes.
 Motion requires positive `duration_s`.
+Consult `control.device_modes.<mode>.response` and the custom Use guide for
+measured response and warmup; use feedback to verify actual motion.
 The driver verifies state readiness before motion. Equivalent readback uses
 velocity-device field names and measured units. Consult the custom Use guide for
 supported fields and user-requested skill extensions.

@@ -1,5 +1,6 @@
 import { field } from "./common.ts"
 import { z } from "zod"
+import { MotionResponse } from "./response.ts"
 
 const axis = z.enum(["vx", "vy", "vz", "wx", "wy", "wz"])
 const bounds = z.strictObject({ min: z.number(), max: z.number() }).refine(
@@ -11,6 +12,7 @@ const component = z.strictObject({
 const unique = (values: readonly string[]) => new Set(values).size === values.length
 
 const motionMode = z.strictObject({
+  response: MotionResponse.optional(),
   velocity: z.strictObject({
     frame: z.enum(["body", "heading"]),
     components: z.array(component).min(1).refine((v) => unique(v.map((c) => c.axis)), "duplicate velocity axis"),

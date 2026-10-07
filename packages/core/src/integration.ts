@@ -47,7 +47,6 @@ export function coreContribution(runtime: KinexRuntime): KinexContribution {
       return { instructions: context.instructions, sections: {
         python: JSON.stringify(context.python), guides: context.guideRoots, devices: context.robotics,
         conventions: context.conventions, skills: context.skills ?? "", recording: context.recording ?? "",
-        readiness: context.readiness,
       } }
     },
   }

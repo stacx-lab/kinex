@@ -1,5 +1,41 @@
 # Current work
 
+## PR #18 pre-push validation
+
+Workspace build/typecheck and diff checks passed on Node 24.21 / Python 3.12.
+Full check: 275 tests passed, 7 failed. Failures cover the known legged_base
+template/schema mismatch, core readiness guidance, and five Python camera/solver
+checks in an environment missing NumPy. The test failure prevented the final
+release metadata check from running.
+
+## Smaller injected context
+
+- [x] Remove core.readiness and setup.plan from contributed model context.
+- [x] Update registration guidance and existing context assertions.
+
+Validation: workspace build/typecheck and the focused setup composition test passed.
+Existing session history retains previously injected sections.
+
+## Custom device guide authoring
+
+- [x] Allow custom per-device DEVICE.md authoring only for legged_base in setup, runtime guidance and documentation.
+- [x] Reject per-device guides outside the legged_base allowlist before injecting runtime context.
+- [x] Cover rejected types, allowed guides, shared fallback, edits and recovery after removal.
+
+Validation: core build/typecheck, both focused guide tests and scoped diff checks
+passed. The device-management suite passed 10 of 11 tests; guide discovery fails
+because the edited template declares legged_base while the profile schema still
+accepts quadruped_base. The broader type rename remains unchanged.
+
+## RGBD setup guidance
+
+- [x] Remove shared setup repetition and consolidate capture/recording instructions.
+- [x] Preserve calibration contracts, metadata and Use guidance; omit derived FOV from the starter profile.
+
+Validation: guide references, Markdown fences and scoped diff checks passed;
+FOV defaults in the schema and has no built-in downstream task consumers.
+Use text is unchanged. Documentation-only change.
+
 ## Velocity setup guidance
 
 - [x] Keep SDK conversion, actual observations and stop-scope rules in setup-device.
@@ -25,6 +61,13 @@ Validation: reduced the skill from 1,305 to 656 words. Kinex frontmatter parsing
 preserves all metadata; referenced helpers and guides exist. Reviewed new-device,
 driver-repair and separate-interpreter workflows against current contracts.
 Documentation diff checks passed; no runtime, hardware or model tests were needed.
+
+Compact revision: 686 → 535 words, with driver obligations grouped by contract.
+Preserved current working edits and metadata; Kinex parser and scoped diff checks
+passed. Generic skill validation rejects the existing Kinex-only `resolves` field.
+Cancellation guidance now distinguishes request-local checks between bounded SDK
+operations from background workers' own stop/cancellation mechanisms; checked
+against the current helper implementation and passed scoped diff checks.
 
 ## PR #18 integration on main
 

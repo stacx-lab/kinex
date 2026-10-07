@@ -162,12 +162,15 @@ Unregister also removes unloaded devices without starting their drivers.
   composed calls retain permissions and recording attribution. Skills supply
   procedures. Shared device context and setup guidance cover cross-type contracts;
   each device guide owns its Setup details and a concise, model-visible Use section.
-  Loaded devices prefer `devices/<name>/DEVICE.md` beside their profile for Use
-  context, falling back to type guides with normal content precedence. Guidance
+  Agent authoring of custom `devices/<name>/DEVICE.md` is allowed only for type
+  `legged_base`; other types use shared guides, profile parameters and driver SDK
+  adaptation. Runtime context rejects custom per-device guides for types outside
+  this allowlist. Allowed guides take precedence over shared type guides with
+  normal content precedence. Guidance
   is scoped to its devices and refreshed in dynamic context; Setup stays excluded.
   `quadruped_base` prefers shared velocity parameters and semantics for equivalent
-  motion and readback, with driver-side SDK adaptation. It requires a custom
-  instance guide during setup. Its control declares a write argument schema,
+  motion and readback, with driver-side SDK adaptation. Custom instance guide
+  authoring is reserved for `legged_base`. Its control declares a write argument schema,
   a minimal skill catalog and optional `device_modes` graph. The driver
   validates live prerequisites, submits SDK operations without waiting for physical
   completion, and owns cancellation/replacement. `mode` is the single

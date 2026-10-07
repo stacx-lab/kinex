@@ -194,11 +194,11 @@ test('device guide discovery is inert, preserves overrides and injects only Use'
   assert.deepEqual(await readdir(child), [])
 })
 
-test('context prefers device guides, scopes shared fallbacks and refreshes edits', async t => {
+test('allowed device guides scope shared fallbacks and refresh edits', async t => {
   const { runtime, directory } = await fixture(t)
   await seed(runtime)
   for (const name of ['first', 'second', 'third'])
-    await runtime.profiles.writeDevice({ name, type: 'model', loaded: true })
+    await mkdir(path.join(directory, '.kinex/devices', name), { recursive: true })
   const specific = path.join(directory, '.kinex/devices/first/DEVICE.md')
   await writeFile(specific, '## Setup\nprivate instance setup\n## Use\nfirst device convention\n')
   await writeFile(path.join(directory, '.kinex/devices/sensor/DEVICE.md'), '## Use\nunloaded convention\n')
@@ -206,27 +206,50 @@ test('context prefers device guides, scopes shared fallbacks and refreshes edits
   await mkdir(child)
   const nested = createKinexRuntime({ directory: child })
   t.after(() => nested.dispose())
-  const initial = await nested.context()
-  assert.match(initial.conventions, /devices="first">\nfirst device convention/)
-  assert.match(initial.conventions, /devices="second, third">/)
-  assert.equal(initial.conventions.match(/<device_conventions /g).length, 2)
-  assert.doesNotMatch(initial.conventions, /private instance setup|unloaded convention/)
-  const override = path.join(directory, '.kinex/device/templates/model')
+  const { deviceConventions } = await import('../dist/device/conventions.js')
+  const devices = ['first', 'second', 'third'].map(name => ({ name, type: 'legged_base' }))
+  const conventions = () => nested.operation(() => deviceConventions(child, devices))
+  const initial = await conventions()
+  assert.match(initial, /devices="first">\nfirst device convention/)
+  assert.equal(initial.match(/<device_conventions /g).length, 1)
+  assert.doesNotMatch(initial, /private instance setup|unloaded convention/)
+  const override = path.join(directory, '.kinex/device/templates/legged_base')
   await mkdir(override, { recursive: true })
   await writeFile(path.join(override, 'DEVICE.md'), '## Use\nworkspace type convention\n')
   await writeFile(specific, '## Use\nupdated first convention\n')
-  const updated = await nested.context()
-  assert.equal(updated.instructions, initial.instructions)
-  assert.match(updated.conventions, /devices="first">\nupdated first convention/)
-  assert.match(updated.conventions, /devices="second, third">\nworkspace type convention/)
+  const updated = await conventions()
+  assert.match(updated, /devices="first">\nupdated first convention/)
+  assert.match(updated, /devices="second, third">\nworkspace type convention/)
   await writeFile(specific, '## Setup\nmissing runtime guidance\n')
-  await assert.rejects(nested.context(), /first\/DEVICE.md: missing ## Use section/)
+  await assert.rejects(conventions(), /first\/DEVICE.md: missing ## Use section/)
   await rm(specific)
-  const fallback = await nested.context()
-  assert.match(fallback.conventions, /devices="first, second, third">\nworkspace type convention/)
-  assert.equal(fallback.conventions.match(/<device_conventions /g).length, 1)
+  const fallback = await conventions()
+  assert.match(fallback, /devices="first, second, third">\nworkspace type convention/)
+  assert.equal(fallback.match(/<device_conventions /g).length, 1)
   assert.deepEqual(await readdir(child), [])
   await assert.rejects(stat(path.join(directory, '.kinex/python')), { code: 'ENOENT' })
+})
+
+test('context rejects custom guides for unlisted types and recovers after removal', async t => {
+  const { runtime, directory } = await fixture(t)
+  await seed(runtime)
+  await runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true })
+  const file = path.join(directory, '.kinex/devices/camera/DEVICE.md')
+  await writeFile(file, '## Use\ncustom camera convention\n')
+  await assert.rejects(runtime.context(), {
+    name: 'CustomDeviceGuideError',
+    message: /camera\/DEVICE.md: custom DEVICE.md is not allowed for device type "rgb"; allowed types: legged_base/,
+  })
+  const { deviceConventions } = await import('../dist/device/conventions.js')
+  const { DeviceType } = await import('../dist/device/profile/schema.js')
+  for (const type of [...DeviceType.options, 'unknown_type']) {
+    if (type === 'legged_base') continue
+    await assert.rejects(runtime.operation(() => deviceConventions(directory, [{ name: 'camera', type }])), {
+      name: 'CustomDeviceGuideError',
+    })
+  }
+  await rm(file)
+  assert.match((await runtime.context()).conventions, /type="rgb" devices="camera"/)
 })
 
 test('register validates arguments and cancelled unregister preserves files', async t => {

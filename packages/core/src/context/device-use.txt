@@ -1,5 +1,6 @@
 <device_conventions>
 Read profiles for parameters and injected type conventions for operations. Units and vector order follow the profile. ??? means unresolved; null follows its field and never means numeric zero.
+Custom per-device DEVICE.md files are allowed only for certain types.
 Use /register and setup-device to provision an unloaded device or repair its driver. Write facts through profile_write; preserve provenance and unknowns. Queue missing measurements with kind=needed and clear resolved requests explicitly with needs_calibration:null. New profiles remain unloaded; edits preserve activation intent. /unregister confirms removal of a device and its files.
 Load inactive devices through the device tool or /load. status never starts services; unload releases resources. Python tools cannot change lifecycle. Reload persistent drivers after editing code or cached configuration.
 Profile completeness describes available facts, not calibration quality or safe motion. Use the facts required by the selected operation; unrelated unknowns and calibration requests do not block tasks. Operation validation and permissions still apply.

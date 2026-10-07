@@ -37,7 +37,7 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))
   assert.equal((await setup.plan.inspect()).taskSatisfied, null)
   const context = await capabilities.context()
-  assert.equal(JSON.parse(context.sections['setup.plan']).task, null)
+  assert.equal(context.sections['setup.plan'], undefined)
   assert.doesNotMatch((await runtime.context()).instructions, /setup_plan|\/onboarding/)
   assert.deepEqual(await readdir(directory), [])
   assert.deepEqual(capabilities.commands.filter(command => command.kind === 'workflow').map(command => command.name).sort(), ['calibrate', 'onboarding', 'register'])
@@ -47,7 +47,7 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.equal(tools.tools.filter(tool => tool.name === 'profile_write').length, 1)
   assert.ok(!tools.tools.some(tool => tool.name === 'calib_write'))
   assert.equal(context.sections['setup.guides'], undefined)
-  assert.match(context.sections['core.readiness'], /identity:/)
+  assert.equal(context.sections['core.readiness'], undefined)
 })
 
 async function pythonSensor(runtime, directory, { fail = false, slowRead = false } = {}) {

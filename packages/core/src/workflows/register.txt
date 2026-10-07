@@ -9,6 +9,6 @@ Load the setup-device skill. Follow its instance-first, then type-template looku
 using the Device guide roots. Read the selected Setup guide, its starter profile
 or generated profile, and driver. Read the type's Use contract from those roots.
 Reuse the user's supplied name and facts. Write profiles with profile_write and
-inspect the readiness details in current context. Preserve unknown facts and queue
+inspect the written profiles for remaining gaps. Preserve unknown facts and queue
 measurement requests; registration does not perform calibration. Validate the
 prepared device statically, then report its name, remaining gaps and /load.

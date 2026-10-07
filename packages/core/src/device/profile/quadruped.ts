@@ -1,7 +1,9 @@
 import { z } from "zod"
 import { ModelValue } from "./model.ts"
+import { MotionResponse } from "./response.ts"
 
 const deviceModes = z.record(z.string().min(1), z.strictObject({
+  response: MotionResponse.optional(),
   description: z.string().min(1),
   transitions: z.array(z.string().min(1)).refine(v => new Set(v).size === v.length, "duplicate transition"),
 })).refine(v => Object.keys(v).length > 0, "at least one device mode is required").superRefine((value, ctx) => {

@@ -349,9 +349,13 @@ now named `profile_write`; migrate existing `permission.calib_write` rules to
 
 ## Runtime behavior
 
-For device-specific operating guidance, optionally create
-`.kinex/devices/<name>/DEVICE.md` beside `profile.yaml` with a `## Use` section.
-That section replaces the type guide's Use section for that loaded device.
+Custom per-device operating guides are allowed only for certain types.
+For that type, setup must create `.kinex/devices/<name>/DEVICE.md` beside
+`profile.yaml` with a nonempty `## Use` section. Do not create or customize
+per-device `DEVICE.md` files for other types; use shared type guides, instance
+parameters in `profile.yaml` and SDK adaptation in drivers.
+Runtime context rejects custom per-device guides for types outside this allowlist.
+An allowed guide's Use section replaces the type guide's Use section for that loaded device.
 Devices without the file keep the usual project/global/built-in type-guide
 fallback. Shared fallback text is included once and scoped to its devices.
 Setup sections are excluded; an override must have a nonempty Use section.

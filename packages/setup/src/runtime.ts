@@ -1,6 +1,6 @@
 import type { KinexRuntime, ToolInvocation, Def } from "@kinex/core"
 import { toModelSchema } from "@kinex/core/tool/registry"
-import { inspectPlan, readPlan, savePlan, selectTask, recordOutcome, renderSetup } from "./planning/plan.ts"
+import { inspectPlan, readPlan, savePlan, selectTask, recordOutcome } from "./planning/plan.ts"
 import type { Plan, Outcome } from "./planning/schema.ts"
 import { compute, type ComputeInput } from "./calibration/compute.ts"
 import { currentSignal } from "@kinex/core/scope"
@@ -34,9 +34,7 @@ export function createKinexSetup(runtime: KinexRuntime) {
     },
     context: () => runtime.operation(async () => ({
       instructions: INSTRUCTIONS,
-      sections: {
-        plan: renderSetup(await inspectPlan(directory)),
-      },
+      sections: {},
     })),
   }
 }
