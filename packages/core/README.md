@@ -127,26 +127,43 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
 `used`, `max` and `unit` members are rejected, as are malformed budget objects.
 
 - `servo` plans and submits a full joint trajectory from measured state. It
-  accepts joints or a pose and returns immediately, with no duration input.
+  accepts joints or a pose and returns immediately by default, with no duration input.
+  `block: true` waits the computed duration on the loaded `world` device;
+  optional `world` selects a different world clock. `block: false` requires no clock.
   Results report `device`, the driver's `execution_id`, requested/IK-resolved
   target `joints`, computed `duration_s` and `actions_submitted`. The execution ID
   identifies the submission, not completion. Driver feedback is validated before
-  success; allow execution with `world.wait` and verify arrival using fresh feedback.
+  success; blocking allows execution time but does not check arrival. Verify arrival
+  using fresh feedback. Cancellation or wait failure stops only motion still owned
+  by the invocation, preserving replacements from other calls.
   Planning defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
   capped by known limits. Lower `speedFraction` lengthens the computed duration.
-- Numerical IK uses bounded DLS restarts for both `servo` and Cartesian policy
-  actions. The supplied/measured seed is tried first; an initial solution returns
-  immediately. Otherwise, two nearby perturbations precede broader bounded seeds,
-  and the nearest verified fallback is selected. Only continuous-joint distances
-  wrap. Nearest preference does not enforce a maximum waypoint step.
-  Optional `intrinsics.kinematics.ik.search` accepts `max_attempts` (default 5,
+  Pose targets require declared endpoint IK; joint targets need no geometry.
+  Servo solves poses through the device, then generates a local joint trajectory.
+  Native-limited devices retain their existing limit handling. Planning failure
+  submits nothing and leaves existing motion unchanged. Planning does not
+  certify collision avoidance.
+- Numerical device IK uses bounded DLS restarts for servo, direct IK and Cartesian
+  policy actions. The seed is tried first, then deterministic nearby seeds.
+  Each retry stays within 0.35 rad per rotary joint or 5% of the declared range
+  per prismatic joint around the original seed, clamped to bounds. Increasing
+  the attempt count never enables global seeds or expands this radius.
+  Verified candidates are compared against the seed;
+  only zero displacement ends search early. Rotary solutions normalize to the
+  nearest equivalent angles within limits. Nearest preference is not a hard
+  waypoint-step limit or a guarantee of a particular IK branch.
+  Optional `intrinsics.kinematics.ik.budget` accepts `max_attempts` (default 5,
   including the original seed), `attempt_time_s` (0.02) and `max_time_s` (0.1).
-  Counts must be positive integers and times positive finite seconds; omitted
-  fields use these defaults. `max_iterations` remains a per-attempt limit.
-  Deadlines and cancellation are checked between iterations; the current iteration
-  or final verification can overrun a deadline. Search exhaustion reports seed
-  attempts, iterations, elapsed time and best residuals without claiming
-  unreachability. Pose tolerances remain strict. Native driver IK is unchanged.
+  Profile budget fields override defaults. Counts must be positive integers
+  and times positive finite seconds. `max_iterations` remains a
+  per-attempt limit. Deadlines and cancellation are checked between iterations;
+  the current iteration or final verification can overrun a deadline. Exhaustion
+  reports attempts, iterations, elapsed time and best residuals without claiming
+  unreachability. Pose tolerances remain strict.
+  Direct device `ik` accepts `pose`, optional `seed`, `frame`, `reference_frame`.
+  Both numerical and native IK accept a seed; omission reads measured joints
+  projected into limits. There are no per-call budget or selection-reference
+  overrides. Legacy profile `ik.search` is rejected; rename it to `ik.budget`.
 - `run_policy` infers once, splits the selected chunk across devices, and submits
   buffers concurrently. Cartesian `pose` and `pose_delta` actions use frozen
   reference frames and seeded IK; `target_frame` must be rigidly attached to the
@@ -234,9 +251,10 @@ the remaining references of a full servo plan before it completes.
 Migration: remove `duration_s` from servo arguments; obsolete input is rejected.
 Servo results expose `execution_id` directly and omit `write` and `end_joints`;
 device write responses retain their existing feedback contract.
-The Python `kinex.trajectory.trajectory(...)` helper also removes its `duration_s`
-keyword and now returns a `Trajectory` dataclass instead of a reference list.
-Use `plan.actions` and `plan.duration_s` together when submitting a device write.
+Remove servo `ik` and `max_joint_delta` arguments; unsupported arguments are
+rejected before device operations. The Python `kinex.trajectory.trajectory(...)`
+helper returns a `Trajectory` dataclass. Use `plan.actions` and `plan.duration_s`
+together when submitting a device write.
 Device writes and `run_policy` retain their existing duration contracts.
 
 ## Public runtime

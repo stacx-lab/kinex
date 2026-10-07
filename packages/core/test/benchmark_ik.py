@@ -15,7 +15,7 @@ from time import perf_counter
 from unittest.mock import patch
 
 from kinex import kinematics
-from kinex.ik_search import search_options
+from kinex.ik_search import budget_options
 from kinex.joints import JointDevice
 from kinex.motion import joint_target, pose_error
 
@@ -83,7 +83,7 @@ def benchmark():
     profile = json.loads((FIXTURES / "panda.json").read_text())
     corpus = json.loads((FIXTURES / "corpus.json").read_text())
     baseline = copy.deepcopy(profile)
-    baseline["intrinsics"]["kinematics"]["ik"]["search"] = {
+    baseline["intrinsics"]["kinematics"]["ik"]["budget"] = {
         "max_attempts": 1, "attempt_time_s": 1, "max_time_s": 1}
     models = {"single_seed": JointDevice(baseline), "bounded_restarts": JointDevice(profile)}
     rng = random.Random(44)
@@ -120,7 +120,7 @@ def benchmark():
     return {"metadata": {"python": platform.python_version(), "platform": platform.platform(),
                          "timing": "warm in-process IK including final JointDevice FK verification; randomized method order",
                          "baseline": "single seed, original 200-iteration DLS step, one-second guard",
-                         "search": search_options(models["bounded_restarts"].options),
+                         "budget": budget_options(models["bounded_restarts"].options),
                          "tolerances": {key: models["bounded_restarts"].options[key]
                                         for key in ("position_tolerance_m", "rotation_tolerance_rad")}},
             "summary": summary, "poses": rows, "chunks": chunks, "negative_controls": negatives}

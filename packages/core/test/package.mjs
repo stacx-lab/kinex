@@ -15,6 +15,7 @@ export async function checkCorePackage(directory, env, pack) {
     assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/policy.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/ik_search.py'))
+  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/trajectory.py'))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
   await writeFile(path.join(directory, 'consumer.mts'), `
     import { createKinexRuntime, type RuntimeOptions } from '@kinex/core'
@@ -79,9 +80,9 @@ export async function checkCorePackage(directory, env, pack) {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
       execFileSync('python3', ['-c', [
-        'from kinex.ik_search import search_options',
+        'from kinex.ik_search import budget_options',
         'from kinex.kinematics import Kinematics',
-        'assert search_options({}) == dict(max_attempts=5, attempt_time_s=.02, max_time_s=.1)',
+        'assert budget_options({}) == dict(max_attempts=5, attempt_time_s=.02, max_time_s=.1)',
         'joints = [dict(name="x", type="prismatic", limits=dict(min=0, max=1))]',
         'chain = [dict(origin=[0,0,0,0,0,0,1], joint=0, axis=[1,0,0], anchor=[0,0,0], reference=0)]',
         'ik = dict(max_iterations=200, damping=.01, position_tolerance_m=.001, rotation_tolerance_rad=.001)',

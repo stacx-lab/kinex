@@ -1,52 +1,78 @@
 name: servo
 kind: controller
-description: "Plan and submit a full joint trajectory for a joint device or dexterous hand. Returns immediately with device, execution_id, requested/IK-resolved target joints, computed duration_s and actions_submitted; these do not confirm arrival. Use world.wait to allow execution and measured feedback to verify arrival. Later writes or stop can interrupt the plan."
+description: "Plan and submit a full joint trajectory for a joint device or dexterous hand. Returns immediately by default; block=true waits the computed duration on the world clock. Results include device, execution_id, requested/IK-resolved target joints, computed duration_s and actions_submitted; use measured feedback to verify arrival. Later writes or stop can interrupt the plan."
 parameters:
   type: object
   additionalProperties: false
-  properties: &fields
-    device:
+  properties:
+    device: &device
       type: string
       description: "Joint or dexterous_hand device name."
-    joints:
+    block: &block
+      type: boolean
+      default: false
+      description: "Wait the computed trajectory duration before returning. Requires a loaded world clock; does not check arrival."
+    world: &world
+      type: string
+      description: "World clock for block=true; defaults to the device named world."
+    joints: &joints
       type: array
       items: {type: number}
       description: absolute configuration in resolved model joint order; radians or metres by joint type
-    pose:
+    pose: &pose
       type: array
       minItems: 7
       maxItems: 7
       items: {type: number}
       description: pose [x,y,z,qx,qy,qz,qw] of kinematics.frame, in the device canonical frame unless frame is given; requires declared endpoint IK (finger geometry alone is insufficient)
-    frame:
+    frame: &frame
       type: string
       description: "Pose source frame: device or device:frame; defaults to the device canonical frame."
-    speedFraction:
+    speedFraction: &speedFraction
       type: number
       exclusiveMinimum: 0
       maximum: 1
       description: "Fraction of resolved planning velocity and acceleration rates. Lower fractions lengthen the computed duration_s."
-    max_joint_delta:
-      oneOf:
-      - {type: number, exclusiveMinimum: 0}
-      - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
-      description: "Optional maximum travel per submission, scalar or per joint in model order (radians or metres). No travel cap when omitted. Applies to joint and pose goals; continuous joints use shortest travel. This is a caller-selected planning constraint, not a hardware rating."
-    max_velocity:
+    max_velocity: &max_velocity
       oneOf:
       - {type: number, exclusiveMinimum: 0}
       - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
       description: "Planning rate in model order; defaults to 1 rad/s or 0.1 m/s, capped by known limits."
-    max_acceleration:
+    max_acceleration: &max_acceleration
       oneOf:
       - {type: number, exclusiveMinimum: 0}
       - {type: array, items: {type: number, exclusiveMinimum: 0}, minItems: 1}
       description: "Planning rate in model order; defaults to 3 rad/s² or 0.3 m/s², capped by known limits. Defaults are tool policy, not hardware ratings."
   required: [device]
   oneOf:
-  - {type: object, additionalProperties: false, properties: *fields, required: [device, joints]}
-  - {type: object, additionalProperties: false, properties: *fields, required: [device, pose]}
+  - type: object
+    additionalProperties: false
+    required: [device, joints]
+    properties:
+      device: *device
+      block: *block
+      world: *world
+      joints: *joints
+      speedFraction: *speedFraction
+      max_velocity: *max_velocity
+      max_acceleration: *max_acceleration
+  - type: object
+    additionalProperties: false
+    required: [device, pose]
+    properties:
+      device: *device
+      block: *block
+      world: *world
+      pose: *pose
+      frame: *frame
+      speedFraction: *speedFraction
+      max_velocity: *max_velocity
+      max_acceleration: *max_acceleration
+
 timeout_s: 600
 device_inputs:
   device:
     types: [joint, dexterous_hand]
+  world:
+    types: [world]
 devices: []

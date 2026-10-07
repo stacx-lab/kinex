@@ -1,6 +1,6 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFile, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -98,6 +98,39 @@ test('caller abort and deadline share one world wait cancellation', async t => {
       await runtime.devices.dispatch('world', 'wait', { duration_s: .01 })
     })
   }
+})
+
+test('blocking servo cancellation and wait timeout stop only its owned motion', async t => {
+  for (const mode of ['cancel', 'replacement', 'timeout']) await t.test(mode, async t => {
+    const { runtime, directory, status } = await fixture(t, {}, mode === 'timeout' ? .4 : 5)
+    await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
+      access: { connection: { kind: 'mock' } }, intrinsics: {
+        model: { format: 'joints', joints: [{ name: 'j0', type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: 1, max_effort: null }] },
+        home: null, control: { mode: 'position' }, feedback: { velocities: true, efforts: false },
+        stop: { behavior: 'hold', affected_devices: ['arm'] },
+      } })
+    const tool = path.join(directory, '.kinex/tool/servo')
+    await mkdir(tool, { recursive: true })
+    await copyFile(new URL('../assets/builtin/tool/servo/tool.py', import.meta.url), path.join(tool, 'tool.py'))
+    const manifest = await readFile(new URL('../assets/builtin/tool/servo/tool.yaml', import.meta.url), 'utf8')
+    await writeFile(path.join(tool, 'tool.yaml'), manifest + '\ninterpreter: python3\n')
+    const abort = new AbortController(), stops = []
+    t.after(() => abort.abort())
+    t.after(runtime.subscribe(({ type, event }) => {
+      if (type === 'device' && event.action === 'stop') stops.push(event.device.name)
+    }))
+    const pending = runtime.tools.call('servo', { device: 'arm', joints: [2], block: true },
+      { sessionID: 'servo-wait', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]) })
+    await until(status, value => value.waiting === 1)
+    if (mode === 'replacement') await runtime.devices.dispatch('arm', 'write', { actions: [[.5]], duration_s: 1 })
+    if (mode !== 'timeout') abort.abort()
+    const response = await pending
+    assert.equal(response.isError, true, response.output)
+    if (mode === 'timeout') assert.match(response.output, /wait_timeout/)
+    assert.deepEqual(stops, mode === 'replacement' ? [] : ['arm'])
+    assert.equal((await runtime.devices.dispatch('arm', 'read')).data.stopped, mode !== 'replacement')
+    await runtime.devices.dispatch('world', 'wait', { duration_s: .01 })
+  })
 })
 
 test('failed world wait cancellation terminates the driver within its recovery budget', async t => {

@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 from kinex import driver_protocol, ik_search, kinematics
 from kinex.joints import JointDevice
+from kinex.geometry import apply_rt, xyzq_to_rt
 from kinex.motion import pose_error
 from joint_frames import profile as simple_profile
 
@@ -20,8 +21,7 @@ from joint_frames import profile as simple_profile
 FIXTURES = Path(__file__).parent / "fixtures" / "ik"
 PANDA = json.loads((FIXTURES / "panda.json").read_text())
 CORPUS = json.loads((FIXTURES / "corpus.json").read_text())
-SHOES = json.loads((FIXTURES / "dual-shoes.json").read_text())
-RECOVERY = next(case for case in CORPUS["cases"] if case["id"] == "medium34")
+RECOVERY = next(case for case in CORPUS["cases"] if case["id"] == "medium52")
 
 
 class SearchTests(unittest.TestCase):
@@ -34,16 +34,59 @@ class SearchTests(unittest.TestCase):
         self.addCleanup(self.clock.stop)
 
     def test_defaults_and_raw_python_validation(self):
-        self.assertEqual(ik_search.search_options({}),
+        self.assertEqual(ik_search.budget_options({}),
                          {"max_attempts": 5, "attempt_time_s": .02, "max_time_s": .1})
-        self.assertEqual(ik_search.search_options({"search": {"max_attempts": 1}})["attempt_time_s"], .02)
+        self.assertEqual(ik_search.budget_options({"budget": {"max_attempts": 1}})["attempt_time_s"], .02)
         bad = [None, [], {"unknown": 1}]
         bad += [{"max_attempts": v} for v in (True, False, 0, -1, 1.5, "5", math.inf)]
         bad += [{key: v} for key in ("attempt_time_s", "max_time_s")
                 for v in (True, 0, -1, "1", math.inf, math.nan)]
         for search in bad:
             with self.subTest(search=search), self.assertRaises(ValueError):
-                ik_search.search_options({"search": search})
+                ik_search.budget_options({"budget": search})
+
+    def test_profile_budget_defaults_without_mutation(self):
+        options = {"budget": {"max_attempts": 2, "attempt_time_s": .03}}
+        before = copy.deepcopy(options)
+        self.assertEqual(ik_search.budget_options(options),
+                         {"max_attempts": 2, "attempt_time_s": .03, "max_time_s": .1})
+        self.assertEqual(options, before)
+        with self.assertRaisesRegex(ValueError, "renamed to budget"):
+            ik_search.budget_options({"search": {}, "budget": {}})
+
+    def test_driver_request_defaults_and_wire_validation(self):
+        from kinex.joint_driver import Driver
+
+        class TestDriver(Driver):
+            def model(driver):
+                return self.model
+
+            def execute(driver, action, args):
+                if action == "read":
+                    return {"positions": read()}
+                return super().execute(action, args)
+
+        driver = TestDriver.__new__(TestDriver)
+        read = Mock(return_value=[1.01])
+        target = self.model.fk([.3])["pose"]
+        result = driver.execute("ik", {"pose": target, "seed": [0]})
+        self.assertAlmostEqual(result["joints"][0], .3, places=5)
+        read.assert_not_called()
+        with patch.object(self.model, "ik", wraps=self.model.ik) as solve:
+            driver.execute("ik", {"pose": target})
+            self.assertEqual(solve.call_args.args[1], [1])
+        read.assert_called_once()
+        read.reset_mock()
+        for extra in ({"budget": {}}, {"search": {}}, {"reference_joints": [0]}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                driver.execute("ik", {"pose": target, **extra})
+        read.assert_not_called()
+
+    def test_python_profile_rejects_legacy_search(self):
+        profile = simple_profile()
+        profile["intrinsics"]["kinematics"]["ik"]["search"] = {}
+        with self.assertRaisesRegex(ValueError, "renamed to budget"):
+            JointDevice(profile)
 
     def test_initial_seed_success_still_compares_candidates_without_mutating_inputs(self):
         seed = [.1]
@@ -57,7 +100,7 @@ class SearchTests(unittest.TestCase):
 
     def test_restarts_recover_a_reachable_panda_target(self):
         profile = copy.deepcopy(PANDA)
-        profile["intrinsics"]["kinematics"]["ik"]["search"] = {"max_attempts": 1}
+        profile["intrinsics"]["kinematics"]["ik"]["budget"] = {"max_attempts": 1}
         with self.assertRaisesRegex(ValueError, "IK search exhausted"):
             JointDevice(profile).ik(RECOVERY["goal"], RECOVERY["seed"])
         model = JointDevice(PANDA)
@@ -68,6 +111,11 @@ class SearchTests(unittest.TestCase):
         error = pose_error(RECOVERY["goal"], model.fk(result["joints"])["pose"])
         self.assertLessEqual(error["position_m"], model.options["position_tolerance_m"])
         self.assertLessEqual(error["rotation_rad"], model.options["rotation_tolerance_rad"])
+
+    def test_target_requiring_global_recovery_is_rejected(self):
+        case = next(case for case in CORPUS["cases"] if case["id"] == "medium34")
+        with self.assertRaisesRegex(ValueError, "IK search exhausted"):
+            JointDevice(PANDA).ik(case["goal"], case["seed"])
 
     def test_fallback_selects_nearest_verified_candidate_with_stable_ties(self):
         attempt = Mock(side_effect=[None, [.8], [-.3], [.3], [.1]])
@@ -138,17 +186,17 @@ class SearchTests(unittest.TestCase):
                   {"type": "prismatic", "limits": {"min": 0, "max": .1}}]
         original = [1, 20, 0]
         state = random.getstate()
-        values = list(ik_search.seeds(joints, [[1, 2, 3]], original, 5))
-        self.assertEqual(values, list(ik_search.seeds(joints, [[1, 2, 3]], original, 5)))
-        self.assertEqual(random.getstate(), state)
-        self.assertEqual(values[0], original)
-        for index, q in enumerate(values):
-            self.assertTrue(-1 <= q[0] <= 1)
-            self.assertTrue(0 <= q[2] <= .1)
-            self.assertLessEqual(abs(q[1]-20), .35 if index <= 2 else math.pi)
-            if index <= 2:
-                self.assertLessEqual(q[2], .005)
-        self.assertNotEqual(values[1:], list(ik_search.seeds(joints, [[3, 2, 1]], original, 5))[1:])
+        for count in (1, 5, 20):
+            values = list(ik_search.seeds(joints, [[1, 2, 3]], original, count))
+            self.assertEqual(len(values), count)
+            self.assertEqual(values, list(ik_search.seeds(joints, [[1, 2, 3]], original, count)))
+            self.assertEqual(random.getstate(), state)
+            self.assertEqual(values[0], original)
+            for q in values:
+                self.assertTrue(.65 <= q[0] <= 1)
+                self.assertLessEqual(abs(q[1]-20), .35 + 1e-12)
+                self.assertTrue(0 <= q[2] <= .005 + 1e-12)
+        self.assertNotEqual(values[1:], list(ik_search.seeds(joints, [[3, 2, 1]], original, 20))[1:])
 
     def test_total_deadline_clips_attempts_and_keeps_a_valid_fallback(self):
         now, deadlines = [0.0], []
@@ -159,7 +207,7 @@ class SearchTests(unittest.TestCase):
             return None if len(deadlines) == 1 else [.4]
 
         with patch.object(ik_search, "monotonic", side_effect=lambda: now[0]):
-            result = ik_search.search(self.joints, {**self.options, "search": {"max_time_s": .03}},
+            result = ik_search.search(self.joints, {**self.options, "budget": {"max_time_s": .03}},
                                       [], [0], attempt, lambda q: True)
         self.assertEqual(deadlines, [.02, .03])
         self.assertEqual(result, {"joints": [.4]})
@@ -213,11 +261,11 @@ class SearchTests(unittest.TestCase):
                                ([math.nan, 0, 0, 0, 0, 0, 1], [0])]:
                 with self.assertRaises(ValueError):
                     self.model.ik(goal, seed)
-            for key, value in [("max_iterations", True), ("damping", 0), ("search", None)]:
+            for key, value in [("max_iterations", True), ("damping", 0), ("budget", None)]:
                 with patch.dict(self.options, {key: value}), self.assertRaises(ValueError):
                     self.model.ik(self.model.fk([.2])["pose"], [0])
             attempt.assert_not_called()
-        with patch.dict(self.options, {"max_iterations": 2, "search": {"max_attempts": 2}}):
+        with patch.dict(self.options, {"max_iterations": 2, "budget": {"max_attempts": 2}}):
             with self.assertRaisesRegex(ValueError, "seeds_attempted=2, iterations=4.*position_error_m=.*rotation_error_rad="):
                 self.model.ik([2, 0, 0, 0, 0, 0, 1], [0])
 
@@ -298,32 +346,65 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(result["actions_submitted"], len(self.pending["actions"]))
         self.assertEqual(self.pending["actions"][-1], result["joints"])
 
-    def test_opt_in_limit_rejects_shoe_motion_even_after_normalization(self):
-        self.profile = copy.deepcopy(SHOES["profile"])
-        self.profile["resolved_model"] = {key: self.profile["intrinsics"]["model"][key] for key in ("joints", "chain")}
-        self.model = JointDevice(self.profile)
-        self.positions = list(SHOES["seed"])
-        target = SHOES["target"]
-        normalized = ik_search.nearest_representation(self.model.joints, target, self.positions)
-        goal = self.model.fk(target)["pose"]
-        error = pose_error(goal, self.model.fk(normalized)["pose"])
-        self.assertLess(error["position_m"], 1e-12)
-        self.assertLess(error["rotation_rad"], 1e-12)
-        self.assertLess(max(abs(q-s) for q, s in zip(normalized, self.positions)), math.pi)
+    def test_removed_servo_controls_fail_without_replacing_motion(self):
         servo = self.tool("servo")
-        with patch.object(kinematics, "solve_attempt", return_value=target):
-            for args in ({"joints": target}, {"joints": normalized}, {"pose": goal}):
-                with self.subTest(args=args), self.assertRaisesRegex(ValueError, "max_joint_delta exceeded.*fr_joint1: measured=.*requested=.*delta=.*allowed="):
-                    servo({"device": "arm", **args, "max_joint_delta": math.pi / 2})
+        for extra in ({"max_joint_delta": 1}, {"max_joint_delta": None}, {"ik": {}}, {"duration_s": 1}):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "unsupported servo arguments"):
+                servo({"device": "arm", "joints": self.positions, **extra})
         self.assertEqual(self.writes, [])
         self.assertEqual(self.pending, {"existing": True})
 
-    def test_servo_rejects_nonfinite_and_boolean_travel_limits(self):
-        servo = self.tool("servo")
-        for value in (None, math.inf, math.nan, True, [math.inf]*len(self.positions)):
-            with self.subTest(value=value), self.assertRaises(ValueError):
-                servo({"device": "arm", "joints": self.positions, "max_joint_delta": value})
+    def test_cancelled_servo_ik_preserves_existing_motion(self):
+        with patch.object(kinematics, "solve_attempt", side_effect=InterruptedError("cancelled")):
+            with self.assertRaises(InterruptedError):
+                self.tool("servo")({"device": "arm", "pose": RECOVERY["goal"]})
         self.assertEqual(self.writes, [])
+        self.assertEqual(self.pending, {"existing": True})
+
+    def test_local_servo_rejects_or_avoids_global_branch_detours(self):
+        corpus = json.loads((FIXTURES / "servo-local.json").read_text())
+        servo = self.tool("servo")
+        for case in corpus["cases"]:
+            entry = corpus["models"][case["robot"]]
+            model = entry["model"]
+            for step in (0, .0002, .0003):
+                with self.subTest(case=case["id"], clock_step=step):
+                    now = 0.0
+
+                    def clock():
+                        nonlocal now
+                        now += step
+                        return now
+
+                    self.profile = {"type": "joint", "resolved_model": model, "intrinsics": {
+                        "model": model, "home": None, "frames": {},
+                        "control": {"mode": "position", "limit_handling": "native"},
+                        "kinematics": {"frame": "tip", "fk": "numerical",
+                                       "frame_to_reported": [0, 0, 0, 0, 0, 0, 1], "ik": entry["options"]}}}
+                    self.model = JointDevice(self.profile)
+                    self.positions = case["start"]
+                    self.writes = []
+                    self.pending = {"existing": True}
+                    with patch.object(ik_search, "monotonic", side_effect=clock):
+                        try:
+                            result = servo({"device": "arm", "pose": case["goal"]})
+                        except ValueError as error:
+                            self.assertIn("IK search exhausted", str(error))
+                            self.assertEqual(self.writes, [])
+                            self.assertEqual(self.pending, {"existing": True})
+                            continue
+                    self.assertEqual(len(self.writes), 1)
+                    actions = self.pending["actions"]
+                    poses = [self.model.solver.forward(q)[0] for q in [self.positions] + actions]
+                    points = [apply_rt(xyzq_to_rt(p), entry["tcp"]) for p in poses]
+                    travel = sum(math.dist(a, b) for a, b in zip(points, points[1:]))
+                    # ARX deliberately requests a half-turn; Piper/ALOHA preserve orientation.
+                    self.assertLess(travel, .25 if case["robot"] == "arx" else .05)
+                    if case["robot"] != "arx":
+                        self.assertLess(max(pose_error(poses[0], p)["rotation_rad"] for p in poses), .15)
+                    error = pose_error(case["goal"], self.model.fk(result["joints"])["pose"])
+                    self.assertLessEqual(error["position_m"], entry["options"]["position_tolerance_m"])
+                    self.assertLessEqual(error["rotation_rad"], entry["options"]["rotation_tolerance_rad"])
 
     def test_policy_recovers_seeds_from_predecessor_and_truncates_all_buffers(self):
         goal = RECOVERY["goal"]

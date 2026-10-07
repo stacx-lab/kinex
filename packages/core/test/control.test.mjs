@@ -411,9 +411,9 @@ const tracking = { world: 'world', wait_s: 0.1, max_rounds: 3,
   until: { tool: 'done' } }
 const stages = { target: () => ({ joints: [0.2, 0.1] }), process: ({ observation }) => observation, done: () => ({ done: false }) }
 
-test('servo submits the full planned trajectory without waiting or stopping', async () => {
+for (const block of [undefined, false]) test(`servo submits without waiting when block=${block}`, async () => {
   const armDevice = arm({})
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [2, 1] }, { arm: armDevice })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], block }, { arm: armDevice })
   assert.ok(result, stderr)
   assert.equal(armDevice.writes, 1)
   assert.equal(armDevice.stops, 0)
@@ -424,6 +424,64 @@ test('servo submits the full planned trajectory without waiting or stopping', as
     duration_s: 3.75, actions_submitted: 375 })
   assert.equal(armDevice.pending.duration_s, result.duration_s)
   assert.equal(result.actions_submitted, armDevice.history.length)
+})
+
+for (const type of ['joint', 'dexterous_hand']) test(`blocking servo waits the planned duration for ${type} joints and poses`, async () => {
+  for (const goal of [{ joints: [2, 1] }, { pose: [0, 0, 0, 0, 0, 0, 1] }]) {
+    const armDevice = arm({ type, ik: [2, 1], rate: .01 }), world = clock(armDevice)
+    world.profile = () => ({ type: 'world', loaded: true })
+    const clockName = goal.pose ? 'simulation' : 'world'
+    const response = await dialog(tool('servo'), { device: 'arm', ...goal, block: true,
+      ...(goal.pose ? { world: clockName } : {}) }, { arm: armDevice, [clockName]: world })
+    assert.ok(response.result, response.stderr)
+    assert.equal(world.time, response.result.duration_s)
+    assert.equal(armDevice.clock, response.result.duration_s)
+    assert.equal(armDevice.writes, 1)
+    assert.equal(armDevice.reads, 1)
+    assert.equal(armDevice.stops, 0)
+    // Blocking waits for time, even when the actuator lags the target.
+    assert.notDeepEqual(armDevice.positions, response.result.joints)
+  }
+})
+
+test('servo validates blocking options before replacing motion', async () => {
+  const armDevice = arm({})
+  const initial = await dialog(tool('servo'), { device: 'arm', joints: [.2, .1] }, { arm: armDevice })
+  assert.ok(initial.result, initial.stderr)
+  const pending = armDevice.pending
+  for (const block of [null, 0, 1, 'true']) {
+    const response = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], block }, { arm: armDevice })
+    assert.match(response.stderr, /block must be a boolean/)
+    assert.equal(response.result, undefined)
+  }
+  for (const world of [undefined, { profile: () => ({ type: 'joint', loaded: true }) },
+    { profile: () => ({ type: 'world', loaded: false }) }]) {
+    const response = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], block: true }, { arm: armDevice, world })
+    assert.equal(response.result, undefined)
+    assert.match(response.stderr, /world/)
+  }
+  assert.equal(armDevice.writes, 1)
+  assert.equal(armDevice.reads, 1)
+  assert.equal(armDevice.stops, 0)
+  assert.equal(armDevice.pending, pending)
+})
+
+test('servo preserves home recovery for pose goals with either blocking mode', async () => {
+  for (const sign of [-1, 1]) for (const block of [false, true]) {
+    const device = arm({ dof: 1, ik: [0] }), original = device.profile, world = clock(device)
+    device.positions = [sign * (3.2 + Math.PI / 180)]
+    device.profile = () => ({ ...original(), intrinsics: { ...original().intrinsics, home: { j0: 0 } } })
+    world.profile = () => ({ type: 'world', loaded: true })
+    const response = await dialog(tool('servo'), { device: 'arm', pose: [0, 0, 0, 0, 0, 0, 1], block },
+      { arm: device, world })
+    assert.ok(response.result, response.stderr)
+    assert.equal(device.reads, 1)
+    assert.deepEqual(device.ikArgs.seed, [sign * 3.2])
+    assert.ok(Math.abs(device.history[0][0]) > 3.2, 'planning retains the measured overshoot')
+    assert.deepEqual(device.history.at(-1), [0])
+    assert.equal(world.time, block ? response.result.duration_s : 0)
+    assert.equal(device.stops, 0)
+  }
 })
 
 for (const type of ['joint', 'dexterous_hand']) test(`servo resolves ${type} pose targets through declared IK`, async () => {
@@ -438,51 +496,27 @@ for (const type of ['joint', 'dexterous_hand']) test(`servo resolves ${type} pos
   assert.equal(armDevice.reads, 1)
 })
 
-test('servo enforces opt-in travel limits without replacing existing motion or wrapping bounded targets', async () => {
-  const device = arm({ dof: 1, ik: [2] })
+test('servo rejects removed arguments without replacing motion', async () => {
+  const device = arm({ dof: 1 })
   const initial = await dialog(tool('servo'), { device: 'arm', joints: [.2] }, { arm: device })
   assert.ok(initial.result, initial.stderr)
   const pending = device.pending
-  for (const goal of [{ joints: [2] }, { pose: [0, 0, 0, 0, 0, 0, 1] }]) {
-    const rejected = await dialog(tool('servo'), { device: 'arm', ...goal, max_joint_delta: Math.PI / 2 }, { arm: device })
+  for (const extra of [{ max_joint_delta: 1 }, { duration_s: 1 }, { ik: {} }]) {
+    const rejected = await dialog(tool('servo'), { device: 'arm', joints: [2], ...extra }, { arm: device })
     assert.equal(rejected.result, undefined)
-    assert.match(rejected.stderr, /max_joint_delta exceeded: j0: measured=0, requested=2, delta=2, allowed=1\.5708 rad/)
+    assert.match(rejected.stderr, /unsupported servo arguments/)
     assert.equal(device.writes, 1)
     assert.equal(device.stops, 0)
     assert.equal(device.pending, pending)
   }
+})
+
+test('servo preserves explicit bounded targets without imposing a travel cap', async () => {
+  const device = arm({ dof: 1 })
   device.positions = [3.1]
-  const rejected = await dialog(tool('servo'), { device: 'arm', joints: [-3.1], max_joint_delta: 1 }, { arm: device })
-  assert.match(rejected.stderr, /delta=-6\.2/)
-  assert.equal(device.writes, 1)
   const accepted = await dialog(tool('servo'), { device: 'arm', joints: [-3.1] }, { arm: device })
   assert.ok(accepted.result, accepted.stderr)
   assert.deepEqual(device.history.at(-1), [-3.1])
-})
-
-test('servo travel limits support mixed units and per-joint overrides', async () => {
-  const device = arm({}), profile = device.profile
-  device.profile = () => {
-    const value = profile()
-    value.resolved_model.joints[1].type = 'prismatic'
-    return value
-  }
-  const boundary = await dialog(tool('servo'), { device: 'arm', joints: [Math.PI / 2, .1], max_joint_delta: [Math.PI / 2, .1] }, { arm: device })
-  assert.ok(boundary.result, boundary.stderr)
-  const rejected = await dialog(tool('servo'), { device: 'arm', joints: [.2, .11], max_joint_delta: [.5, .1] }, { arm: device })
-  assert.match(rejected.stderr, /j1: measured=0, requested=0\.11, delta=0\.11, allowed=0\.1 m/)
-  const accepted = await dialog(tool('servo'), { device: 'arm', joints: [2, .2], max_joint_delta: [2, .2] }, { arm: device })
-  assert.ok(accepted.result, accepted.stderr)
-  assert.deepEqual(device.history.at(-1), [2, .2])
-  const uncapped = await dialog(tool('servo'), { device: 'arm', joints: [2, .2] }, { arm: device })
-  assert.ok(uncapped.result, uncapped.stderr)
-  assert.deepEqual(device.history.at(-1), [2, .2])
-  for (const max_joint_delta of [null, 0, -1, true, '2', [], [2], [2, 0], [2, 2, 2]]) {
-    const result = await dialog(tool('servo'), { device: 'arm', joints: [0, 0], max_joint_delta }, { arm: device })
-    assert.equal(result.result, undefined)
-    assert.match(result.stderr, /max_joint_delta/)
-  }
-  assert.equal(device.writes, 3)
 })
 
 test('servo seeds IK from the same measured state used for planning and projects only the seed', async () => {
@@ -526,7 +560,7 @@ test('servo submits wrapped continuous references while settled checks the reque
     value.resolved_model.joints[0] = { name: 'j0', type: 'continuous', limits: null }
     return value
   }
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [-Math.PI + .1], max_joint_delta: .3 }, { arm: device })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [-Math.PI + .1] }, { arm: device })
   assert.ok(result, stderr)
   assert.deepEqual(result.joints, [-Math.PI + .1])
   assert.ok(Math.abs(device.history.at(-1)[0] - (Math.PI + .1)) < 1e-12)
