@@ -40,10 +40,11 @@ function jointCommand(device: Device, args: Record<string, unknown>): Record<str
   if (device.intrinsics.control.limit_handling === "native") return command
   const joints = deviceJoints(device)
   const home = deviceHome(device)
+  const homeConfig = device.intrinsics.home
   const last = command.actions.at(-1)!
-  const recovery = device.type === "joint" && device.intrinsics.has_brake === false && home
+  const recovery = device.type === "joint" && home && known(homeConfig) && homeConfig
     && last.every((q, i) => Math.abs(q - home[i]!) <= 1e-9)
-  const tolerance = recovery ? (device.intrinsics.home_start_tolerance_deg ?? 0.5) * Math.PI / 180 : 0
+  const tolerance = recovery ? (homeConfig.tolerance_deg ?? 0.5) * Math.PI / 180 : 0
   for (const [step, values] of command.actions.entries()) {
     for (const [i, value] of values.entries()) {
       const bounds = dimensions[i]!.bounds

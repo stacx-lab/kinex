@@ -7,18 +7,19 @@ from kinex.urdf import read_chain
 
 
 def home_start_tolerance(profile, joints, target):
-    """Only explicitly brakeless joint devices may recover toward declared home."""
+    """Joint devices may recover toward declared home within an angular margin."""
     joint_target(target, joints, check_limits=False)
     intrinsics = profile["intrinsics"]
     home = intrinsics.get("home")
-    if profile.get("type") != "joint" or intrinsics.get("has_brake") is not False or not isinstance(home, dict):
+    if profile.get("type") != "joint" or not isinstance(home, dict):
         return 0.0
-    if any(j["name"] not in home or abs(q - home[j["name"]]) > 1e-9 for j, q in zip(joints, target)):
+    positions = home["joints"]
+    if any(j["name"] not in positions or abs(q - positions[j["name"]]) > 1e-9 for j, q in zip(joints, target)):
         return 0.0
     from kinex.validation import number
-    tolerance = number(intrinsics.get("home_start_tolerance_deg", 0.5), "home_start_tolerance_deg")
+    tolerance = number(home.get("tolerance_deg", 0.5), "home.tolerance_deg")
     if tolerance < 0:
-        raise ValueError("home_start_tolerance_deg must be nonnegative")
+        raise ValueError("home.tolerance_deg must be nonnegative")
     return math.radians(tolerance)
 
 

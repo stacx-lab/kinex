@@ -25,10 +25,10 @@ export const ChainLink = z.union([
 ])
 
 export function jointConfigurationErrors(value: {
-  home: Record<string, number> | null | "???",
+  home: { joints: Record<string, number>; tolerance_deg?: number } | null | "???",
 }, model: { joints: z.infer<typeof Joints> }): string[] {
-  const home = value.home
-  if (home === "???" || home === null) return []
+  if (value.home === "???" || value.home === null) return []
+  const home = value.home.joints
   const errors: string[] = []
   const names = model.joints.map(j => j.name)
   if (Object.keys(home).length !== names.length || names.some(name => !Object.hasOwn(home, name)))

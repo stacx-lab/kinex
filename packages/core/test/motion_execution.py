@@ -126,10 +126,10 @@ class QuaternionTests(unittest.TestCase):
 
 
 class MotionTests(unittest.TestCase):
-    def test_brakeless_home_recovery(self):
+    def test_joint_home_recovery(self):
         from kinex.joint_control import command, home_start_tolerance
         profile = copy.deepcopy(PROFILE)
-        profile["intrinsics"].update(has_brake=False, home={"j": 0})
+        profile["intrinsics"].update(home={"joints": {"j": 0}})
         joints = profile["intrinsics"]["model"]["joints"]
         tolerance = home_start_tolerance(profile, joints, [0])
         self.assertEqual(tolerance, math.radians(0.5))
@@ -139,12 +139,12 @@ class MotionTests(unittest.TestCase):
         for points in ([2.09, 0], [2.004, 2.005, 0], [2.004, 1.9, 2.001, 0], [2.004, .1], [2.004]):
             with self.assertRaises(ValueError):
                 command(profile, {"actions": [[q] for q in points], "duration_s": 1})
-        for brake in (True, None, "???"):
-            profile["intrinsics"]["has_brake"] = brake
+        for home in (None, "???"):
+            profile["intrinsics"]["home"] = home
             self.assertEqual(home_start_tolerance(profile, joints, [0]), 0)
             with self.assertRaises(ValueError):
                 command(profile, {"actions": [[2.004], [0]], "duration_s": 1})
-        profile["intrinsics"].update(has_brake=False, home_start_tolerance_deg=10)
+        profile["intrinsics"].update(home={"joints": {"j": 0}, "tolerance_deg": 10})
         command(profile, {"actions": [[2.1], [0]], "duration_s": 1})
         self.assertEqual(home_start_tolerance(profile, joints, [.1]), 0)
         joints[0]["type"] = "prismatic"

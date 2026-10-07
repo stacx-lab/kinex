@@ -36,15 +36,16 @@ export const JointKinematics = z.strictObject({
 })
 
 export const jointShape = {
-  has_brake: field(z.boolean()).optional(),
-  home_start_tolerance_deg: z.number().nonnegative().optional(),
   model: field(z.discriminatedUnion("format", [
     z.strictObject({ format: z.literal("urdf"), path: field(z.string().min(1)), base_link: field(z.string().min(1)), tip_link: field(z.string().min(1)) }),
     z.strictObject({ format: z.literal("serial_chain"), joints: Joints, chain: z.array(ChainLink).min(1) }),
     z.strictObject({ format: z.literal("joints"), joints: Joints }),
   ])),
   kinematics: JointKinematics.nullable().default(null),
-  home: field(z.record(z.string().min(1), z.number()).nullable()),
+  home: field(z.strictObject({
+    joints: z.record(z.string().min(1), z.number()),
+    tolerance_deg: z.number().nonnegative().optional(),
+  }).nullable()),
   control: field(z.strictObject({ mode: z.literal("position"), limit_handling: z.literal("native").optional() })),
   feedback: field(z.strictObject({ velocities: z.boolean(), efforts: z.boolean() })),
   stop: field(z.strictObject({ behavior: z.enum(["hold", "halt", "controller_emergency_stop"]),

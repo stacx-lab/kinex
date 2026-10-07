@@ -1,5 +1,26 @@
 # Current work
 
+## Nested home tolerance
+
+- [x] Replace home_start_tolerance_deg with home.tolerance_deg and place named positions in home.joints.
+- [x] Update schema validation, TypeScript/Python consumers, guides and the IK fixture.
+- [x] Preserve null/unknown home values and the default 0.5-degree recovery tolerance.
+
+Validation: workspace build/typecheck, native-limits and control suites, 13 Python
+motion-execution tests, 11 joint-frame tests, 14 IK tests and diff checks passed.
+The IK Node wrapper reports spawnSync EPERM despite its Python child passing;
+the direct Python run passed too. Existing home maps must move under home.joints.
+
+## Joint brake field removal
+
+- [x] Remove intrinsics.has_brake from joint schemas and the joint template.
+- [x] Keep home recovery independent of brake metadata, retaining angular tolerance and inward-only limits.
+- [x] Update schema, preflight, Python and servo recovery coverage.
+
+Validation: workspace build/typecheck, native-limits and control suites, all 13
+Python motion-execution tests and diff checks passed. Existing profiles must omit
+the removed field.
+
 ## PR #18 pre-push validation
 
 Workspace build/typecheck and diff checks passed on Node 24.21 / Python 3.12.
@@ -10,7 +31,7 @@ release metadata check from running.
 
 ## Smaller injected context
 
-- [x] Remove core.readiness and setup.plan from contributed model context.
+- [x] Remove core.devices, core.readiness and setup.plan from contributed model context.
 - [x] Update registration guidance and existing context assertions.
 
 Validation: workspace build/typecheck and the focused setup composition test passed.

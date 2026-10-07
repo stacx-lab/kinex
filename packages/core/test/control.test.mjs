@@ -50,17 +50,16 @@ function arm({ dof = 2, rate = 1, ik = null, type = 'joint' }) {
   return self
 }
 
-test('servo recovers only brakeless home starts within the configured angular margin', async () => {
-  for (const [brake, overshoot, goal, tolerance, accepted] of [
-    [false, .5, 0, undefined, true], [false, .6, 0, undefined, false],
-    [true, .4, 0, undefined, false], [undefined, .4, 0, undefined, false],
-    [false, .4, .1, undefined, false], [false, .6, 0, .7, true], [false, 1, 0, 0, false],
+test('servo recovers home starts within the configured angular margin', async () => {
+  for (const [overshoot, goal, tolerance, accepted] of [
+    [.5, 0, undefined, true], [.6, 0, undefined, false],
+    [.4, .1, undefined, false], [.6, 0, .7, true], [1, 0, 0, false],
   ]) {
     const self = arm({ dof: 1 }), original = self.profile
     self.positions = [3.2 + overshoot * Math.PI / 180]
     self.profile = () => {
       const p = original()
-      Object.assign(p.intrinsics, { has_brake: brake, home: { j0: 0 }, home_start_tolerance_deg: tolerance })
+      Object.assign(p.intrinsics, { home: { joints: { j0: 0 }, tolerance_deg: tolerance } })
       return p
     }
     const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [goal] }, { arm: self })

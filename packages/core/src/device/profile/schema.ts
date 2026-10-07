@@ -386,7 +386,7 @@ export function deviceHome(device: Device): number[] | undefined {
   if (isJoint(device)) {
     const home = device.intrinsics.home
     if (!known(home) || home === null) return undefined
-    return joints.map((j) => home[j.name]!)
+    return joints.map((j) => home.joints[j.name]!)
   }
   return undefined
 }

@@ -30,6 +30,8 @@ class JointDevice:
         if not names or len(names) != len(set(names)):
             raise ValueError("Model requires unique joint names")
         home = self.intrinsics["home"]
+        if isinstance(home, dict):
+            home = home["joints"]
         if home is not None:
             if not isinstance(home, dict) or set(home) != set(names):
                 raise ValueError("home must name every model joint exactly once")

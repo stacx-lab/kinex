@@ -21,16 +21,13 @@ then deterministic nearby and broader seeds; fallback selection prefers the
 nearest valid configuration. Tolerances remain strict. Budgets are cooperative
 and apply per target; nearest preference is not a hard waypoint-step limit.
 
-home names every joint or is null. feedback declares velocities and efforts. stop declares behavior and affected_devices. intrinsics.frames declares additional references as {parent_frame, translation_m, rotation_xyzw}. A null parent means the device base; either transform component may be null when unknown. extrinsics supplies only a mount or measured pose_frame.
+feedback declares velocities and efforts. stop declares behavior and affected_devices. intrinsics.frames declares additional references as {parent_frame, translation_m, rotation_xyzw}. A null parent means the device base; either transform component may be null when unknown. extrinsics supplies only a mount or measured pose_frame.
 
-Confirm physical brakes through `intrinsics.has_brake` during setup.
-For real devices with `has_brake: false`, the driver should retain a hold when
-unloading or handling an execution error. `home_start_tolerance_deg` (default 0.5)
+home is {joints: {joint_name: position, ...}, tolerance_deg: 0.5} or null; home.joints names every joint. 
+Driver unloading should be always done at home pose. `home.tolerance_deg` (default 0.5)
 allows revolute joints to start slightly outside their limits only when recovering
 toward the declared home. Out-of-limit references must move inward, and the final
-home target must satisfy the limits. Prismatic joints, other goals and absent or
-unknown brake settings retain strict limits. Native limit handling still belongs
-to the controller.
+home target must satisfy the limits.
 
 ### Frame feedback
 
@@ -69,8 +66,7 @@ intrinsics:
   model: ???
   kinematics: null
   home: ???
-  has_brake: ???
-  home_start_tolerance_deg: 0.5
+    tolerance_deg: 0.5
   control: ???
   feedback: ???
   stop: ???
