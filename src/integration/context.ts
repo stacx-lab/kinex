@@ -1,9 +1,14 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
 import type { KinexCapabilities } from "@kinex/core/integration"
+import type { Mode } from "./interaction.ts"
 
-export async function contextUpdate(runtime: Pick<KinexCapabilities, "context">, ctx: ExtensionContext, problems: string[]) {
+export async function contextUpdate(runtime: Pick<KinexCapabilities, "context">, ctx: ExtensionContext, problems: string[], mode: Mode) {
   const context = await runtime.context()
-  const snapshot: Record<string, string> = { ...context.sections, problems: [...problems].sort().join("\n") }
+  const snapshot: Record<string, string> = {
+    ...context.sections,
+    interaction: `mode: ${mode}\ninterviews: ${mode === "yolo" || !ctx.hasUI ? "unavailable" : "available"}`,
+    problems: [...problems].sort().join("\n"),
+  }
   const branch = ctx.sessionManager.getBranch()
   const compactedAt = branch.findLastIndex(entry => entry.type === "compaction")
   const previous = branch.slice(compactedAt + 1).findLast(entry => entry.type === "custom_message" && entry.customType === "kinex-context")

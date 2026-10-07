@@ -102,7 +102,7 @@
 | 同一 assistant batch 串行执行，拒绝后后续工具均未开始 | 变化／core 合同已恢复 | core 和 question 标记 sequential，包含它们的整批（含 coding 混合调用）按序执行；拒绝/取消后后续调用不启动，已完成调用不回滚。纯 coding 批次按已确认选择保持 Pi 并行。覆盖设备、校准、Python controller、question、运行中取消及恢复的回归通过。 |
 | 连续三次相同调用触发 doom_loop 审批 | 缺失 | 新版未实现，检查的 Pi loop 中无同等 guard。旧版也是一次 permission ask，auto/yolo 会放行，不能将恢复旧 guard 等同于无人值守任务有硬性循环上限。 |
 | auto 放行权限、继续采访；yolo 放行且禁采访 | 保留 | 策略与旧版一致；auto/yolo 仍覆盖配置 deny。 |
-| headless/yolo 的 autonomous system instructions | 变化 | question 立即返回“无用户答案”，不会等待 stdin；但固定指令仍建议用 question 获取缺失信息，未明确禁止文字采访/等待选择。旧自主推进和 blocker 语义未完整移植，不能把自动权限放行等同于完整自主执行策略。 |
+| headless/yolo 的 autonomous system instructions | 变化 | question 立即返回“无用户答案”；模型收到当前模式和采访可用性，明确禁止工具或文字采访及请求手动帮助，要求收集证据、自主尝试可行替代方案以完成任务。模式切换和压缩后恢复同步上下文。 |
 | device_stop 始终允许 | 保留 | core 行为保留，新版另加用户 `/stop`。 |
 | calibration、Python controller、record 权限 | 保留 | 由原 core 校验及 host callback 实现。 |
 
@@ -227,7 +227,7 @@ v0.5.0 迁移审计确认旧 core 的 104 个 src 文件、81 个 assets 文件�
 
 | 功能 | 紧迫场景与处理建议 |
 | --- | --- |
-| headless/yolo 的自主执行指令 | 本项目明确重视无人值守，应在扩大 headless 使用前补齐：不采访或等待用户，依据证据和合理默认值继续；缺少不可替代事实时明确报告 blocker，不虚构答案。现有 question 不阻塞，但仍可能消耗步骤或让最终回复停在问句。 |
+| headless/yolo 的自主执行指令 | 已补齐自主执行指令与动态 interaction 上下文；覆盖启动、运行中切换、恢复与压缩。模型行为仍需实际任务验证。 |
 | 机器人图片附件的有界读取和缺失降级 | 相机/视觉任务的发布门槛。当前桥接直接 readFile；一个消失的图片就可能把已有文本结果变成工具错误，超大源文件在 Pi 缩图前已经完整读入。先恢复读取上限、稳定 omission 和文本保留；内容寻址去重可以后排。 |
 | 循环检测与任务预算 | 长时间无人值守前补。不要简单把三次相同调用视为错误：设备轮询可合法重复，旧 doom_loop 审批在 auto/yolo 也会放行。区分连续失败/无进展重复与正常采样，并明确无人值守达到预算后的结束或 blocker 行为。 |
 | 关键 core 领域回归与 RoboEnv smoke | 是验证缺口，不是算法尚未实现。优先迁移校准、坐标系/单位、动作约束、取消与 driver 合同的测试，至少完成 simulator 端到端 smoke 后再声称可替代旧版机器人工作流；不以搬齐 371 个测试为前提。 |

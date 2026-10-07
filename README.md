@@ -345,6 +345,10 @@ does not maintain a second provider implementation.
 | `--yolo` | Automatically allow | Disabled |
 | Default headless | Core rules; deny unresolved asks | No interactive answers |
 
+YOLO and headless runs receive instructions to proceed autonomously without
+questions, manual help, or confirmation. `/mode` updates model-visible
+interaction state before the next model request, including during an active task.
+
 These are Kinex policies implemented using SDK hooks, not Pi-native CLI flags.
 Write, edit and bash use the same allow/ask/deny rules as robotics tools; `shell`
 is the permission name for bash. Approval can be once or for the session. Auto

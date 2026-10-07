@@ -138,6 +138,56 @@ test('question cancellation prevents later calls even in auto mode', async t => 
   assert.equal((await app.owner.runtime.devices.list())[0].loaded, false)
 })
 
+const interactionUI = {
+  setHeader() {}, setStatus() {}, setWidget() {}, addAutocompleteProvider() {}, notify() {},
+  select: async () => { throw new Error('YOLO must not open an interview') },
+}
+
+test('YOLO startup supplies autonomous instructions and question fallback does not block work', async t => {
+  const { cwd, fake, app } = await fixture(t, 'yolo')
+  await bind(app, interactionUI)
+  fake.steps.push({ tools: [
+    { name: 'question', args: { questions: [{ header: 'Choice', question: 'Continue?', options: [{ label: 'Yes' }] }] } },
+    marker,
+  ] }, { text: 'done' })
+  await app.host.session.prompt('complete the task independently')
+  assert.equal(fake.requests.length, 2)
+  assert.match(JSON.stringify(fake.requests[0]), /proceed autonomously without questions, manual help, or confirmation/)
+  assert.match(contexts(app).at(-1).details.interaction, /mode: yolo\ninterviews: unavailable/)
+  assert.match(JSON.stringify(fake.requests[1]), /No user answer is available/)
+  assert.equal(await readFile(path.join(cwd, 'should-not-exist'), 'utf8'), 'started')
+})
+
+test('mode changes reach the next request during a run and replace YOLO on resume', async t => {
+  const { cwd, fake, app } = await fixture(t)
+  await bind(app, interactionUI)
+  let switched = false
+  fake.respond = async () => {
+    if (!switched) {
+      switched = true
+      await app.host.session.prompt('/mode yolo')
+      return { tools: [{ name: 'ls', args: { path: cwd } }] }
+    }
+    return { text: 'done' }
+  }
+  await app.host.session.prompt('start in auto and switch while running')
+  assert.equal(fake.requests.length, 2)
+  assert.match(JSON.stringify(fake.requests[1]), /mode: yolo/)
+  assert.equal(contexts(app).at(-1).details.interaction, 'mode: yolo\ninterviews: unavailable')
+  await app.host.session.prompt('/mode auto')
+  assert.equal(fake.requests.length, 2, 'switching mode alone must not trigger model work')
+  assert.equal(contexts(app).at(-1).details.interaction, 'mode: auto\ninterviews: available')
+  await app.host.session.prompt('continue in auto')
+  assert.match(messageText(fake.requests.at(-1).messages.findLast(m => messageText(m).includes('interaction:\n'))), /mode: auto/)
+  const session = app.host.session.sessionFile
+  await app.dispose()
+  const resumed = await createApplication({ cwd, session, model: 'fake/test', mode: 'yolo' })
+  t.after(() => resumed.dispose())
+  await bind(resumed, interactionUI)
+  await resumed.host.session.prompt('resume in yolo')
+  assert.equal(contexts(resumed).at(-1).details.interaction, 'mode: yolo\ninterviews: unavailable')
+})
+
 function assertSnapshot(app) {
   const branch = app.host.session.sessionManager.getBranch()
   const index = branch.findLastIndex(entry => entry.type === 'compaction')
@@ -145,7 +195,7 @@ function assertSnapshot(app) {
   const snapshots = branch.slice(index + 1).filter(entry => entry.type === 'custom_message' && entry.customType === 'kinex-context')
   assert.equal(snapshots.length, 1)
   const snapshot = snapshots[0]
-  for (const section of ['core.python', 'core.guides', 'core.conventions', 'core.skills', 'core.recording', 'problems']) assert.ok(snapshot.content.includes(`${section}:\n`), section)
+  for (const section of ['core.python', 'core.guides', 'core.conventions', 'core.skills', 'core.recording', 'interaction', 'problems']) assert.ok(snapshot.content.includes(`${section}:\n`), section)
   for (const section of ['core.devices', 'core.readiness', 'setup.plan']) assert.ok(!Object.hasOwn(snapshot.details, section), section)
   assert.ok(app.host.session.agent.state.messages.some(message => message.role === 'custom' && message.content === snapshot.content))
   return snapshot

@@ -72,6 +72,9 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         if (selection !== "ask" && selection !== "auto" && selection !== "yolo") return
         owner.interaction.reset()
         owner.interaction.mode = selection
+        const problems = await bridge.refreshActive(ctx)
+        const context = await contextUpdate(capabilities, ctx, problems, selection)
+        if (context.message) pi.sendMessage(context.message, { triggerTurn: false })
         await status(ctx)
       },
     })
@@ -121,7 +124,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     })
     pi.on("before_agent_start", async (event, ctx) => {
       const problems = await bridge.refreshActive(ctx)
-      const context = await contextUpdate(capabilities, ctx, problems)
+      const context = await contextUpdate(capabilities, ctx, problems, owner.interaction.mode)
       event.systemPromptOptions.sections.kinex = `${instructions}\n\n${context.instructions}`
       const failure = session.compaction.recover()
       if (failure && owner.failure === failure) owner.failure = undefined
@@ -133,7 +136,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       session.compaction.end()
       try {
         const problems = await bridge.refreshActive(ctx)
-        const context = await contextUpdate(capabilities, ctx, problems)
+        const context = await contextUpdate(capabilities, ctx, problems, owner.interaction.mode)
         if (context.message) session.compaction.append(context.message)
         const failure = session.compaction.recover()
         if (failure && owner.failure === failure) owner.failure = undefined
@@ -166,7 +169,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       owner.observeMessages(ctx)
       if (ctx.signal?.aborted) return
       const problems = await bridge.refreshActive(ctx)
-      const context = await contextUpdate(capabilities, ctx, problems)
+      const context = await contextUpdate(capabilities, ctx, problems, owner.interaction.mode)
       // Pi flushes these after the complete tool batch, before preparing the next
       // request. Updating context must not start another turn after a final reply.
       if (!ctx.signal?.aborted && context.message) pi.sendMessage(context.message, { triggerTurn: false })

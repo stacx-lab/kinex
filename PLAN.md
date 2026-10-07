@@ -1,5 +1,15 @@
 # Current work
 
+## YOLO autonomous execution
+
+- [x] Inject current interaction mode and interview availability through dynamic context.
+- [x] Instruct unattended runs to proceed without questions or manual-help requests, while preserving evidence and device constraints.
+- [x] Refresh mode state during tasks, on resume and after compaction.
+- [x] Validate mode-switch, interview fallback and context regressions.
+
+Validation: build/typecheck and all 29 focused interaction/context tests passed.
+The prompt keeps autonomous guidance concise without instructing the agent to give up.
+
 ## Version 0.10.3
 
 - [x] Validate all 13 RoboEnv catalogs (89 profiles), exported drivers and blocking servo against current Kinex.
