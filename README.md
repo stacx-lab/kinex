@@ -117,10 +117,14 @@ Writes submit an action buffer with `duration_s` and return immediately.
 Gripper and suction use flat `actions: [value, ...]`; joint devices and dexterous
 hands use `actions: [[joint1, joint2, ...], ...]`. A single command uses one action.
 Use `device("world", "wait", duration_s=...)` for delays in the driver's clock.
-`servo` plans and submits a full joint trajectory, returning immediately with
+`servo` plans locally and submits a full joint trajectory, returning immediately by default with
 `device`, the driver's `execution_id`, requested/IK-resolved target `joints`,
 computed `duration_s` and `actions_submitted`. It accepts no duration override.
-Use `world.wait` to allow execution time and measured feedback to verify arrival;
+Set `block: true` to wait the computed duration before returning, using the loaded
+`world` device (or select another clock with `world: "simulation"`). For example,
+`tool("servo", device="arm", joints=[0.2, 0.1], block=True)` waits on that clock,
+including in stepped simulations. With `block: false` (the default), use
+`world.wait` separately. Use measured feedback to verify arrival;
 neither submission nor elapsed duration confirms arrival. Position devices retain
 the final reference.
 `closed_loop` addresses the gap between a successful control call and the intended
@@ -142,8 +146,10 @@ and references in custom tools. Refresh workspace copies under `.kinex/tool/trac
 from the new `closed-loop` built-in and change their manifest name to `closed_loop`;
 remove obsolete copies to avoid continuing to expose `track`.
 
-For existing servo calls, remove the `duration_s` argument; obsolete input is
-rejected. The returned duration now comes from the planner. Device writes and
+For existing servo calls, remove `duration_s`, `ik` and `max_joint_delta`
+arguments; obsolete input is rejected. Pose goals use device IK, followed by
+rate-limited joint interpolation. Failed planning submits nothing. The returned
+duration comes from the local planner. Device writes and
 `run_policy` keep their existing duration behavior.
 Servo results expose `execution_id` directly; the nested `write` and `end_joints`
 fields have been removed. Driver feedback validation still runs before success.
@@ -236,20 +242,22 @@ map to `execution_ids`; use fresh reads for measured state. Structured failures,
 including `stop_failed`, preserve `error`, `code` and `details` across tool calls
 and remain failures rather than normal IK truncations.
 
-Numerical IK now retries failed DLS solves from deterministic nearby and broader
-seeds, choosing the valid fallback nearest the original seed. An initial solution
-still returns immediately. Optional `intrinsics.kinematics.ik.search` defaults to
-`{max_attempts: 5, attempt_time_s: 0.02, max_time_s: 0.1}`; `max_iterations`
-also limits each attempt. These cooperative budgets apply per pose, so policy
-chunks can accumulate planning time. Tolerances and FK checks remain strict;
-nearest preference does not impose a hard waypoint-step limit. See the
-[core API](packages/core/README.md) for details.
+Direct device IK accepts an optional seed. Numerical IK compares verified
+candidates from the original seed and deterministic nearby retries within the profile's
+`intrinsics.kinematics.ik.budget`, defaulting to
+`{max_attempts: 5, attempt_time_s: 0.02, max_time_s: 0.1}`. `max_iterations`
+also limits each attempt. All retries stay within 0.35 rad per rotary joint or
+5% of the declared range per prismatic joint around the original seed.
+Native driver IK supports seeds; numerical search
+budgets apply only to the numerical backend.
+Tolerances and FK checks remain strict; nearest preference does not impose a
+hard waypoint-step limit. See the [core API](packages/core/README.md) for details.
 
-Existing profiles inherit the defaults without migration. After upgrading core,
-reload persistent drivers. If a workspace's `.kinex/lib/kinex` overrides packaged
-Python helpers, refresh those copies together, including `kinematics.py` and
-`ik_search.py`, before reloading. Native plugins require their separate packed
-core snapshot update.
+Rename profile `ik.search` to `ik.budget`; the old name is rejected. Profiles
+without this optional field inherit defaults. `servo.max_joint_delta` has been
+removed. Refresh copied servo tools and reload persistent drivers. If a workspace's `.kinex/lib/kinex` overrides packaged
+Python helpers, refresh those copies together before reloading. Native plugins
+require their separate packed core snapshot update.
 
 For receding horizon control, set `run_policy.max_actions` to the maximum number
 of actions to execute from each inference. The remaining predictions are discarded

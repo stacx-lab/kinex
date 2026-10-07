@@ -12,20 +12,22 @@ from kinex.motion import joint_target
 from kinex.validation import number
 
 
-DEFAULT_SEARCH = {"max_attempts": 5, "attempt_time_s": 0.02, "max_time_s": 0.1}
+DEFAULT_BUDGET = {"max_attempts": 5, "attempt_time_s": 0.02, "max_time_s": 0.1}
 
 
-def search_options(options):
-    search = options.get("search", {})
-    if not isinstance(search, dict) or search.keys() - DEFAULT_SEARCH.keys():
-        raise ValueError("IK search requires max_attempts, attempt_time_s and max_time_s options only")
-    result = {**DEFAULT_SEARCH, **search}
+def budget_options(options):
+    if "search" in options:
+        raise ValueError("IK search configuration was renamed to budget")
+    search = options.get("budget", {})
+    if not isinstance(search, dict) or search.keys() - DEFAULT_BUDGET.keys():
+        raise ValueError("IK budget requires max_attempts, attempt_time_s and max_time_s options only")
+    result = {**DEFAULT_BUDGET, **search}
     attempts = result["max_attempts"]
     if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts <= 0:
-        raise ValueError("IK search.max_attempts must be a positive integer")
+        raise ValueError("IK budget.max_attempts must be a positive integer")
     for key in ("attempt_time_s", "max_time_s"):
-        if number(result[key], f"IK search.{key}") <= 0:
-            raise ValueError(f"IK search.{key} must be positive")
+        if number(result[key], f"IK budget.{key}") <= 0:
+            raise ValueError(f"IK budget.{key} must be positive")
     return result
 
 
@@ -50,21 +52,16 @@ class Progress:
 
 
 def seeds(joints, targets, original, count):
-    """A fresh local RNG keeps retries independent of unrelated calls and threads."""
+    """Perturb the original seed locally; retries never expand or wander."""
     yield list(original)
     payload = json.dumps([targets, original], separators=(",", ":"), allow_nan=False)
     rng = random.Random(hashlib.sha256(payload.encode()).digest())
-    for attempt in range(1, count):
+    for _ in range(1, count):
         candidate = []
         for joint, value in zip(joints, original, strict=True):
             limits = joint["limits"]
-            if attempt <= 2:
-                radius = (limits["max"] - limits["min"]) * 0.05 if joint["type"] == "prismatic" else 0.35
-                q = value + rng.uniform(-radius, radius)
-            elif limits:
-                q = rng.uniform(limits["min"], limits["max"])
-            else:
-                q = value + rng.uniform(-math.pi, math.pi)
+            radius = (limits["max"] - limits["min"]) * 0.05 if joint["type"] == "prismatic" else 0.35
+            q = value + rng.uniform(-radius, radius)
             candidate.append(max(limits["min"], min(limits["max"], q)) if limits else q)
         yield candidate
 
@@ -100,7 +97,7 @@ def distance(joints, candidate, original):
 
 def search(joints, options, targets, original, attempt, verify):
     """Select the nearest verified solution within the existing search budget."""
-    settings = search_options(options)
+    settings = budget_options(options)
     original = list(joint_target(original, joints))
     started = monotonic()
     deadline = started + settings["max_time_s"]

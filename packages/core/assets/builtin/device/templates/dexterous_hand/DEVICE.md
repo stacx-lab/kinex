@@ -41,11 +41,12 @@ intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {form
 
 kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. kinematics.frame declares the computed endpoint; do not repeat it in intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
 
-Numerical `ik.search` optionally sets `max_attempts` (5 total), `attempt_time_s`
+Numerical `ik.budget` optionally sets `max_attempts` (5 total), `attempt_time_s`
 (0.02) and `max_time_s` (0.1). Existing profiles inherit these defaults;
 `max_iterations` also limits each attempt. The original seed is tried first,
-then deterministic nearby and broader seeds; fallback selection prefers the
-nearest valid configuration. Tolerances remain strict. Budgets are cooperative
+then deterministic nearby seeds (within 0.35 rad or 5% of the prismatic range
+around the original seed, clamped to limits); selection prefers the verified
+configuration nearest the seed. Tolerances remain strict. Budgets are cooperative
 and apply per target; nearest preference is not a hard waypoint-step limit.
 
 home names every joint or is null. feedback declares velocities and efforts. stop declares behavior and affected_devices. intrinsics.frames declares additional references as {parent_frame, translation_m, rotation_xyzw}. A null parent means the device base; either transform component may be null when unknown. extrinsics supplies only a mount or measured pose_frame.
@@ -111,8 +112,12 @@ FK takes `joints` and resolves modeled tips, an optional center or fixed descend
 Specify `frame` when `kinematics` is null; otherwise it defaults to
 `kinematics.frame`. `reference_frame` is null for the hand base or a fixed base
 frame. These poses are geometric predictions, not contact measurements.
-IK takes `pose` and optional `seed`, requires a declared solver, and targets its
-endpoint or fixed descendants. FK preserves measured overshoot; IK enforces limits.
+IK takes `pose` and optional `seed`; it requires a
+declared solver and targets its endpoint or fixed descendants. FK preserves
+measured overshoot; IK enforces limits.
+`seed` is the initial joint guess; omission uses measured joints projected into
+limits. Numerical IK prefers the verified configuration nearest the seed;
+profile `ik.budget` controls its search limits.
 
 For arm positioning, use an explicitly declared fixed hand reference and the
 hand-to-arm mount. A moving center is not a fixed tool offset. Finger FK predicts

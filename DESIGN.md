@@ -134,12 +134,16 @@ Unregister also removes unloaded devices without starting their drivers.
   Profile completeness is descriptive; each operation retains its own validation. FK/IK uses declared
   geometry or driver solvers; readiness, world bounds and IK do not certify safe
   or collision-free motion.
-  Numerical DLS IK tries the original seed first, then deterministic nearby and
-  broader seeds. Optional `ik.search` defaults to five total attempts, 0.02 seconds
+  Numerical DLS IK tries the original seed first, then deterministic nearby seeds
+  centered on that same seed: at most 0.35 rad per rotary joint or 5% of the
+  declared range per prismatic joint, clamped to bounds. Retries never expand to
+  global seeds, including with larger attempt budgets. Optional `ik.budget`
+  defaults to five total attempts, 0.02 seconds
   per attempt and 0.1 seconds total per target; `max_iterations` also bounds each
   attempt. Cancellation and monotonic deadlines are checked between iterations.
   Deadlines are cooperative; the current iteration or final verification may overrun.
-  Search selects the verified candidate nearest the original seed using
+  Profile budget fields override defaults.
+  Search selects the verified candidate nearest the seed using
   joint-range-normalized displacement; only zero displacement ends search early.
   Numerical and native IK normalize rotary solutions to the nearest equivalent
   angles within joint limits before independent FK verification. Prismatic
@@ -198,20 +202,19 @@ Unregister also removes unloaded devices without starting their drivers.
   dexterous-hand devices. Joint targets need no geometry; pose targets require
   declared endpoint IK, which fingertip geometry alone does not provide. It plans
   from measured joint positions and submits a full trajectory at its computed
-  duration, without waiting, stopping, settling or arrival checks. It accepts no duration override;
+  duration. `block` defaults false; true waits that duration using the loaded
+  `world` device or the optional `world` argument. The clock is checked before
+  submission; waits retain normal cancellation, deadlines and owned-motion cleanup.
+  Successful calls do not stop, settle or check arrival. It accepts no duration override;
   results report `device`, the driver's `execution_id`, requested/IK-resolved
   target `joints`, computed `duration_s` and `actions_submitted`, not measured
   arrival. Driver feedback remains validated before returning. Planning rates
   default to 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
   capped by known limits.
   Servo reads measured positions once before IK and planning, projecting only the
-  IK seed into model bounds when needed. `max_joint_delta` bounds travel from that
-  measurement for both joint and pose goals, before submission, only when supplied.
-  It accepts a positive scalar or a positive per-joint vector in radians or metres;
-  omission imposes no travel cap. This is a caller-selected planning constraint,
-  not a hardware rating. Continuous travel takes the shortest angle; explicit
-  bounded joint targets are not wrapped. Rejection names offending joints with measured/requested
-  positions, deltas and allowed deltas, without replacing existing motion.
+  IK seed into model bounds when needed. Continuous travel takes the shortest
+  angle; explicit bounded joint targets are not wrapped. Removed `max_joint_delta`,
+  `duration_s` and per-call `ik` arguments are rejected before any device operation.
   The Python planner returns references and duration together. Position devices
   retain the final reference; later writes or stop can interrupt the plan.
   Planning does not promise collision avoidance.

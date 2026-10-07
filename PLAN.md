@@ -1,5 +1,22 @@
 # Current work
 
+## Servo and nearby IK stacked on PR #18
+
+- [x] Review and adapt local changes onto the updated hardware-onboarding branch.
+- [x] Use only nearby IK retry seeds; retain five attempts and rename ik.search to ik.budget.
+- [x] Remove max_joint_delta and add optional world-clock blocking without planner services.
+- [x] Preserve the parent branch's fixed 1° inward home recovery and plain home maps.
+- [x] Validate the combined branch before publishing a PR targeting dev-go2-onboarding.
+
+Validation: Node 22.19 `npm run check` passed all 307 tests and packed-consumer
+checks. Coverage includes nearby-seed motion regressions, fixed home recovery
+with pose goals in both blocking modes, world-clock waiting, timeout and
+ownership-aware cancellation.
+
+Refresh copied tools/Python helpers and reload persistent drivers when adopting
+these changes. External plugin snapshots remain separate. No RoboEnv edits or
+physical robot runs are included in this PR.
+
 ## PR #18 merge preparation
 
 - [x] Merge main, retaining v0.10.2 fixes and resolving dependency conflicts.

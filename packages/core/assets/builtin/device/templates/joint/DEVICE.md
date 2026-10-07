@@ -14,11 +14,12 @@ intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {form
 
 kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. kinematics.frame declares the computed endpoint; do not repeat it in intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
 
-Numerical `ik.search` optionally sets `max_attempts` (5 total), `attempt_time_s`
+Numerical `ik.budget` optionally sets `max_attempts` (5 total), `attempt_time_s`
 (0.02) and `max_time_s` (0.1). Existing profiles inherit these defaults;
 `max_iterations` also limits each attempt. The original seed is tried first,
-then deterministic nearby and broader seeds; fallback selection prefers the
-nearest valid configuration. Tolerances remain strict. Budgets are cooperative
+then deterministic nearby seeds (within 0.35 rad or 5% of the prismatic range
+around the original seed, clamped to limits); selection prefers the verified
+configuration nearest the seed. Tolerances remain strict. Budgets are cooperative
 and apply per target; nearest preference is not a hard waypoint-step limit.
 
 feedback declares velocities and efforts. stop declares behavior and affected_devices. intrinsics.frames declares additional references as {parent_frame, translation_m, rotation_xyzw}. A null parent means the device base; either transform component may be null when unknown. extrinsics supplies only a mount or measured pose_frame.
@@ -80,8 +81,12 @@ model order (radians/metres); the final reference remains active.
 `read()` returns positions, velocities, efforts, faults and timestamp.
 Unsupported velocity/effort channels are empty arrays; poses come from FK.
 
-FK takes `joints`; IK takes `pose` and optional `seed`. Both name `frame`
-(default `kinematics.frame`) and `reference_frame` (null means device base).
+FK takes `joints`; IK takes `pose` and optional `seed`.
+Both name `frame` (default `kinematics.frame`) and `reference_frame` (null means
+device base).
 Targets are the modeled endpoint or fixed descendants; references must be fixed
 to the base. FK preserves measured limit overshoot; IK enforces limits.
-Use `relative_pose` for external frames.
+`seed` is the initial joint guess; omission uses measured joints projected into
+limits. Numerical IK prefers the verified configuration nearest the seed;
+profile `ik.budget` controls its search limits.
+Convert external-frame targets into a declared reference frame before calling IK.

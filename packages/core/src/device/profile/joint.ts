@@ -22,7 +22,7 @@ export const JointKinematics = z.strictObject({
   ik: z.discriminatedUnion("backend", [
     z.strictObject({ backend: z.literal("numerical"), method: z.literal("damped_least_squares"), ...tolerances,
       max_iterations: z.number().int().positive(), damping: positive,
-      search: z.strictObject({
+      budget: z.strictObject({
         max_attempts: z.number().int().positive().default(5),
         attempt_time_s: positive.default(0.02),
         max_time_s: positive.default(0.1),

@@ -25,6 +25,8 @@ class JointDevice:
         self.joints = self.model["joints"]
         self.kinematics = self.intrinsics.get("kinematics")
         self.options = self.kinematics["ik"] if self.kinematics else None
+        if self.options and "search" in self.options:
+            raise ValueError("IK search configuration was renamed to budget")
         self.native_fk, self.native_ik = native_fk, native_ik
         self.solver = Kinematics(self.model, self.options) if self.kinematics and self.model["chain"] is not None else None
         names = [j["name"] for j in self.joints]
