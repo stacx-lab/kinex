@@ -4,6 +4,7 @@ import { InteractiveMode, runPrintMode } from "@earendil-works/pi-coding-agent"
 import { createApplication } from "./application.ts"
 import { executeRoboticsCommand } from "@kinex/core"
 import { exportSession } from "./export.ts"
+import { cancelTerminalOperation } from "./integration/terminal.ts"
 import { runPackageCommand } from "./packages.ts"
 
 const help = `Kinex — robotics coding agent
@@ -70,11 +71,13 @@ async function main(): Promise<void> {
   })
   let interactive: InteractiveMode | undefined
   const shutdown = () => {
+    if (cancelTerminalOperation()) return
+    process.off("SIGINT", shutdown)
     void app.dispose().then(() => { interactive?.stop(); process.exit(130) }, error => {
       interactive?.stop(); console.error(String(error)); process.exit(1)
     })
   }
-  process.once("SIGINT", shutdown)
+  process.on("SIGINT", shutdown)
   try {
     if (headless) {
       if (values.record && app.owner.runtime) {

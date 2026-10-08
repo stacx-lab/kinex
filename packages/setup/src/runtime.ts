@@ -7,14 +7,19 @@ import { currentSignal } from "@kinex/core/scope"
 import { SetupPlanTool } from "./tool/setup_plan.ts"
 import { CalibSampleTool } from "./tool/calib_sample.ts"
 import { CalibComputeTool } from "./tool/calib_compute.ts"
+import { Assets as CoreAssets } from "@kinex/core/installation/assets"
+import { Assets } from "./assets.ts"
+import type { SetupOptions } from "./host.ts"
+import { installAptTool } from "./tool/install_apt.ts"
 import INSTRUCTIONS from "./instructions.txt"
 
-const tools: readonly Def[] = [SetupPlanTool, CalibSampleTool, CalibComputeTool]
-export const setupToolNames: readonly string[] = tools.map(tool => tool.id)
+const sharedTools: readonly Def[] = [SetupPlanTool, CalibSampleTool, CalibComputeTool]
+export const setupToolNames: readonly string[] = [...sharedTools.map(tool => tool.id), "kinex_install_apt"]
 
 /** Borrows the core runtime; construction has no filesystem or device effects. */
-export function createKinexSetup(runtime: KinexRuntime) {
+export function createKinexSetup(runtime: KinexRuntime, options: SetupOptions = {}) {
   const directory = runtime.directory
+  const tools: readonly Def[] = [...sharedTools, installAptTool(options.host)]
   return {
     plan: {
       inspect: () => runtime.operation(() => inspectPlan(directory)),
@@ -34,7 +39,11 @@ export function createKinexSetup(runtime: KinexRuntime) {
     },
     context: () => runtime.operation(async () => ({
       instructions: INSTRUCTIONS,
-      sections: {},
+      sections: {
+        provisioning: JSON.stringify({ core_library: CoreAssets.python(), setup_library: Assets.python() }),
+        guides: (await runtime.devices.templates()).filter(guide => guide.kind === "instance").sort((a, b) => a.name.localeCompare(b.name))
+          .map(guide => `${guide.name} (${guide.type}): ${guide.description} — ${guide.directory}`).join("\n"),
+      },
     })),
   }
 }

@@ -13,3 +13,5 @@ Bind procedures to actual devices and frames; morphology does not imply an inter
 The frame graph and setup dependency DAG are different graphs.
 
 Avoid adding new tests unless necessary. Skip python tests during task execution or setup attempts.
+
+For new or replaced ROS hardware in /onboarding or /register, load onboard-ros2. It owns ROS integration selection, dependencies, staged provisioning and interface verification. Keep existing working integrations unless replacement is requested.

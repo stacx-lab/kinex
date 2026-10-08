@@ -1,4 +1,4 @@
-import { createKinexSetup, setupContribution } from "@kinex/setup"
+import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames, type SetupHost } from "@kinex/setup"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import {
@@ -15,6 +15,17 @@ import type { Mode } from "./integration/interaction.ts"
 import type { KinexRuntime } from "@kinex/core"
 import { composeContributions, coreContribution, type KinexContribution } from "@kinex/core/integration"
 
+export interface ApplicationComposition {
+  builtinSkillRoots?: readonly string[]
+  reservedToolNames?: readonly string[]
+  contributions(runtime: KinexRuntime, setupHost: SetupHost): readonly KinexContribution[]
+}
+
+const defaultComposition: ApplicationComposition = {
+  builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames,
+  contributions: (runtime, host) => [coreContribution(runtime), setupContribution(createKinexSetup(runtime, { host }))],
+}
+
 export interface ApplicationOptions {
   cwd: string
   model?: string
@@ -24,14 +35,18 @@ export interface ApplicationOptions {
   continue?: boolean
   session?: string
   report?: (text: string) => void
-  contributions?(runtime: KinexRuntime): readonly KinexContribution[]
+  composition?: ApplicationComposition
 }
 
 export async function createApplication(options: ApplicationOptions) {
   const cwd = path.resolve(options.cwd)
   const storage = paths()
   const authPath = await prepareAuthPath(storage.agent, storage.state)
-  const owner = new RoboticsOwner(options.enableRecording ?? false, options.mode ?? "ask")
+  const { contributions, builtinSkillRoots = [], reservedToolNames = [] } = options.composition ?? defaultComposition
+  const owner = new RoboticsOwner(options.enableRecording ?? false, options.mode ?? "ask", {
+    builtinSkillRoots: [...builtinSkillRoots],
+    reservedToolNames: [...reservedToolNames],
+  })
   const modelRuntime = await ModelRuntime.create({
     authPath, modelsPath: path.join(storage.agent, "models.json"),
     modelsStorePath: path.join(storage.state, "models-cache.json"), allowModelNetwork: false,
@@ -46,7 +61,7 @@ export async function createApplication(options: ApplicationOptions) {
   try {
     const host = await createAgentSessionRuntime(async ({ cwd: directory, sessionManager, sessionStartEvent }) => {
       const core = await owner.enter(directory)
-      const capabilities = composeContributions(options.contributions?.(core) ?? [coreContribution(core), setupContribution(createKinexSetup(core))])
+      const capabilities = composeContributions(contributions(core, owner.interaction.setupHost))
       const settingsManager = settings(directory)
       const compaction = await createCompactionControl()
       let submitWorkflow = async (_prompt: string): Promise<void> => { throw new Error("Session is not initialized") }

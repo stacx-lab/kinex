@@ -1,6 +1,6 @@
 Prepare only what is needed for the user's embodiment and objective: $ARGUMENTS
 
-Inspect existing profiles, local models, SDK metadata, prepared simulator workspaces
+Inspect existing profiles, local models, ROS package/SDK metadata, prepared simulator workspaces
 and setup_plan before asking questions. Infer missing information only when evidence
 supports it. Ask for material missing facts/choices in a compact batch, offering an
 unknown option. Preserve unknown facts as ??? and provenance as supplied/introspected/
@@ -39,7 +39,9 @@ select a preparation objective, then clear it with task:null and report possible
 steps. Do not automatically run the full measurement backlog.
 
 Write minimal identity and unloaded device profiles with profile_write as preparation nodes require them.
-Use setup-device and the selected device guide to provision/repair drivers and runtimes.
+Use setup-device for generic device preparation and onboard-ros2 for ROS hardware.
+Follow the selected skill and device guide; share host dependencies across devices
+and keep failed or cancelled installation incomplete.
 Validate schema, imports and syntax before activation. Writes preserve activation intent;
 load/reload only through core lifecycle tools, with existing permissions. Driver changes
 need reload before live verification. Record known control/feedback/stop semantics and

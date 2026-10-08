@@ -115,11 +115,19 @@ test('guided workflows wait for the SDK response and recordings reference persis
   await bind(app)
   await app.host.session.prompt('/load sensor')
   await app.host.session.prompt('/record start sensor=2')
-  await app.host.session.prompt('/onboarding inspect the sensor')
-  assert.equal(fake.requests.length, 1)
-  assert.match(JSON.stringify(fake.requests[0].messages), /inspect the sensor/)
+  for (const command of ['onboarding', 'onboarding-ros2', 'kinex-onboarding-ros2']) {
+    const requests = fake.requests.length
+    const objective = `inspect the sensor via ${command}`
+    await app.host.session.prompt(`/${command} ${objective}`)
+    assert.equal(fake.requests.length, requests + 1)
+    const prompt = fake.requests.at(-1).messages.filter(message => message.role === 'user')
+      .map(message => typeof message.content === 'string' ? message.content : message.content.map(block => block.text ?? '').join('\n'))
+      .findLast(text => text.includes(objective))
+    assert.match(prompt, /inspect the sensor/)
+    if (command.endsWith('ros2')) assert.match(prompt, /^Load the onboard-ros2 skill/)
+  }
   const timing = app.host.session.sessionManager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'kinex-active-time')
-  assert.ok(timing.length >= 1)
+  assert.ok(timing.length >= 3)
   assert.ok(timing.every(entry => entry.data.milliseconds > 0))
   assert.doesNotMatch(JSON.stringify(fake.requests), /kinex-active-time/)
   await app.host.session.prompt('/record stop success checked')
@@ -209,4 +217,53 @@ test('SDK configuration reload keeps isolation and nested cwd preserves the ance
   assert.doesNotMatch(JSON.stringify(fake.requests), /PI_PROMPT_MUST_NOT_APPEAR/)
   for (const name of ['read', 'bash', 'write', 'edit', 'find', 'grep', 'ls']) assert.ok(fake.requests[0].tools.some(tool => tool.function.name === name), name)
   assert.equal(app.host.services.settingsManager.getEnableInstallTelemetry(), false)
+})
+
+
+test('composition owns setup discovery and reservations across session and workspace replacement', async t => {
+  const { coreContribution } = await import('@kinex/core/integration')
+  const { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } = await import('@kinex/setup')
+  await fakeProvider(t, isolation.root)
+  for (const kind of ['default', 'core', 'custom']) {
+    await t.test(kind, async t => {
+      const cwd = await workspace(t)
+      const next = await workspace(t)
+      const target = await createApplication({ cwd: next, model: 'fake/test', mode: 'auto' })
+      await bind(target)
+      await target.host.session.prompt('create target history')
+      const session = target.host.session.sessionFile
+      await target.dispose()
+      for (const directory of [cwd, next]) {
+        await mkdir(path.join(directory, '.kinex/tool'), { recursive: true })
+        await writeFile(path.join(directory, '.kinex/tool/kinex_install_apt.ts'), "export default { description:'workspace installer', execute:async()=>({title:'test',output:'workspace'}) }")
+      }
+      const composition = kind === 'default' ? undefined : kind === 'core'
+        ? { contributions: runtime => [coreContribution(runtime)] }
+        : { builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames,
+            contributions: (runtime, host) => [coreContribution(runtime), setupContribution(createKinexSetup(runtime, { host }))] }
+      const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto', composition })
+      t.after(() => app.dispose())
+      await bind(app)
+      app.host.setRebindSession(() => bind(app))
+      const check = async () => {
+        const core = app.owner.runtime
+        const setup = kind !== 'core'
+        assert.equal((await core.skills.list()).some(skill => skill.name === 'onboard-ros2'), setup)
+        assert.equal(app.host.session.getAllTools().some(tool => tool.name === 'setup_plan'), setup)
+        assert.equal(Boolean(app.host.session.extensionRunner.getCommand('onboarding')), setup)
+        for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2'])
+          assert.equal(Boolean(app.host.session.extensionRunner.getCommand(name)), setup)
+        const tools = await core.tools.list()
+        assert.equal(tools.tools.some(tool => tool.name === 'kinex_install_apt'), !setup)
+        await assert.rejects(stat(path.join(core.directory, '.kinex/python')), { code: 'ENOENT' })
+      }
+      await check()
+      if (kind === 'custom') composition.contributions = () => { throw new Error('mutated composition must not replace the selected factory') }
+      await app.host.newSession()
+      await check()
+      await app.host.switchSession(session)
+      assert.equal(app.owner.runtime.directory, next)
+      await check()
+    })
+  }
 })

@@ -1,0 +1,2 @@
+Load the onboard-ros2 skill and follow it for ROS 2 hardware onboarding.
+Use the onboarding workflow below for planning, profile writes and device lifecycle.

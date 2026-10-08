@@ -1,7 +1,9 @@
-import { setupPermissionDefaults } from "@kinex/setup"
+import { setupPermissionDefaults, type SetupHost } from "@kinex/setup"
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { PermissionDeniedError, QuestionDeclinedError, kinexPermissionAction, loadPermissionRules, type RuntimeOptions, type Question } from "@kinex/core"
+
+import { withTerminal } from "./terminal.ts"
 
 export type Mode = "ask" | "auto" | "yolo"
 export class Interaction {
@@ -34,6 +36,13 @@ export class Interaction {
     const pending = this.queue.then(() => { signal.throwIfAborted(); return action() })
     this.queue = pending.catch(() => {})
     return pending
+  }
+
+  readonly setupHost: SetupHost = {
+    withTerminal: (request, action) => this.dialog(() => {
+      const { ctx, signal } = this.current()
+      return withTerminal(ctx, { ...request, signal: AbortSignal.any([signal, request.signal]) }, action)
+    }),
   }
 
   readonly host: NonNullable<RuntimeOptions["host"]> = {

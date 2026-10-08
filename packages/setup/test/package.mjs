@@ -16,6 +16,7 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
   for (const skill of ['verify-joint-interface', 'verify-joint-motion', 'verify-sensor-interface'])
     assert.ok(setup.files.some(file => file.path === `assets/builtin/skill/${skill}/procedure.json`), skill)
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/kinex/') || file.path.endsWith('.pyc')))
+  assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/onboard-ros2/SKILL.md'))
   for (const name of ['bundle', 'bundle_install', 'bundle_manifest', 'bundle_render', 'ros2', 'ros2_check', 'ros2_drivers'])
     assert.ok(setup.files.some(file => file.path === `assets/python/kinex_ros/${name}.py`))
   await writeFile(path.join(relocated, 'consumer.mts'), `
@@ -69,6 +70,7 @@ try {
   await write({kind:'device',data:{name:'sensor',type:'other',access:{connection:{kind:'mock'}}}})
   assert.equal((await runtime.devices.list())[0].loaded, false)
   assert.equal((await setup.plan.inspect()).taskSatisfied, null)
+  assert.ok(await runtime.skills.load('onboard-ros2'))
   const coreLibrary = CoreAssets.python()
   const setupLibrary = fileURLToPath(new URL('../assets/python', import.meta.resolve('@kinex/setup')))
   const pythonEnv = { ...process.env, PYTHONPATH: [setupLibrary, coreLibrary, ${JSON.stringify(path.join(root, 'test'))}].join(path.delimiter), KINEX_BUNDLE_SKIP_INSTALL: '1' }
@@ -96,6 +98,7 @@ try {
   assert.ok(!tools.includes('track'))
   for (const name of ['setup_plan','calib_compute','calib_sample','calib_plan','device_calibrate','kinex_install_apt']) assert.ok(!tools.includes(name), name)
   assert.ok(await runtime.skills.load('setup-device'))
+  assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'onboard-ros2'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))
   await assert.rejects(stat('.kinex/python'), {code:'ENOENT'})
   await (await runtime.devices.load('world')).ready
