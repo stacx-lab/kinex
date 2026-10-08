@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate selected base measurements without commanding hardware or tuning it."""
+"""Evaluate named checks (expected vs measured) from archived evidence without commanding hardware."""
 import argparse
 import json
 import math

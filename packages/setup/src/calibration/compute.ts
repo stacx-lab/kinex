@@ -27,7 +27,7 @@ export const ComputeInput = z.discriminatedUnion("operation", [
     board: z.enum(["charuco", "checkerboard"]).default("charuco"), square_mm: z.number().positive(),
     marker_mm: z.number().positive().optional(), squares_x: z.number().int().min(2).default(7), squares_y: z.number().int().min(2).default(5),
     corners_x: z.number().int().min(2).default(9), corners_y: z.number().int().min(2).default(6), dictionary: z.string().default("DICT_4X4_50") }),
-  z.strictObject({ ...common, operation: z.literal("verify-base"), measurements: file }),
+  z.strictObject({ ...common, operation: z.literal("verify-checks"), measurements: file }),
 ])
 export type ComputeInput = z.infer<typeof ComputeInput>
 const scripts = {
@@ -42,7 +42,7 @@ const number = (data: Record<string, unknown>, key: string) => z.number().finite
 export function quality(operation: ComputeInput["operation"], data: Record<string, unknown>): "passed" | "warning" | "failed" | "not-evaluated" {
   if (data.ok === false) return "failed"
   if (operation === "urdf-introspect") return "not-evaluated"
-  if (operation === "fit-mount" || operation === "fit-dual" || operation === "verify-base")
+  if (operation === "fit-mount" || operation === "fit-dual" || operation === "verify-checks")
     return data.quality_pass === true ? "passed" : "failed"
   if (operation === "fit-tcp") {
     const residual = number(data, "residual_mm")
@@ -85,7 +85,7 @@ async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSign
     }
     if (args.operation === "camera-extrinsics") argv.push("--samples", await archived(args.samples), "--mode", args.mode,
       "--device", run.bindings.arm ?? fail("Bind arm"), "--frame", args.frame)
-    if (args.operation === "verify-base") argv.push("--measurements", await archived(args.measurements))
+    if (args.operation === "verify-checks") argv.push("--measurements", await archived(args.measurements))
     if (args.operation === "camera-intrinsics") {
       // A distinct image directory avoids mixing previous solves or other artifacts.
       const images = path.join(directory, "artifacts", shortID())
@@ -98,7 +98,7 @@ async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSign
     }
     // Only bundled, known offline programs execute here. Overriding skill prose
     // does not grant permission to execute arbitrary replacement Python.
-    const script = args.operation === "verify-base" ? path.join(Assets.root, "compute", "verify_base.py") :
+    const script = args.operation === "verify-checks" ? path.join(Assets.root, "compute", "verify_checks.py") :
       path.join(Assets.builtin("skill"), scripts[args.operation][0], "scripts", scripts[args.operation][1])
     const python = await pythonRuntime(cwd, args.interpreter, signal)
     const library = CoreAssets.python()

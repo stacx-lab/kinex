@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "roles": {
+    "sensor": {
+      "types": [
+        "rgb",
+        "rgbd",
+        "imu",
+        "force_torque"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "sensor",
+      "pointer": "/access/connection"
+    }
+  ],
+  "produces": [],
+  "computes": [
+    "verify-checks"
+  ],
+  "quality": "Rate requires at least two fresh timestamped samples; resolution and calibration metadata come from the live interface, not from the profile. Inspection never commands motion."
+}

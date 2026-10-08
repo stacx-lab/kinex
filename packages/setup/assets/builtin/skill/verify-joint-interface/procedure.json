@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "roles": {
+    "arm": {
+      "types": [
+        "joint"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "arm",
+      "pointer": "/access/connection"
+    },
+    {
+      "role": "arm",
+      "pointer": "/intrinsics/model/format"
+    },
+    {
+      "role": "arm",
+      "pointer": "/intrinsics/feedback"
+    },
+    {
+      "role": "arm",
+      "pointer": "/intrinsics/stop/affected_devices"
+    }
+  ],
+  "produces": [],
+  "computes": [
+    "verify-checks"
+  ],
+  "quality": "Joint names/order, feedback presence, controller state and sample freshness must be measured, not assumed; interface inspection never commands motion."
+}

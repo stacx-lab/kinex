@@ -184,6 +184,24 @@ test('a usable base mode is not blocked by unknown bounds in an unused mode', as
   assert.equal((await runtime.devices.list())[0].intrinsics.control.modes.unused.velocity.components[0].bounds, '???')
 })
 
+test('joint and sensor verify skills bind only their declared device types', async t => {
+  const { runtime, save, setup } = await fixture(t)
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint',
+    access: { connection: { kind: 'ros', state_topic: '/joint_states', command_topic: '/jtc/joint_trajectory' } },
+    intrinsics: { model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: null, max_effort: null }] },
+      control: { mode: 'position' }, feedback: { velocities: true, efforts: false }, stop: { behavior: 'hold', affected_devices: ['arm'] } } })
+  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ name: 'camera', type: 'rgbd' })
+  const verify = (id, skill, bindings) => node(id, { kind: 'verify', skill, bindings })
+  await save([verify('arm-interface', 'verify-joint-interface', { arm: 'arm' }),
+    verify('arm-motion', 'verify-joint-motion', { arm: 'arm' }),
+    verify('camera-interface', 'verify-sensor-interface', { sensor: 'camera' })], ['arm-interface'])
+  assert.deepEqual((await setup.plan.inspect()).next, ['arm-interface'])
+  await assert.rejects(save([verify('base-interface', 'verify-joint-interface', { arm: 'base' })]), /base is not a joint for arm/)
+  await assert.rejects(save([verify('base-sensor', 'verify-sensor-interface', { sensor: 'base' })]), /base is not a rgb\/rgbd\/imu\/force_torque for sensor/)
+  await assert.rejects(save([verify('arm-sensor', 'verify-sensor-interface', { arm: 'arm' })]), /bind role sensor/)
+})
+
 test('workspace skill override supplies the selected procedure and malformed deferred skills do not gate tasks', async t => {
   const { directory, runtime, setup, save } = await fixture(t)
   const dir = path.join(directory, '.kinex/skill/calibrate-tcp-offset')

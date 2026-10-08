@@ -26,7 +26,7 @@ Zero velocity and a submitted command do not prove stationarity or achieved post
 Stop on faults, unexpected movement or operator interruption.
 
 Archive samples, independent references and selected acceptance criteria, then run
-calib_compute operation:verify-base using its documented measurement format.
+calib_compute operation:verify-checks using its documented measurement format.
 Report missing measurements as partial. Persist only verified reference/default
 facts; correct proven driver conversion errors through setup-device and reload.
 Do not infer safe limits from a handful of successful trials or tune the gait.

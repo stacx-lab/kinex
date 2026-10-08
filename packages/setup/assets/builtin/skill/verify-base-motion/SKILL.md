@@ -27,7 +27,7 @@ tracking error. Separate localization, tracking, expiry, and stopping checks.
 
 Record evidence using calib_sample and archive command/observation/reference
 associations. Summarize only selected measurements into the format described by
-calib_compute and run operation:verify-base. Numerical checks require explicit
+calib_compute and run operation:verify-checks. Numerical checks require explicit
 units and tolerance; insufficient references remain needs-input or partial.
 
 Record trial conditions and coverage. Repeat only failed or underdetermined checks.

@@ -64,7 +64,7 @@ test('degenerate survey cannot propose a profile patch or complete a node', asyn
 test('base checks require explicit tolerances, units, reference evidence and fresh timestamps', async t => {
   const { runtime, compute, json } = await fixture(t)
   await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
-  const input = { operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' } }
+  const input = { operation: 'verify-checks', procedure: 'verify-base-interface', bindings: { base: 'base' } }
   const check = { name: 'vx', expected: .1, measured: .105, tolerance: .01, units: 'm/s', reference: 'tracked displacement / measured elapsed time', timestamps: [1, 2] }
   const file = await json('measurements.json', { required_checks: ['vx'], checks: [check] })
   const result = JSON.parse((await compute({ ...input, measurements: file })).output)
@@ -79,19 +79,46 @@ test('base checks require explicit tolerances, units, reference evidence and fre
   assert.equal(JSON.parse((await compute({ ...input, measurements: file })).output).quality, 'failed')
 })
 
+test('joint interface checks accept exact joint names and rate shortfalls and fail on a name mismatch', async t => {
+  const { runtime, compute, json } = await fixture(t)
+  // The procedure requires the connection, model, feedback and stop facts; an attempt with unknown inputs is refused.
+  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint',
+    access: { connection: { kind: 'ros', state_topic: '/joint_states', command_topic: '/jtc/joint_trajectory' } },
+    intrinsics: { model: { format: 'joints', joints: [
+      { name: 'shoulder', type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: null, max_effort: null },
+      { name: 'elbow', type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: null, max_effort: null },
+    ] }, control: { mode: 'position' }, feedback: { velocities: true, efforts: true }, stop: { behavior: 'hold', affected_devices: ['arm'] } } })
+  const input = { operation: 'verify-checks', procedure: 'verify-joint-interface', bindings: { arm: 'arm' } }
+  const joints = { name: 'joints', expected: ['shoulder', 'elbow'], measured: ['shoulder', 'elbow'], reference: '/joint_states names vs intrinsics.model' }
+  const rate = { name: 'rate:/joint_states', expected: 0, measured: 0, tolerance: 0, units: 'Hz',
+    reference: 'kinex_ros.ros2_check rate shortfall over a 3 s window (min 100 Hz)', timestamps: [1, 2] }
+  const file = await json('measurements.json', { required_checks: ['joints', 'rate:/joint_states'], checks: [joints, rate] })
+  const result = JSON.parse((await compute({ ...input, measurements: file })).output)
+  assert.equal(result.quality, 'passed', JSON.stringify(result.data))
+  assert.deepEqual(result.data.coverage, ['joints', 'rate:/joint_states'])
+  assert.deepEqual(result.proposedChanges, [])
+  await json('measurements.json', { required_checks: ['joints', 'rate:/joint_states'],
+    checks: [{ ...joints, measured: ['elbow', 'shoulder'] }, rate] })
+  const mismatch = JSON.parse((await compute({ ...input, measurements: file })).output)
+  assert.equal(mismatch.quality, 'failed')
+  assert.equal(mismatch.data.checks.find(check => check.name === 'joints').passed, false)
+  await json('measurements.json', { required_checks: ['joints', 'rate:/joint_states'], checks: [joints, { ...rate, measured: 12.5 }] })
+  assert.equal(JSON.parse((await compute({ ...input, measurements: file })).output).quality, 'failed')
+})
+
 test('attempts reject changed participants and inputs and keep repeated computations', async t => {
   const { runtime, compute, json, directory } = await fixture(t)
   await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
   const file = await json('measurements.json', { required_checks: ['units'], checks: [{ name: 'units', expected: 'normalized',
     measured: 'normalized', reference: 'SDK metadata' }] })
-  const first = JSON.parse((await compute({ operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' },
+  const first = JSON.parse((await compute({ operation: 'verify-checks', procedure: 'verify-base-interface', bindings: { base: 'base' },
     inputs: [{ kind: 'profile', device: 'base', pointer: '/type' }], measurements: file })).output)
-  const second = JSON.parse((await compute({ operation: 'verify-base', run: first.run, measurements: file })).output)
+  const second = JSON.parse((await compute({ operation: 'verify-checks', run: first.run, measurements: file })).output)
   assert.notEqual(first.evidence, second.evidence)
-  const wrong = await compute({ operation: 'verify-base', run: first.run, bindings: { base: 'other' }, measurements: file })
+  const wrong = await compute({ operation: 'verify-checks', run: first.run, bindings: { base: 'other' }, measurements: file })
   assert.match(wrong.output, /immutable/)
   await writeFile(path.join(directory, '.kinex/devices/base/profile.yaml'), 'name: base\ntype: other\n')
-  const stale = await compute({ operation: 'verify-base', run: first.run, measurements: file })
+  const stale = await compute({ operation: 'verify-checks', run: first.run, measurements: file })
   assert.match(stale.output, /inputs changed/)
 })
 
@@ -137,7 +164,7 @@ test('cancelling an owned computation never publishes a result', async t => {
   const marker = path.join(directory, 'started')
   await writeFile(interpreter, `#!/usr/bin/env python3\nimport time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('started')\ntime.sleep(30)\n`, { mode: 0o755 })
   const abort = new AbortController()
-  const pending = setup.tools.call('calib_compute', { operation: 'verify-base', procedure: 'verify-base-interface',
+  const pending = setup.tools.call('calib_compute', { operation: 'verify-checks', procedure: 'verify-base-interface',
     bindings: { base: 'base' }, measurements: await json('measurements.json', {}), interpreter }, { sessionID: 'cancel', signal: abort.signal })
   for (let i = 0; i < 100; i++) {
     if (await stat(marker).then(() => true, () => false)) break

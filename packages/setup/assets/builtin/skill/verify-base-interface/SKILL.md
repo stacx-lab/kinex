@@ -25,7 +25,7 @@ conversion or frame-mapping errors in the driver, reload through core lifecycle,
 and verify the corrected output. Do not silently tune the controller.
 
 Archive relevant exact assertions in a measurements file, naming only required
-checks. `calib_compute operation:verify-base` evaluates those assertions; its tool
+checks. `calib_compute operation:verify-checks` evaluates those assertions; its tool
 description defines the evidence format. Persist verified profile facts and record
 only the resolved plan node. Do not turn all possible interface checks into a
 mandatory prerequisite for every task.

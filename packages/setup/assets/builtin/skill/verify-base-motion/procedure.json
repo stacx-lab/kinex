@@ -27,7 +27,7 @@
   ],
   "produces": [],
   "computes": [
-    "verify-base"
+    "verify-checks"
   ],
   "quality": "All task-selected checks must have independent evidence and explicit acceptance criteria. No inferred metric meaning for normalized commands."
 }
