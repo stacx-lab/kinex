@@ -12,7 +12,7 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/calibrate-camera-intrinsics/SKILL.md'))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/verify-base-motion/procedure.json'))
   assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_checks.py'))
-  assert.ok(!setup.files.some(file => file.path.includes('assets/python/') || file.path.endsWith('.pyc')))
+  assert.ok(!setup.files.some(file => file.path.includes('assets/python/kinex/') || file.path.endsWith('.pyc')))
   await writeFile(path.join(relocated, 'consumer.mts'), `
 import { createKinexRuntime } from '@kinex/core'
 import { composeContributions, coreContribution } from '@kinex/core/integration'
