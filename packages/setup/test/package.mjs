@@ -12,7 +12,12 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/calibrate-camera-intrinsics/SKILL.md'))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/verify-base-motion/procedure.json'))
   assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_checks.py'))
+  assert.ok(!setup.files.some(file => file.path === 'assets/compute/verify_base.py'))
+  for (const skill of ['verify-joint-interface', 'verify-joint-motion', 'verify-sensor-interface'])
+    assert.ok(setup.files.some(file => file.path === `assets/builtin/skill/${skill}/procedure.json`), skill)
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/kinex/') || file.path.endsWith('.pyc')))
+  for (const name of ['bundle', 'bundle_install', 'bundle_manifest', 'bundle_render', 'ros2', 'ros2_check', 'ros2_drivers'])
+    assert.ok(setup.files.some(file => file.path === `assets/python/kinex_ros/${name}.py`))
   await writeFile(path.join(relocated, 'consumer.mts'), `
 import { createKinexRuntime } from '@kinex/core'
 import { composeContributions, coreContribution } from '@kinex/core/integration'
@@ -29,9 +34,12 @@ await runtime.dispose()
   await exec(process.execPath, [path.join(root, '../../node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2023', '--lib', 'ES2024', '--types', 'node', 'consumer.mts'], { cwd: relocated, env })
   await exec(process.execPath, ['--input-type=module', '--eval', `
 import assert from 'node:assert/strict'
-import { copyFile, stat, readFile } from 'node:fs/promises'
+import { copyFile, stat, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { createKinexRuntime } from '@kinex/core'
+import { Assets as CoreAssets } from '@kinex/core/installation/assets'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { deviceGuideProfile } from '@kinex/core/device/guide'
 import { createKinexSetup, setupSkillRoots } from '@kinex/setup'
 import { setupPiExtensions } from '@kinex/setup/extensions'
@@ -61,12 +69,21 @@ try {
   await write({kind:'device',data:{name:'sensor',type:'other',access:{connection:{kind:'mock'}}}})
   assert.equal((await runtime.devices.list())[0].loaded, false)
   assert.equal((await setup.plan.inspect()).taskSatisfied, null)
+  const coreLibrary = CoreAssets.python()
+  const setupLibrary = fileURLToPath(new URL('../assets/python', import.meta.resolve('@kinex/setup')))
+  const pythonEnv = { ...process.env, PYTHONPATH: [setupLibrary, coreLibrary, ${JSON.stringify(path.join(root, 'test'))}].join(path.delimiter), KINEX_BUNDLE_SKIP_INSTALL: '1' }
+  execFileSync('python3', ['-c', "from ros2_fixtures import fixture; fixture('ros-source', 'joint')"], {env: pythonEnv})
+  const output = execFileSync('python3', ['ros-source/provision.py', '--dir', '.kinex/devices/arm', '--core-library', coreLibrary, '--setup-library', setupLibrary], {env: pythonEnv, encoding: 'utf8'})
+  const generation = JSON.parse(output).generations.arm
+  await write({kind:'device', data: JSON.parse(await readFile(path.join(generation, 'profile.generated.json'), 'utf8'))})
+  await copyFile('ros-source/scenario.json', 'ros-scenario.json')
+  await rm('ros-source', {recursive:true})
 } finally {await runtime.dispose()}
 `], { cwd: relocated, env })
   await rm(path.join(installed, 'node_modules/@kinex/setup'), { recursive: true })
   await exec(process.execPath, ['--input-type=module', '--eval', `
 import assert from 'node:assert/strict'
-import { mkdir, symlink, writeFile, stat } from 'node:fs/promises'
+import { mkdir, symlink, writeFile, stat, readFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { createKinexRuntime } from '@kinex/core'
@@ -77,7 +94,7 @@ try {
   const tools = (await runtime.tools.list()).tools.map(tool => tool.name)
   for (const name of ['profile_write','device','devices','device_stop','servo','closed_loop','settled','relative_pose','locate_object_3d','run_policy']) assert.ok(tools.includes(name), name)
   assert.ok(!tools.includes('track'))
-  for (const name of ['setup_plan','calib_compute','calib_sample','calib_plan','device_calibrate']) assert.ok(!tools.includes(name), name)
+  for (const name of ['setup_plan','calib_compute','calib_sample','calib_plan','device_calibrate','kinex_install_apt']) assert.ok(!tools.includes(name), name)
   assert.ok(await runtime.skills.load('setup-device'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))
   await assert.rejects(stat('.kinex/python'), {code:'ENOENT'})
@@ -94,6 +111,22 @@ try {
   await (await runtime.devices.reload('world')).ready
   await runtime.devices.ping('world')
   await runtime.devices.unload('world')
+  // The ROS generation carries its own setup helpers after the package is removed.
+  process.env.PYTHONPATH = ${JSON.stringify(path.join(root, 'test/fake_rclpy'))}
+  process.env.KINEX_FAKE_RCLPY_SCENARIO = path.resolve('ros-scenario.json')
+  process.env.ROS_DOMAIN_ID = '0'
+  await (await runtime.devices.load('arm')).ready
+  const arm = (await runtime.devices.dispatch('arm', 'read')).data
+  assert.deepEqual(arm.positions, [0, 0])
+  await runtime.devices.dispatch('arm', 'write', {actions: [[.01, .02]], duration_s: .1})
+  await runtime.devices.dispatch('arm', 'stop')
+  await (await runtime.devices.reload('arm')).ready
+  await runtime.devices.unload('arm')
+  const profile = (await runtime.profiles.snapshot()).devices.find(device => device.name === 'arm')
+  const generation = path.dirname(path.resolve('.kinex/devices/arm', profile.access.driver.entry))
+  execFileSync('bash', [path.join(generation, 'check.sh'), '--duration-s', '.05'], {env: process.env})
+  const checks = JSON.parse(await readFile('.kinex/devices/arm/verify/measurements.json', 'utf8'))
+  assert.ok(checks.checks.length)
   // Model resolution belongs to core even when its Python environment is newly prepared.
   const python = await runtime.python.initialize()
   await mkdir(path.dirname(python.executable), {recursive:true})
