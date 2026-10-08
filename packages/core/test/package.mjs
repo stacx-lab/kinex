@@ -16,6 +16,9 @@ export async function checkCorePackage(directory, env, pack) {
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/policy.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/ik_search.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/trajectory.py'))
+  for (const name of ['ros2', 'ros2_drivers', 'ros2_check', 'bundle', 'bundle_manifest', 'bundle_install', 'bundle_render'])
+    assert.ok(!pack.files.some(file => file.path === `assets/python/kinex/${name}.py`))
+  assert.ok(!pack.files.some(file => file.path.startsWith('test/')))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
   await writeFile(path.join(directory, 'consumer.mts'), `
     import { createKinexRuntime, type RuntimeOptions } from '@kinex/core'
@@ -76,7 +79,7 @@ export async function checkCorePackage(directory, env, pack) {
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
-      execFileSync('python3', ['-c', 'import kinex; import kinex.driver_protocol; import kinex.stream; import kinex.policy; import kinex.kinematics'], {
+      execFileSync('python3', ['-c', 'import sys; import kinex; import kinex.driver_protocol; import kinex.stream; import kinex.policy; import kinex.kinematics; assert "rclpy" not in sys.modules'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
       execFileSync('python3', ['-c', [

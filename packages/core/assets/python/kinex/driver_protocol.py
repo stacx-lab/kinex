@@ -29,6 +29,16 @@ def protocol_output():
             os.dup2(output.fileno(), descriptor)
 
 
+class CleanupError(RuntimeError):
+    """Every cleanup stage ran; one or more failed. Carries each stage's error."""
+
+    code = "cleanup_failed"
+
+    def __init__(self, errors):
+        super().__init__("cleanup failed: " + "; ".join(map(str, errors)))
+        self.errors = list(errors)
+
+
 def release(*actions):
     """Attempt every cleanup stage and report all failures."""
     errors = []
@@ -38,7 +48,7 @@ def release(*actions):
         except Exception as error:
             errors.append(error)
     if errors:
-        raise ExceptionGroup("cleanup failed: " + "; ".join(map(str, errors)), errors)
+        raise CleanupError(errors)
 
 
 @contextlib.contextmanager

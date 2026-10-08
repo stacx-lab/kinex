@@ -8,3 +8,10 @@ test('provisioned driver templates retain buffer and clock contracts', () => {
     encoding: 'utf8',
   })
 })
+
+test('shared driver helpers stay compatible with Python 3.10', () => {
+  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./driver_protocol_compat.py', import.meta.url))], {
+    env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) },
+    encoding: 'utf8',
+  })
+})

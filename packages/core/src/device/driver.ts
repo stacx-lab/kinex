@@ -1,7 +1,7 @@
 import { shortID } from "../util/id.ts"
 import type { CommandAdmission } from "./scheduler.ts"
 import { scoped } from "../scope.ts"
-import { spawnProcess } from "../util/process.ts"
+import { spawnProcess, which } from "../util/process.ts"
 import { pythonDiagnostic } from "../python/environment.ts"
 import path from "node:path"
 import { ProfileStore } from "./profile/store.ts"
@@ -51,6 +51,19 @@ export async function driverExists(cwd: string, device: Device): Promise<boolean
   const file = await driverPath(cwd, device)
   if (!file) return false
   return exists(file)
+}
+
+// Match launch resolution: paths are relative to the driver entry's directory,
+// bare commands use PATH, and an unset interpreter is core Python, prepared lazily.
+export async function interpreterExists(cwd: string, device: Device): Promise<boolean> {
+  const interpreter = device.access?.driver?.interpreter
+  if (interpreter === undefined) return true
+  if (path.isAbsolute(interpreter)) return exists(interpreter)
+  if (interpreter.includes("/") || (process.platform === "win32" && interpreter.includes("\\"))) {
+    const file = await driverPath(cwd, device)
+    return file !== undefined && exists(path.resolve(path.dirname(file), interpreter))
+  }
+  return (await which(interpreter)) !== undefined
 }
 
 function parsePayload(deviceName: string, line: string | undefined): Record<string, unknown> {
