@@ -1,5 +1,93 @@
 # Current work
 
+## ROS branch integration
+
+- [x] Rebase onto current main and remove the merged session-time feature commit.
+- [x] Preserve main's compaction timing and keep ROS workflow metrics in provisioning.
+- [x] Validate the combined branch.
+
+Validation: `npm run check` passed all 354 tests, including compaction timing,
+ROS workflows, terminal authentication/cancellation, packed consumers and
+release checks. The timing implementation and its dedicated tests match main;
+ROS package contents match the previously validated branch. Diff checks passed.
+
+## Shared ROS source builds
+
+- [x] Fetch Git pins before one colcon build of the declared source repositories.
+- [x] Preserve dependency failures and skip builds until preparation succeeds.
+- [x] Add native regression coverage with the dependent repository listed first.
+- [x] Validate setup tests and native Humble source builds.
+
+Validation: all 56 setup tests, 56 Python 3.10 bundle-helper tests and 3 native
+Humble tests passed. The native dependency regression failed before the fix and
+passed after it, with the consumer listed before its dependency. Helper checks
+cover quoted paths, checkout-only exclusions and build suppression after a
+failed fetch. Diff and shell syntax checks passed.
+
+## PR review corrections
+
+- [x] Match interpreter readiness to the driver's launch directory.
+- [x] Clean up installer subprocess trees on timeout and host cancellation.
+- [x] Require `--install` for pip and Git dependency preparation.
+- [x] Resolve verification scripts from the selected driver generation.
+- [x] Validate focused regressions and full integration.
+
+Validation: `npm run check` passed all 350 tests, including relative-interpreter
+load/calibration clearing, installer cancellation, terminal authentication and
+packed consumers. All 55 bundle-helper tests passed on Python 3.10 in the isolated
+Humble container. Regressions cover timeout cleanup after launcher exit and pip/Git
+installation opt-in. Verification skills use the selected generation's scripts,
+with optional stack checks and device-level measurement output. Diff checks passed.
+
+## Explicit ROS onboarding command
+
+- [x] Add setup-owned `/onboarding-ros2`, selecting `onboard-ros2` through the shared onboarding workflow.
+- [x] Document the command and its standalone `/kinex-onboarding-ros2` alias.
+- [x] Validate workflow routing, command discovery and core-only composition.
+- [x] Recognize the explicit ROS workflow in saved-session onboarding metrics.
+
+Validation: build/typecheck and all 25 focused setup, application and packed-consumer
+tests passed. Both command names reach the ROS workflow and remain absent from
+core-only composition across session/workspace changes. Restart Kinex to load the command.
+
+## Move ROS onboarding into setup
+
+Scope: the complete five-commit ROS feature on `feat/ros2-robot-bundles`.
+Core has no ROS implementation or dependency. Setup owns onboarding, adapters,
+provisioning, apt tooling and verification. [Contracts](doc/ros2-robot-bundles.md).
+
+- [x] Relocate Python modules, fixtures, tests and CI paths into setup.
+- [x] Stage complete generations with failure recovery and setup-owned ROS facts.
+- [x] Move apt execution into setup and connect the host terminal callback.
+- [x] Add onboard-ros2 and make discovery/reservations composition-owned.
+- [x] Add composition lifecycle, terminal, generation and package-removal regressions.
+- [x] Update ownership contracts, usage and legacy migration guidance.
+- [x] Complete full integration, packed consumers, Python 3.10 and native ROS checks.
+- [x] Review and correct resume, ownership, evidence, shell-path and composition edge cases.
+
+Validation (2026-10-08): `npm run check` passed all 345 tests, including build/typecheck,
+PTY cancellation/recovery, packed consumers and release checks. All 117 Python 3.10
+helper tests passed in the isolated Humble container. Humble and Jazzy (local,
+localhost DDS) each passed both native smoke tests; the latest Jazzy run had no
+executor teardown warning. Diff checks passed; documentation links resolve except the
+pre-existing unavailable sibling `kinex-plugins/README.md` link.
+
+Packed validation provisions from relocated packages, removes setup and the source
+bundle, then exercises joint load/read/write/stop/reload/unload and checker execution.
+Recovery regressions preserve the selected generation after failed provisioning,
+reject invalid profile writes and restore operation after a failed candidate load.
+
+Review corrections preserve completed vendor artifacts on resume, replace stale
+checker evidence even for invalid generation manifests, and allow compatible
+pre-registered devices without overwriting their files. Foreign receipts remain
+authoritative; satellites require parent provisioning. Returned shell paths are
+quoted, and application composition is captured once for its whole lifetime.
+Regression tests cover each case.
+
+Hardware bundles, ros2_control integration and physical validation remain deferred
+until the relevant robot is connected. Native plugin snapshots require a separate
+update. No robot-specific production bundle is part of this foundation.
+
 ## Active session time
 
 - [x] Show cumulative active time in the existing footer stats row.

@@ -8,8 +8,8 @@ Hardware and simulators share the same device contracts.
 
 | Location | Owns |
 | --- | --- |
-| `packages/core/src`, `packages/core/assets` | Device registration/removal, provisioning, runtime, schemas, validation, Python/tools, setup-device and complete device guides; no setup/agent/UI dependencies. |
-| `packages/setup` | Onboarding and calibration tools, procedures and assets; depends on core. |
+| `packages/core/src`, `packages/core/assets` | Device registration/removal, non-ROS provisioning, runtime, schemas, validation, Python/tools, setup-device and complete device guides; no setup/agent/UI dependencies. |
+| `packages/setup` | Onboarding, ROS provisioning/adapters, apt tooling and calibration; depends on core through package exports. |
 | `src` | Standalone CLI, isolated coding storage and product policy; published Pi SDKs supply the coding harness and TUI. |
 | `src/integration` | Standalone Pi integration and product policy, independent of native plugins. |
 | `../kinex-plugins` (separate project) | Native Pi, OpenCode and Codex integrations consuming a packed core snapshot. |
@@ -25,6 +25,50 @@ the runtime through tracked operations/tool execution; the runtime owns cancella
 recording attribution and disposal. Unregister lives in core and holds its device
 transition fence through deactivation and deletion.
 Unregister also removes unloaded devices without starting their drivers.
+
+## Setup and ROS boundary
+
+Core contains no ROS implementation, installer policy or ROS Python dependency.
+Its existing `kind: ros` connection shapes are inert metadata. Setup's
+`onboard-ros2` skill owns integration selection during onboarding and registration:
+reuse suitable installed ROS packages, then apt binaries, with an evidenced reason
+for source builds or a direct SDK. Preserve working integrations unless replacement
+is requested. Domain/namespace live in bundle facts and CameraInfo topics in driver
+configuration; the core schema does not learn those settings.
+
+Setup's `/onboarding-ros2` command explicitly selects that skill and reuses the
+onboarding workflow. Hosts discover it through the setup command contribution.
+
+Setup owns `kinex_ros`, provisioning and `kinex_install_apt`. Provisioning requires
+explicit absolute core/setup Python library roots. It stages a complete generation
+under the device, validates Python/shell syntax and referenced driver/URDF artifacts,
+then renames it to `ros/generations/<id>`. The profile's entry and interpreter point
+to that generation. Selection uses core's normal `profile_write` validation after
+unloading the device; provisioning never edits the selected profile. Failed
+candidates leave selected files intact. Satellites pin their parent's generation;
+all destinations are checked before writes and locked during provisioning.
+
+Each generation includes the setup Python helpers it needs. Its wrapper sources
+the declared ROS installation and device overlay, then adds generation-local
+`kinex_ros` and installed core `kinex` paths. Removing setup does not break an
+already provisioned device. Host package installation and source overlays are shared
+external dependencies and are not rolled back with a generation. Legacy ROS profiles
+require explicit migration; failed legacy migration stays unloaded and repairs forward.
+See [bundle contracts](doc/ros2-robot-bundles.md).
+
+The apt tool uses tracked core tool execution, shell permission and an owned process
+group. Setup may request a terminal through `SetupHost.withTerminal`; standalone
+serializes handoff, suspends/restores the TUI and routes Ctrl+C to that operation.
+Headless/non-TTY hosts report unavailable and preserve the recovery command. Setup
+executes its installed helper by absolute path under system Python with `-S`, cleared
+`PYTHONHOME` and a controlled `PYTHONPATH`. Password input stays at sudo's terminal;
+apt stdin stays closed. Failed or cancelled installation remains incomplete.
+
+Standalone selects an `ApplicationComposition` before creating its runtime. Its
+roots, tool reservations and contribution factory travel together across sessions
+and workspace changes. Defaults include setup; custom compositions replace those
+defaults completely. Core-only composition supplies no setup roots or reservations.
+Dynamic setup library paths and instance guides live in contributed context sections.
 
 ## Core contracts
 

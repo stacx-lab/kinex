@@ -79,6 +79,7 @@ environments run without syncing. The ordinary shell environment stays unchanged
 | `/record stop [success|failure|partial] [summary]` | Finish a recording. |
 | `/record status` | Inspect current and recent recordings. |
 | `/onboarding [description]` | Prepare the embodiment and current task through a setup DAG. |
+| `/onboarding-ros2 [description]` | Prepare ROS 2 hardware using the onboard-ros2 skill. |
 | `/register <type-or-template>` | Ask the model to prepare an unloaded profile. |
 | `/calibrate [scope]` | Resolve only the selected calibration prerequisites. |
 | `/mode [ask|auto|yolo]` | Select the Kinex permission/interaction mode. |
@@ -112,9 +113,30 @@ onboarding never gates device operations. Existing operation checks and permissi
 still apply. `calib_sample` archives attempt evidence; `calib_compute` runs offline
 solvers and proposes profile changes. See [setup API and migration](packages/setup/README.md).
 
+For new hardware integrations, `/onboarding` and `/register` prefer compatible
+ROS 2 packages. Direct vendor SDKs are a fallback for missing or insufficient ROS
+support, or an explicit user choice; setup explains the reason. Existing working
+integrations are preserved unless the task calls for replacing them.
+Onboarding checks installed driver packages and reuses their launch files and
+descriptions before installing missing apt binaries. Cloning/building vendor
+source requires a specific missing package, version or feature, or your explicit
+request. Multiple arms/cameras share the installed packages with separate settings.
+Use `/onboarding-ros2 [description]` to select the setup-owned `onboard-ros2` skill
+explicitly. It prepares required ROS/system packages on the driver's Linux host.
+It checks the ROS distribution and package sources,
+installs missing apt dependencies through the normal shell approval, verifies
+them and resumes setup. Existing packages are reused. Setup's
+`kinex_install_apt` tool temporarily hands the terminal to sudo when authentication
+is needed, then verifies the packages and resumes onboarding. Enter the password
+only at sudo's prompt; it never goes through chat or captured tool output.
+Headless sessions return a recovery command with `--install --interactive` to run
+on the target host. Native host integrations can use that same helper from their
+interactive terminal; the setup tool only installs on the host running Kinex.
+
 Direct operations run without a model round trip. Only onboarding, registration
 and calibration submit workflows to the model. Core owns registration, unregister,
-provisioning and device guides. Setup owns onboarding and calibration; standalone composes both contributions. Core alone
+generic provisioning and device guides. Setup owns ROS onboarding, provisioning,
+adapters and calibration; standalone composes both contributions. Core alone
 can add, remove and operate devices, including control, perception and recording.
 
 ## Control and world time
@@ -548,8 +570,9 @@ updated explicitly; robotics code is maintained only in this repository.
 `@kinex/core/integration` defines feature contributions for tools, skills, commands
 and namespaced context. Host adapters consume contributions; product entrypoints
 explicitly compose them around a shared runtime. Standalone explicitly includes
-`@kinex/setup` for onboarding and calibration. Core owns registration, unregister,
-device provisioning and operation; it can be installed alone. See [setup composition and API migration](packages/setup/README.md).
+`@kinex/setup` for onboarding, ROS provisioning/adapters and calibration. Core owns
+registration, unregister, generic provisioning and operation; it installs alone
+without ROS dependencies. Provisioned ROS drivers retain their own setup helpers. See [setup composition and API migration](packages/setup/README.md).
 Native plugins still use their existing packed snapshots; adopting these new APIs
 and packaging setup is a separate update in that project.
 
