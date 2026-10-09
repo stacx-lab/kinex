@@ -1,6 +1,6 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFile, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -125,6 +125,64 @@ test('invalid XML bundle manifests block execution fallback until repaired', asy
     assert.ok(!repaired.isError, repaired.output)
     assert.match(JSON.parse(repaired.output).tree, /Local move/)
   })
+})
+
+test('malformed local XML blocks skill and controller fallback until repaired', async t => {
+  for (const manifestState of ['valid', 'missing', 'malformed']) await t.test(manifestState, async t => {
+    const { runtime, directory, run } = await fixture(t)
+    const dir = path.join(directory, '.kinex/skill/move-and-verify')
+    const file = path.join(dir, 'SKILL.xml')
+    const manifestFile = path.join(dir, 'tool.yaml')
+    const manifest = await readFile(manifestFile, 'utf8')
+    const xml = (await readFile(file, 'utf8')).replace('name="Submit trajectory once"', 'name="Repaired local move"')
+    await writeFile(path.join(dir, 'SKILL.md'), '---\nname: move-and-verify\ndescription: Legacy fallback\n---\nLegacy tree')
+    if (manifestState === 'missing') await rm(manifestFile)
+    if (manifestState === 'malformed') await writeFile(manifestFile, 'name: [unfinished')
+    await runtime.devices.dispatch('arm', 'write', { actions: [[.5]], duration_s: 1 })
+    for (const invalid of ['', '<root>', '<!DOCTYPE root><root/>', '<root name="move-and-verify"/>']) {
+      await writeFile(file, invalid)
+      const catalog = await runtime.tools.list()
+      assert.ok(catalog.problems.some(problem => problem.includes(file)))
+      assert.ok(!catalog.tools.some(tool => tool.name === 'move_and_verify'), 'malformed local XML must block the packaged controller')
+      assert.ok(catalog.tools.some(tool => tool.name === 'servo'))
+      assert.equal(await runtime.skills.load('move-and-verify'), undefined)
+      assert.ok((await runtime.skills.load('setup-device')).content)
+      const context = await runtime.context()
+      assert.ok(context.skills.includes(file))
+      assert.match(context.skills, /setup-device/)
+      await assert.rejects(run(), /unknown tool "move_and_verify"/)
+      assert.equal((await runtime.devices.dispatch('arm', 'read')).data.stopped, false)
+      await assert.rejects(stat(path.join(directory, '.kinex/python')), { code: 'ENOENT' })
+    }
+    await writeFile(file, xml)
+    await writeFile(manifestFile, manifest)
+    assert.equal((await runtime.skills.load('move-and-verify')).info.file, file)
+    assert.deepEqual((await runtime.tools.list()).problems, [])
+    assert.doesNotMatch((await runtime.context()).skills, /<skill_problems>/)
+    const repaired = await run()
+    assert.ok(!repaired.isError, repaired.output)
+    assert.match(JSON.parse(repaired.output).tree, /Repaired local move/)
+  })
+})
+
+test('malformed aliased XML reserves its manifest tool without executing a fallback', async t => {
+  const { runtime, directory, run } = await fixture(t)
+  const dir = path.join(directory, '.kinex/skill/local-move')
+  await rename(path.join(directory, '.kinex/skill/move-and-verify'), dir)
+  const file = path.join(dir, 'SKILL.xml')
+  const xml = (await readFile(file, 'utf8')).replace('name="Submit trajectory once"', 'name="Aliased local move"')
+  await writeFile(file, '<root>')
+  const catalog = await runtime.tools.list()
+  assert.ok(catalog.problems.some(problem => problem.includes(file)))
+  assert.ok(!catalog.tools.some(tool => tool.name === 'move_and_verify'))
+  assert.ok(catalog.tools.some(tool => tool.name === 'servo'))
+  await assert.rejects(run(), /unknown tool "move_and_verify"/)
+  await assert.rejects(stat(path.join(directory, '.kinex/python')), { code: 'ENOENT' })
+  await writeFile(file, xml)
+  assert.equal((await runtime.skills.load('move-and-verify')).info.file, file)
+  const repaired = await run()
+  assert.ok(!repaired.isError, repaired.output)
+  assert.match(JSON.parse(repaired.output).tree, /Aliased local move/)
 })
 
 test('malformed XML preserves valid skills and context, and recovers after repair', async t => {

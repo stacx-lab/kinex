@@ -15,6 +15,7 @@ Markdown wrapper for this skill. Other Markdown skills remain supported.
 - [x] Complete full integration and packaged-consumer validation.
 - [x] Isolate invalid skill files, report discovery errors in context, and verify recovery after repair.
 - [x] Block execution fallback for invalid XML bundle manifests and verify recovery after repair.
+- [x] Block malformed XML overrides by bundle path and readable manifest identity; verify repair and unrelated discovery.
 
 The memory sequence validates inputs, submits one trajectory, verifies fresh quiet
 arrival, then stops owned motion. Action updates queue synchronous RPC work for
@@ -28,8 +29,8 @@ Future work includes reusable leaf libraries and asynchronous leaf cancellation.
 Automatic Markdown conversion, existing setup/calibration migration, persistent
 resume and physical robot trials remain outside this skill.
 
-Validation: `npm run check` passed all 322 tests on Node 22.23.3 / Python 3.12.3,
-including fifteen behavior-tree checks, packaged XML discovery, PTY integration and
+Validation: `npm run check` passed all 327 tests on Node 22.23.3 / Python 3.12.3,
+including twenty behavior-tree checks, packaged XML discovery, PTY integration and
 release metadata validation. Verified a Git-normalized Linux snapshot plus the
 working changes; a raw Windows-file copy exposed an existing CRLF frontmatter
 issue in a device guide. New XML discovery accepts CRLF. No physical robot runs.
@@ -38,6 +39,8 @@ metadata errors, valid-skill loading, context diagnostics and recovery after rep
 Bundle fallback regressions failed before the fix for missing, mismatched, malformed
 and schema-invalid manifests; each now blocks execution and resumes the selected
 local tree after repair without disturbing unrelated tools or existing motion.
+Malformed XML overrides also block packaged fallback with valid, missing or malformed
+local manifests; readable manifest identities reserve differently named bundle paths.
 
 ## Version 0.10.3
 

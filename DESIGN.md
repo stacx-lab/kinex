@@ -183,8 +183,9 @@ Unregister also removes unloaded devices without starting their drivers.
   context without blocking valid skills. XML wins over Markdown in the
   same directory, retaining normal nearest-root precedence. A sibling tool.yaml
   exposes the XML skill's named execution tool; its name must match the XML metadata.
-  XML reserves that tool name before manifest validation, so a broken bundle cannot
-  execute a lower-priority tree.
+  XML reserves its relative bundle path before parsing and its declared tool name
+  before manifest validation. Malformed XML still reserves a readable manifest's
+  tool name, so broken overrides cannot execute a lower-priority tree.
   The move-and-verify skill uses the pinned py_trees XML parser and Python leaf
   operations. It queues synchronous RPC work between ticks, preserving host
   cancellation and motion ownership. Existing Markdown skills remain supported.

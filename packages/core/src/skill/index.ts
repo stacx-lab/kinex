@@ -52,12 +52,17 @@ export async function discoverSkills(cwd: string): Promise<{ skills: SkillInfo[]
   const skills: SkillInfo[] = []
   const problems: string[] = []
   const seen = new Set<string>()
+  const xmlBundles = new Set<string>()
   for (const skillDir of await skillRoots(cwd)) {
     if (!(await exists(skillDir))) continue
     const pattern = "**/SKILL.{xml,md}"
     for (const entry of (await glob(pattern, { cwd: skillDir, dot: true })).sort()) {
       const file = path.join(skillDir, entry)
       const xml = entry.endsWith(".xml")
+      const bundle = path.dirname(entry)
+      if (xmlBundles.has(bundle)) continue
+      // A local XML file shadows the same bundle even when it cannot be parsed.
+      if (xml) xmlBundles.add(bundle)
       if (!xml && await exists(path.join(path.dirname(file), "SKILL.xml"))) continue
       let meta: Record<string, string>
       try {

@@ -69,6 +69,7 @@ export async function listPyTools(cwd: string): Promise<{ tools: PyToolInfo[]; p
   const tools: PyToolInfo[] = []
   const problems: string[] = []
   const seen = new Set<string>()
+  const xmlBundles = new Set<string>()
   const skills = await skillRoots(cwd)
   const roots = (await toolRoots(cwd)).flatMap(directory => [
     { directory, pattern: "*/tool.yaml" },
@@ -80,16 +81,23 @@ export async function listPyTools(cwd: string): Promise<{ tools: PyToolInfo[]; p
     if (!(await exists(toolRoot))) continue
     for (const entry of (await glob(pattern, { cwd: toolRoot, dot: true })).sort()) {
       let xmlTool: string | undefined
+      let invalidXML = false
       if (entry.endsWith(".xml")) {
+        const bundle = path.dirname(entry)
+        if (xmlBundles.has(bundle)) continue
+        // Reserve the bundle before parsing; even an empty override blocks fallback.
+        xmlBundles.add(bundle)
         try {
           xmlTool = parseXMLSkill(await readFile(path.join(toolRoot, entry), "utf8"))["tool"]!
         } catch (error) {
           problems.push(`${path.join(toolRoot, entry)}: ${String(error)}`)
-          continue
+          invalidXML = true
         }
-        if (seen.has(xmlTool)) continue
-        // An invalid manifest must not select a different, lower-priority tree.
-        seen.add(xmlTool)
+        if (xmlTool) {
+          if (seen.has(xmlTool)) continue
+          // An invalid manifest must not select a different, lower-priority tree.
+          seen.add(xmlTool)
+        }
       }
       const file = path.join(toolRoot, path.dirname(entry), "tool.yaml")
       if (!(await exists(file))) {
@@ -111,6 +119,11 @@ export async function listPyTools(cwd: string): Promise<{ tools: PyToolInfo[]; p
       const parsed = ToolManifest.safeParse(raw)
       if (!parsed.success) {
         problems.push(`${file}: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "manifest"}: ${issue.message}`).join("; ")}`)
+        continue
+      }
+      if (invalidXML) {
+        // A readable manifest also reserves aliases stored under another bundle path.
+        seen.add(parsed.data.name)
         continue
       }
       if (xmlTool && xmlTool !== parsed.data.name) {
