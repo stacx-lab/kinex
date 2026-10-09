@@ -1,5 +1,16 @@
 # Current work
 
+## Active session time
+
+- [x] Show cumulative active time in the existing footer stats row.
+- [x] Exclude idle periods and user-input dialogs, and restore saved intervals on resume.
+- [x] Keep timing entries out of model context and preserve recording indicators.
+- [x] Validate timing, application lifecycle, terminal rendering and packed consumers.
+
+Validation: `npm run check` passed all 310 tests, including build/typecheck,
+timing persistence, model-context isolation, regular/fullscreen PTY rendering,
+packed consumers and release checks. Diff checks passed.
+
 ## Version 0.10.3
 
 - [x] Validate all 13 RoboEnv catalogs (89 profiles), exported drivers and blocking servo against current Kinex.

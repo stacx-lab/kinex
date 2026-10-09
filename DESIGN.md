@@ -298,6 +298,12 @@ scoped calls without rolling back completed work. Tools/skills refresh within ta
 Stable instructions accompany a dynamic context snapshot restored after compaction.
 Images enter history as bytes. Native host contracts belong to the separate plugin
 project; core remains host-independent.
+Standalone accumulates active agent time using a monotonic clock, pausing for SDK
+user-input dialogs and stopping at agent settlement. Positive intervals persist as
+`kinex-active-time` custom session entries outside model context. The footer reuses
+Pi's renderer for usage/model layout, displays the cumulative time on the stats row,
+and refreshes once per second only while work is active. Session shutdown clears
+its timer and recording subscription; resume restores saved intervals.
 Robot context omits workspace safety limits and keep-out zones. Those fields remain
 in the manifest; `safety.notes` is no longer part of its schema.
 

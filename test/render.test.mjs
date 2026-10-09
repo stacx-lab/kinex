@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { stripTerminalSequences, visibleWidth, getCapabilities, setCapabilities } from '@earendil-works/pi-tui'
+import { stripTerminalSequences, truncateToWidth, visibleWidth, getCapabilities, setCapabilities } from '@earendil-works/pi-tui'
 import { initTheme } from '@earendil-works/pi-coding-agent'
 import { toolRenderers } from '../dist/integration/render.js'
 import { toolBridge, piResult } from '../dist/integration/tools.js'
-import { recordingIndicator, recordingFooter } from '../dist/integration/recording-indicator.js'
+import { footerIndicator, kinexFooter } from '../dist/integration/footer.js'
 
 const theme = { fg: (_color, text) => text, bold: text => text }
 const context = { expanded: false, args: {}, isError: false }
@@ -83,7 +83,7 @@ test('tool expansion reveals arguments and results, while collapsed views bound 
 test('recording shares the directory row and preserves every other upstream footer line', () => {
   let name = 'test recording'
   const lines = ['/workspace (main) • session', '↑1000 ↓20 CH80% 0.8%/128k (auto)     test-model', 'Kinex · 1/1 devices · auto']
-  const footer = recordingFooter({ render: () => lines, invalidate() {} }, () => name)
+  const footer = kinexFooter({ render: () => lines, invalidate() {} }, () => ({ recording: name }))
   for (const width of [15, 40, 100]) {
     const rendered = footer.render(width)
     assert.equal(rendered.length, lines.length)
@@ -97,40 +97,72 @@ test('recording shares the directory row and preserves every other upstream foot
   assert.deepEqual(footer.render(100), lines)
 })
 
-test('recording footer rejects stale updates and restores the host footer on shutdown', async () => {
+test('session time shares the stats row and preserves upstream layout and recording', () => {
+  const render = width => [truncateToWidth('/workspace', width),
+    truncateToWidth('↑1000 ↓20 CH80% $1.00 0.8%/128k (auto)', Math.max(0, width - 12)).padEnd(Math.max(0, width - 12)) + truncateToWidth(' test-model', Math.min(12, width)),
+    truncateToWidth('Kinex · 1/1 devices · auto', width)]
+  const base = { render, invalidate() {} }
+  const footer = kinexFooter(base, () => ({ time: '\x1b[2mtime 1m02s\x1b[22m', recording: 'run' }))
+  for (const width of [1, 10, 30, 60, 100]) {
+    const lines = footer.render(width)
+    assert.equal(lines.length, 3)
+    assert.ok(lines.every(line => visibleWidth(line) <= width), `width ${width}`)
+    assert.equal(lines[2], render(width)[2])
+    if (width === 100) {
+      assert.match(stripTerminalSequences(lines[0]), /rec: run$/)
+      assert.match(stripTerminalSequences(lines[1]), /^time 1m02s ↑1000 ↓20 CH80% \$1.00 0.8%\/128k \(auto\) +test-model$/)
+    }
+  }
+})
+
+test('footer refresh pauses while waiting and rejects stale recording updates on shutdown', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  let renders = 0
   let listener
   const pending = []
   const widgets = []
   let component
   const base = { render: () => ['/workspace', 'model'], invalidate() {} }
-  const tui = { children: [{ children: [base] }], requestRender() {} }
+  const tui = { children: [{ children: [base] }], requestRender() { renders++ } }
   const runtime = {
     subscribe: callback => { listener = callback; return () => { listener = undefined } },
     recording: { status: () => new Promise(resolve => pending.push(resolve)) },
   }
   const ctx = { hasUI: true, ui: {
     setWidget: (...args) => { widgets.push(args); if (args[1]) assert.deepEqual(args[1](tui).render(100), []) },
-    setFooter: factory => { component = factory?.(tui) },
+    setFooter: factory => { component = factory?.(tui, theme) },
     notify: message => assert.fail(message),
   } }
-  const indicator = recordingIndicator()
+  const indicator = footerIndicator(() => '0s')
   const binding = indicator.bind(runtime, ctx)
   pending.shift()({ status: 'recording', name: 'test recording' })
   await binding
   assert.equal(widgets.at(-1)[1], undefined)
   assert.match(component.render(40)[0], /\x1b\[31mrec: test recording/)
   assert.equal(component.render(40).length, 2)
+  indicator.refresh(true)
+  const active = renders
+  t.mock.timers.tick(1000)
+  assert.equal(renders, active + 1)
+  indicator.refresh(false)
+  const paused = renders
+  t.mock.timers.tick(5000)
+  assert.equal(renders, paused)
   listener({ type: 'recording.changed' })
   listener({ type: 'recording.changed' })
   const stale = pending.shift()
   pending.shift()(undefined)
   await Promise.resolve()
-  assert.deepEqual(component.render(40), base.render(40))
+  assert.deepEqual(component.render(40), ['/workspace', 'time 0s model'])
   stale({ status: 'recording', name: 'stale' })
   await Promise.resolve()
-  assert.deepEqual(component.render(40), base.render(40))
+  assert.deepEqual(component.render(40), ['/workspace', 'time 0s model'])
   listener({ type: 'recording.changed' })
+  indicator.refresh(true)
   indicator.clear()
+  const stopped = renders
+  t.mock.timers.tick(5000)
+  assert.equal(renders, stopped)
   pending.shift()({ status: 'recording', name: 'outgoing session' })
   await Promise.resolve()
   assert.equal(component, undefined)

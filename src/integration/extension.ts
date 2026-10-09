@@ -9,7 +9,8 @@ import { registerCommands, executeCommand } from "./commands.ts"
 import type { RoboticsOwner } from "./owner.ts"
 import { contextUpdate } from "./context.ts"
 import { toolBridge, registerSkillTool } from "./tools.ts"
-import { recordingIndicator } from "./recording-indicator.ts"
+import { footerIndicator } from "./footer.ts"
+import { formatElapsed, sessionTime, sessionTimeEntry } from "./session-time.ts"
 import type { CompactionControl } from "./compaction.ts"
 
 export interface SessionControl {
@@ -28,7 +29,8 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     let devices: string[] = []
     let active = false
     let statusGeneration = 0
-    const indicator = recordingIndicator()
+    const time = sessionTime(milliseconds => pi.appendEntry(sessionTimeEntry, { milliseconds }))
+    const indicator = footerIndicator(() => formatElapsed(time.milliseconds))
     const notify = (ctx: ExtensionContext, message: string, level: "info" | "warning" | "error") => {
       if (ctx.hasUI) ctx.ui.notify(message, level)
       else console.error(`Kinex: ${message}`)
@@ -89,6 +91,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     pi.on("session_start", async (_event, ctx) => {
       active = true
       owner.bind(ctx)
+      time.restore(ctx.sessionManager.getEntries())
       if (ctx.hasUI) {
         ctx.ui.setHeader((_tui, theme) => new Text(`${theme.fg("accent", "Kinex")} · robotics coding agent`, 1, 1))
         ctx.ui.addAutocompleteProvider(current => ({
@@ -112,6 +115,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     pi.on("session_shutdown", async event => {
       active = false
       statusGeneration++
+      time.stop()
       indicator.clear()
       session.compaction.end()
       unsubscribe?.()
@@ -171,8 +175,11 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       // request. Updating context must not start another turn after a final reply.
       if (!ctx.signal?.aborted && context.message) pi.sendMessage(context.message, { triggerTurn: false })
     })
+    pi.on("agent_start", () => { time.start(); indicator.refresh(time.active) })
+    pi.on("ui_prompt_start", () => { time.pause(); indicator.refresh(time.active) })
+    pi.on("ui_prompt_end", () => { time.resume(); indicator.refresh(time.active) })
     pi.on("agent_end", (_event, ctx) => owner.observeMessages(ctx))
-    pi.on("agent_settled", (_event, ctx) => status(ctx))
+    pi.on("agent_settled", (_event, ctx) => { time.stop(); indicator.refresh(false); return status(ctx) })
     pi.on("tool_execution_start", event => { if (!bridge.owns(event.toolName)) runtime.observe({ type: "tool", callID: event.toolCallId, name: event.toolName, status: "running" }) })
     pi.on("tool_execution_end", event => { if (!bridge.owns(event.toolName)) runtime.observe({ type: "tool", callID: event.toolCallId, name: event.toolName, status: event.isError ? "error" : "completed", isError: event.isError }) })
   }

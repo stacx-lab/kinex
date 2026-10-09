@@ -29,6 +29,7 @@ test('real PTY renders Kinex, SDK tools/replies and device command completion', 
     ]) },
   })
   assert.match(stdout, /Kinex/)
+  assert.match(stripTerminalSequences(stdout), /time \d+s/)
   assert.match(stdout, /sensor loaded/)
   assert.match(stdout, /sensor reloaded/)
   assert.match(stdout, /sensor unloaded/)
@@ -62,6 +63,7 @@ for (const tuiMode of ['regular', 'fullscreen']) test(`real PTY ${tuiMode} keeps
   assert.match(text, /device read sensor/)
   assert.match(text, /record start sensor=2Hz/)
   assert.match(text, /rec: pty-recording/)
+  assert.ok(text.split(/\r?\n/).some(line => /time \d+s/.test(line) && line.includes('CH')), 'time must share the usage stats line')
   assert.ok(text.split(/\r?\n/).some(line => line.includes(cwd) && line.includes('rec: pty-recording')), 'recording must share the directory line')
   assert.match(stdout, /\x1b\[31mrec: pty-recording/)
   // In fullscreen mode the first expanded tool can scroll out of the viewport.

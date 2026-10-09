@@ -53,7 +53,10 @@ Device, recording, stop and key controller tool headers show their action/target
 Expand a tool with Pi's tool-expansion control (Ctrl+O by default) to inspect its
 arguments and complete returned result. Active recording displays a red
 `rec: <recording name>` on the right of the footer's directory row, directly
-above the model name. Recording does not add a separate row.
+above the model name. Recording does not add a separate row. The stats line shows
+`time 2m05s`: cumulative active agent time, excluding idle time and user-input dialogs.
+It includes model/tool execution, retries and automatic compaction, and survives
+session resume. Activity before this feature was installed is not reconstructed.
 
 Python 3 runs Python tools/drivers; uv is needed to prepare or repair their default
 environment, and ffmpeg is needed for video encoding. Discovery does not create

@@ -6,7 +6,7 @@ function hasChildren(component: Component): component is Component & { children:
   return "children" in component && Array.isArray(component.children)
 }
 
-// Pi 0.86 mounts the footer container last in both terminal modes. Capture its
+// Pi 0.87 mounts the footer container last in both terminal modes. Capture its
 // existing component through the public TUI tree: setFooter's factory otherwise
 // exposes only data, not the built-in renderer. Keep that renderer (and its live
 // session/settings) rather than duplicating Pi's directory, model or usage logic.
@@ -17,31 +17,41 @@ function footerComponent(tui: TUI): Component {
   return container.children[0]
 }
 
-export function recordingFooter(footer: Component, name: () => string | undefined): Component {
+export function kinexFooter(footer: Component, state: () => { recording?: string; time?: string }): Component {
   return {
     invalidate: () => footer.invalidate(),
     render(width) {
-      const lines = footer.render(width)
-      const recording = name()
-      if (!recording || !lines[0] || width < 1) return lines
-      // Leave room for the directory on narrow terminals, keeping the REC label.
-      const label = truncateToWidth(`rec: ${recording}`, Math.min(width, Math.max(4, Math.floor(width / 2))))
-      const directory = truncateToWidth(lines[0], Math.max(0, width - visibleWidth(label) - 2))
-      const padding = " ".repeat(Math.max(0, width - visibleWidth(directory) - visibleWidth(label)))
-      return [`${directory}${padding}\x1b[31m${label}\x1b[39m`, ...lines.slice(1)]
+      const lines = [...footer.render(width)]
+      if (width < 1) return lines
+      const { recording, time } = state()
+      if (time && lines[1] !== undefined) {
+        const available = width - visibleWidth(time) - 1
+        // Let Pi lay out tokens, cost, context and model in the remaining space.
+        lines[1] = available > 0 ? `${time} ${footer.render(available)[1] ?? ""}` : truncateToWidth(time, width)
+      }
+      if (recording && lines[0]) {
+        const label = truncateToWidth(`rec: ${recording}`, Math.min(width, Math.max(4, Math.floor(width / 2))))
+        const directory = truncateToWidth(lines[0], Math.max(0, width - visibleWidth(label) - 2))
+        const padding = " ".repeat(Math.max(0, width - visibleWidth(directory) - visibleWidth(label)))
+        lines[0] = `${directory}${padding}\x1b[31m${label}\x1b[39m`
+      }
+      return lines
     },
   }
 }
 
-export function recordingIndicator() {
+export function footerIndicator(time: () => string) {
   let generation = 0
   let unsubscribe: (() => void) | undefined
   let context: ExtensionContext | undefined
   let recordingName: string | undefined
   let installed = false
   let redraw: (() => void) | undefined
+  let timer: ReturnType<typeof setInterval> | undefined
   const clear = () => {
     generation++
+    clearInterval(timer)
+    timer = undefined
     unsubscribe?.()
     unsubscribe = undefined
     if (installed) context?.ui.setFooter(undefined)
@@ -52,18 +62,31 @@ export function recordingIndicator() {
   }
   return {
     clear,
+    refresh(active: boolean) {
+      if (!active) { clearInterval(timer); timer = undefined }
+      else if (!timer && redraw) { timer = setInterval(redraw, 1000); timer.unref() }
+      redraw?.()
+    },
     async bind(runtime: KinexRuntime, ctx: ExtensionContext) {
       clear()
       if (!ctx.hasUI) return
       context = ctx
       let footer: Component | undefined
       // This zero-height widget only supplies the TUI handle; remove it before
-      // rendering, so the recorder never adds an editor/widget row.
-      ctx.ui.setWidget("kinex-recording", tui => {
+      // rendering, so the footer never adds an editor/widget row.
+      ctx.ui.setWidget("kinex-footer", tui => {
         footer = footerComponent(tui)
         return { invalidate() {}, render: () => [] }
       }, { placement: "belowEditor" })
-      ctx.ui.setWidget("kinex-recording", undefined)
+      ctx.ui.setWidget("kinex-footer", undefined)
+      if (footer) {
+        const base = footer
+        ctx.ui.setFooter((tui, theme) => {
+          redraw = () => tui.requestRender()
+          return kinexFooter(base, () => ({ recording: recordingName, time: theme.fg("dim", `time ${time()}`) }))
+        })
+        installed = true
+      }
       const refresh = async () => {
         const current = ++generation
         try {
@@ -71,14 +94,6 @@ export function recordingIndicator() {
           if (current !== generation) return
           recordingName = recording && recording.status !== "stopped"
             ? stripTerminalSequences(recording.name).replace(/[\r\n\t]/g, " ") : undefined
-          if (!installed && recordingName && footer) {
-            const base = footer
-            ctx.ui.setFooter(tui => {
-              redraw = () => tui.requestRender()
-              return recordingFooter(base, () => recordingName)
-            })
-            installed = true
-          }
           redraw?.()
         } catch (error) {
           if (current === generation) ctx.ui.notify(String(error), "error")
