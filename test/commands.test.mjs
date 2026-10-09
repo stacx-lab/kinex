@@ -12,6 +12,7 @@ test('shared commands validate arguments, preserve approval boundaries and disti
   await seed(core)
   const context = { sessionID: 'command', confirm: async () => false }
   await assert.rejects(executeRoboticsCommand(core, 'load', '', context), /Usage/)
+  await assert.rejects(executeRoboticsCommand(core, 'reload', 'sensor', context), /Unknown robotics command: reload/)
   assert.equal((await executeRoboticsCommand(core, 'register', 'rgb camera', context)).kind, 'workflow')
   assert.equal((await core.devices.list())[0].loaded, false)
   await executeRoboticsCommand(core, 'load', 'all', context)

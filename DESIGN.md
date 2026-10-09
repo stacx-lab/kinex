@@ -307,6 +307,10 @@ its timer and recording subscription; resume restores saved intervals.
 Robot context omits workspace safety limits and keep-out zones. Those fields remain
 in the manifest; `safety.notes` is no longer part of its schema.
 
+Pi exclusively owns `/reload` for agent resources. The Kinex command catalog has
+no device reload command; users restart devices with unload followed by load.
+The runtime retains `devices.reload()` for programmatic lifecycle operations.
+
 Setup bundles pinned upstream `pi-web-search` and `pi-btw` packages and exposes
 their locations through `@kinex/setup/extensions`. Standalone loads them through
 Pi's resource loader. Explicit npm package settings take precedence at
@@ -314,13 +318,28 @@ startup. Core remains independent of these extensions; BTW child sessions use
 upstream coding tools and shared credentials, without Kinex's robotics runtime
 or permission hooks.
 
+Standalone supports Pi package extensions, skills, prompts and themes through the
+SDK resource loader and package manager. Kinex's own skill catalog and system-prompt
+policy remain independent. User package storage uses the Kinex agent directory;
+project resources use Pi's `.pi` layout, while declarations stay in
+`.kinex/agent/settings.json`. Management commands run without an agent session,
+extension loading or robotics initialization. Package updates preserve upstream
+version/ref pin semantics. Restarting applies package and bundled-fallback changes.
+
+Self-upgrade installs all three matching, checksum-verified GitHub release archives
+into an npm release installation. Archives remain in the data directory for npm's
+file references. Source and linked installs are not modified. The embedded Pi SDK
+updates with the tested Kinex release, independently of user-installed Pi packages.
+`upgrade --all` delegates package updates to the newly installed CLI. npm failure
+reports recovery instructions and may leave a partial install.
+
 ## Delivery
 
 This npm workspace releases standalone, core and setup with aligned versions and
 exact internal dependencies. Setup imports core package exports; core never imports
 setup. Provisioning copies runtime driver support into the workspace so configured
 devices continue operating after setup is uninstalled. Node >=22.19; standalone uses
-Pi SDK 0.87.1. Native plugins
+Pi SDK 1.1.0. Native plugins
 have independent versions and SDK dependencies in `kinex-plugins`. They import
 `@kinex/core` through its package exports, consuming a checked-in tarball snapshot
 with checksum and source provenance; no core source is maintained in that project.

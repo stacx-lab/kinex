@@ -9,7 +9,6 @@ export const roboticsCommands = [
   { name: "devices", description: "List devices and activation intent", arguments: "", kind: "operation" },
   { name: "load", description: "Activate devices", arguments: "<device|all>", kind: "operation" },
   { name: "unload", description: "Deactivate devices", arguments: "<device|all>", kind: "operation" },
-  { name: "reload", description: "Restart device drivers", arguments: "<device|all>", kind: "operation" },
   { name: "ping", description: "Inspect live device status", arguments: "<device|all>", kind: "operation" },
   { name: "stop", description: "Stop actuators", arguments: "[device]", kind: "operation" },
   { name: "record", description: "Capture observations", arguments: "start|snap|stop|status [--verbose] ...", kind: "operation" },
@@ -30,6 +29,7 @@ export function isRoboticsCommand(name: string): name is RoboticsCommand {
 
 // Trusted user-command API. Model calls must use runtime.tools.call instead.
 export async function executeRoboticsCommand(runtime: KinexRuntime, name: RoboticsCommand, args: string, context: CommandContext): Promise<CommandResult> {
+  if (!isRoboticsCommand(name)) throw new Error(`Unknown robotics command: ${name}`)
   context.signal?.throwIfAborted()
   const tokens = args.trim().split(/\s+/).filter(Boolean)
   const output = (text: string): CommandResult => ({ kind: "output", text })
@@ -62,10 +62,10 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
   const results = await Promise.allSettled(names.map(async target => {
     if (name === "unload") { await runtime.devices.unload(target); return `${target} unloaded` }
     if (name === "ping") return `${target}: ${JSON.stringify(await runtime.devices.ping(target))}`
-    const activation = await runtime.devices[name](target, context.signal)
+    const activation = await runtime.devices.load(target, context.signal)
     if (activation.activating) context.notify?.(`${target}: activating`)
     await activation.ready
-    return `${target} ${name === "load" ? "loaded" : "reloaded"}`
+    return `${target} loaded`
   }))
   return { kind: "output", isError: results.some(result => result.status === "rejected"), text: results.map((result, index) =>
     result.status === "fulfilled" ? result.value : `${names[index]}: ${String(result.reason)}`).join("\n") || "No matching devices" }

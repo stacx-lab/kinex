@@ -33,9 +33,15 @@ test('direct commands need no model and preserve the robotics workspace', async 
   t.after(() => app.dispose())
   await seed(app.owner.runtime)
   await bind(app)
-  for (const command of ['/load sensor', '/devices', '/reload sensor', '/ping sensor', '/stop sensor', '/unload sensor']) await app.host.session.prompt(command)
+  const commands = app.host.session.extensionRunner.getRegisteredCommands().map(command => command.name)
+  assert.ok(!commands.some(name => name.startsWith('kinex-')), 'only short Kinex command names are exposed')
+  for (const name of ['register', 'unregister', 'devices', 'load', 'unload', 'ping', 'stop', 'record', 'onboarding', 'calibrate', 'mode']) {
+    assert.equal(commands.filter(command => command === name).length, 1, `${name} is registered once`)
+  }
+  assert.ok(!commands.includes('reload'), 'Pi exclusively owns /reload')
+  assert.deepEqual(app.host.session.extensionRunner.getCommandDiagnostics(), [])
+  for (const command of ['/load sensor', '/devices', '/ping sensor', '/stop sensor', '/unload sensor']) await app.host.session.prompt(command)
   assert.match(outputs.join('\n'), /sensor loaded/)
-  assert.match(outputs.join('\n'), /sensor reloaded/)
   assert.equal((await app.owner.runtime.devices.list())[0].loaded, false)
   for (const entry of ['.pi', '.kinex/python']) await assert.rejects(stat(path.join(cwd, entry)), { code: 'ENOENT' })
 })

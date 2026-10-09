@@ -40,7 +40,7 @@ assert.deepEqual(extensions.map(extension => extension.name), ['pi-web-search', 
 for (const extension of extensions) {
   const manifest = JSON.parse(await readFile(path.join(extension.path, 'package.json'), 'utf8'))
   assert.equal(manifest.name, extension.name)
-  assert.equal(manifest.version, extension.name === 'pi-web-search' ? '1.6.0' : '0.7.1')
+  assert.equal(manifest.version, extension.name === 'pi-web-search' ? '1.7.0' : '0.7.1')
   for (const entry of manifest.pi.extensions) assert.ok((await stat(path.join(extension.path, entry))).isFile())
 }
 const runtime = createKinexRuntime({directory: process.cwd(), builtinSkillRoots: setupSkillRoots, host: {ask: async () => {}}})

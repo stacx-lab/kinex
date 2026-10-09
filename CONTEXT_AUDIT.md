@@ -1,7 +1,7 @@
 # Context / cache / hot-loading audit
 
-2026-09-21, installed Pi 0.86.1, Node 22.19.0. Updated for task-local hot loading,
-batch execution and compaction continuity.
+2026-10-08, installed Pi 1.1.0, Node 22.19.0. Request-prefix checks updated for
+Anthropic inline tool definitions; earlier compaction findings are identified below.
 
 ## Request-prefix verification
 
@@ -32,15 +32,16 @@ SDK with explicit model compatibility profiles:
 - Completions with `supportsMidConvoSystemMessages` and
   `supportsMidConvoToolAdditions`: tools are added in later messages.
 - Anthropic with `supportsMidConvoSystemMessages` and
-  `supportsMidConvoToolChanges`: later tools are deferred; additions/removals use
-  native message blocks. Initial tool definitions and the placeholder stay fixed.
+  `supportsMidConvoToolChanges`: additions and redefinitions use inline
+  `tool_definition` blocks in history. Initial tool definitions stay fixed.
 - Responses without these capabilities: current tools are sent at request level,
   so adding a schema changes the request's initial tool declarations.
 
 The native addition tests assert stable preceding messages and system content.
 Removal makes addition-only transports fall back to current declarations; native
-Anthropic removal retains the deferred definitions. Redefining the same tool name
-with a different description falls back in all tested profiles. Separate tests
+Anthropic removal and redefinition retain the initial declarations and previous
+message prefix. Redefining the same tool name with a different description falls
+back in the other tested profiles. Separate tests
 cover live parameter-schema changes. Model capabilities are never forced on by
 Kinex: production uses Pi's model configuration.
 

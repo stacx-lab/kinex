@@ -24,14 +24,15 @@ test('real PTY renders Kinex, SDK tools/replies and device command completion', 
   const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', '--seed', 'TUI smoke'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'KINEX_TUI_READY', TUI_TEST_KEYS: JSON.stringify([
-      [0.05, '/load sen'], [0.05, '\t'], [0.05, '\r'], ['sensor loaded', '/devices\r'], [0.1, '/reload sensor\r'],
-      ['sensor reloaded', '/unload sensor\r'], ['sensor unloaded', '/quit\r'],
+      [0.05, '/load sen'], [0.05, '\t'], [0.05, '\r'], ['sensor loaded', '/devices\r'], [0.1, '/reload\r'],
+      ['Reloaded keybindings', '/unload sensor\r'], ['sensor unloaded', '/quit\r'],
     ]) },
   })
   assert.match(stdout, /Kinex/)
   assert.match(stripTerminalSequences(stdout), /time \d+s/)
   assert.match(stdout, /sensor loaded/)
-  assert.match(stdout, /sensor reloaded/)
+  assert.match(stdout, /Reloaded keybindings/)
+  assert.doesNotMatch(stdout, /sensor reloaded/)
   assert.match(stdout, /sensor unloaded/)
   assert.doesNotMatch(stdout + stderr, /TypeError|ReferenceError|Extension error|MODULE_NOT_FOUND/)
   assert.equal(fake.requests.length, 2)

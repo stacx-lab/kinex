@@ -38,7 +38,7 @@ export function coreContribution(runtime: KinexRuntime): KinexContribution {
     skills: runtime.skills,
     commands: roboticsCommands.map(command => ({
       ...command, interrupt: command.name === "stop",
-      choices: ["load", "unload", "reload", "ping", "stop", "unregister"].includes(command.name)
+      choices: ["load", "unload", "ping", "stop", "unregister"].includes(command.name)
         ? async () => [...(await runtime.devices.list()).map(device => device.name), ...(["stop", "unregister"].includes(command.name) ? [] : ["all"])] : undefined,
       execute: (args, context) => executeRoboticsCommand(runtime, command.name, args, context),
     })),

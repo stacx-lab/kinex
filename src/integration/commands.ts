@@ -16,8 +16,7 @@ export async function executeCommand(command: ContributionCommand, args: string,
   })
 }
 
-export async function registerCommands(pi: ExtensionAPI, commands: readonly ContributionCommand[], execute: (name: string, args: string, ctx: ExtensionContext) => Promise<void>, bound = false) {
-  const existing = new Set(bound ? pi.getCommands().map(command => command.name) : [])
+export async function registerCommands(pi: ExtensionAPI, commands: readonly ContributionCommand[], execute: (name: string, args: string, ctx: ExtensionContext) => Promise<void>) {
   const choices = new Map<string, string[]>()
   const refresh = async () => {
     for (const command of commands) if (command.choices) choices.set(command.name, await command.choices())
@@ -25,15 +24,11 @@ export async function registerCommands(pi: ExtensionAPI, commands: readonly Cont
   pi.on("session_start", refresh)
   pi.on("agent_settled", refresh)
   for (const command of commands) {
-    const register = (name: string) => pi.registerCommand(name, {
+    pi.registerCommand(command.name, {
       description: `${command.description} ${command.arguments}`.trim(),
       getArgumentCompletions: prefix => choices.has(command.name) ? (choices.get(command.name) ?? []).filter(value => value.startsWith(prefix)).map(value => ({ value, label: value })) : null,
       handler: async (args, ctx) => { try { await execute(command.name, args, ctx) } finally { await refresh() } },
     })
-    const alias = `kinex-${command.name}`
-    if (existing.has(alias)) throw new Error(`Kinex command conflicts with ${alias}`)
-    register(alias)
-    if (command.name !== "reload" && !existing.has(command.name)) register(command.name)
   }
   await refresh()
 }

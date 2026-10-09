@@ -46,7 +46,7 @@ cd /path/to/robot-workspace
 
 Use `/login` to authenticate and `/model` to select a model. The provider catalog,
 OAuth flows, streaming, retries, compaction and session history come from Pi
-0.87.1. Existing provider API-key environment variables are supported by Pi.
+1.1.0. Existing provider API-key environment variables are supported by Pi.
 Robot device commands work without model credentials.
 
 Device, recording, stop and key controller tool headers show their action/target.
@@ -70,7 +70,7 @@ environments run without syncing. The ordinary shell environment stays unchanged
 | `/devices` | List device types and loaded intent. |
 | `/load <device|all>` | Load a device and await initialization. |
 | `/unload <device|all>` | Stop capture, release the device and its owned resources. |
-| `/reload <device|all>` | Restart device drivers. Bare `/reload` reloads agent resources. |
+| `/reload` | Pi reloads agent resources. To restart a device, use `/unload` followed by `/load`. |
 | `/ping <device|all>` | Inspect existing services without starting them. |
 | `/stop [device]` | Cancel the current agent response and stop loaded actuators within their declared stop scope. |
 | `/unregister <device>` | Confirm, unload, and delete the device's local files. |
@@ -86,6 +86,9 @@ environments run without syncing. The ordinary shell environment stays unchanged
 Device names complete with Tab. General coding commands and keybindings use Pi's
 TUI: `/model`, `/login`, `/settings`, `/new`, `/resume`, `/tree`, `/fork`, `/compact`,
 `/export`, `/copy`, `/quit`. Some SDK help and diagnostics retain Pi terminology.
+Kinex exposes only the short command names above, without `kinex-` aliases.
+Pi exclusively owns `/reload`; Kinex provides no device-reload slash command.
+Kinex's short names have no conflicts with Pi 1.1.0 or the bundled plugins.
 Use `kinex --continue` or `kinex --session <id|file>` to resume Kinex sessions.
 
 The `device` and `record` model tools default to `verbose: true`, preserving all
@@ -303,19 +306,93 @@ Kinex uses separate storage from Pi and from legacy Kinex coding sessions:
 | `$KINEX_DATA_DIR/agent/auth.json` | SDK credentials. |
 | `$KINEX_CONFIG_DIR/agent/auth.json` | Managed link to the data-directory credentials, shared with Pi extension child sessions. |
 | `$KINEX_DATA_DIR/agent/sessions/` | SDK JSONL sessions, grouped by workspace. |
+| `$KINEX_CONFIG_DIR/agent/npm`, `git` | User-installed Pi packages. |
+| `$KINEX_CONFIG_DIR/agent/extensions`, `skills`, `prompts`, `themes` | User Pi resources. |
 | `.kinex/agent/settings.json` | Project coding settings. |
+| `.pi/npm`, `.pi/git` | Project-installed Pi packages. |
+| `.pi/extensions`, `.pi/skills`, `.pi/prompts`, `.pi/themes` | Project Pi resources. |
+| `$KINEX_DATA_DIR/releases/<version>/` | Verified release archives retained for npm upgrades. |
 | `.kinex/kinex.json` or `kinex.json` | Existing core permissions and recording settings. |
 | `.kinex/devices`, `tool`, `skill`, `recordings` | Existing robotics workspace content. |
 
 The global defaults are `$XDG_CONFIG_HOME/kinex` (`~/.config/kinex`) and
 `$XDG_DATA_HOME/kinex` (`~/.local/share/kinex`). Kinex's launcher sets Pi's documented
 agent-directory override to the Kinex configuration directory. It does not use
-`.pi/settings.json`, Pi skills, or Pi system prompts. Project `AGENTS.md` and
+`.pi/settings.json` or Pi system prompts. Project `AGENTS.md` and
 `CLAUDE.md` instructions are loaded through the SDK. Legacy coding settings,
 command templates and session formats are not migrated.
 
-Kinex supports Pi extensions. `@kinex/setup` bundles `pi-web-search` and `pi-btw`,
-which standalone Kinex loads by default.
+Kinex supports Pi package extensions, skills, prompt templates and themes.
+`@kinex/setup` bundles `pi-web-search` 1.7.0 and `pi-btw` 0.7.1, which standalone
+Kinex loads by default. Kinex robotics skills remain available through `kinex_skill`;
+Pi skills use the SDK's skill discovery and `/skill:<name>` commands. Package prompt
+templates are slash commands; choose a loaded theme through `/settings`.
+
+### Install and update Pi packages
+
+```sh
+kinex install npm:pi-web-search            # User package overrides bundled version
+kinex install npm:pi-web-search@1.7.0 -l    # Pin this project's version
+kinex install git:github.com/owner/repo     # Git package, default branch
+kinex install ./my-package -l              # Local development package
+kinex list                                # Scopes, paths and bundled fallbacks
+kinex update                              # Update configured packages in both scopes
+kinex update npm:pi-web-search             # Update this package in both scopes
+kinex remove npm:pi-web-search -l          # Remove the project override
+kinex uninstall npm:pi-web-search          # Remove the user override
+```
+
+Sources and resource filters use [Pi's package format](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/packages.md).
+Find community packages through the `pi-package` keyword on npm. A package may
+contain any combination of extensions, skills, prompts and themes. Resource arrays
+and package filters in Kinex's `settings.json` select what loads.
+
+Installs default to the Kinex user scope. `-l`/`--local` writes declarations to
+`.kinex/agent/settings.json` in the current directory and uses Pi's normal `.pi`
+resource paths. Relative project resource paths resolve against `.pi`; user paths
+resolve against the Kinex agent directory. Project packages take precedence over
+user packages. Project downloads are shared with Pi if both products use the same
+project; their enabled-package declarations stay separate. Plugins may choose
+their own locations for additional state.
+
+`update` preserves explicit npm versions and Git refs. Use `install` with a new
+version/ref to change a pin. Bundled plugins update with Kinex; installing an
+explicit npm package overrides the bundled copy without editing Kinex's dependencies.
+Removing all overrides restores the bundled fallback. Restart running sessions
+after package changes; bare `/reload` refreshes edits to already-loaded resources.
+Management commands do not start a session, load extension code, or provision Python.
+
+### Upgrade Kinex
+
+```sh
+kinex upgrade             # Kinex, its tested Pi SDK, and bundled plugins
+kinex upgrade --all       # Then update configured Pi packages
+```
+
+The updater downloads the latest stable GitHub release, verifies `SHA256SUMS`, and
+installs the matching standalone, core and setup tarballs together into the current
+npm installation. It supports global and direct local npm installs and never
+downgrades a newer installation. Verified archives remain in Kinex's data directory
+because npm retains file references to them. If npm fails, the command reports a
+recovery command; installation is not transactional. Restart Kinex after upgrading.
+
+Source checkouts and linked installs receive instructions to update their checkout,
+run `npm ci`, and rebuild with `npm run build`. The updater does not modify Git state
+or independently replace the embedded Pi SDK. Plugin updates remain available in
+source installs through `kinex update`.
+
+Pi 1.1.0 changes the Azure provider ID from `azure-openai-responses` to `azure`.
+Azure users must update provider keys in Kinex's auth and models files and relevant
+settings (`defaultProvider`, `enabledModels`, `modelThinkingLevels`), or sign in
+again. Existing Azure sessions may fall back to another model until reselected;
+the old prompt cache is not reused. `AZURE_OPENAI_*` environment variables are
+unchanged. OpenAI Codex remains available as a legacy provider; Pi also offers
+ChatGPT sign-in under OpenAI. Pi's new terminal-derived theme can change default
+colors; select an explicit theme in `/settings` if preferred.
+
+See the [upstream migration notes](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/CHANGELOG.md).
+
+### Credentials and custom models
 
 At startup Kinex creates the credential link above, replacing an empty SDK auth
 file if necessary. Existing nonempty files or links to another destination cause

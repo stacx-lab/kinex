@@ -4,6 +4,7 @@ import { InteractiveMode, runPrintMode } from "@earendil-works/pi-coding-agent"
 import { createApplication } from "./application.ts"
 import { executeRoboticsCommand } from "@kinex/core"
 import { exportSession } from "./export.ts"
+import { runPackageCommand } from "./packages.ts"
 
 const help = `Kinex — robotics coding agent
 
@@ -11,6 +12,11 @@ kinex [options]                       Interactive terminal
 kinex run [options] "prompt"          Run once; prints the final reply
 kinex run "/devices"                  Direct robotics command; no model needed
 kinex --export session.jsonl [output.html]  Export a session without a model
+kinex install <source> [-l, --local]   Install a Pi package (npm, Git, directory)
+kinex remove <source> [-l, --local]    Remove a package; uninstall is an alias
+kinex list                           List configured and bundled packages
+kinex update [source]                Update packages; preserve version/ref pins
+kinex upgrade [--all]                Upgrade Kinex; --all also updates packages
 
 --model provider/model               Select a Pi model/provider
 --thinking off|minimal|low|medium|high|xhigh
@@ -23,12 +29,13 @@ kinex --export session.jsonl [output.html]  Export a session without a model
 --seed "prompt"                      Submit after interactive startup
 --json                               Headless SDK events as JSON lines
 
-TUI: /load /unload /reload <device> /ping /stop /devices /record
+TUI: /load /unload /ping /stop /devices /record
      /onboarding /register /calibrate /mode /model /login /new /compact
-Bare /reload refreshes agent resources. Python/uv remain external dependencies.
+Pi's /reload refreshes agent resources. Python/uv remain external dependencies.
 `
 
 async function main(): Promise<void> {
+  if (await runPackageCommand(process.argv.slice(2))) return
   const { values, positionals } = parseArgs({ allowPositionals: true, strict: true, options: {
     help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" },
     model: { type: "string" }, thinking: { type: "string" }, effort: { type: "string" },

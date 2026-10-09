@@ -112,14 +112,14 @@ test('broken extensions fail startup with their filename and error', async t => 
   })
 })
 
-test('extension settings require arrays and unrelated resources remain disabled', async t => {
+test('package resource settings require arrays', async t => {
   const cwd = await workspace(t)
   await fakeProvider(t, isolation.root)
   const file = path.join(cwd, '.kinex', 'agent', 'settings.json')
   for (const key of ['extensions', 'packages', 'skills', 'prompts', 'themes']) {
     await mkdir(path.dirname(file), { recursive: true })
-    await writeFile(file, JSON.stringify({ [key]: key === 'extensions' || key === 'packages' ? 'invalid' : ['unsupported'] }))
-    await assert.rejects(createApplication({ cwd, model: 'fake/test' }), new RegExp(`${key} (must be an array|is not supported)`))
+    await writeFile(file, JSON.stringify({ [key]: 'invalid' }))
+    await assert.rejects(createApplication({ cwd, model: 'fake/test' }), new RegExp(`${key} must be an array`))
   }
 })
 

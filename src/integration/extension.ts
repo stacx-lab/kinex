@@ -26,7 +26,6 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     const bridge = toolBridge(pi, capabilities, owner.interaction)
     await bridge.refresh()
     let unsubscribe: (() => void) | undefined
-    let devices: string[] = []
     let active = false
     let statusGeneration = 0
     const time = sessionTime(milliseconds => pi.appendEntry(sessionTimeEntry, { milliseconds }))
@@ -40,7 +39,6 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       const generation = ++statusGeneration
       const list = await runtime.devices.list()
       if (!active || generation !== statusGeneration) return
-      devices = list.map(device => device.name)
       if (ctx.hasUI) ctx.ui.setStatus("kinex", `Kinex · ${list.filter(device => device.loaded).length}/${list.length} devices · ${owner.interaction.mode}`)
     }
     const execute = async (name: string, args: string, ctx: ExtensionContext) => {
@@ -61,12 +59,6 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       } finally { await status(ctx) }
     }
     await registerCommands(pi, capabilities.commands, execute)
-    pi.on("input", async (event, ctx) => {
-      const match = /^\/reload\s+(.+)$/s.exec(event.text.trim())
-      if (!match?.[1]) return { action: "continue" }
-      await execute("reload", match[1], ctx)
-      return { action: "handled" }
-    })
     pi.registerCommand("mode", {
       description: "Set Kinex permissions: ask, auto, yolo",
       handler: async (args, ctx) => {
@@ -94,15 +86,6 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       time.restore(ctx.sessionManager.getEntries())
       if (ctx.hasUI) {
         ctx.ui.setHeader((_tui, theme) => new Text(`${theme.fg("accent", "Kinex")} · robotics coding agent`, 1, 1))
-        ctx.ui.addAutocompleteProvider(current => ({
-          async getSuggestions(lines, line, col, options) {
-            const prefix = lines[line]?.slice(0, col) ?? ""
-            const match = /^\/reload\s+(\S*)$/.exec(prefix)
-            if (match) return { prefix: match[1] ?? "", items: [...devices, "all"].filter(name => name.startsWith(match[1] ?? "")).map(name => ({ value: name, label: name })) }
-            return current.getSuggestions(lines, line, col, options)
-          },
-          applyCompletion: (...args) => current.applyCompletion(...args),
-        }))
       }
       unsubscribe = runtime.subscribe(event => {
         if (event.type === "recording.warning") notify(ctx, event.message, "warning")

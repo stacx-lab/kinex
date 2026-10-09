@@ -17,6 +17,39 @@ tests, including success/failure/cancellation timing, overlapping activity, PTY
 rendering and packed consumers. The three new integration cases failed before
 the fix and passed afterward.
 
+## Short slash commands
+
+- [x] Remove standalone `kinex-` aliases and expose each Kinex command by its short name only.
+- [x] Remove Kinex's reload command, input interception and device autocomplete; Pi exclusively owns `/reload`.
+- [x] Audit Pi 1.1.0 built-ins, built-in extension commands and bundled plugins: no remaining command-name overlaps.
+- [x] Verify short command registration, device commands, Pi resource reload and PTY behavior.
+
+Users restart devices with unload followed by load. Programmatic `devices.reload()`
+remains available; the shared user-command executor rejects `reload`.
+Validation: `npm run check` passed all 336 tests on Node 22.19.0 and Python 3.12,
+including real PTY execution of Pi's `/reload` and packed-consumer checks.
+
+## Pi 1.1 and package management
+
+- [x] Upgrade standalone Pi SDKs to 1.1.0 and bundled web search to 1.7.0; retain current BTW 0.7.1.
+- [x] Enable Pi package extensions, skills, prompts and themes alongside Kinex robotics resources.
+- [x] Add install/remove/uninstall/list/update commands using Pi's package manager and isolated Kinex settings.
+- [x] Add checksum-verified GitHub release upgrades for npm installs and `--all` handoff to the new CLI.
+- [x] Cover npm/Git packages, pins, scopes, resource loading, nested tool permissions/cancellation and recording attribution.
+- [x] Exercise release failures and a real local npm upgrade with fixture tarballs.
+- [x] Pass full integration, PTY and packed-consumer checks on Node >=22.19.
+
+Validation after rebasing onto main (`caac19a`): `npm run check` passed all 336
+tests on Node 22.19.0 and Python 3.12, preserving upstream active-session timing,
+including packed consumers and a real npm upgrade using fixture releases. Updated
+the Anthropic audit for Pi's inline tool definitions and verified stable request
+prefixes across additions, removals and redefinitions. Live provider calls were
+not required; provider request checks use local fixtures.
+
+Azure users must migrate the provider ID to `azure`; credentials are not rewritten
+automatically. Project package artifacts follow Pi's `.pi` layout; Kinex retains
+separate declarations. Source/linked self-upgrades provide manual instructions.
+
 ## Version 0.10.3
 
 - [x] Validate all 13 RoboEnv catalogs (89 profiles), exported drivers and blocking servo against current Kinex.

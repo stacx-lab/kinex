@@ -156,7 +156,7 @@ for (const profile of [
   { name: 'Responses additional_tools', api: 'openai-responses', compat: { supportsMidConvoSystemMessages: true, supportsAdditionalTools: true } },
   { name: 'Responses tool search', api: 'openai-responses', compat: { supportsMidConvoSystemMessages: true, supportsToolSearch: true } },
   { name: 'Completions native additions', api: 'openai-completions', compat: { supportsMidConvoSystemMessages: true, supportsMidConvoToolAdditions: true } },
-  { name: 'Anthropic deferred tools', api: 'anthropic-messages', compat: { supportsMidConvoSystemMessages: true, supportsMidConvoToolChanges: true } },
+  { name: 'Anthropic inline tool definitions', api: 'anthropic-messages', compat: { supportsMidConvoSystemMessages: true, supportsMidConvoToolChanges: true } },
   { name: 'Responses fallback', api: 'openai-responses' },
 ]) {
   test(`${profile.name}: tool changes execute correctly and preserve the prior request prefix`, async t => {
@@ -186,7 +186,22 @@ for (const profile of [
       assert.deepEqual(requests[index].system, requests[0].system)
       assert.equal(requests[index].prompt_cache_key, requests[0].prompt_cache_key)
     }
-    const redefined = tool(requests[4], 'late')
+    let redefined = tool(requests[4], 'late')
+    if (profile.api === 'anthropic-messages') {
+      // Pi 1.1 defines additions/redefinitions in history, keeping the initial
+      // tool list and every preceding message stable even across removals.
+      const additions = messages(requests[4]).flatMap(message => Array.isArray(message.content) ? message.content : [])
+        .filter(block => block.type === 'tool_addition' && block.tool.type === 'tool_definition')
+        .map(block => block.tool.definition)
+      assert.deepEqual(additions.filter(tool => tool.name === 'late').map(tool => tool.description), ['Late interface V1', 'Late interface V2'])
+      redefined = additions.findLast(tool => tool.name === 'late')
+      for (let index = 1; index < requests.length; index++) {
+        assert.deepEqual(requests[index].tools, requests[0].tools)
+        const prefix = messages(requests[index - 1])
+        assert.deepEqual(messages(requests[index]).slice(0, prefix.length), prefix)
+      }
+    }
+    assert.ok(redefined, 'updated definition is sent to the provider')
     assert.equal((redefined.function ?? redefined).description, 'Late interface V2')
   })
 }

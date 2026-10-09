@@ -25,13 +25,9 @@ export function settings(cwd: string): SettingsManager {
       const effective = (text: string | undefined) => {
         const parsed: unknown = text ? JSON.parse(text) : {}
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Settings must be an object: ${file}`)
-        for (const key of ["extensions", "packages"]) {
+        for (const key of ["extensions", "packages", "skills", "prompts", "themes"]) {
           const value: unknown = Reflect.get(parsed, key)
           if (value !== undefined && !Array.isArray(value)) throw new Error(`${key} must be an array in Kinex agent settings`)
-        }
-        for (const key of ["skills", "prompts", "themes"]) {
-          const value: unknown = Reflect.get(parsed, key)
-          if (value !== undefined && (!Array.isArray(value) || value.length)) throw new Error(`${key} is not supported in Kinex agent settings; use Kinex workspace content`)
         }
         return JSON.stringify({ ...(scope === "global" ? {
           defaultTools: ["read", "write", "edit", "bash", "grep", "find", "ls"],

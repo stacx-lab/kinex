@@ -48,14 +48,16 @@ model's recording tool; the host can use `recording` methods independently.
 
 The root exports `roboticsCommands`, `isRoboticsCommand()` and
 `executeRoboticsCommand(runtime, name, arguments, context)`. The catalog provides
-names, argument hints and descriptions for devices, load, unload, reload, ping,
+names, argument hints and descriptions for devices, load, unload, ping,
 stop, record, register and unregister. Operations return
 `{kind: "output", text, isError?}`. Register returns `{kind: "workflow", prompt}`
 for the host to submit to its model; it prepares an unloaded device using core's
 setup-device skill and profile_write tool. Hosts provide a session ID, command
 context and optional progress notifications, and own display and cancellation
 for stop. Unregister uses the CommandContext confirmation callback before deleting
-a device. This executor is a trusted user-command API.
+a device. This executor is a trusted user-command API. There is no reload command;
+use unload followed by load to restart a device. The runtime's `devices.reload()`
+API remains available to programmatic consumers.
 
 ## Feature contributions
 
@@ -75,8 +77,8 @@ const state = await capabilities.context() // stable instructions + source.secti
 A contribution can provide tools (`list`/`call`), skills (`list`/`load`), commands
 and context. Tools receive `Invocation` with session/call identity, abort signal,
 permission and question callbacks. Commands receive a distinct trusted
-`CommandContext`, including an optional abort signal. Load/reload also accept an
-optional signal. Each feature must preserve authorization/cancellation internally.
+`CommandContext`, including an optional abort signal. Each feature must preserve
+authorization/cancellation internally.
 Duplicate identifiers are errors; tool directories are re-read when calling.
 A contribution borrows resources; the product that created the runtime disposes it.
 The existing root APIs remain available without adopting contributions.
@@ -277,8 +279,8 @@ Device writes and `run_policy` retain their existing duration contracts.
   have changed. Explicit `prepare()` always synchronizes. Concurrent first use within
   a process waits for preparation; failed bootstraps can retry without accepting a partial environment.
   Preparation returns the interpreter and child-process environment.
-- `devices.list()/load()/reload()/unload()/ping()` implement
-  user device commands. Load/reload returns `{device, activating, ready}`; await
+- `devices.list()/load()/reload()/unload()/ping()` provide device lifecycle APIs.
+  Load/reload returns `{device, activating, ready}`; await
   `ready` for background initialization. `devices.dispatch()` is a trusted driver API.
 - `devices.templates()` discovers provisioning instances and type templates.
   `devices.unregister(name, signal?)` holds the device lifecycle fence through

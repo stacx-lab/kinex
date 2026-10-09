@@ -55,7 +55,7 @@ export async function createApplication(options: ApplicationOptions) {
         cwd: directory, agentDir: storage.agent, modelRuntime, settingsManager,
         resourceLoaderOptions: {
           additionalExtensionPaths: defaultExtensionPaths(settingsManager),
-          noExtensions: false, noSkills: true, noPromptTemplates: true, noThemes: true,
+          noExtensions: false, noSkills: false, noPromptTemplates: false, noThemes: false,
           systemPrompt: "", appendSystemPrompt: [],
           extensionFactories: [{ name: "kinex", factory: kinexExtension(owner, core, capabilities, options.report ?? (() => {}), {
             prompt: prompt => submitWorkflow(prompt), settle: () => settle(), compaction,
