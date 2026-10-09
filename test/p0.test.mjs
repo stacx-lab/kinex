@@ -184,6 +184,44 @@ test('manual compaction keeps user focus, adds robotics rules and immediately pe
   assert.equal(contexts(resumed).length, snapshotCount)
 })
 
+for (const outcome of ['success', 'failure', 'cancel']) {
+  test(`pre-prompt automatic compaction saves active time on ${outcome}`, async t => {
+    let now = 0
+    t.mock.method(performance, 'now', () => now)
+    const { fake, app } = await fixture(t)
+    await bind(app)
+    const settings = app.host.services.settingsManager
+    settings.applyOverrides({ compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 16384 } })
+    fake.steps.push({ text: 'Prior response near the context limit', inputTokens: 120000 })
+    await app.host.session.prompt('initial task')
+    settings.applyOverrides({ compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 16384 } })
+    const savedTime = () => app.host.session.sessionManager.getEntries()
+      .filter(entry => entry.type === 'custom' && entry.customType === 'kinex-active-time')
+      .reduce((total, entry) => total + entry.data.milliseconds, 0)
+    let summaries = 0
+    let savedBeforeReply
+    fake.respond = request => {
+      if (!isSummary(request)) {
+        savedBeforeReply = savedTime()
+        now += 2000
+        return { text: 'NEXT_REPLY' }
+      }
+      summaries++
+      now += 1000
+      if (outcome === 'failure') return { status: 400, body: 'SUMMARY_REJECTED' }
+      if (outcome === 'cancel') app.host.session.abortCompaction()
+      return { text: 'SUMMARY' }
+    }
+    await app.host.session.prompt('continue task')
+    assert.ok(summaries > 0)
+    assert.equal(savedBeforeReply, summaries * 1000)
+    assert.equal(savedTime(), summaries * 1000 + 2000)
+    now += 60000
+    await app.dispose()
+    assert.equal(savedTime(), summaries * 1000 + 2000, 'settlement must stop counting idle time')
+  })
+}
+
 for (const reason of ['threshold', 'overflow']) {
   test(`${reason} compaction restores current state before the first automatic continuation`, async t => {
     const { fake, app } = await fixture(t)

@@ -6,9 +6,10 @@ export function sessionTime(save: (milliseconds: number) => void, now = () => pe
   let total = 0
   let started: number | undefined
   let running = false
+  let compacting = false
   let waiting = 0
   const resume = () => {
-    if (running && waiting === 0 && started === undefined) started = now()
+    if ((running || compacting) && waiting === 0 && started === undefined) started = now()
   }
   const pause = () => {
     if (started === undefined) return
@@ -22,6 +23,7 @@ export function sessionTime(save: (milliseconds: number) => void, now = () => pe
       total = 0
       started = undefined
       running = false
+      compacting = false
       waiting = 0
       for (const entry of entries) {
         if (entry.type !== "custom" || entry.customType !== sessionTimeEntry) continue
@@ -31,9 +33,11 @@ export function sessionTime(save: (milliseconds: number) => void, now = () => pe
       }
     },
     start() { running = true; resume() },
+    startCompaction() { compacting = true; resume() },
+    endCompaction() { compacting = false; if (!running) pause() },
     pause() { waiting++; pause() },
     resume() { waiting = Math.max(0, waiting - 1); resume() },
-    stop() { pause(); running = false; waiting = 0 },
+    stop() { pause(); running = false; compacting = false; waiting = 0 },
     get active() { return started !== undefined },
     get milliseconds() { return total + (started === undefined ? 0 : Math.max(0, now() - started)) },
   }

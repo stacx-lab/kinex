@@ -4,12 +4,18 @@
 
 - [x] Show cumulative active time in the existing footer stats row.
 - [x] Exclude idle periods and user-input dialogs, and restore saved intervals on resume.
+- [x] Count pre-prompt automatic compaction, including failure and cancellation, without double-counting active runs.
+- [x] Validate the pre-prompt compaction timing fix.
 - [x] Keep timing entries out of model context and preserve recording indicators.
 - [x] Validate timing, application lifecycle, terminal rendering and packed consumers.
 
 Validation: `npm run check` passed all 310 tests, including build/typecheck,
 timing persistence, model-context isolation, regular/fullscreen PTY rendering,
 packed consumers and release checks. Diff checks passed.
+The pre-prompt timing fix passed `npm test`: build/typecheck and all 91 standalone
+tests, including success/failure/cancellation timing, overlapping activity, PTY
+rendering and packed consumers. The three new integration cases failed before
+the fix and passed afterward.
 
 ## Version 0.10.3
 

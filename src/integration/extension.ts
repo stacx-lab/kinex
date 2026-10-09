@@ -131,8 +131,18 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       if (failure && owner.failure === failure) owner.failure = undefined
       return { message: context.message }
     })
-    pi.on("session_before_compact", event => { session.compaction.begin(event.signal) })
-    pi.on("session_compact_failed", () => { session.compaction.end() })
+    const endCompaction = () => {
+      session.compaction.end()
+      time.endCompaction()
+      indicator.refresh(time.active)
+    }
+    pi.on("session_before_compact", event => {
+      session.compaction.begin(event.signal)
+      // Pi can compact before agent_start as well as within an active run.
+      if (event.reason !== "manual") time.startCompaction()
+      indicator.refresh(time.active)
+    })
+    pi.on("session_compact_failed", endCompaction)
     pi.on("session_compact", async (_event, ctx) => {
       session.compaction.end()
       try {
@@ -146,7 +156,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         session.compaction.fail(owner.failure)
         ctx.abort()
         throw error
-      }
+      } finally { endCompaction() }
     })
     pi.on("tool_call", async (event, ctx) => {
       const permission = event.toolName === "bash" ? "shell" : event.toolName === "write" || event.toolName === "edit" ? event.toolName : undefined

@@ -36,6 +36,41 @@ test('session time accumulates work across requests, excluding idle time and nes
   assert.deepEqual(saved, [4000, 3000, 2000])
 })
 
+test('compaction counts before a run and shares its interval with active or paused work', () => {
+  let now = 0
+  const saved = []
+  const time = sessionTime(milliseconds => saved.push(milliseconds), () => now)
+  time.startCompaction()
+  now += 1000
+  time.endCompaction()
+  now += 5000 // Idle after failed or cancelled pre-prompt compaction.
+  assert.equal(time.milliseconds, 1000)
+  assert.equal(time.active, false)
+  time.start()
+  now += 2000
+  time.startCompaction()
+  now += 1000
+  time.endCompaction()
+  now += 2000
+  time.pause()
+  time.startCompaction()
+  now += 5000
+  time.endCompaction()
+  assert.equal(time.active, false)
+  time.resume()
+  now += 1000
+  time.stop()
+  assert.deepEqual(saved, [1000, 5000, 1000])
+  time.startCompaction()
+  now += 1000
+  time.stop() // Shutdown also ends standalone compaction.
+  time.endCompaction()
+  time.resume()
+  now += 5000
+  assert.equal(time.milliseconds, 8000)
+  assert.equal(time.active, false)
+})
+
 test('session time restores saved work across resume and compaction without including downtime', () => {
   let now = 100000
   const saved = []
