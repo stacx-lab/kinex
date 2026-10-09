@@ -1,2 +1,3 @@
 numpy==2.5.1
 Pillow==12.1.1
+py-trees==2.6.0

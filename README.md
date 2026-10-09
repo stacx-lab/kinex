@@ -217,6 +217,16 @@ control may command devices; the other inline stages have perception capabilitie
 Until receives `context` and `state`, returning a dict with optional `done`, `state`
 and `reason`. Missing `done` means false; a supplied `done` must be boolean.
 
+The **XML behavior-tree skill** is the
+[move-and-verify skill](packages/core/assets/builtin/skill/move-and-verify/SKILL.xml).
+`SKILL.xml` contains its metadata, instructions and executable tree; Python supplies
+the leaf operations. Call `move_and_verify` with explicit joint/velocity tolerances
+to submit once, verify fresh quiet arrival and stop owned motion. Existing Python
+environments need `uv add --project <python.project> 'py-trees==2.6.0'`.
+The bundle includes `tool.yaml` and `tree.py`; normal skill/tool precedence,
+permissions and cancellation apply. The pinned native XML parser is experimental.
+RPC runs cooperatively between ticks; parallel I/O and motion retries are unsupported.
+
 Replace perception/processing with live observation tools for closed-loop control.
 `stop_after_control` stops owned motion after each world wait; `closed_loop` always stops
 owned motion on exit. `settled` checks measured joint error and quiet velocity

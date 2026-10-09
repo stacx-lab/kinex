@@ -1,5 +1,44 @@
 # Current work
 
+## XML move-and-verify skill
+
+`move-and-verify` is a self-contained skill bundle: SKILL.xml owns metadata,
+instructions and tree structure; tree.py implements the leaf operations; tool.yaml
+exposes the existing permission-checked Python controller interface. There is no
+Markdown wrapper for this skill. Other Markdown skills remain supported.
+
+- [x] Discover/load XML skills without starting Python; preserve nearest-root precedence.
+- [x] Discover sibling tool manifests and package the XML asset.
+- [x] Build the tree with py_trees 2.6.0's native parser and an explicit leaf registry.
+- [x] Reuse servo, Arrival, permissions and ownership-aware cleanup.
+- [x] Verify XML edits, malformed metadata, unknown leaves, measured success, stale feedback, timeout and cancellation/replacement ownership.
+- [x] Complete full integration and packaged-consumer validation.
+- [x] Isolate invalid skill files, report discovery errors in context, and verify recovery after repair.
+- [x] Block execution fallback for invalid XML bundle manifests and verify recovery after repair.
+
+The memory sequence validates inputs, submits one trajectory, verifies fresh quiet
+arrival, then stops owned motion. Action updates queue synchronous RPC work for
+execution between ticks. World time bounds arrival polling; the host wall-clock
+deadline bounds blocked calls. Parallel I/O and motion retries are unsupported.
+
+The [native XML parser](https://py-trees.readthedocs.io/en/devel/ports.html#experimental-xml-parser)
+is experimental; pin py-trees==2.6.0 and test its contracts. New core Python
+environments include it; existing/custom environments require explicit installation.
+Future work includes reusable leaf libraries and asynchronous leaf cancellation.
+Automatic Markdown conversion, existing setup/calibration migration, persistent
+resume and physical robot trials remain outside this skill.
+
+Validation: `npm run check` passed all 322 tests on Node 22.23.3 / Python 3.12.3,
+including fifteen behavior-tree checks, packaged XML discovery, PTY integration and
+release metadata validation. Verified a Git-normalized Linux snapshot plus the
+working changes; a raw Windows-file copy exposed an existing CRLF frontmatter
+issue in a device guide. New XML discovery accepts CRLF. No physical robot runs.
+The malformed-XML regression failed before the fix and passes for syntax, DTD and
+metadata errors, valid-skill loading, context diagnostics and recovery after repair.
+Bundle fallback regressions failed before the fix for missing, mismatched, malformed
+and schema-invalid manifests; each now blocks execution and resumes the selected
+local tree after repair without disturbing unrelated tools or existing motion.
+
 ## Version 0.10.3
 
 - [x] Validate all 13 RoboEnv catalogs (89 profiles), exported drivers and blocking servo against current Kinex.

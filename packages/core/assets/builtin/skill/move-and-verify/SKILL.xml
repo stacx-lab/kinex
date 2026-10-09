@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root main_tree_to_execute="MoveAndVerify"
+      name="move-and-verify"
+      description="Move a loaded joint device to a target and verify fresh, quiet measured arrival."
+      tool="move_and_verify">
+  <Instructions>
+    Call move_and_verify with device, world, joints, joint_tolerance and quiet_velocity.
+    Bind device and world to loaded devices. Targets and tolerances follow model joint
+    order: radians and radians/second for rotary joints, metres and metres/second for
+    prismatic joints. Supply tolerances explicitly; scalars apply to every joint.
+    Success requires fresh measured arrival for stable_s (default 0.1). timeout_s
+    uses world time (default 10); the host separately caps execution at 120 wall seconds.
+    Calls run cooperatively between ticks. There is no parallel I/O or automatic
+    motion retry. Cancellation stops only motion still owned by this invocation.
+    Existing Python environments need py-trees==2.6.0; use
+    uv add --project &lt;python.project&gt; 'py-trees==2.6.0'.
+  </Instructions>
+  <Example><![CDATA[
+    {"device":"arm","world":"world","joints":[0.2,-0.1],
+     "joint_tolerance":[0.01,0.01],"quiet_velocity":[0.005,0.005]}
+  ]]></Example>
+  <BehaviorTree ID="MoveAndVerify">
+    <Sequence name="Move and verify" memory="true">
+      <Validate name="Validate inputs and clock"/>
+      <Move name="Submit trajectory once"/>
+      <Verify name="Verify fresh quiet arrival"/>
+      <Stop name="Stop owned motion"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

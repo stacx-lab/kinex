@@ -35,6 +35,7 @@ export const SkillTool = define("skill", {
           ]
         : []),
       `<skill_content name="${args.name}">`,
+      ...(skill.info.tool ? [`Execute this XML skill with the ${skill.info.tool} tool; loading it does not run it.`] : []),
       skill.content,
       `</skill_content>`,
       `Base directory for this skill: ${skill.info.directory}`,

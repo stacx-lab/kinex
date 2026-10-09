@@ -25,13 +25,15 @@
     "assets/**/*.yaml",
     "assets/**/*.json",
     "assets/**/*.txt",
+    "assets/**/*.xml",
     "README.md"
   ],
   "dependencies": {
     "zod": "^4.4.3",
     "yaml": "2.9.0",
     "jiti": "2.7.0",
-    "tinyglobby": "0.2.15"
+    "tinyglobby": "0.2.15",
+    "fast-xml-parser": "5.11.2"
   },
   "devDependencies": {
     "@types/node": "^22.20.0"

@@ -1,0 +1,30 @@
+name: move_and_verify
+kind: controller
+entry: tree.py
+description: "Python behavior-tree skill: submit one joint trajectory, wait for fresh quiet arrival, then stop owned motion. Tolerances are explicit; timeout_s uses world time. Commands are never retried."
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    device: {type: string, description: Loaded joint device name.}
+    world: {type: string, description: Loaded world clock name.}
+    joints:
+      type: array
+      minItems: 1
+      items: {type: number}
+      description: Absolute target in model joint order; radians or metres by joint type.
+    joint_tolerance: &tolerance
+      oneOf:
+      - {type: number, exclusiveMinimum: 0}
+      - {type: array, minItems: 1, items: {type: number, exclusiveMinimum: 0}}
+    quiet_velocity: *tolerance
+    stable_s: {type: number, exclusiveMinimum: 0, default: 0.1}
+    wait_s: {type: number, exclusiveMinimum: 0, maximum: 1, default: 0.05}
+    timeout_s: {type: number, exclusiveMinimum: 0, maximum: 60, default: 10}
+    speedFraction: {type: number, exclusiveMinimum: 0, maximum: 1, default: 1}
+  required: [device, world, joints, joint_tolerance, quiet_velocity]
+timeout_s: 120
+device_inputs:
+  device: {types: [joint]}
+  world: {types: [world]}
+devices: []

@@ -178,7 +178,17 @@ Unregister also removes unloaded devices without starting their drivers.
   clock-type label; removing labels does not convert or synchronize timestamps.
 - **Tools, skills and Python.** Tools declare schemas, capabilities and timeouts;
   composed calls retain permissions and recording attribution. Skills supply
-  procedures. Shared device context and setup guidance cover cross-type contracts;
+  procedures in SKILL.md or SKILL.xml. XML root attributes supply metadata;
+  discovery validates XML without starting Python. Invalid files are reported in
+  context without blocking valid skills. XML wins over Markdown in the
+  same directory, retaining normal nearest-root precedence. A sibling tool.yaml
+  exposes the XML skill's named execution tool; its name must match the XML metadata.
+  XML reserves that tool name before manifest validation, so a broken bundle cannot
+  execute a lower-priority tree.
+  The move-and-verify skill uses the pinned py_trees XML parser and Python leaf
+  operations. It queues synchronous RPC work between ticks, preserving host
+  cancellation and motion ownership. Existing Markdown skills remain supported.
+  Shared device context and setup guidance cover cross-type contracts;
   each device guide owns its Setup details and a concise, model-visible Use section.
   Agent authoring of custom `devices/<name>/DEVICE.md` is allowed only for type
   `legged_base`; other types use shared guides, profile parameters and driver SDK

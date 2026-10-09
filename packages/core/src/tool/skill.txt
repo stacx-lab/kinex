@@ -1,3 +1,4 @@
-Loads a skill by name and returns its full instructions. Skills are listed in the
+Loads a skill by name and returns its Markdown instructions or XML tree.
+For XML skills, use the named execution tool; loading never executes the tree. Skills are listed in the
 <available_skills> block of the current context; load one when its description matches the
 current task, then follow its instructions.

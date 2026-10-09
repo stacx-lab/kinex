@@ -10,6 +10,8 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 export async function checkCorePackage(directory, env, pack) {
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
+  for (const file of ['SKILL.xml', 'tree.py', 'tool.yaml'])
+    assert.ok(pack.files.some(entry => entry.path === `assets/builtin/skill/move-and-verify/${file}`))
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
   for (const name of ['driver.py', 'setup.sh', 'provision.py', 'fastwam_config.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
     assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
@@ -45,6 +47,8 @@ export async function checkCorePackage(directory, env, pack) {
     assert.deepEqual(count(), before)
     try {
       assert.ok((await runtime.skills.load('setup-device')).info.directory.includes('node_modules'))
+      assert.equal((await runtime.skills.load('move-and-verify')).info.format, 'xml')
+      assert.ok((await runtime.tools.list()).tools.some(tool => tool.name === 'move_and_verify'))
       const templates = await runtime.devices.templates()
       await runtime.context()
       await assert.rejects(stat('.kinex'), {code:'ENOENT'})

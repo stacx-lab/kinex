@@ -7,6 +7,8 @@ import { DeviceType } from "../device/profile/schema.ts"
 import { contentRoots } from "../config/content.ts"
 import { Assets } from "../installation/assets.ts"
 import { exists } from "../util/filesystem.ts"
+import { skillRoots } from "../skill/index.ts"
+import { parseXMLSkill } from "../skill/xml.ts"
 import { deviceInputSchema } from "./device-input.ts"
 
 // Python-defined tools: pieces of function whose execution involves NO agent.
@@ -67,11 +69,33 @@ export async function listPyTools(cwd: string): Promise<{ tools: PyToolInfo[]; p
   const tools: PyToolInfo[] = []
   const problems: string[] = []
   const seen = new Set<string>()
-  for (const toolRoot of await toolRoots(cwd)) {
+  const skills = await skillRoots(cwd)
+  const roots = (await toolRoots(cwd)).flatMap(directory => [
+    { directory, pattern: "*/tool.yaml" },
+    { directory: path.join(path.dirname(directory), "skill"), pattern: "**/SKILL.xml" },
+  ])
+  for (const directory of skills) if (!roots.some(root => root.directory === directory))
+    roots.push({ directory, pattern: "**/SKILL.xml" })
+  for (const { directory: toolRoot, pattern } of roots) {
     if (!(await exists(toolRoot))) continue
-    const pattern = "*/tool.yaml"
     for (const entry of (await glob(pattern, { cwd: toolRoot, dot: true })).sort()) {
-      const file = path.join(toolRoot, entry)
+      let xmlTool: string | undefined
+      if (entry.endsWith(".xml")) {
+        try {
+          xmlTool = parseXMLSkill(await readFile(path.join(toolRoot, entry), "utf8"))["tool"]!
+        } catch (error) {
+          problems.push(`${path.join(toolRoot, entry)}: ${String(error)}`)
+          continue
+        }
+        if (seen.has(xmlTool)) continue
+        // An invalid manifest must not select a different, lower-priority tree.
+        seen.add(xmlTool)
+      }
+      const file = path.join(toolRoot, path.dirname(entry), "tool.yaml")
+      if (!(await exists(file))) {
+        problems.push(`${path.join(toolRoot, entry)}: XML skill requires a sibling tool.yaml`)
+        continue
+      }
       const text = await readFile(file, "utf8")
       const raw = (() => {
         try {
@@ -89,7 +113,11 @@ export async function listPyTools(cwd: string): Promise<{ tools: PyToolInfo[]; p
         problems.push(`${file}: ${parsed.error.issues.map((issue) => `${issue.path.join(".") || "manifest"}: ${issue.message}`).join("; ")}`)
         continue
       }
-      if (seen.has(parsed.data.name)) continue
+      if (xmlTool && xmlTool !== parsed.data.name) {
+        problems.push(`${path.join(toolRoot, entry)}: XML skill tool must match tool.yaml name`)
+        continue
+      }
+      if (!xmlTool && seen.has(parsed.data.name)) continue
       seen.add(parsed.data.name)
       tools.push({ manifest: parsed.data, directory: path.dirname(file) })
     }
