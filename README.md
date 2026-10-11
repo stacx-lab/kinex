@@ -90,43 +90,36 @@ for more detail.
 ## Use Kinex with Simulators
 
 [RoboEnv](https://github.com/stacx-lab/RoboEnv) runs simulator tasks and exposes
-their robots as Kinex devices. Install it using the
-[setup guide](https://github.com/stacx-lab/RoboEnv/blob/main/docs/setup.md), which
-covers Linux, GPU requirements, and simulator assets. With the RoboEnv CLI
-activated, prepare and launch a RoboCasa task in terminal A:
+their robots as Kinex devices. Follow its
+[setup guide](https://github.com/stacx-lab/RoboEnv/blob/main/docs/setup.md), then
+launch a RoboCasa scene with the RoboEnv CLI activated:
 
 ```sh
 roboenv prepare robocasa
-roboenv tasks list --simulator robocasa
 roboenv launch robocasa/pick-place-microwave --port 8123
 ```
 
-Wait for `Ready` and leave it running. In terminal B, activate the same RoboEnv
-CLI and set up an agent workspace:
+Wait for `Ready` and leave it running. In another terminal, activate the same
+RoboEnv CLI and set up a Kinex workspace:
 
 ```sh
 source /path/to/RoboEnv/.venv/bin/activate
 mkdir -p kinex-sim-workspace
 cd kinex-sim-workspace
-roboenv setup --list
 roboenv setup robocasa/robocasa-panda-omron
 export ROBOENV_ENDPOINT=http://127.0.0.1:8123
-roboenv describe
 kinex
 ```
 
 Replace `/path/to/RoboEnv` with your checkout location. `roboenv setup` creates
 `.kinex/` if needed and exports the robot's `workspace.yaml` and devices.
-Existing configuration is protected; `--force` replaces the manifest and entire
-device collection while preserving other workspace content.
+Then ask Kinex:
 
-In Kinex, check `/devices` and `/ping all`, then give the agent the instruction
-from `roboenv describe`. RoboEnv owns the task verdict: inspect it with
-`roboenv score` in a terminal using the same endpoint. For other tasks, select a
-task ID and its matching robot from the lists above. Ctrl-C in terminal A stops
-the simulation. See the
+> Look through the robot's cameras and describe what is in the scene.
+
+See the
 [RoboEnv walkthrough](https://github.com/stacx-lab/RoboEnv/blob/main/docs/kinex-local.md)
-for connection details, recording, and playback.
+for more tasks, connection details, and recording.
 
 ## Kinex and the Pi Ecosystem
 
@@ -193,13 +186,6 @@ The check builds once and covers core, setup, standalone, PTY and packed consume
 Do not rebuild packages while consumer tests run. Documentation-only edits need
 link and diff checks. [Native ROS checks](packages/setup/test/container/README.md)
 run separately.
-
-For releases, edit only `VERSION`, run `npm run version:sync`, `npm run version:check`
-and `npm run check`, then validate with
-`node script/release.mjs --check --tag "v$(cat VERSION)"`. Commit synchronized
-metadata before tagging. `npm run pack -- /tmp/kinex-release` packs the three
-packages after a build. Matching `v*` tags publish tarballs and `SHA256SUMS` to
-GitHub Releases; routine checks do not publish packages.
 
 ## Acknowledgements
 
