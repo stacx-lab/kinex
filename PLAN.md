@@ -27,8 +27,9 @@ Completed in the following order, with each change independently reviewable:
 - [x] **Separate readiness work.** Restore interpreter diagnostics and their tests to main. This branch adds no readiness feature; a future independent change must fix Windows extension lookup and verify path resolution and lazy initialization.
 - [x] **Reduce the runtime.** Adapter/checker import `bundle_manifest` directly. Deploy only five shared runtime modules and explicitly declared resources. Track source input digests separately from runtime manifests; preserve existing generations.
 - [x] **Enforce custom entry-point contracts.** Check all deployed Python files for explicit forbidden imports before publishing a candidate. Cover direct and local-helper dependencies; failures preserve the selected configuration. Compliant custom drivers/checkers run after removing setup and source directories. Dynamic imports still need execution-path validation.
-- [x] **Consolidate entry points.** Remove the dedicated ROS workflow and reuse onboarding/register; historical metrics remain readable. Keep the three base skills and `verify_base.py` identical to main, preserving existing `verify-base` calls. Joint/sensor `verify-checks` uses the same evaluator. Onboard-ros2 selects the operation by device type and retains posture applicability conditions.
+- [x] **Consolidate entry points.** Remove the dedicated ROS workflow and reuse onboarding/register. Keep the three base skills and `verify_base.py` identical to main, preserving existing `verify-base` calls. Joint/sensor `verify-checks` uses the same evaluator. Onboard-ros2 selects the operation by device type and retains posture applicability conditions.
 - [x] **Verify package boundaries and feature limits.** Core packages contain no ROS implementation or dependency. Packed-consumer checks cover the complete driver lifecycle and checker after removing setup/source directories. Add one tool and four skills, with no dedicated ROS command; keep read-only checks separate from motion authorization.
+- [x] **Remove onboarding metrics.** Delete the standalone session-analysis script and its tests; remove obsolete metrics references from this plan.
 - [x] **Complete software validation.** Run full integration, Python 3.10 and native ROS checks against the source state above. Results follow. If main or the implementation changes before release, revalidate affected areas.
 
 Validation on 2026-10-10:
@@ -61,7 +62,7 @@ This task adds no packages, schema extensions, general frameworks or hardware wo
 ## ROS branch integration (historical)
 
 - [x] Rebase onto main at `caac19a`, dropping session-time commits already merged upstream.
-- [x] Preserve the baseline's compaction timing and keep ROS workflow metrics in provisioning.
+- [x] Preserve the baseline's compaction timing.
 - [x] Record validation of the combined branch at that point.
 
 Documentation reviewed at `d0e32fc` records a passing `npm run check` with all
@@ -103,7 +104,6 @@ passed. This relative-path fix did not resolve the deferred Windows extension lo
 - [x] Add setup's `/onboarding-ros2`, selecting `onboard-ros2` through the shared onboarding flow.
 - [x] Document the command and its standalone alias, `/kinex-onboarding-ros2`.
 - [x] Verify workflow routing, command discovery and core-only application composition.
-- [x] Identify the explicit workflow in saved session metrics.
 
 Historical validation: build, typecheck and 25 focused setup/application/packed-consumer
 tests passed. Both command names entered the ROS workflow and remained absent from
