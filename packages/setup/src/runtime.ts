@@ -38,8 +38,6 @@ export function createKinexSetup(runtime: KinexRuntime) {
       instructions: INSTRUCTIONS,
       sections: {
         provisioning: JSON.stringify({ core_library: CoreAssets.python(), setup_library: Assets.python() }),
-        guides: (await runtime.devices.templates()).filter(guide => guide.kind === "instance").sort((a, b) => a.name.localeCompare(b.name))
-          .map(guide => `${guide.name} (${guide.type}): ${guide.description} — ${guide.directory}`).join("\n"),
       },
     })),
   }

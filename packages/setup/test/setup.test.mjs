@@ -46,7 +46,7 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.deepEqual(setupToolNames, ['setup_plan', 'calib_sample', 'calib_compute'])
   assert.equal(tools.tools.filter(tool => tool.name === 'profile_write').length, 1)
   assert.ok(!tools.tools.some(tool => tool.name === 'calib_write'))
-  assert.equal(typeof context.sections['setup.guides'], 'string')
+  assert.equal(context.sections['setup.guides'], undefined)
   const roots = JSON.parse(context.sections['setup.provisioning'])
   assert.match(roots.core_library, /core.*assets[/\\]python$/)
   assert.match(roots.setup_library, /setup.*assets[/\\]python$/)
