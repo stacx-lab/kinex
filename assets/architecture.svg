@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="640" viewBox="0 0 900 640" role="img" aria-labelledby="title description">
+  <title id="title">Kinex: devices, tools and skills</title>
+  <desc id="description">An agent loads skills, calls tools and calls devices directly. Calls return results to the agent. Tools also operate devices and receive observations. Device drivers connect to physical hardware, simulators and model services. Examples are labeled and styled in italics.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0f172a; }
+      .heading { font-size: 22px; font-weight: 650; }
+      .body { font-size: 16px; fill: #334155; }
+      .label { font-size: 14px; fill: #475569; }
+      .arrow { fill: none; stroke: #475569; stroke-width: 2; marker-end: url(#arrow); }
+      .example { font-size: 14px; font-style: italic; fill: #475569; }
+    </style>
+  </defs>
+  <rect width="900" height="640" rx="16" fill="#ffffff"/>
+  <rect x="360" y="18" width="520" height="474" rx="18" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="380" y="48" class="heading">Kinex</text>
+
+  <rect x="380" y="64" width="480" height="108" rx="12" fill="#f3e8ff" stroke="#a855f7"/>
+  <text x="400" y="96" class="heading">Skills</text>
+  <text x="400" y="126" class="body">Procedures, references and evidence requirements</text>
+  <text x="400" y="152" class="example">Examples: setup-device · calibration · verification</text>
+
+  <rect x="380" y="196" width="480" height="108" rx="12" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="400" y="228" class="heading">Tools</text>
+  <text x="400" y="258" class="body">Executable perception, computation and control</text>
+  <text x="400" y="284" class="example">Examples: locate_object_3d · servo · calib_sample</text>
+
+  <rect x="380" y="366" width="480" height="108" rx="12" fill="#dcfce7" stroke="#22c55e"/>
+  <text x="400" y="398" class="heading">Devices</text>
+  <text x="400" y="428" class="body">Typed interfaces, profiles and drivers</text>
+  <text x="400" y="454" class="example">Examples: arm · camera · detector · world</text>
+
+  <rect x="20" y="188" width="235" height="150" rx="12" fill="#f1f5f9" stroke="#94a3b8"/>
+  <text x="38" y="223" class="heading">Agent</text>
+  <text x="38" y="253" class="body">Reasoning and planning</text>
+  <text x="38" y="283" class="body">Tool and device selection</text>
+  <text x="38" y="313" class="body">Interpreting results</text>
+
+  <path d="M 138 188 V 118 H 380" class="arrow"/>
+  <text x="282" y="106" class="label">load</text>
+  <path d="M 255 250 H 380" class="arrow"/>
+  <path d="M 380 250 H 255" class="arrow"/>
+  <text x="280" y="237" class="label">call tools</text>
+  <text x="280" y="271" class="label">results</text>
+  <path d="M 138 338 V 420 H 380" class="arrow"/>
+  <path d="M 380 420 H 138 V 338" class="arrow"/>
+  <text x="280" y="407" class="label">call devices</text>
+  <text x="280" y="441" class="label">results</text>
+
+  <path d="M 540 304 V 366" class="arrow"/>
+  <text x="394" y="340" class="label">device operations</text>
+  <path d="M 674 366 V 304" class="arrow"/>
+  <text x="690" y="340" class="label">observations / state</text>
+
+  <rect x="380" y="554" width="480" height="68" rx="12" fill="#fff7ed" stroke="#f97316"/>
+  <text x="400" y="582" class="heading">Environments and services</text>
+  <text x="400" y="607" class="body">Physical hardware · simulators · model endpoints</text>
+  <path d="M 540 474 V 554" class="arrow"/>
+  <text x="394" y="526" class="label">driver requests</text>
+  <path d="M 674 554 V 474" class="arrow"/>
+  <text x="690" y="526" class="label">feedback / results</text>
+</svg>

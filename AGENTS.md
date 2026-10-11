@@ -28,7 +28,8 @@ Design history and progress belong in git.
   cannot change device lifecycle; model recording remains opt-in.
 - Preserve initialization ordering, cancellation, recording ownership and disposal.
   Use the owned process helper for core subprocesses; never terminate borrowed
-  services. Retain the [control](docs/control.md) and
+  services. Retain the [device](docs/devices.md),
+  [control API](packages/core/README.md#device-calls-and-control) and
   [calibration](docs/setup.md) contracts.
 - Keep dynamic state out of stable prompt prefixes. Refresh capabilities within
   tasks and restore context after compaction without bypassing host permissions.

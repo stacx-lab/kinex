@@ -128,9 +128,15 @@ Wait results remain `{time_s, waited_s}`, with elapsed time for that wait only.
 Drivers must convert native counts to seconds before reporting a budget. Legacy
 `used`, `max` and `unit` members are rejected, as are malformed budget objects.
 
-- `servo` plans and submits a full joint trajectory from measured state. It
-  accepts joints or a pose and returns immediately by default, with no duration input.
-  `block: true` waits the computed duration on the loaded `world` device;
+- FK/IK accept device-local `frame` and `reference_frame`, defaulting to the modeled
+  endpoint and device base. Fixed endpoint descendants and base references are
+  supported. See [device frames](../../docs/devices.md#frames-and-poses) for spatial
+  conventions and [motion and stop](../../docs/devices.md#motion-and-stop) for
+  buffering, cancellation and ownership contracts.
+- `servo` reads measured joints once, then plans and submits a full joint trajectory.
+  It accepts joints or a pose and returns immediately by default, with no duration input.
+  `block: true` checks the loaded `world` device before submission and waits the
+  computed duration;
   optional `world` selects a different world clock. `block: false` requires no clock.
   Results report `device`, the driver's `execution_id`, requested/IK-resolved
   target `joints`, computed `duration_s` and `actions_submitted`. The execution ID
@@ -140,8 +146,12 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   by the invocation, preserving replacements from other calls.
   Planning defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
   capped by known limits. Lower `speedFraction` lengthens the computed duration.
-  Pose targets require declared endpoint IK; joint targets need no geometry.
+  Pose targets require declared endpoint IK, including for hands; joint targets
+  need no geometry.
   Servo solves poses through the device, then generates a local joint trajectory.
+  Only the IK seed is projected into bounds; measured planning starts remain
+  unchanged. Planning uses shortest continuous-joint travel and never wraps
+  explicit bounded targets.
   Native-limited devices retain their existing limit handling. Planning failure
   submits nothing and leaves existing motion unchanged. Planning does not
   certify collision avoidance.
@@ -150,10 +160,12 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   Each retry stays within 0.35 rad per rotary joint or 5% of the declared range
   per prismatic joint around the original seed, clamped to bounds. Increasing
   the attempt count never enables global seeds or expands this radius.
-  Verified candidates are compared against the seed;
-  only zero displacement ends search early. Rotary solutions normalize to the
-  nearest equivalent angles within limits. Nearest preference is not a hard
-  waypoint-step limit or a guarantee of a particular IK branch.
+  Verified candidates compete by joint-range-normalized seed displacement;
+  only zero displacement ends search early. Numerical and native IK normalize
+  rotary solutions to the nearest equivalent angles within limits before
+  independent FK verification. Native IK retains its solver. Nearest preference
+  is not a hard waypoint-step limit or a guarantee of a particular IK branch;
+  neither it nor readiness certifies collision-free motion.
   Optional `intrinsics.kinematics.ik.budget` accepts `max_attempts` (default 5,
   including the original seed), `attempt_time_s` (0.02) and `max_time_s` (0.1).
   Profile budget fields override defaults. Counts must be positive integers
@@ -166,23 +178,27 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   Both numerical and native IK accept a seed; omission reads measured joints
   projected into limits. There are no per-call budget or selection-reference
   overrides. Legacy profile `ik.search` is rejected; rename it to `ik.budget`.
-- `run_policy` infers once, splits the selected chunk across devices, and submits
-  buffers concurrently. Cartesian `pose` and `pose_delta` actions use frozen
-  reference frames and seeded IK; `target_frame` must be rigidly attached to the
-  IK frame. Initial IK seeds are projected to joint limits; measured positions
-  used for FK remain unchanged. Results are `actions_submitted`, `duration_s`,
-  `execution_ids` (device to execution ID) and `ik_failure`, without waiting.
+- `run_policy` infers once, applies optional `max_actions` before validation/IK,
+  splits the selected chunk across devices, and submits buffers concurrently.
+  Cartesian `pose` and `pose_delta` actions use frozen reference frames and seeded
+  IK; `target_frame` must be rigidly attached to the
+  IK frame. Initial IK seeds are projected to joint limits; subsequent waypoints
+  use preceding solutions. Measured positions used for FK remain unchanged.
+  Results are `actions_submitted`, `duration_s`, `execution_ids` (device to
+  execution ID) and `ik_failure`, without waiting.
   `execution_ids` replaces the former `writes` response map and is empty when
   nothing was submitted. Read devices separately for measured state.
   Gripper/suction writes use flat `actions: [value, ...]`; joint and dexterous-hand
   writes use sequences of joint vectors. Both require `duration_s`.
   Each Cartesian waypoint has its own IK search budget, so planning time can
-  accumulate across a chunk. Failed search retains the existing shared-prefix
-  truncation behavior, including leaving existing buffers intact for an empty prefix.
+  accumulate across a chunk. IK failure returns a shared valid prefix at the
+  original cadence, leaving existing buffers intact for an empty prefix.
 - `relative_pose` accepts `child` and `parent`, each `{frame, pose?}`. A local pose
   is `[x,y,z,qx,qy,qz,qw]` in metres with a unit quaternion, defaulting to identity.
   Both local transforms participate. The result expresses child in parent and
   contains only `pose` in the same format, `path` and `estimated_links`.
+  Resolution composes declared, live and call-local estimated edges, preferring
+  fewer estimates and caching only within a call.
   The duplicate `translation` and `rotation` result fields have been removed;
   use `pose[:3]` and `pose[3:]` in Python. The underlying Python `frames.pose()`
   API retains its separate translation/rotation representation.
@@ -195,13 +211,16 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   the loop uses feedback to repeat or adjust control toward a stopping condition.
   Only `world` and `wait_s` are required. All four stages default to null; omitted
   or null stages return `{}` without execution. A disabled process does not
-  forward observation. A predicate dict without `done` means false; supplied
-  `done` must be boolean. Without a stopping decision, round and timeout limits apply.
+  forward observation. Until receives context/state and returns a dict with
+  optional boolean `done`, state and reason. Missing `done` means false;
+  without a stopping decision, round and timeout limits apply.
   Process receives `observation` and returns a dict that overrides `control.args`.
   Optional `inputs` on process/control maps destination argument JSON Pointers
   to source paths in the preceding result. With mappings, only selected values
   are injected. Null results or selected null values count as misses; missing
-  paths are errors. `settled` checks arrival and optional world-time timeout.
+  paths are errors. `settled` checks joint error and quiet velocity over stable
+  world time, with an optional world-time timeout. Without velocity feedback,
+  it requires three fresh position samples.
   Its state retains the device `sample_timestamp` separately from world time;
   cached samples cannot establish arrival and backwards clocks are errors.
   Changing the target resets stability without restarting the timeout. Older
@@ -234,7 +253,8 @@ The old `track` name has no alias. Update calls and refresh workspace tool copie
 from `builtin/tool/closed-loop`, removing obsolete `track` manifests.
 
 Inline stages bypass discovery and run in fresh subprocesses through the existing
-JSONL dialog, inheriting the caller's interpreter, working directory and deadline.
+JSONL dialog, inheriting the caller's interpreter, working directory, deadline and
+permissions. Source and arguments travel over JSONL, never argv.
 Only inline control has controller capabilities. Until state is passed explicitly
 between rounds. Python tools can also use `inline(source, values, kind="perception")`;
 requesting controller capability requires a controller caller.

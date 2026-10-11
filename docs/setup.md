@@ -41,7 +41,7 @@ sudo-required commands go to the user with the target host, then dependencies ar
 rechecked. `--install` covers pip/Git preparation and source builds only; missing
 apt prerequisites block them. See [bundle contracts](../packages/setup/assets/builtin/skill/onboard-ros2/references/bundles.md).
 
-See [architecture](architecture.md) for the core/setup boundary and the
+See [project overview](overview.md) for the core/setup boundary and the
 [setup API](../packages/setup/README.md) for workflows and composition.
 
 [Design index](README.md)

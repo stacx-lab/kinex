@@ -1,36 +1,32 @@
 # Installation and releases
 
-## Package releases
+## Installation
 
-Core, setup and standalone release aligned versions with exact internal dependencies
-and Node >=22.19. Standalone uses Pi SDK 1.1.0; native plugins own independent
-versions, SDKs and host glue, consuming checksummed core snapshots with provenance.
+Follow [Getting Started](../README.md#getting-started). The installer requires
+Node >=22.19 and npm, offering to install them interactively when missing. It
+verifies matching release archives, installs under the Kinex data directory and
+creates `~/.local/bin/kinex`. PATH changes require confirmation.
 
-## Installation and upgrades
+## Updates
 
-The root `install.sh` reuses Node >=22.19 and npm or asks to install them through
-Homebrew, suitable apt/apk packages, or a verified official Node binary. Without
-a terminal, missing prerequisites require manual preparation. Standalone Node lives
-under the Kinex data directory and is added to PATH by the installed launcher.
+| Command | Updates |
+| --- | --- |
+| `kinex update` | Kinex and its bundled Pi SDK. |
+| `kinex update --extensions` | Installed packages, preserving pins. |
+| `kinex update <source>` | One installed package. |
+| `kinex update --all` | Kinex, then installed packages. |
 
-The installer verifies all three matching GitHub release archives before installing
-them as direct npm dependencies under the data directory's `install/`. Its
-`~/.local/bin/kinex` launcher preserves other installations; PATH configuration
-changes require confirmation. Archives remain under `releases/<version>/` for npm
-file references. Self-upgrade recognizes this direct npm installation; source and
-linked installs stay unchanged. Neither installation nor upgrade downgrades a newer
-version. npm failure can leave a partial installation and reports recovery commands.
+Self-update handles installer-managed installations; source and linked installs
+stay unchanged. Installation and updates never downgrade newer versions. Failed
+npm installs report recovery commands.
 
-`kinex update` (or `kinex update --self`) updates Kinex and its bundled Pi SDK.
-Use `kinex update --extensions` for installed packages, `kinex update <source>`
-for one package, and `kinex update --all` for both. The combined update runs the
-newly installed CLI with `update --extensions` after self-update succeeds.
+## Releases and validation
 
-## Validation
+Core, setup and standalone share a version with exact internal dependencies.
+Native plugins release independently and consume checksummed core snapshots.
+Release archives include SHA-256 checksums.
 
-CI checks core, setup, standalone, PTY behavior and relocated packed consumers.
-
-See [Getting Started](../README.md#getting-started) for installation and
-[Contributing & Development](../README.md#contributing--development) for checks.
+`npm run check` covers core, setup, standalone, PTY behavior and packed consumers.
+See [development instructions](../README.md#contributing--development) for prerequisites.
 
 [Design index](README.md)

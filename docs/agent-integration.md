@@ -19,6 +19,15 @@ resetting grants and ending recordings; workspace replacement/quit disposes them
 Robotics/question batches execute sequentially; denial/cancellation stops later
 calls without rolling back completed work. Pure coding batches remain parallel.
 
+## Recording
+
+Manual recording is available; model recording is opt-in. Native capture or dispatch
+sampling produces manifests, timelines, profile snapshots and per-device products;
+incidental traffic is separate. Acquisition timestamps, cadence and playback FPS
+are distinct. Losses are counted, failures are per-device, finalization is bounded
+and quotas permit limited overshoot. Hosts supply transcript references; outcome
+labels are annotations, not verification.
+
 ## Context and compaction
 
 Tools/skills refresh within tasks. Stable prompt prefixes exclude dynamic state;
@@ -39,7 +48,7 @@ runtime or permission hooks. Package management uses Pi APIs without starting
 sessions, loading extensions or initializing robotics. Project declarations live
 under `.kinex/agent`, resources under `.pi`; version/ref pins survive updates.
 
-See [architecture](architecture.md) for contribution ownership and
-[device contracts](devices.md) for lifecycle and recording behavior.
+See [project overview](overview.md) for contribution ownership and
+[device contracts](devices.md) for driver lifecycle and capture interfaces.
 
 [Design index](README.md)

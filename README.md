@@ -30,6 +30,12 @@
 </p>
 
 Kinex is a robotics harness for coding agents, built on the published Pi SDK.
+Its three layers—**devices**, **tools**, and **skills**—provide environment access,
+executable operations, and task guidance.
+
+<p align="center">
+  <img src="assets/architecture.svg" alt="Kinex architecture: agents load skills and call tools or devices, whose drivers connect to hardware, simulators and services." width="640">
+</p>
 
 ## News
 
