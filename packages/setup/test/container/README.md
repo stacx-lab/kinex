@@ -23,5 +23,5 @@ UR, ros2_control, driver-loss or physical-robot support.
 The UR bundle milestone must add a separate `ros2-ur-mock.sh` and runtime
 client using `use_mock_hardware=true`, including the last-command behavior
 after driver SIGKILL. Generic arm/base bundles also need their ros2_control
-demo checks. Record Jazzy outcomes in `PLAN.md`; do not count an
-unrun container command as validation.
+demo checks. Record Jazzy outcomes with the change; do not count an unrun container command
+as validation.
