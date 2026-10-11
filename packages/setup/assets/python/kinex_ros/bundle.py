@@ -179,8 +179,9 @@ def satellite_targets(bundle, facts, directory):
     return targets
 
 
-def _source_digest(source, setup_library):
+def _source_digest(source, setup_library, inputs=()):
     files = [(source / name, name) for name in SOURCE_FILES if (source / name).is_file()]
+    files += [(source / name, "input/" + Path(name).as_posix()) for name in inputs]
     files += [(file, "python/" + str(file.relative_to(setup_library))) for file in sorted((setup_library / "kinex_ros").rglob("*.py"))]
     return {name: hashlib.sha256(file.read_bytes()).hexdigest() for file, name in files}
 
@@ -237,9 +238,9 @@ def _validate_generation(bundle):
             raise BundleError("generated model is not a URDF robot")
 
 
-def _stage(source, facts, directory, args, steps, parent=None):
+def _stage(source, facts, directory, args, steps, parent=None, inputs=()):
     state = State(directory, bundle=source.name, bundle_version=source.manifest["version"], source=str(source.directory))
-    digest = inputs_hash({"files": _source_digest(source.directory, args.setup_library), "facts": facts,
+    digest = inputs_hash({"files": _source_digest(source.directory, args.setup_library, inputs), "facts": facts,
                          "core_library": str(args.core_library), "setup_library": str(args.setup_library),
                          "parent": str(parent) if parent else None, "ros_root": ros_root(), "install": args.install,
                          "skip": skip_install(), "runtime_files": RUNTIME_FILES, "runtime_modules": RUNTIME_MODULES})
@@ -313,7 +314,7 @@ def next_commands(bundle, facts):
     return commands
 
 
-def _provision(source, directory, args, steps):
+def _provision(source, directory, args, steps, inputs):
     import fcntl
     if source.manifest["parent"]:
         raise BundleError("provision this satellite through its parent bundle to pin a complete parent generation")
@@ -340,15 +341,15 @@ def _provision(source, directory, args, steps):
             state = State(target, bundle=item.name, bundle_version=item.manifest["version"], source=str(item.directory),
                           parent=None if target == directory else directory.name)
             state.save()
-        parent = _stage(source, facts, directory, args, steps)
+        parent = _stage(source, facts, directory, args, steps, inputs=inputs)
         bundles = [parent]
         for child, child_facts, target in children:
             bundles.append(_stage(child, child_facts, target, args, {}, parent.target_directory))
         return bundles
 
 
-def provision(bundle_dir, argv, steps=None):
-    """Stage a generation; print one JSON result. Profile/lifecycle changes stay in core tools."""
+def provision(bundle_dir, argv, steps=None, *, inputs=()):
+    """Stage a generation; inputs names extra files read by vendor steps. Core owns profile/lifecycle changes."""
     args = _parser(bundle_dir).parse_args(argv)
     directory = Path(args.dir).resolve()
     result = {"status": "ok", "dir": str(directory), "needs": [], "manual_steps": [], "next": []}
@@ -363,7 +364,7 @@ def provision(bundle_dir, argv, steps=None):
             print(json.dumps(questionnaire(source)))
             return 0
         result["manual_steps"] = source.manifest["manual_steps"]
-        bundles = _provision(source, directory, args, steps or {})
+        bundles = _provision(source, directory, args, steps or {}, inputs)
         result["generations"] = {device_name(bundle, bundle.facts): str(bundle.target_directory) for bundle in bundles}
         result["next"] = [command for bundle in bundles for command in next_commands(bundle, bundle.facts)]
     except MissingFacts as error:

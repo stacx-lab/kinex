@@ -52,6 +52,16 @@ for all five bundle types. The initial new base fixture omitted required control
 modes; it was corrected before the passing full run. Native ROS was not rerun for
 this routing-only follow-up. This plan is maintained in English.
 
+Review fixes (2026-10-10, based on `987c874`): camera reads validate the shared ROS
+sample caches even during recording, including stale-feedback rejection and recovery.
+Vendor provisioners declare additional resource files with `inputs`; content changes
+create a new generation and missing files fail without replacing the selected one.
+Regressions cover unchanged-input reuse, equal-size/equal-mtime content changes and
+preservation of the selected profile. `npm run check` passed all 372 tests and release
+checks; Python 3.10 passed 125 helper tests; native Humble and Jazzy each passed three
+smoke tests. The first integration run inherited an offline npm setting that blocked
+its local package-registry fixture; rerunning without that setting passed.
+
 Independent follow-up: Windows path diagnostics for interpreter readiness are
 outside this ROS delivery. The generic core prerequisites can land upstream
 separately, eliminating those core production differences from the ROS branch.

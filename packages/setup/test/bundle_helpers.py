@@ -757,7 +757,7 @@ class GenerationFixture(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
-    def run_provision(self, *extra, source=None, steps=None, facts=True):
+    def run_provision(self, *extra, source=None, steps=None, facts=True, inputs=()):
         args = ["--dir", str(self.directory), *LIBRARIES]
         if facts:
             for fact in ("name=left", "robot_ip=10.0.0.1", "arm_type=demo5", "ros_distro=jazzy", "use_mock_hardware=true"):
@@ -766,7 +766,8 @@ class GenerationFixture(unittest.TestCase):
         def urdf(bundle, facts, state):
             (bundle.directory / "model.urdf").write_text('<robot name="test"/>')
         with contextlib.redirect_stdout(output):
-            code = kb.provision(source or self.source, [*args, *extra], steps=steps if steps is not None else {"urdf": urdf})
+            code = kb.provision(source or self.source, [*args, *extra], steps=steps if steps is not None else {"urdf": urdf},
+                                inputs=inputs)
         return code, json.loads(output.getvalue())
 
     def generation(self, *args, **kwargs):
@@ -897,6 +898,35 @@ class ProvisionTests(GenerationFixture):
             self.assertTrue((current / "runtime.json").is_file())
             self.assertEqual(self.generation(), current)
         self.assertFalse((first / "runtime.json").exists())
+
+    def test_custom_resource_inputs_rebuild_without_replacing_selected_generation(self):
+        resource = self.source / "resources/calibration.json"
+        resource.parent.mkdir()
+        resource.write_text('{"offset": 1}\n')
+        def vendor(bundle, facts, state):
+            (bundle.directory / "model.urdf").write_text('<robot name="test"/>')
+            shutil.copyfile(resource, bundle.directory / "calibration.json")
+        options = {"steps": {"resources": vendor}, "inputs": ["resources/calibration.json"]}
+        first = self.generation(**options)
+        selected = (first / "profile.generated.json").read_bytes()
+        (self.directory / "profile.yaml").write_bytes(selected)
+        self.assertEqual(self.generation(**options), first)
+        # Same-size content changes must invalidate, even if mtime is unchanged.
+        previous = resource.stat()
+        resource.write_text('{"offset": 2}\n')
+        os.utime(resource, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        second = self.generation(**options)
+        self.assertNotEqual(first, second)
+        self.assertEqual((second / "calibration.json").read_text(), resource.read_text())
+        self.assertEqual((first / "calibration.json").read_text(), '{"offset": 1}\n')
+        self.assertEqual((self.directory / "profile.yaml").read_bytes(), selected)
+        self.assertEqual(self.generation(**options), second)
+        resource.unlink()
+        code, result = self.run_provision(**options)
+        self.assertEqual(code, 1, result)
+        self.assertIn("calibration.json", result["error"])
+        self.assertEqual(set((self.directory / "ros/generations").iterdir()), {first, second})
+        self.assertEqual((self.directory / "profile.yaml").read_bytes(), selected)
 
     def test_registered_device_can_be_provisioned_without_replacing_its_files(self):
         self.directory.mkdir(parents=True)

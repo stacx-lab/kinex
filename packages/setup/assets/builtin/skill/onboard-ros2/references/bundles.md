@@ -13,6 +13,14 @@ bash <source>/setup.sh --dir <project>/.kinex/devices/<name> \
 The source `provision.py` calls `kinex_ros.bundle.provision(source, argv, steps)`.
 The optional steps mapping contains vendor functions `(bundle, facts, state)`;
 write generated artifacts under `bundle.directory` (the staging directory).
+
+Declare every additional file read by those steps with `inputs`, for example
+`provision(source, argv, steps, inputs=["resources/calibration.json"])`.
+Paths are relative to the source bundle or absolute. List files individually;
+their names and contents affect generation identity, and missing inputs fail
+provisioning. Do not list generated outputs. Changes to undeclared external
+inputs require an explicit `--reset`.
+
 `bundle.device_directory` identifies persistent instance resources. Do not write
 active profiles, driver files or wrappers there. The source `setup.sh` validates
 both library roots and executes the source provisioner with command-local

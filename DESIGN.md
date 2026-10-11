@@ -52,7 +52,9 @@ Each generation includes only `bundle_manifest`, `ros2`, `ros2_drivers`,
 `ros2_check` and their package initializer. Drivers and checkers read configuration
 directly from `bundle_manifest`; provisioning and installer modules stay in setup.
 Source `provision.py` and `setup.sh` affect the generation digest but are not
-deployed. Runtime inventory changes create new generations without rewriting old
+deployed. Vendor steps declare additional source files through `provision(inputs=...)`;
+their names and contents also affect the digest, and missing inputs fail provisioning.
+Runtime inventory changes create new generations without rewriting old
 ones. Deployed Python is checked for direct provisioning imports, including those
 in custom helper modules; custom entrypoints require offline validation of their
 runtime dependencies. Dynamic imports are not proven by static inspection.

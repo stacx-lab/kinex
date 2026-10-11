@@ -597,9 +597,8 @@ class CameraSource(SensorSource):
             if set(args) - {"output"}:
                 raise ValueError("camera read accepts only output")
             from kinex.capture import save
-            sample = self.recorder.wait_latest() if self.recorder else self.grab(self.connection())
-            if sample is None:
-                raise BundleError("camera has no recorded frame", "missing_measurement")
+            # Reuse the ROS caches, applying freshness and sync checks even during recording.
+            sample = self.grab(self.connection())
             return save(self.profile, sample, self.directory / "out", args.get("output", "file"))
         if action == "introspect":
             return self.introspect(args)

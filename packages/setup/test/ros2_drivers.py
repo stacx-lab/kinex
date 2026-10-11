@@ -391,6 +391,31 @@ class Adapters(unittest.TestCase):
             self.assertIsNone(driver.handle)
             self.assertIsNone(handle.session.context)
 
+    def test_camera_recording_read_rejects_stale_feedback_and_recovers(self):
+        driver = self.driver("rgbd")
+        driver.execute("load", {})
+        handle = driver.handle
+        from kinex.stream import VideoRecorder
+        with patch.object(VideoRecorder, "_open"), patch.object(VideoRecorder, "_sink"), patch.object(VideoRecorder, "_close"):
+            driver.execute("record_start", {"dir": str(self.directory / "capture"), "rate_hz": 100})
+            self.wait_for(lambda: driver.recorder.count > 1)
+            self.assertIn("color", driver.execute("read", {"output": "base64"}))
+            world = handle.session.context.world
+            for topic in ("/color", "/depth"):
+                world.topics[topic]["stale_after_s"] = 0
+            self.wait_for(lambda: all(handle.streams[channel].age_s() > driver.stale_s for channel in ("color", "depth")))
+            self.wait_for(lambda: driver.recorder.read_errors > 0)
+            result = driver.dispatch("read", {"output": "base64"})
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["code"], "stale_feedback")
+            for topic in ("/color", "/depth"):
+                del world.topics[topic]["stale_after_s"]
+            self.wait_for(lambda: all(handle.streams[channel].age_s() < driver.stale_s for channel in ("color", "depth")))
+            self.assertIn("color", driver.execute("read", {"output": "base64"}))
+            self.assertIs(driver.handle, handle)
+            self.assertTrue(driver.recorder.running)
+            driver.execute("unload", {})
+
     def test_subprocess_eof_sends_hold_or_zero_before_exit(self):
         for kind in ("joint", "velocity"):
             with self.subTest(kind=kind):
