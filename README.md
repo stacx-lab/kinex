@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/kinex-logo-text-night.svg">
-    <img src="assets/kinex-logo-text-day.svg" alt="Kinex" height="160">
+    <img src="assets/kinex-logo-text-day.svg" alt="Kinex" height="100">
   </picture>
 </p>
 
