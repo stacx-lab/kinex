@@ -43,7 +43,7 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.deepEqual(capabilities.commands.filter(command => command.kind === 'workflow').map(command => command.name).sort(), ['calibrate', 'onboarding', 'register'])
   assert.ok(coreContribution(runtime).commands.some(command => command.name === 'unregister'))
   assert.deepEqual(setupContribution(setup).commands.map(command => command.name).sort(), ['calibrate', 'onboarding'])
-  assert.deepEqual(setupToolNames, ['setup_plan', 'calib_sample', 'calib_compute', 'kinex_install_apt'])
+  assert.deepEqual(setupToolNames, ['setup_plan', 'calib_sample', 'calib_compute'])
   assert.equal(tools.tools.filter(tool => tool.name === 'profile_write').length, 1)
   assert.ok(!tools.tools.some(tool => tool.name === 'calib_write'))
   assert.equal(typeof context.sections['setup.guides'], 'string')

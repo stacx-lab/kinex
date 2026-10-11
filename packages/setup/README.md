@@ -38,14 +38,8 @@ global and packaged precedence. Setup borrows core's tracked runtime, cancellati
 recording attribution, Python and owned-process lifecycle. Construction and plan
 inspection do not create a workspace or initialize Python.
 
-`createKinexSetup(runtime, { host })` accepts an optional `SetupHost.withTerminal`
-callback. It receives `{ message, signal }` and an action: return
-`{ status: "unavailable" }`, or invoke the action once with a cancellation signal
-and return `{ status: "completed", value }`. Hosts without terminal support retain
-structured authentication recovery. Setup owns the command; hosts lend the terminal.
-
 Standalone's `ApplicationOptions.composition` selects roots, reserved names and a
-`contributions(runtime, setupHost)` factory together, before runtime construction.
+`contributions(runtime)` factory together, before runtime construction.
 For core alone use `{ contributions: runtime => [coreContribution(runtime)] }`.
 Custom setup composition explicitly supplies `setupSkillRoots`, `setupToolNames`
 and its setup contribution. Omitted values do not inherit standalone's defaults.
@@ -72,7 +66,6 @@ sessions; those sessions do not inherit Kinex robotics tools or permission hooks
 | `setup_plan` | Read/save a DAG, select a task's targets, and record evidence-backed outcomes. |
 | `calib_sample` | Capture one measured sample into an isolated, participant-bound attempt. |
 | `calib_compute` | Run bundled offline solvers or model introspection and propose exact profile changes. |
-| `kinex_install_apt` | Install missing system packages with shell permission and optional terminal authentication. |
 
 `calib_sample.settle` supports joint devices, dexterous hands and velocity devices
 with declared measured velocities. Only distinct device timestamps count toward

@@ -235,12 +235,12 @@ test('composition owns setup discovery and reservations across session and works
       await target.dispose()
       for (const directory of [cwd, next]) {
         await mkdir(path.join(directory, '.kinex/tool'), { recursive: true })
-        await writeFile(path.join(directory, '.kinex/tool/kinex_install_apt.ts'), "export default { description:'workspace installer', execute:async()=>({title:'test',output:'workspace'}) }")
+        await writeFile(path.join(directory, '.kinex/tool/setup_plan.ts'), "export default { description:'workspace planner', execute:async()=>({title:'test',output:'workspace'}) }")
       }
       const composition = kind === 'default' ? undefined : kind === 'core'
         ? { contributions: runtime => [coreContribution(runtime)] }
         : { builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames,
-            contributions: (runtime, host) => [coreContribution(runtime), setupContribution(createKinexSetup(runtime, { host }))] }
+            contributions: runtime => [coreContribution(runtime), setupContribution(createKinexSetup(runtime))] }
       const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto', composition })
       t.after(() => app.dispose())
       await bind(app)
@@ -249,12 +249,12 @@ test('composition owns setup discovery and reservations across session and works
         const core = app.owner.runtime
         const setup = kind !== 'core'
         assert.equal((await core.skills.list()).some(skill => skill.name === 'onboard-ros2'), setup)
-        assert.equal(app.host.session.getAllTools().some(tool => tool.name === 'setup_plan'), setup)
+        assert.equal(app.host.session.getAllTools().some(tool => tool.name === 'calib_compute'), setup)
         assert.equal(Boolean(app.host.session.extensionRunner.getCommand('onboarding')), setup)
         for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2'])
           assert.equal(app.host.session.extensionRunner.getCommand(name), undefined)
         const tools = await core.tools.list()
-        assert.equal(tools.tools.some(tool => tool.name === 'kinex_install_apt'), !setup)
+        assert.equal(tools.tools.some(tool => tool.name === 'setup_plan'), !setup)
         await assert.rejects(stat(path.join(core.directory, '.kinex/python')), { code: 'ENOENT' })
       }
       await check()

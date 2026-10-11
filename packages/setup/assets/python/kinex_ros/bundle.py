@@ -122,7 +122,7 @@ def _parser(bundle_dir):
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--questionnaire", action="store_true")
     parser.add_argument("--step", help="force this step in a new candidate, then complete provisioning")
-    parser.add_argument("--install", action="store_true", help="allow apt, pip and Git dependency installation/builds")
+    parser.add_argument("--install", action="store_true", help="allow pip and Git dependency installation/builds; apt prerequisites must already be installed")
     return parser
 
 
@@ -281,7 +281,7 @@ def _stage(source, facts, directory, args, steps, parent=None, inputs=()):
     bundle = load(staging)
     state.run("facts", facts, lambda: "validated facts")
     state.run("preflight", {"facts": facts, "manifest": source.manifest, "install": args.install},
-              lambda: _needs(preflight(bundle, facts, args.install)))
+              lambda: _needs(preflight(bundle, facts)))
     state.run("install", {"facts": facts, "pins": source.manifest["pins"], "install": args.install},
               lambda: None if skip_install() or parent else _needs(install(bundle, facts, args.install)))
     for name, action in steps.items():

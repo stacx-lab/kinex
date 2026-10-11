@@ -2,9 +2,8 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { setTimeout as delay } from 'node:timers/promises'
 import { stripTerminalSequences } from '@earendil-works/pi-tui'
-import { readFile, stat, writeFile, mkdir, chmod } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { isolate, fakeProvider, workspace, seed } from './helpers.mjs'
@@ -115,88 +114,4 @@ test('real PTY Escape cancels a permission dialog without executing the write', 
   })
   await assert.rejects(stat(path.join(cwd, 'denied.txt')), { code: 'ENOENT' })
   assert.equal(fake.requests.length, 1)
-})
-
-async function aptCommands(cwd, authenticationPrelude = '') {
-  const commands = path.join(cwd, 'commands')
-  await mkdir(commands)
-  const scripts = {
-    dpkg: "print('amd64')",
-    'dpkg-query': "from pathlib import Path\nimport sys\nsys.exit(1) if not Path('installed').exists() else print('installed\\tok\\t1\\tamd64')",
-    'apt-get': "from pathlib import Path\nimport sys\nassert sys.stdin.read() == ''\nprint('APT_INSTALL_PROGRESS')\nif 'install' in sys.argv: Path('installed').write_text('yes')",
-    sudo: `import getpass, os, sys
-from pathlib import Path
-identity = f'{os.getppid()}:{os.getsid(0)}:{any(os.isatty(fd) for fd in range(3))}'
-if '-S' in sys.argv:
-${authenticationPrelude}
-    password = getpass.getpass('KINEX_PASSWORD: ', stream=sys.stderr)
-    if password != 'fixture-password': sys.exit(1)
-    Path('authenticated').write_text(identity)
-    sys.exit(0)
-if not Path('authenticated').exists() or Path('authenticated').read_text() != identity:
-    print('sudo: a password is required', file=sys.stderr)
-    sys.exit(1)
-args = sys.argv[2:]
-if args[0].startswith('DEBIAN_FRONTEND='): args = args[1:]
-os.execvp(args[0], args)
-`,
-  }
-  for (const [name, source] of Object.entries(scripts)) {
-    const file = path.join(commands, name)
-    await writeFile(file, '#!/usr/bin/python3\n' + source + '\n')
-    await chmod(file, 0o755)
-  }
-  return commands
-}
-
-test('apt onboarding authenticates in the terminal and keeps passwords out of model history', {
-  timeout: 30000, skip: process.platform !== 'linux' || process.getuid?.() === 0,
-}, async t => {
-  const cwd = await workspace(t)
-  const commands = await aptCommands(cwd)
-  const fake = await fakeProvider(t, isolation.root)
-  fake.steps.push({ tool: 'kinex_install_apt', args: { packages: ['kinex-test'] } }, { text: 'APT_ONBOARDING_DONE' })
-  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', '--seed', 'Install required packages'], {
-    cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'KINEX_PASSWORD:',
-      TUI_TEST_KEYS: JSON.stringify([[0.1, 'fixture-password\r'], ['APT_ONBOARDING_DONE', '/quit\r']]) },
-  })
-  assert.match(stdout, /APT_ONBOARDING_DONE/)
-  assert.match(stdout, /APT_INSTALL_PROGRESS/)
-  assert.doesNotMatch(stdout + stderr, /fixture-password|Extension error|TypeError/)
-  assert.equal(await readFile(path.join(cwd, 'installed'), 'utf8'), 'yes')
-  assert.equal(fake.requests.length, 2)
-  const transcript = JSON.stringify(fake.requests[1].messages)
-  assert.doesNotMatch(transcript, /fixture-password|KINEX_PASSWORD|APT_INSTALL_PROGRESS/)
-  assert.match(transcript, /\\?"status\\?": ?\\?"ok/)
-  await assert.rejects(stat(path.join(cwd, '.kinex/python')), { code: 'ENOENT' })
-})
-
-test('Ctrl+C at sudo cancels installation and leaves the session responsive', {
-  timeout: 30000, skip: process.platform !== 'linux' || process.getuid?.() === 0,
-}, async t => {
-  const cwd = await workspace(t)
-  const commands = await aptCommands(cwd, `    import subprocess
-    subprocess.Popen([sys.executable, '-c', "import time; from pathlib import Path; time.sleep(2); Path('orphan').write_text('bad')"])
-`)
-  const fake = await fakeProvider(t, isolation.root)
-  fake.steps.push(
-    { tool: 'kinex_install_apt', args: { packages: ['kinex-test'] } },
-    { text: 'APT_AUTH_CANCELLED' },
-    { tool: 'write', args: { path: 'responsive.txt', content: 'session continued' } },
-    { text: 'APT_SESSION_RESPONSIVE' },
-  )
-  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', '--seed', 'Install required packages'], {
-    cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'KINEX_PASSWORD:',
-      TUI_TEST_KEYS: JSON.stringify([[0.1, '\u0003'], ['APT_AUTH_CANCELLED', 'Continue after cancellation\r'], ['APT_SESSION_RESPONSIVE', '/quit\r']]) },
-  })
-  assert.match(stdout, /APT_SESSION_RESPONSIVE/)
-  assert.doesNotMatch(stdout + stderr, /Extension error|TypeError/)
-  assert.equal(fake.requests.length, 4)
-  assert.match(JSON.stringify(fake.requests[1].messages), /installation cancelled; packages remain incomplete/)
-  assert.equal(await readFile(path.join(cwd, 'responsive.txt'), 'utf8'), 'session continued')
-  await assert.rejects(stat(path.join(cwd, 'installed')), { code: 'ENOENT' })
-  await delay(2100)
-  await assert.rejects(stat(path.join(cwd, 'orphan')), { code: 'ENOENT' })
 })

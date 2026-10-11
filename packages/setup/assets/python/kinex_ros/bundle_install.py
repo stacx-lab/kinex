@@ -1,11 +1,8 @@
 """Host preflight and dependency installation for bundles and template onboarding."""
 
-import argparse
 from contextlib import suppress
-import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -31,7 +28,7 @@ def _stop_process(proc):
     proc.wait()
 
 
-def _run(argv, cwd=None, timeout=600, env=None, stdout=subprocess.PIPE):
+def _run(argv, cwd=None, timeout=600, env=None):
     proc, cancelled, previous = None, 0, {}
     def interrupt(signum, _frame):
         nonlocal cancelled
@@ -41,9 +38,8 @@ def _run(argv, cwd=None, timeout=600, env=None, stdout=subprocess.PIPE):
     try:
         for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             previous[signum] = signal.signal(signum, interrupt)
-        # setpgrp works on Python 3.10 and keeps sudo in the authentication
-        # session. Own a separate group so timeout cleanup cannot kill the host.
-        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=stdout,
+        # Own a separate process group for timeout and cancellation cleanup.
+        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, preexec_fn=os.setpgrp)
         if cancelled:
             raise SystemExit(128 + cancelled)
@@ -179,96 +175,9 @@ def preflight_report(bundle, facts):
     return report
 
 
-def preflight(bundle, facts, allow_sudo=False):
-    """Needs entries for failed preflight checks (empty when everything passes)."""
-    needs = [entry["need"] for entry in preflight_report(bundle, facts) if entry["status"] == "needs"]
-    # Validate the host before installing anything. Explicit --install can
-    # satisfy apt prerequisites, including checks outside pins.apt.
-    if not allow_sudo or not needs or any(need["kind"] != "apt" for need in needs):
-        return needs
-    packages = list(dict.fromkeys(package for need in needs for package in need["packages"]))
-    return _install_apt(packages, True) or preflight(bundle, facts)
-
-
-def _sudo_authenticate():
-    # Only sudo reads input. Connect it directly to the inherited user terminal;
-    # passwords never pass through Python strings, subprocess pipes or JSON.
-    import termios
-    terminal = os.dup(sys.stdin.fileno())
-    try:
-        attributes = termios.tcgetattr(terminal)
-        try:
-            return subprocess.run(["sudo", "-S", "-p", "[Kinex] sudo password for %u: ", "-v"],
-                                  stdin=terminal, stdout=terminal, stderr=terminal,
-                                  timeout=300, check=False).returncode
-        except subprocess.TimeoutExpired:
-            return 124
-        finally:
-            termios.tcsetattr(terminal, termios.TCSANOW, attributes)
-    finally:
-        os.close(terminal)
-
-
-def _sudo_need(packages, stage, code):
-    helper = Path(__file__).resolve()
-    command = (f"PYTHONHOME= PYTHONPATH={quote(str(helper.parents[1]))} {quote(sys.executable)} "
-               f"-S {quote(str(helper))} --install --interactive -- " + " ".join(quote(p) for p in packages))
-    return {**apt_need("apt", packages), "reason": "sudo_authentication", "stage": stage,
-            "exit_code": code, "command": command,
-            "text": "Sudo authentication is required. Run this command in an interactive terminal on this host; "
-                    "enter the password only at sudo's terminal prompt, then resume onboarding."}
-
-
-def _install_apt(packages, allow_sudo, interactive=False):
-    packages = _apt_specs(packages)
-    if not packages:
-        return []
-    if not sys.platform.startswith("linux") or not all(shutil.which(command) for command in ("apt-get", "dpkg", "dpkg-query")):
-        return [{"kind": "platform", "id": "apt", "packages": packages,
-                 "text": "apt dependencies require a Debian/Ubuntu Linux host with apt-get, dpkg and dpkg-query; run onboarding on the target host"}]
-    missing = missing_apt(packages)
-    if not missing:
-        return []
-    if not allow_sudo:
-        return [apt_need("apt", missing)]
-    # The host's shell permission covers this explicit invocation. Never read a
-    # password from the model, change sudoers, or run a whole-system upgrade.
-    prefix = [] if os.geteuid() == 0 else ["sudo", "-n"]
-    # Sudo recognizes assignments separately from its permitted command.
-    apt = prefix + (["DEBIAN_FRONTEND=noninteractive"] if prefix else []) + ["apt-get"]
-    env = {**os.environ, "DEBIAN_FRONTEND": "noninteractive", "LC_ALL": "C"}
-    # Newer sudo discovers a terminal through standard descriptors even when
-    # detached. Preserve the same tty ticket used by authentication: stream apt
-    # progress to that terminal, while stdin stays closed and errors are captured.
-    output = sys.stdin.fileno() if prefix and interactive and sys.stdin.isatty() else subprocess.PIPE
-    for stage, args in (("update", ["update", "--error-on=any"]),
-                        ("install", ["install", "-y", "--no-remove", "--", *missing])):
-        for attempt in range(2):
-            result = _run(apt + args, timeout=1800, env=env, stdout=output)
-            if (prefix and "DEBIAN_FRONTEND=noninteractive" in apt and result.returncode == 1
-                    and "not allowed to set the following environment variables: DEBIAN_FRONTEND" in result.stderr):
-                # Sudo rejected the assignment before running apt. Retry within
-                # the host's existing policy, without broader privileges.
-                apt = prefix + ["apt-get"]
-                result = _run(apt + args, timeout=1800, env=env, stdout=output)
-            if not (prefix and result.returncode == 1 and "sudo: a password is required" in result.stderr):
-                break
-            if not interactive or not sys.stdin.isatty() or attempt:
-                return [_sudo_need(missing, stage, result.returncode)]
-            code = _sudo_authenticate()
-            if code:
-                need = _sudo_need(missing, "authenticate", code)
-                need["text"] = "Sudo authentication failed or was cancelled; packages remain incomplete. " + need["text"]
-                return [need]
-        if result.returncode != 0:
-            need = apt_need("apt", missing)
-            need.update(stage=stage, exit_code=result.returncode,
-                        text=f"apt {stage} failed: {_tail(result.stderr or result.stdout)}")
-            return [need]
-    remaining = missing_apt(missing)
-    if not remaining:
-        return []
-    return [{**apt_need("apt", remaining), "stage": "verify", "text": "apt finished but required package versions are still missing: " + ", ".join(remaining)}]
+def preflight(bundle, facts):
+    """Report failed prerequisites without installing system packages."""
+    return [entry["need"] for entry in preflight_report(bundle, facts) if entry["status"] == "needs"]
 
 
 def _install_pip(bundle, pins):
@@ -329,7 +238,8 @@ def install(bundle, facts, allow_install=False):
     if skip_install():
         return []
     pins = bundle.manifest["pins"]
-    needs = _install_apt([render(package, facts) for package in pins["apt"]], allow_install)
+    missing = missing_apt([render(package, facts) for package in pins["apt"]])
+    needs = [apt_need("apt", missing)] if missing else []
     pip = [render(pin, facts) for pin in pins["pip"]]
     if not allow_install:
         if pip:
@@ -347,26 +257,3 @@ def install(bundle, facts, allow_install=False):
         needs += _checkout_git(bundle, facts, pin)
     # Discover all packages together so colcon can order cross-repository dependencies.
     return needs or _build_colcon(bundle, facts)
-
-
-def main(argv=None):
-    """Standard-library-only apt entry point, usable before ROS or PyYAML exists."""
-    parser = argparse.ArgumentParser(description="Check or install onboarding apt dependencies on this host.")
-    parser.add_argument("--install", action="store_true", help="refresh apt indexes and install missing packages (root or sudo -n)")
-    parser.add_argument("--interactive", action="store_true", help="allow sudo to authenticate directly on the user's terminal")
-    parser.add_argument("packages", nargs="+", metavar="PACKAGE")
-    args = parser.parse_args(argv)
-    try:
-        if args.interactive and not args.install:
-            raise BundleError("--interactive requires --install")
-        needs = _install_apt(args.packages, args.install, args.interactive)
-        result = {"status": "needs" if needs else "ok", "needs": needs}
-        code = 2 if needs else 0
-    except BundleError as error:
-        result, code = {"status": "error", "error": str(error)}, 1
-    print(json.dumps(result), flush=True)
-    return code
-
-
-if __name__ == "__main__":
-    sys.exit(main())

@@ -287,13 +287,6 @@ class StateTests(unittest.TestCase):
             self.assertFalse((Path(directory) / "state.json.tmp").exists())
 
 
-@contextlib.contextmanager
-def apt_host(uid=1000):
-    with patch.object(sys, "platform", "linux"), patch.object(os, "geteuid", return_value=uid, create=True), \
-            patch.object(bundle_install.shutil, "which", side_effect=lambda command: "/usr/bin/" + command):
-        yield
-
-
 @unittest.skipUnless(sys.platform.startswith("linux"), "uses POSIX process groups and /proc")
 class InstallerProcessTests(unittest.TestCase):
     def test_timeout_stops_workers_even_after_the_leader_exits(self):
@@ -327,6 +320,13 @@ class InstallerProcessTests(unittest.TestCase):
 
 
 class AptTests(unittest.TestCase):
+    def test_invalid_package_specs_never_start_a_process(self):
+        with patch.object(bundle_install, "_run") as run:
+            for spec in ("--allow-unauthenticated", "driver-", "driver-:amd64", "driver;true", "driver other", "./driver.deb", "driver=1;true"):
+                with self.subTest(spec=spec), self.assertRaises(kb.BundleError):
+                    bundle_install.missing_apt([spec])
+            run.assert_not_called()
+
     def test_package_detection_checks_installed_state_architecture_and_version(self):
         statuses = {"python3-yaml": "deinstall ok config-files", "broken": "install reinstreq installed",
                     "held": "hold ok installed", "driver": "install ok installed"}
@@ -339,159 +339,13 @@ class AptTests(unittest.TestCase):
         with patch.object(bundle_install, "_run", side_effect=run):
             self.assertEqual(kb.missing_apt(packages), ["python3-yaml", "broken", "driver:amd64=2.0"])
 
-    def test_install_cli_root_and_sudo_then_rerun_is_a_noop(self):
-        for uid in (0, 1000):
-            with self.subTest(uid=uid), apt_host(uid):
-                commands, installed = [], set()
-                def run(argv, **kwargs):
-                    commands.append(argv)
-                    if argv[0] == "dpkg":
-                        return subprocess.CompletedProcess(argv, 0, "amd64\n", "")
-                    if argv[0] == "dpkg-query":
-                        return subprocess.CompletedProcess(argv, 0 if argv[-1] in installed else 1, "installed\tok\t1\tamd64\n", "")
-                    prefix = [] if uid == 0 else ["sudo", "-n", "DEBIAN_FRONTEND=noninteractive"]
-                    self.assertEqual(argv[:len(prefix) + 1], prefix + ["apt-get"])
-                    self.assertEqual(kwargs["env"]["DEBIAN_FRONTEND"], "noninteractive")
-                    if "install" in argv:
-                        installed.update(argv[argv.index("--") + 1:])
-                    return subprocess.CompletedProcess(argv, 0, "apt progress", "")
-                with patch.object(bundle_install, "_run", side_effect=run):
-                    output = io.StringIO()
-                    with contextlib.redirect_stdout(output):
-                        code = bundle_install.main(["python3-yaml", "ros-jazzy-rclpy", "ros-jazzy-rclpy"])
-                    self.assertEqual(code, 2)
-                    self.assertEqual(json.loads(output.getvalue())["needs"][0]["packages"], ["python3-yaml", "ros-jazzy-rclpy"])
-                    self.assertTrue(all(argv[0] in ("dpkg", "dpkg-query") for argv in commands))
-                    for _ in range(2):
-                        output = io.StringIO()
-                        with contextlib.redirect_stdout(output):
-                            self.assertEqual(bundle_install.main(["--install", "python3-yaml", "ros-jazzy-rclpy"]), 0)
-                        self.assertEqual(json.loads(output.getvalue()), {"status": "ok", "needs": []})
-                effects = [argv for argv in commands if argv[0] not in ("dpkg", "dpkg-query")]
-                self.assertEqual(len(effects), 2)
-                self.assertIn("update", effects[0])
-                self.assertIn("install", effects[1])
-                self.assertEqual(installed, {"python3-yaml", "ros-jazzy-rclpy"})
-
-    def test_failed_update_install_and_verification_remain_actionable_needs(self):
-        for stage, detail in [("update", "sudo: a password is required"), ("update", "repository is not signed"),
-                              ("install", "Unable to locate package ros-jazzy-driver"), ("verify", "")]:
-            with self.subTest(stage=stage, detail=detail), apt_host():
-                commands = []
-                def run(argv, **kwargs):
-                    commands.append(argv)
-                    failed = stage in argv
-                    return subprocess.CompletedProcess(argv, (1 if detail.startswith("sudo:") else 100) if failed else 0, "", detail if failed else "")
-                with patch.object(bundle_install, "missing_apt", return_value=["ros-jazzy-driver"]), \
-                        patch.object(bundle_install, "_run", side_effect=run):
-                    needs = bundle_install._install_apt(["ros-jazzy-driver"], True)
-                self.assertEqual(needs[0]["stage"], stage)
-                if detail == "sudo: a password is required":
-                    self.assertEqual(needs[0]["reason"], "sudo_authentication")
-                    self.assertIn("--install --interactive --", needs[0]["command"])
-                else:
-                    self.assertIn(detail, needs[0]["text"])
-                self.assertEqual(len(commands), 1 if stage == "update" else 2)
-                self.assertEqual(needs[0]["packages"], ["ros-jazzy-driver"])
-
-    def test_apt_only_sudo_rule_retries_without_requiring_environment_permission(self):
-        commands = []
-        def run(argv, **kwargs):
-            commands.append(argv)
-            self.assertEqual(kwargs["env"]["LC_ALL"], "C")
-            if "DEBIAN_FRONTEND=noninteractive" in argv:
-                return subprocess.CompletedProcess(argv, 1, "", "sudo: sorry, you are not allowed to set "
-                                                   "the following environment variables: DEBIAN_FRONTEND\n")
-            self.assertEqual(argv[:3], ["sudo", "-n", "apt-get"])
-            return subprocess.CompletedProcess(argv, 0, "", "")
-        with apt_host(), patch.object(bundle_install, "_run", side_effect=run), \
-                patch.object(bundle_install, "missing_apt", side_effect=[["driver"], []]):
-            self.assertEqual(bundle_install._install_apt(["driver"], True), [])
-        self.assertEqual(len(commands), 3)
-        self.assertIn("update", commands[0])
-        self.assertIn("update", commands[1])
-        self.assertEqual(commands[2], ["sudo", "-n", "apt-get", "install", "-y", "--no-remove", "--", "driver"])
-
-    def test_interactive_authentication_retries_the_failed_stage_and_verifies(self):
-        commands = []
-        def run(argv, **kwargs):
-            commands.append(argv)
-            self.assertEqual(kwargs["stdout"], sys.stdin.fileno())
-            return subprocess.CompletedProcess(argv, 1 if len(commands) == 1 else 0, "", "sudo: a password is required")
-        with apt_host(), patch.object(sys.stdin, "isatty", return_value=True), \
-                patch.object(bundle_install, "_run", side_effect=run), \
-                patch.object(bundle_install, "_sudo_authenticate", return_value=0) as auth, \
-                patch.object(bundle_install, "missing_apt", side_effect=[["driver"], []]):
-            self.assertEqual(bundle_install._install_apt(["driver"], True, True), [])
-        auth.assert_called_once_with()
-        self.assertEqual(commands[0], commands[1])
-        self.assertIn("install", commands[2])
-
-    def test_streamed_progress_keeps_stdin_closed_and_stderr_available(self):
-        with tempfile.TemporaryFile(mode="w+") as progress:
-            result = bundle_install._run([sys.executable, "-c",
-                "import sys; assert sys.stdin.read() == ''; print('apt progress'); "
-                "print('apt failure', file=sys.stderr); sys.exit(100)"], stdout=progress)
-            progress.seek(0)
-            self.assertEqual(progress.read(), "apt progress\n")
-        self.assertEqual(result.returncode, 100)
-        self.assertEqual(result.stdout, "")
-        self.assertEqual(result.stderr, "apt failure\n")
-
-    def test_authentication_requires_explicit_terminal_opt_in_and_stops_on_failure(self):
-        for interactive, tty, auth_code in [(False, True, 0), (True, False, 0), (True, True, 1), (True, True, 124), (True, True, 0)]:
-            with self.subTest(interactive=interactive, tty=tty, auth_code=auth_code), apt_host(), \
-                    patch.object(sys.stdin, "isatty", return_value=tty), \
-                    patch.object(bundle_install, "missing_apt", return_value=["driver"]), \
-                    patch.object(bundle_install, "_run", return_value=subprocess.CompletedProcess([], 1, "", "sudo: a password is required")) as run, \
-                    patch.object(bundle_install, "_sudo_authenticate", return_value=auth_code) as auth:
-                need = bundle_install._install_apt(["driver"], True, interactive)[0]
-                self.assertEqual(need["reason"], "sudo_authentication")
-                self.assertEqual(auth.call_count, int(interactive and tty))
-                self.assertEqual(run.call_count, 2 if interactive and tty and not auth_code else 1)
-                self.assertTrue(all(call.kwargs["stdout"] == (sys.stdin.fileno() if interactive and tty else subprocess.PIPE)
-                                    for call in run.call_args_list))
-                if interactive and tty and auth_code:
-                    self.assertEqual(need["stage"], "authenticate")
-                self.assertTrue(all("install" not in call.args[0] for call in run.call_args_list))
-
-    @unittest.skipUnless(sys.platform.startswith("linux"), "requires terminal attributes")
-    def test_sudo_reads_only_the_terminal_descriptor_and_restores_it_on_timeout(self):
-        import termios
-        for timeout in (False, True):
-            with self.subTest(timeout=timeout), patch.object(sys.stdin, "fileno", return_value=7), \
-                    patch.object(os, "dup", return_value=12), \
-                    patch.object(os, "close") as close, patch.object(termios, "tcgetattr", return_value=[1]) as attributes, \
-                    patch.object(termios, "tcsetattr") as restore, patch.object(subprocess, "run", \
-                    side_effect=subprocess.TimeoutExpired("sudo", 300) if timeout else None,
-                    return_value=subprocess.CompletedProcess([], 0)) as run:
-                self.assertEqual(bundle_install._sudo_authenticate(), 124 if timeout else 0)
-            self.assertEqual(run.call_args.args[0], ["sudo", "-S", "-p", "[Kinex] sudo password for %u: ", "-v"])
-            self.assertEqual([run.call_args.kwargs[name] for name in ("stdin", "stdout", "stderr")], [12, 12, 12])
-            self.assertNotIn("input", run.call_args.kwargs)
-            self.assertNotIn("capture_output", run.call_args.kwargs)
-            attributes.assert_called_once_with(12)
-            restore.assert_called_once_with(12, termios.TCSANOW, [1])
-            close.assert_called_once_with(12)
-
-    def test_unsupported_hosts_and_invalid_package_specs_never_run_apt(self):
-        with patch.object(bundle_install, "_run") as run:
-            for platform in ("win32", "darwin"):
-                with patch.object(sys, "platform", platform):
-                    self.assertEqual(bundle_install._install_apt(["ros-jazzy-rclpy"], True)[0]["kind"], "platform")
-            with patch.object(sys, "platform", "linux"), patch.object(bundle_install.shutil, "which", return_value=None):
-                self.assertEqual(bundle_install._install_apt(["ros-jazzy-rclpy"], True)[0]["kind"], "platform")
-            for spec in ("--allow-unauthenticated", "driver-", "driver-:amd64", "driver;true", "driver other", "./driver.deb", "driver=1;true"):
-                with self.subTest(spec=spec), self.assertRaises(kb.BundleError):
-                    bundle_install._install_apt([spec], True)
-            run.assert_not_called()
 
     def test_plus_names_and_version_pins_are_valid(self):
         packages = ["g++", "g++:amd64", "g++=4:13.2.0-7ubuntu1", "libc++:arm64=1.0+2-3", "g++"]
         self.assertEqual(bundle_install._apt_specs(packages), packages[:-1])
 
-    @unittest.skipUnless(sys.platform.startswith("linux") and bundle_install.shutil.which("dpkg-query")
-                         and bundle_install.shutil.which("dpkg"), "requires the Debian package database tools")
+    @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("dpkg-query")
+                         and shutil.which("dpkg"), "requires the Debian package database tools")
     def test_real_dpkg_multiarch_plus_names_and_architecture_independent_packages(self):
         native = subprocess.check_output(["dpkg", "--print-architecture"], text=True).strip()
         foreign = "i386" if native != "i386" else "amd64"
@@ -518,36 +372,67 @@ class AptTests(unittest.TestCase):
                 self.assertEqual(kb.missing_apt(packages),
                                  ["g++=2.0", "multiarch=2.0", "foreign-only", "broken-native", "absent"])
                 with patch.object(bundle_install, "_run", wraps=bundle_install._run) as run:
-                    self.assertEqual(bundle_install._install_apt(["g++", "multiarch", "portable"], True), [])
+                    self.assertEqual(bundle_install.missing_apt(["g++", "multiarch", "portable"]), [])
                 self.assertTrue(all(call.args[0][0] in ("dpkg", "dpkg-query") for call in run.call_args_list))
-
-    @unittest.skipUnless(os.name == "posix", "recovery commands use a POSIX shell")
-    def test_authentication_recovery_ignores_workspace_python_replacements(self):
-        with tempfile.TemporaryDirectory(prefix="kinex recovery ") as directory:
-            root = Path(directory)
-            (root / "kinex").mkdir()
-            replacement = "from pathlib import Path\nPath('workspace-code-ran').touch()\nraise RuntimeError('workspace replacement')\n"
-            for name in ("kinex/__init__.py", "kinex/bundle_install.py", "sitecustomize.py", "json.py"):
-                (root / name).write_text(replacement)
-            command = bundle_install._sudo_need(["--invalid-package"], "update", 1)["command"]
-            # Invalid package syntax rejects before apt can run. An inherited
-            # Python home/path must not redirect the copyable recovery command.
-            result = subprocess.run(command, shell=True, cwd=root, capture_output=True, text=True,
-                                    env={**os.environ, "PYTHONHOME": str(root), "PYTHONPATH": str(root), "PATH": ""})
-            self.assertEqual(result.returncode, 1, result.stderr)
-            self.assertIn("invalid apt package", json.loads(result.stdout)["error"])
-            self.assertFalse((root / "workspace-code-ran").exists())
-
-    def test_cli_bootstraps_without_site_packages_or_a_bundle(self):
-        # -S prevents importing site-packages (including PyYAML and ROS).
-        # Empty PATH ensures this real subprocess cannot invoke apt or sudo.
-        result = subprocess.run([sys.executable, "-S", "-m", "kinex_ros.bundle_install", "--install", "python3-yaml"],
-                                capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(LIBRARY), "PATH": ""})
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["needs"][0]["kind"], "platform")
 
 
 class PreflightTests(unittest.TestCase):
+    def test_missing_apt_blocks_provisioning_until_external_installation(self):
+        # Both preflight requirements and pins must stay read-only with --install.
+        for preflight in (False, True):
+            for allow in (False, True):
+                with self.subTest(preflight=preflight, allow=allow), tempfile.TemporaryDirectory() as temporary:
+                    directory = Path(temporary)
+                    data = {"version": 1, "name": "sensor", "device": {"type": "other"}, "facts": [],
+                            "pins": {"apt": ["driver:amd64=1"], "pip": ["example==1"],
+                                     "git": [{"url": "https://example.invalid/driver.git", "rev": "v1", "build": "colcon"}]}}
+                    if preflight:
+                        data["preflight"] = [{"id": "apt", "kind": "apt", "packages": ["driver:amd64=1", "extra"]}]
+                    kb.write_yaml(directory / "bundle.yaml", data)
+                    (directory / "driver.py").write_text("# driver\n")
+                    installed, commands = set(), []
+                    def run(argv, **kwargs):
+                        commands.append(argv)
+                        if argv[0] == "dpkg":
+                            return subprocess.CompletedProcess(argv, 0, "amd64\n", "")
+                        self.assertEqual(argv[0], "dpkg-query", "dependency checks must not execute apt, sudo or builds")
+                        return subprocess.CompletedProcess(argv, 0 if argv[-1] in installed else 1, "installed\tok\t1\tamd64\n", "")
+                    args = [*LIBRARIES, *(["--install"] if allow else [])]
+                    with patch.object(bundle_install, "_run", side_effect=run), \
+                            patch.object(bundle_install, "_install_pip", return_value=[]) as pip, \
+                            patch.object(bundle_install, "_checkout_git", return_value=[]) as git, \
+                            patch.object(bundle_install, "_build_colcon", return_value=[]) as build, \
+                            patch.dict(os.environ, {"KINEX_BUNDLE_SKIP_INSTALL": "0"}):
+                        output = io.StringIO()
+                        with contextlib.redirect_stdout(output):
+                            self.assertEqual(kb.provision(directory, args), 2)
+                        result = json.loads(output.getvalue())
+                        need = result["needs"][0]
+                        self.assertEqual(need["kind"], "apt")
+                        self.assertEqual(split(need["command"]), ["sudo", "apt-get", "install", "-y", "--no-remove", *need["packages"]])
+                        self.assertIn("driver:amd64=1", need["packages"])
+                        self.assertFalse(kb.State(directory).done("preflight" if preflight else "install"))
+                        self.assertFalse((directory / "ros/generations").exists())
+                        for action in (pip, git, build):
+                            action.assert_not_called()
+                        # Simulate the user installing the packages, then resume.
+                        installed.update(["driver", "extra"])
+                        output = io.StringIO()
+                        with contextlib.redirect_stdout(output):
+                            code = kb.provision(directory, args)
+                        result = json.loads(output.getvalue())
+                        self.assertEqual(code, 0 if allow else 2, result)
+                        if allow:
+                            for action in (pip, git, build):
+                                action.assert_called_once()
+                            self.assertTrue(kb.State(directory).done("install"))
+                            self.assertTrue((Path(result["generations"]["sensor"]) / "profile.generated.json").is_file())
+                        else:
+                            self.assertEqual([need["kind"] for need in result["needs"]], ["pip", "git"])
+                            for action in (pip, git, build):
+                                action.assert_not_called()
+                    self.assertTrue(commands)
+
     def test_needs_entries_with_installs_skipped(self):
         with tempfile.TemporaryDirectory() as directory:
             bundle = kb.load(FIXTURE)
@@ -571,7 +456,7 @@ class PreflightTests(unittest.TestCase):
 
     def test_apt_need_lists_one_install_command(self):
         bundle = kb.load(FIXTURE)
-        with apt_host(), patch.object(bundle_install, "missing_apt", return_value=["ros-jazzy-demo-driver"]), patch.dict(os.environ, {"KINEX_BUNDLE_SKIP_INSTALL": "0"}):
+        with patch.object(bundle_install, "missing_apt", return_value=["ros-jazzy-demo-driver"]), patch.dict(os.environ, {"KINEX_BUNDLE_SKIP_INSTALL": "0"}):
             needs = kb.install(bundle, {"ros_distro": "jazzy"})
         self.assertEqual(needs, [{"kind": "apt", "id": "apt", "packages": ["ros-jazzy-demo-driver"],
                                   "command": "sudo apt-get install -y --no-remove ros-jazzy-demo-driver", "text": "missing system packages: ros-jazzy-demo-driver"}])
@@ -593,7 +478,7 @@ class PreflightTests(unittest.TestCase):
                     calls.append(argv)
                     return subprocess.CompletedProcess(argv, 0, "", "")
                 output = io.StringIO()
-                with apt_host(), patch.dict(os.environ, {"KINEX_BUNDLE_SKIP_INSTALL": "0"}), \
+                with patch.dict(os.environ, {"KINEX_BUNDLE_SKIP_INSTALL": "0"}), \
                         patch.object(bundle_install, "missing_apt", return_value=[]), \
                         patch.object(bundle_install, "_run", side_effect=run), contextlib.redirect_stdout(output):
                     code = kb.provision(source, ["--dir", str(target), *LIBRARIES, *(["--install"] if allow else [])])
@@ -618,43 +503,6 @@ class PreflightTests(unittest.TestCase):
             (Path(directory) / "env.sh").write_text("# comment\nexport A_KEY=secret-value\n  export B=2\nC=3\n")
             self.assertEqual(kb.env_file_names(directory), {"A_KEY", "B"})
 
-    def test_install_flag_satisfies_apt_preflight_and_rechecks_the_result(self):
-        for allow, sudo_ok, other_need in [(False, True, False), (True, True, False), (True, False, False), (True, True, True)]:
-            with self.subTest(allow=allow, sudo_ok=sudo_ok, other_need=other_need), tempfile.TemporaryDirectory() as temporary:
-                directory = Path(temporary)
-                data = {"version": 1, "name": "sensor", "device": {"type": "imu"}, "facts": [],
-                        "pins": {"apt": ["driver"]}, "preflight": [{"id": "apt", "kind": "apt", "packages": ["driver", "extra"]}]}
-                if other_need:
-                    data["preflight"].append({"id": "host", "kind": "file", "path": str(directory / "missing")})
-                kb.write_yaml(directory / "bundle.yaml", data)
-                (directory / "driver.py").write_text("# driver\n")
-                installed, commands = set(), []
-                def run(argv, **kwargs):
-                    commands.append(argv)
-                    if argv[0] == "dpkg":
-                        return subprocess.CompletedProcess(argv, 0, "amd64\n", "")
-                    if argv[0] == "dpkg-query":
-                        return subprocess.CompletedProcess(argv, 0 if argv[-1] in installed else 1, "installed\tok\t1\tamd64\n", "")
-                    self.assertEqual(argv[:4], ["sudo", "-n", "DEBIAN_FRONTEND=noninteractive", "apt-get"])
-                    if sudo_ok and argv[4] == "install":
-                        installed.update(argv[8:])
-                    return subprocess.CompletedProcess(argv, 0 if sudo_ok else 1, "", "")
-                output = io.StringIO()
-                with apt_host(), patch.object(bundle_install, "_run", side_effect=run), patch.dict(os.environ, {"KINEX_BUNDLE_SKIP_INSTALL": "0"}), contextlib.redirect_stdout(output):
-                    code = kb.provision(directory, LIBRARIES + (["--install"] if allow else []))
-                sudo = [command for command in commands if command[0] == "sudo"]
-                self.assertEqual(bool(sudo), allow and not other_need)
-                success = allow and sudo_ok and not other_need
-                self.assertEqual(code, 0 if success else 2)
-                result = json.loads(output.getvalue())
-                self.assertEqual(result["status"], "ok" if success else "needs")
-                if success:
-                    self.assertEqual(installed, {"driver", "extra"})
-                    self.assertTrue(kb.State(directory).done("preflight"))
-                    self.assertTrue((Path(result["generations"]["sensor"]) / "profile.generated.json").is_file())
-                else:
-                    self.assertIn("sudo apt-get install -y", result["needs"][0]["command"])
-                    self.assertFalse(kb.State(directory).done("preflight"))
 
     def test_git_checkout_reuses_only_the_declared_origin(self):
         def git(*args):
@@ -809,7 +657,7 @@ class ProvisionTests(GenerationFixture):
         result = subprocess.run([str(generation / "ros-python"), "-c", "import kinex, kinex_ros; print(kinex_ros.__file__)"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(str(generation / "python"), result.stdout)
-        self.assertEqual({file.name for file in (generation / "python/kinex_ros").iterdir()},
+        self.assertEqual({file.name for file in (generation / "python/kinex_ros").iterdir() if file.name != "__pycache__"},
                          {"__init__.py", "bundle_manifest.py", "ros2.py", "ros2_drivers.py", "ros2_check.py"})
         for name in ("provision.py", "setup.sh"):
             self.assertFalse((generation / name).exists())

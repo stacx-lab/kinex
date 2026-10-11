@@ -9,17 +9,14 @@ import { CalibSampleTool } from "./tool/calib_sample.ts"
 import { CalibComputeTool } from "./tool/calib_compute.ts"
 import { Assets as CoreAssets } from "@kinex/core/installation/assets"
 import { Assets } from "./assets.ts"
-import type { SetupOptions } from "./host.ts"
-import { installAptTool } from "./tool/install_apt.ts"
 import INSTRUCTIONS from "./instructions.txt"
 
-const sharedTools: readonly Def[] = [SetupPlanTool, CalibSampleTool, CalibComputeTool]
-export const setupToolNames: readonly string[] = [...sharedTools.map(tool => tool.id), "kinex_install_apt"]
+const tools: readonly Def[] = [SetupPlanTool, CalibSampleTool, CalibComputeTool]
+export const setupToolNames: readonly string[] = tools.map(tool => tool.id)
 
 /** Borrows the core runtime; construction has no filesystem or device effects. */
-export function createKinexSetup(runtime: KinexRuntime, options: SetupOptions = {}) {
+export function createKinexSetup(runtime: KinexRuntime) {
   const directory = runtime.directory
-  const tools: readonly Def[] = [...sharedTools, installAptTool(options.host)]
   return {
     plan: {
       inspect: () => runtime.operation(() => inspectPlan(directory)),

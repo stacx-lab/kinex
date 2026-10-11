@@ -9,7 +9,7 @@ Hardware and simulators share the same device contracts.
 | Location | Owns |
 | --- | --- |
 | `packages/core/src`, `packages/core/assets` | Device registration/removal, non-ROS provisioning, runtime, schemas, validation, Python/tools, setup-device and complete device guides; no setup/agent/UI dependencies. |
-| `packages/setup` | Onboarding, ROS provisioning/adapters, apt tooling and calibration; depends on core through package exports. |
+| `packages/setup` | Onboarding, ROS provisioning/adapters, dependency checks and calibration; depends on core through package exports. |
 | `src` | Standalone CLI, isolated coding storage and product policy; published Pi SDKs supply the coding harness and TUI. |
 | `src/integration` | Standalone Pi integration and product policy, independent of native plugins. |
 | `../kinex-plugins` (separate project) | Native Pi, OpenCode and Codex integrations consuming a packed core snapshot. |
@@ -39,7 +39,7 @@ configuration; the core schema does not learn those settings.
 Existing onboarding and registration workflows select that skill for ROS devices;
 setup adds no dedicated ROS command or alias.
 
-Setup owns `kinex_ros`, provisioning and `kinex_install_apt`. Provisioning requires
+Setup owns `kinex_ros`, provisioning and dependency checks. Provisioning requires
 explicit absolute core/setup Python library roots. It stages a complete generation
 under the device, validates Python/shell syntax and referenced driver/URDF artifacts,
 then renames it to `ros/generations/<id>`. The profile's entry and interpreter point
@@ -66,13 +66,12 @@ external dependencies and are not rolled back with a generation. Legacy ROS prof
 require explicit migration; failed legacy migration stays unloaded and repairs forward.
 See [bundle contracts](packages/setup/assets/builtin/skill/onboard-ros2/references/bundles.md).
 
-The apt tool uses tracked core tool execution, shell permission and an owned process
-group. Setup may request a terminal through `SetupHost.withTerminal`; standalone
-serializes handoff, suspends/restores the TUI and routes Ctrl+C to that operation.
-Headless/non-TTY hosts report unavailable and preserve the recovery command. Setup
-executes its installed helper by absolute path under system Python with `-S`, cleared
-`PYTHONHOME` and a controlled `PYTHONPATH`. Password input stays at sudo's terminal;
-apt stdin stays closed. Failed or cancelled installation remains incomplete.
+Bundle apt checks report missing packages and versions without installing them.
+The coding agent uses its existing permission-checked shell tool for installation.
+When sudo is required, it gives the user the exact command and target host to run
+independently, then rechecks dependencies after completion. Failed or pending
+installation remains incomplete. Bundle `--install` enables only pip/Git preparation
+and source builds; missing apt prerequisites block those operations.
 
 Standalone selects an `ApplicationComposition` before creating its runtime. Its
 roots, tool reservations and contribution factory travel together across sessions

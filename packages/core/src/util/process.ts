@@ -11,7 +11,7 @@ export interface ProcessOptions {
   signal?: AbortSignal
   // Shell jobs own their subprocess tree, including pipes inherited by children.
   group?: boolean
-  stdin?: "pipe" | "inherit"
+  stdin?: "pipe"
   stdout?: "pipe"
   stderr?: "pipe"
 }
@@ -25,17 +25,14 @@ export function spawnProcess(argv: string[], options: ProcessOptions = {}) {
   if (!command) throw new Error("process command is required")
   options.signal?.throwIfAborted()
   const group = options.group && process.platform !== "win32"
-  const settings = { cwd: options.cwd, env: options.env, detached: group }
-  const child = options.stdin === "inherit"
-    ? spawn(command, argv.slice(1), { ...settings, stdio: ["inherit", "pipe", "pipe"] })
-    : spawn(command, argv.slice(1), { ...settings, stdio: ["pipe", "pipe", "pipe"] })
+  const child = spawn(command, argv.slice(1), { cwd: options.cwd, env: options.env, detached: group, stdio: ["pipe", "pipe", "pipe"] })
   const state = { written: Promise.resolve(), timer: undefined as ReturnType<typeof setTimeout> | undefined }
   const exited = new Promise<number>((resolve, reject) => {
     child.once("error", reject)
     child.once("close", (code) => resolve(code ?? 128))
   })
   void exited.catch(() => {})
-  child.stdin?.on("error", () => {})
+  child.stdin.on("error", () => {})
   const kill = (signal: NodeJS.Signals) => {
     if (!group || !child.pid) return child.kill(signal)
     try {
@@ -55,15 +52,13 @@ export function spawnProcess(argv: string[], options: ProcessOptions = {}) {
     get exitCode() { return child.exitCode ?? (child.signalCode ? 128 : null) },
     stdin: {
       write(data: string | Uint8Array) {
-        const input = child.stdin
-        if (!input) throw new Error("Process input belongs to the user's terminal")
         state.written = new Promise<void>((resolve, reject) => {
-          input.write(data, (error) => error ? reject(error) : resolve())
+          child.stdin.write(data, (error) => error ? reject(error) : resolve())
         })
         void state.written.catch(() => {})
       },
       flush: () => state.written,
-      end: () => child.stdin?.end(),
+      end: () => child.stdin.end(),
     },
     stdout: Readable.toWeb(child.stdout),
     stderr: Readable.toWeb(child.stderr),

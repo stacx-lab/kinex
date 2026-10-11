@@ -48,7 +48,8 @@ Use returned paths, not assumed root `driver.py`, `stack.sh` or `check.sh` paths
 Identical inputs resume; changes create a separate candidate. A failed candidate
 leaves selected files intact. Completed vendor steps retain their generated artifacts
 on resume. Provision satellites through their parent bundle to pin its completed
-generation. Host package installation is not rolled back.
+generation. Host package installation is not rolled back. Apt prerequisites are checked only;
+`--install` enables pip/Git preparation and builds after those checks pass.
 
 Custom drivers and `check.py` hooks read configuration from `bundle_manifest`.
 Keep installation and generation in the source provisioner: runtime imports of

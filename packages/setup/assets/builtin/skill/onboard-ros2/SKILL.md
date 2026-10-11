@@ -34,7 +34,7 @@ generic profile, driver, permission and lifecycle contracts.
    procedures and `verify-checks` for joint/sensor procedures. Reuse `verify-base-motion`
    for task-required base trials; use `verify-base-posture` only when the device
    exposes posture control and the task needs it. Motion verification requires
-   separate authorization. Failed installation, authentication or checks remain incomplete.
+   separate authorization. Failed or pending installation and failed checks remain incomplete.
 
 Provisioning stages all entrypoints and helpers together; it never changes the
 active profile. Keep stack commands and driver paths pinned to the selected
@@ -45,6 +45,6 @@ stack. Preserve the adapters' measured stop confirmation and failure latching.
 For failed replacement, unload the candidate before restoring a previous
 compatible generation through `profile_write`; preserve intervening user edits.
 For legacy profiles using `kinex.ros2*`, read [migration](references/migration.md).
-Cancelled authentication requires user direction before another attempt. Use
-`kinex_install_apt` when available on the driver host; a headless/remote host uses
-the returned terminal recovery command. Never put passwords into model tools.
+Use the existing shell tool for dependency installation. When sudo is required,
+give the user the exact command and target host to run independently; leave the
+prerequisite incomplete until they report completion and package checks pass.

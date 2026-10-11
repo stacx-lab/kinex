@@ -96,7 +96,7 @@ try {
   const tools = (await runtime.tools.list()).tools.map(tool => tool.name)
   for (const name of ['profile_write','device','devices','device_stop','servo','closed_loop','settled','relative_pose','locate_object_3d','run_policy']) assert.ok(tools.includes(name), name)
   assert.ok(!tools.includes('track'))
-  for (const name of ['setup_plan','calib_compute','calib_sample','calib_plan','device_calibrate','kinex_install_apt']) assert.ok(!tools.includes(name), name)
+  for (const name of ['setup_plan','calib_compute','calib_sample','calib_plan','device_calibrate']) assert.ok(!tools.includes(name), name)
   assert.ok(await runtime.skills.load('setup-device'))
   assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'onboard-ros2'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))

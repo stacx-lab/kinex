@@ -21,7 +21,7 @@ documentation, copy launch files/meshes or create a Kinex adapter; inspect the
 installed assets and official documentation directly.
 
 For a genuinely missing package, check the configured apt repository for a
-compatible binary and use the installer below. An apt authentication, repository
+compatible binary and follow the installation guidance below. An apt permission, repository
 or network failure is not evidence that binaries are unavailable. Source fallback
 requires recording the exact missing package, required version/feature and why
 the installed/available binary cannot satisfy it. Check dependencies independently:
@@ -30,9 +30,9 @@ driver. Treat vendor binary and source installation instructions as alternatives
 
 When authoring workspace bundle manifests, use `pins.apt` for binary dependencies,
 including requirements already installed, and reserve `pins.git` for justified
-source dependencies. The installer executes both lists; listing the same
-implementation in both will
-clone/build it even after apt succeeds. Recheck existing setup-plan source-build
+source dependencies. Provisioning checks apt packages and installs/builds declared
+Git sources with `--install`; listing the same implementation in both still
+clones/builds it after its apt packages are satisfied. Recheck existing setup-plan source-build
 prerequisites against the installed packages and retire redundant steps. Record
 the reused prefix/version and the selected launch file in the existing setup
 result or preparation node.
@@ -40,7 +40,7 @@ result or preparation node.
 ## Install ROS and system dependencies
 
 Dependency installation is part of registration/onboarding, before driver imports
-and activation. Do not stop at giving the user apt commands. Run on the Linux host
+and activation. Run on the Linux host
 where the driver will execute; a local workstation is not a substitute for the
 robot host. For non-ROS devices, install only their guide's required dependencies.
 
@@ -50,47 +50,33 @@ distribution; otherwise select one supported by both the host and device from
 official ROS/vendor docs.
 Ask only if the evidence leaves a material choice. Check the ROS apt repository
 and configure it from that distribution's official installation instructions
-through the host's normal shell permissions when needed. Do not change an
+through the host's normal shell permissions when needed; hand privileged changes
+to the user as described below. Do not change an
 existing ROS distribution or perform a whole-system upgrade as a setup shortcut.
 
 Batch the exact apt dependencies for the selected devices, including their ROS
 base/runtime, message packages, RMW and vendor driver packages as needed. Prefer
 manifest `pins.apt` and apt preflight entries when present. Resolve placeholders
 from host facts, preserve version pins, and avoid speculative vendor packages.
-Use the shared helper with the distro's system Python; it needs neither ROS nor
-PyYAML and can bootstrap `python3-yaml` before a bundle is readable:
+Bundle preflight and installation steps report missing apt packages and versions
+without executing apt. Use the existing permission-checked shell tool to run
+`apt-get update` and `apt-get install -y --no-remove -- PACKAGE ...` when the
+current user has the required privileges. Quote package arguments and preserve
+architecture/version pins. Bootstrap `python3-yaml` the same way if a missing
+PyYAML import prevents bundle inspection.
 
-```sh
-PYTHONHOME= PYTHONPATH="<setup.provisioning.setup_library>" /usr/bin/python3 -S "<setup.provisioning.setup_library>/kinex_ros/bundle_install.py" -- PACKAGE [PACKAGE ...]
-PYTHONHOME= PYTHONPATH="<setup.provisioning.setup_library>" /usr/bin/python3 -S "<setup.provisioning.setup_library>/kinex_ros/bundle_install.py" --install -- PACKAGE [PACKAGE ...]
-```
+When sudo is required, give the user the exact commands and identify the driver
+host where they must run them, for example `sudo apt-get update` followed by
+`sudo apt-get install -y --no-remove -- PACKAGE ...` with the actual packages.
+Ask them to run the commands independently and report completion. Do not run
+sudo or collect credentials through agent tools. Keep the dependency prerequisite
+incomplete while waiting; continue only work that does not depend on it.
 
-The first command checks without changes. When `kinex_install_apt` is available
-and the driver runs on the same Linux host as Kinex, use that tool with the
-required package list. It handles shell permission and hands sudo authentication
-directly to the user terminal, then verifies installation and returns to onboarding.
-It only operates on the host running Kinex; never use it to repair a remote host.
-Otherwise, for `status:needs` apt entries, run the second command through the
-host's existing shell approval mechanism. It refreshes
-apt indexes, installs missing packages, verifies installed versions and skips
-already satisfied packages. No separate manual-install handoff is needed.
-If a shipped bundle exists, run its documented `setup.sh` with `--install` and
-resume the same command after resolving needs. Bootstrap missing ROS/runtime
-packages with the helper first when a missing setup file blocks bundle preflight.
-For dependency repair after a completed bundle install, rerun its `--step install`
-with `--install`, then resume the full setup command.
-
-Keep failed dependencies incomplete. Inspect the returned apt stage/error for
-repository, network, package or sudo failures; repair the cause and retry. For
-`reason:sudo_authentication`, use `kinex_install_apt` on the same host if available,
-or run the returned command with `--install --interactive` in a host-provided
-interactive terminal. The helper authenticates and installs in the same process;
-authenticating in an unrelated terminal may not authorize the agent's shell.
-Never request or capture passwords in chat. If a terminal is unavailable, show
-the returned recovery command and pause dependency setup. If authentication is
-cancelled or fails, wait for the user before retrying; do not repeatedly prompt.
-Allow at least 3600 seconds for a shell-based install (plus authentication time);
-apt index refreshes and downloads can exceed a short tool timeout. Do not alter
-sudoers. After installation,
-source the selected ROS environment in the driver's wrapper, verify imports with
-that interpreter and recheck setup. Do not install `rclpy` into core's uv environment.
+After installation, recheck installed packages and pinned versions, source the
+selected ROS environment in the driver's wrapper, and verify imports with that
+interpreter. Do not install `rclpy` into core's uv environment. Resume the same
+bundle setup command; `--install` allows pip/Git preparation and source builds,
+which remain blocked while apt prerequisites are missing. For dependency repair
+after a completed generation, rerun `--step install --install` to force rechecking.
+Keep repository, network and package failures incomplete and resolve their cause;
+they are not grounds for switching to a source build by themselves.

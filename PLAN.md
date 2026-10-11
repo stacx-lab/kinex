@@ -1,164 +1,34 @@
 # Current work
 
-<a id="ros-scope-minimization"></a>
+## ROS dependency installation simplification
 
-## ROS scope reduction
+- [x] Remove the apt model tool, terminal handoff, setup host callbacks and inherited stdin.
+- [x] Keep apt dependency checks read-only; use the existing shell tool or user-run sudo commands.
+- [x] Preserve pip/Git/colcon preparation, ROS adapters, generation recovery and application composition.
+- [x] Replace installation/authentication tests with missing-dependency and resume coverage.
+- [x] Rebase PR #24 onto main at e434f5f and resolve conflicts.
+- [x] Complete integration, Python 3.10 helper and documentation checks.
+- [x] Prepare the removal commit for PR #24.
 
-Minimize core changes and new tools/skills while preserving existing driver,
-permission and recovery contracts. See the [design document](DESIGN.md#setup-and-ros-boundary)
-for package boundaries and runtime contracts. Implementation and software validation
-are complete as recorded below.
+ROS implementation stays in setup. Core retains only Python 3.10 cleanup and
+CRLF parsing changes. Setup adds four skills and no new apt tool or ROS command.
+Bundle provisioning checks apt dependencies without installing them; `--install`
+continues to enable pip/Git preparation and source builds after prerequisites pass.
+The agent uses normal shell permissions for installation and hands sudo-required
+commands to the user on the driver host. Dependencies stay incomplete until verified.
 
-Baseline reviewed on 2026-10-10:
+Validation: Node 22.19.0 / Python 3.12.13 `npm run check` passed all 358 tests,
+including build/typecheck, PTY, packed consumers and release checks, with no skips.
+Python 3.10.20 passed all 116 helper tests. Both final runs used normal bytecode
+settings; the generation-inventory assertion now permits Python's cache directory.
+Diff checks passed; 23 local documentation paths were checked, with only the
+existing unavailable sibling plugin README unresolved.
 
-| Item | SHA / evidence |
-| --- | --- |
-| Reviewed feature | `d0e32fcb821397c43d29ce65da7674fb943680e0` |
-| Remote main at review | `e434f5f4e0676d33e2079a1c0a3f72264c1c1f75` |
-| Remote recheck | On 2026-10-10, main and feature still matched the reviewed remote SHAs. |
-| Common ancestor before integration | `caac19a8a36272972f762e0f74cfe381e8500048` |
-| HEAD after integration | `c25f13df2812e1b9a77c9d45b4ca54ea89816012`; includes main above without rewriting feature history. |
-| Tested source digest (uncommitted at validation) | SHA-256 `472ecc312db66a9603fe35e64527fef32587c3d4e3c91037512cbfeb74c306ef`. Non-Markdown changes relative to that HEAD, sorted by repository path; concatenate each UTF-8 path, NUL, file bytes (`deleted` for removals), then NUL. |
-
-Completed in the following order, with each change independently reviewable:
-
-- [x] **Establish the baseline.** Refresh and pin main, then integrate it before substantive edits while preserving existing features and plans.
-- [x] **Limit core prerequisites.** Retain only three generic production fixes: Python 3.10 cleanup, optional inherited stdin and CRLF parsing. Each has a non-ROS regression; setup also checks CRLF skill discovery.
-- [x] **Separate readiness work.** Restore interpreter diagnostics and their tests to main. This branch adds no readiness feature; a future independent change must fix Windows extension lookup and verify path resolution and lazy initialization.
-- [x] **Reduce the runtime.** Adapter/checker import `bundle_manifest` directly. Deploy only five shared runtime modules and explicitly declared resources. Track source input digests separately from runtime manifests; preserve existing generations.
-- [x] **Enforce custom entry-point contracts.** Check all deployed Python files for explicit forbidden imports before publishing a candidate. Cover direct and local-helper dependencies; failures preserve the selected configuration. Compliant custom drivers/checkers run after removing setup and source directories. Dynamic imports still need execution-path validation.
-- [x] **Consolidate entry points.** Remove the dedicated ROS workflow and reuse onboarding/register. Keep the three base skills and `verify_base.py` identical to main, preserving existing `verify-base` calls. Joint/sensor `verify-checks` uses the same evaluator. Onboard-ros2 selects the operation by device type and retains posture applicability conditions.
-- [x] **Verify package boundaries and feature limits.** Core packages contain no ROS implementation or dependency. Packed-consumer checks cover the complete driver lifecycle and checker after removing setup/source directories. Add one tool and four skills, with no dedicated ROS command; keep read-only checks separate from motion authorization.
-- [x] **Remove onboarding metrics.** Delete the standalone session-analysis script and its tests; remove obsolete metrics references from this plan.
-- [x] **Complete software validation.** Run full integration, Python 3.10 and native ROS checks against the source state above. Results follow. If main or the implementation changes before release, revalidate affected areas.
-
-Validation on 2026-10-10:
-
-| Check | Environment and result |
-| --- | --- |
-| `npm run check` | WSL Ubuntu, Node 22.23.3, npm 10.9.4, Python 3.12; build/typecheck, all 378 tests and release checks passed with no failures or skips. Includes PTY, application composition and packed consumers. |
-| Python 3.10 | Offline Humble container, Python 3.10.12; 123 tests passed across `driver_protocol_compat.py`, `ros2_helpers.py`, `bundle_helpers.py`, `ros2_drivers.py` and `ros2_check.py`. Fake transports are explicitly isolated. |
-| Native ROS | Existing Humble/Jazzy images with read-only source mounts, no network or hardware mappings; `packages/setup/test/container/ros2_native.py` passed three tests on each, covering DDS, native messages and shared colcon builds. |
-| Final files and documentation | All 25 changed files in the actual branch matched the tested snapshot; diff checks passed. Of 24 local documentation links, only the existing sibling `kinex-plugins/README.md` was inaccessible in this environment. |
-| Environment recovery and limitations | The first full check stopped because the isolated directory lacked TypeScript; it passed after reinstalling locked development dependencies. One Jazzy recheck could not run after its temporary source mount disappeared; all three tests passed using a persistent snapshot. Jazzy asynchronous DDS cleanup warnings reproduced both during revalidation and on unmodified `c25f13d`. They remain outside this scope; these results do not establish warning-free shutdown. |
-
-Base verification follow-up (2026-10-10, changes based on `9c83148`): restored the
-three base skills and `verify_base.py` to main while sharing the evaluator with
-joint/sensor `verify-checks`. Generated provisioning instructions select the
-operation declared by each procedure. In the same WSL environment, `npm run check`
-passed all 379 tests, build/typecheck and release checks with no skips. Coverage
-includes all three base procedures, joint/sensor evidence and generated commands
-for all five bundle types. The initial new base fixture omitted required controller
-modes; it was corrected before the passing full run. Native ROS was not rerun for
-this routing-only follow-up. This plan is maintained in English.
-
-Review fixes (2026-10-10, based on `987c874`): camera reads validate the shared ROS
-sample caches even during recording, including stale-feedback rejection and recovery.
-Vendor provisioners declare additional resource files with `inputs`; content changes
-create a new generation and missing files fail without replacing the selected one.
-Regressions cover unchanged-input reuse, equal-size/equal-mtime content changes and
-preservation of the selected profile. `npm run check` passed all 372 tests and release
-checks; Python 3.10 passed 125 helper tests; native Humble and Jazzy each passed three
-smoke tests. The first integration run inherited an offline npm setting that blocked
-its local package-registry fixture; rerunning without that setting passed.
-
-Independent follow-up: Windows path diagnostics for interpreter readiness are
-outside this ROS delivery. The generic core prerequisites can land upstream
-separately, eliminating those core production differences from the ROS branch.
-
-Vendor bundles, physical robots and real ros2_control validation remain deferred.
-This task adds no packages, schema extensions, general frameworks or hardware work.
-
-## ROS branch integration (historical)
-
-- [x] Rebase onto main at `caac19a`, dropping session-time commits already merged upstream.
-- [x] Preserve the baseline's compaction timing.
-- [x] Record validation of the combined branch at that point.
-
-Documentation reviewed at `d0e32fc` records a passing `npm run check` with all
-354 tests, covering compaction timing, ROS workflows, terminal authentication and
-cancellation, packed consumers and release checks. Timing matched the integrated
-baseline, and diff checks passed. The original record did not identify the exact
-tested source SHA; it cannot be inferred from the documentation commit. Validation
-with updated main is recorded separately above.
-
-## Shared ROS source builds (historical)
-
-- [x] Check out pinned revisions of all declared Git sources before a single colcon build.
-- [x] Preserve dependency failures and skip builds when preparation fails.
-- [x] Add a native regression with the dependent repository listed before its dependency.
-- [x] Validate setup tests and native Humble source builds.
-
-Historical validation: 56 setup tests, 56 Python 3.10 bundle-helper tests and three
-native Humble tests passed. The dependency-order regression failed before the fix
-and passed afterward. Helper checks covered quoted paths, exclusion of checkout-only
-repositories and skipped builds after fetch failures; diff and shell syntax checks passed.
-
-## PR review fixes (historical)
-
-- [x] Resolve relative interpreter readiness paths from the driver launch directory.
-- [x] Clean up installer process trees on timeout or host cancellation.
-- [x] Require explicit `--install` for pip/Git preparation.
-- [x] Resolve verification scripts from the selected driver generation.
-- [x] Complete focused regressions and full integration checks.
-
-Historical validation: `npm run check` passed 350 tests, covering relative-interpreter
-loading and calibration clearing, installer cancellation, terminal authentication
-and packed consumers. All 55 Python 3.10 bundle-helper tests passed in an isolated
-Humble container. Verification skills used scripts from the selected generation,
-supporting optional stack checks and device-level measurement output; diff checks
-passed. This relative-path fix did not resolve the deferred Windows extension lookup issue.
-
-## Dedicated ROS onboarding command (historical, removed)
-
-- [x] Add setup's `/onboarding-ros2`, selecting `onboard-ros2` through the shared onboarding flow.
-- [x] Document the command and its standalone alias, `/kinex-onboarding-ros2`.
-- [x] Verify workflow routing, command discovery and core-only application composition.
-
-Historical validation: build, typecheck and 25 focused setup/application/packed-consumer
-tests passed. Both command names entered the ROS workflow and remained absent from
-core-only compositions after session/workspace changes. The scope reduction above
-removed these duplicate entry points.
-
-## Move ROS onboarding into setup (historical)
-
-This phase records the scope of the five commits then on `feat/ros2-robot-bundles`.
-Core contains no ROS implementation or dependency; setup owns onboarding, adapters,
-provisioning, apt and verification. See the [design document](DESIGN.md#setup-and-ros-boundary)
-for the current implementation.
-
-- [x] Move Python modules, fixtures, tests and CI paths into setup.
-- [x] Stage complete generations, supporting recovery and setup-managed ROS facts.
-- [x] Move apt execution into setup and connect host terminal callbacks.
-- [x] Add onboard-ros2, with discovery and tool-name reservation controlled by application composition.
-- [x] Add regressions for application lifecycles, terminals, generations and operation after setup removal.
-- [x] Update ownership contracts, usage and migration guidance.
-- [x] Complete integration, packed-consumer, Python 3.10 and native ROS checks.
-- [x] Fix recovery, ownership, evidence, shell-path and application-composition edge cases.
-
-Historical validation (2026-10-08): `npm run check` passed 345 tests, including
-build/typecheck, PTY cancellation/recovery, packed consumers and release checks.
-All 117 Python 3.10 helper tests passed in an isolated Humble container. Humble
-and Jazzy each passed two native smoke tests over localhost DDS; the final Jazzy
-run at that time had no executor teardown warning. Diff checks passed, and
-documentation links resolved except the existing inaccessible sibling
-`kinex-plugins/README.md`.
-
-Package checks provisioned from relocated packages, removed setup and source
-bundles, then exercised joint load/read/write/stop/reload/unload and the checker.
-Recovery tests preserved the selected generation after failed provisioning,
-rejected invalid profiles and verified recovery from candidate-load failures.
-
-Those fixes preserved completed vendor artifacts during recovery, superseded
-stale check evidence even for invalid generation manifests, and accepted compatible
-registered devices without overwriting their files. Receipts from other owners
-remained valid, satellites had to be generated by their parent, returned shell
-paths were correctly quoted, and application composition remained fixed throughout
-the lifecycle. Each behavior had regression coverage.
-
-Hardware bundles, real ros2_control integration and physical validation await the
-relevant robots. Native plugin snapshots are updated independently. This phase
-delivers no robot-specific production bundles.
+An initial ad hoc helper run also hit an intermittent concurrent-provisioning
+ownership failure; subsequent helper and full runs passed. That ownership code
+is unchanged. Native ROS smoke tests were not rerun for this removal. Vendor-specific
+production bundles, physical robots and real ros2_control validation remain deferred.
+Native plugin snapshots remain independent.
 
 ## Active session time
 

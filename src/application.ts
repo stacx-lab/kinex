@@ -1,4 +1,4 @@
-import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames, type SetupHost } from "@kinex/setup"
+import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } from "@kinex/setup"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import {
@@ -18,12 +18,12 @@ import { composeContributions, coreContribution, type KinexContribution } from "
 export interface ApplicationComposition {
   builtinSkillRoots?: readonly string[]
   reservedToolNames?: readonly string[]
-  contributions(runtime: KinexRuntime, setupHost: SetupHost): readonly KinexContribution[]
+  contributions(runtime: KinexRuntime): readonly KinexContribution[]
 }
 
 const defaultComposition: ApplicationComposition = {
   builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames,
-  contributions: (runtime, host) => [coreContribution(runtime), setupContribution(createKinexSetup(runtime, { host }))],
+  contributions: runtime => [coreContribution(runtime), setupContribution(createKinexSetup(runtime))],
 }
 
 export interface ApplicationOptions {
@@ -61,7 +61,7 @@ export async function createApplication(options: ApplicationOptions) {
   try {
     const host = await createAgentSessionRuntime(async ({ cwd: directory, sessionManager, sessionStartEvent }) => {
       const core = await owner.enter(directory)
-      const capabilities = composeContributions(contributions(core, owner.interaction.setupHost))
+      const capabilities = composeContributions(contributions(core))
       const settingsManager = settings(directory)
       const compaction = await createCompactionControl()
       let submitWorkflow = async (_prompt: string): Promise<void> => { throw new Error("Session is not initialized") }

@@ -1,1 +1,0 @@
-Install and verify apt dependencies on the Linux host running Kinex. Uses shell permission and hands sudo authentication directly to the user terminal when available. For remote driver hosts, run the shared installer on that host. Never request a password in chat. Cancelled or failed authentication leaves installation incomplete; wait for user direction before retrying.

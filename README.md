@@ -122,15 +122,12 @@ source requires a specific missing package, version or feature, or your explicit
 request. Multiple arms/cameras share the installed packages with separate settings.
 Use `/onboarding [description]` or `/register` for ROS devices; their workflows
 select the setup-owned `onboard-ros2` skill. It prepares required ROS/system packages on the driver's Linux host.
-It checks the ROS distribution and package sources,
-installs missing apt dependencies through the normal shell approval, verifies
-them and resumes setup. Existing packages are reused. Setup's
-`kinex_install_apt` tool temporarily hands the terminal to sudo when authentication
-is needed, then verifies the packages and resumes onboarding. Enter the password
-only at sudo's prompt; it never goes through chat or captured tool output.
-Headless sessions return a recovery command with `--install --interactive` to run
-on the target host. Native host integrations can use that same helper from their
-interactive terminal; the setup tool only installs on the host running Kinex.
+It checks the ROS distribution and package sources and reuses installed packages.
+Missing apt dependencies are installed through the existing shell tool and normal
+permissions. When sudo is required, Kinex gives you the exact installation command
+to run on the driver host, then verifies dependencies after you report completion.
+Bundle provisioning reports missing apt packages; its `--install` flag prepares
+pip/Git dependencies and source builds only.
 
 Direct operations run without a model round trip. Only onboarding, registration
 and calibration submit workflows to the model. Core owns registration, unregister,
