@@ -53,18 +53,6 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.equal(context.sections['core.readiness'], undefined)
 })
 
-test('setup skill discovery preserves metadata with Windows line endings', async t => {
-  const { directory, capabilities } = await fixture(t)
-  const source = await readFile(new URL('../assets/builtin/skill/onboard-ros2/SKILL.md', import.meta.url), 'utf8')
-  const target = path.join(directory, '.kinex/skill/onboard-ros2')
-  await mkdir(target, { recursive: true })
-  const file = path.join(target, 'SKILL.md')
-  await writeFile(file, source.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'))
-  const skill = (await capabilities.skills.list()).find(skill => skill.name === 'onboard-ros2')
-  assert.equal(skill.file, file)
-  assert.match(skill.description, /ROS 2 hardware/)
-})
-
 async function pythonSensor(runtime, directory, { fail = false, slowRead = false } = {}) {
   await seed(runtime)
   await runtime.profiles.writeDevice({ name: 'sensor', access: { connection: { kind: 'process' }, driver: {

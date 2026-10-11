@@ -29,9 +29,7 @@ export interface SkillInfo {
 const builtinDir = () => Assets.builtin("skill")
 
 // Minimal frontmatter parser: --- delimited key: value block at the top of the file.
-// Checkouts may carry CRLF line endings; frontmatter parsing must not depend on them.
-export function parseFrontmatter(source: string): { meta: Record<string, string>; body: string } {
-  const text = source.replaceAll("\r\n", "\n")
+export function parseFrontmatter(text: string): { meta: Record<string, string>; body: string } {
   const match = text.match(/^---\n([\s\S]*?)\n---\n?/)
   if (!match) return { meta: {}, body: text }
   const meta: Record<string, string> = {}

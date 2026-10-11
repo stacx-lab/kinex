@@ -8,9 +8,10 @@
 - [x] Rebase PR #24 onto main at e434f5f and resolve conflicts.
 - [x] Drop Humble/Python 3.10 compatibility and its CI job; use Jazzy/Python 3.12 fixtures and guidance.
 - [x] Restore core cleanup to main and use native subprocess process-group options.
+- [x] Remove all PR-added core tests and the CRLF parsing change with its setup regression test.
 - [x] Validate the simplified baseline and prepare the PR #24 update.
 
-ROS implementation stays in setup. Core retains only the CRLF parsing change.
+ROS implementation stays in setup. Core matches main without changes.
 Setup adds four skills and no new apt tool or ROS command. Supported ROS setup is
 Jazzy on Ubuntu 24.04 with system Python 3.12; detection never guesses an unlisted
 distribution. Bundle provisioning checks apt dependencies without installing them;
@@ -18,7 +19,7 @@ distribution. Bundle provisioning checks apt dependencies without installing the
 The agent hands sudo-required commands to the user on the driver host and verifies
 dependencies afterward.
 
-Validation: Node 22.19.0 / Python 3.12.13 `npm run check` passed all 357 tests,
+Validation: Node 22.19.0 / Python 3.12.13 `npm run check` passed all 355 tests,
 including build/typecheck, ROS helpers, PTY, packed consumers and release checks,
 with no skips. Distro-selection coverage rejects Humble and does not autodetect
 unlisted installations. The Jazzy-only smoke script passes shell syntax checking
