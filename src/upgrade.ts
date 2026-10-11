@@ -134,6 +134,6 @@ export async function upgradeKinex(options: UpgradeOptions = {}): Promise<void> 
   }
   if (options.all) {
     // Use the newly installed code and bundled SDK, even after replacing this process's files.
-    await run(process.execPath, [path.join(installed.root, "bin", "kinex.mjs"), "update"], cwd, true)
+    await run(process.execPath, [path.join(installed.root, "bin", "kinex.mjs"), "update", "--extensions"], cwd, true)
   }
 }

@@ -310,7 +310,7 @@ test('headless CLI discovers and executes a new tool with stdin closed', { timeo
     { text: 'HEADLESS_FINISHED' },
   )
   const entry = fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url))
-  const child = spawn(process.execPath, [entry, 'run', '--auto', '--model', 'fake/test', 'create and use a tool'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(process.execPath, [entry, '-p', '--auto', '--model', 'fake/test', 'create and use a tool'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') })
   let stdout = ''
   let stderr = ''

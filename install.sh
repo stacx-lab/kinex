@@ -146,7 +146,7 @@ try {
   }
   const active = execFileSync('bash', ['-c', 'command -v kinex || true'], { encoding: 'utf8' }).trim();
   if (active && (!exists(bin) || realpathSync(active) !== realpathSync(bin))) {
-    throw new Error(`Another Kinex is on PATH: ${active}. Update it with kinex upgrade, or remove it before installing here.`);
+    throw new Error(`Another Kinex is on PATH: ${active}. Update it with kinex update, or remove it before installing here.`);
   }
   const manifest = path.join(prefix, 'package.json');
   if (exists(prefix)) {
@@ -203,7 +203,7 @@ try {
   const staged = `${bin}.${process.pid}.tmp`;
   try { writeFileSync(staged, launcher, { mode: 0o755 }); renameSync(staged, bin); }
   finally { rmSync(staged, { force: true }); }
-  console.log(`Installed ${bin}\nUpdate later with: kinex upgrade`);
+  console.log(`Installed ${bin}\nUpdate later with: kinex update`);
 } catch (error) {
   console.error(`Kinex: ${error.message}`);
   process.exitCode = 1;

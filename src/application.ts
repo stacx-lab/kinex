@@ -1,12 +1,12 @@
 import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } from "@kinex/setup"
-import { existsSync } from "node:fs"
 import path from "node:path"
 import {
   createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices,
-  ModelRuntime, SessionManager, type CreateAgentSessionOptions,
+  ModelRuntime, SessionManager, resolveCliModel, type CreateAgentSessionOptions,
 } from "@earendil-works/pi-coding-agent"
 import { paths, sessionDirectory, settings } from "./settings.ts"
 import { prepareAuthPath } from "./auth.ts"
+import { resolveSession } from "./sessions.ts"
 import { RoboticsOwner } from "./integration/owner.ts"
 import { kinexExtension } from "./integration/extension.ts"
 import { createCompactionControl } from "./integration/compaction.ts"
@@ -29,6 +29,7 @@ const defaultComposition: ApplicationComposition = {
 export interface ApplicationOptions {
   cwd: string
   model?: string
+  provider?: string
   thinkingLevel?: CreateAgentSessionOptions["thinkingLevel"]
   mode?: Mode
   enableRecording?: boolean
@@ -41,6 +42,8 @@ export interface ApplicationOptions {
 export async function createApplication(options: ApplicationOptions) {
   const cwd = path.resolve(options.cwd)
   const storage = paths()
+  if (options.provider && !options.model) throw new Error("--provider requires --model")
+  const sessionPath = options.session ? await resolveSession(options.session, cwd) : undefined
   const authPath = await prepareAuthPath(storage.agent, storage.state)
   const { contributions, builtinSkillRoots = [], reservedToolNames = [] } = options.composition ?? defaultComposition
   const owner = new RoboticsOwner(options.enableRecording ?? false, options.mode ?? "ask", {
@@ -52,10 +55,6 @@ export async function createApplication(options: ApplicationOptions) {
     modelsStorePath: path.join(storage.state, "models-cache.json"), allowModelNetwork: false,
   })
   const sessionDir = sessionDirectory(cwd)
-  const sessionPath = options.session
-    ? (existsSync(options.session) ? path.resolve(options.session) : SessionManager.findById(cwd, options.session, sessionDir))
-    : undefined
-  if (options.session && !sessionPath) throw new Error(`Unknown Kinex session: ${options.session}`)
   const manager = sessionPath ? SessionManager.open(sessionPath, sessionDir)
     : options.continue ? SessionManager.continueRecent(cwd, sessionDir) : SessionManager.create(cwd, sessionDir)
   try {
@@ -81,10 +80,11 @@ export async function createApplication(options: ApplicationOptions) {
       if (errors.length) throw new Error(errors.map(error => `${error.path}: ${error.error}`).join("\n"))
       const settingsErrors = settingsManager.drainErrors()
       if (settingsErrors.length) throw new Error(settingsErrors.map(error => String(error.error)).join("\n"))
-      const slash = options.model?.indexOf("/") ?? -1
-      const model = options.model && slash > 0 ? modelRuntime.getModel(options.model.slice(0, slash), options.model.slice(slash + 1)) : undefined
-      if (options.model && !model) throw new Error(`Unknown model ${options.model}; use provider/model and configure agent/models.json if needed`)
-      const result = await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent, model, thinkingLevel: options.thinkingLevel })
+      const resolved = resolveCliModel({ cliProvider: options.provider, cliModel: options.model, cliThinking: options.thinkingLevel, modelRuntime })
+      if (resolved.error) throw new Error(resolved.error)
+      if (resolved.warning) console.error(`Kinex: ${resolved.warning}`)
+      const result = await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent,
+        model: resolved.model, thinkingLevel: options.thinkingLevel ?? resolved.thinkingLevel })
       compaction.bind(result.session)
       submitWorkflow = prompt => result.session.sendUserMessage(prompt, { deliverAs: "followUp" })
       settle = async () => { await result.session.abort(); await settingsManager.flush() }

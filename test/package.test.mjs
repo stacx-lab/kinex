@@ -43,7 +43,11 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
   relocated += '-standalone'
   for (const name of ['pi', 'opencode', 'codex']) await assert.rejects(stat(path.join(relocated, 'node_modules/@kinex', name)), { code: 'ENOENT' })
   const entry = path.join(relocated, 'node_modules/kinex/bin/kinex.mjs')
-  const invoke = (...args) => exec(process.execPath, [entry, ...args], { cwd: relocated, env, timeout: 20000 })
+  const invoke = (...args) => {
+    const pending = exec(process.execPath, [entry, ...args], { cwd: relocated, env, timeout: 20000 })
+    pending.child.stdin.end()
+    return pending
+  }
   const manifest = JSON.parse(await readFile(path.join(relocated, 'node_modules/kinex/package.json'), 'utf8'))
   for (const name of ['pi-web-search', 'pi-btw']) assert.equal(manifest.dependencies[name], undefined)
   assert.equal((await invoke('--version')).stdout.trim(), manifest.version)
@@ -54,7 +58,7 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
     if (name === 'setup') assert.equal(dependency.dependencies['@kinex/core'], manifest.version)
   }
   assert.match((await invoke('--help')).stdout, /--enable-recording/)
-  assert.match((await invoke('run', '/devices')).stdout, /No devices/)
+  assert.match((await invoke('-p', '/devices')).stdout, /No devices/)
   await exec(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict'
     import { createApplication } from './node_modules/kinex/dist/application.js'

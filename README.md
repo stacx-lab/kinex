@@ -57,11 +57,13 @@ Python tools and drivers also need Python 3 and uv; video encoding requires ffmp
 You can also run a single task, resume a session, or update from the shell:
 
 ```sh
-kinex run "Inspect the workspace"       # Run a single task
-kinex run "/ping arm"                   # Device command without a model
+kinex "Inspect the workspace"          # Start with a prompt
+kinex run "/ping arm"                  # Run once without a model
+kinex run "Describe the scene"         # Run a task and exit; -p also works
 kinex --continue                       # Resume the latest project session
+kinex --resume                         # Choose a previous session
 kinex --model provider/model           # Start with a selected model
-kinex upgrade                          # Update Kinex and its bundled Pi SDK
+kinex update                           # Update Kinex and its bundled Pi SDK
 kinex --help                           # All commands and options
 ```
 
@@ -135,7 +137,7 @@ You can also bring your own Pi skills, prompts and themes.
 kinex install npm:pi-web-search         # Override the bundled version
 kinex install ./my-pi-package -l        # Add a package to this project
 kinex list                             # Show installed and bundled packages
-kinex update                           # Update packages, preserving version pins
+kinex update --extensions              # Update packages, preserving version pins
 kinex remove npm:pi-web-search          # Restore the bundled fallback
 ```
 

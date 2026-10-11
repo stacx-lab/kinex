@@ -48,7 +48,7 @@ test('self-upgrade verifies and retains all three archives, installs together, t
   assert.deepEqual(install.args.slice(0, 6), ['install', '--prefix', f.prefix, '--ignore-scripts', '--no-audit', '--no-fund'])
   assert.equal(install.args.length, 9)
   for (const file of install.args.slice(6)) assert.deepEqual(await readFile(file), f.artifacts.get(path.basename(file)))
-  assert.deepEqual(f.calls.at(-1).args, [path.join(f.packageRoot, 'bin/kinex.mjs'), 'update'])
+  assert.deepEqual(f.calls.at(-1).args, [path.join(f.packageRoot, 'bin/kinex.mjs'), 'update', '--extensions'])
   assert.match(f.reports.at(-1), /Upgraded Kinex to 0\.10\.4/)
 })
 
@@ -70,7 +70,7 @@ for (const version of ['0.10.3', '0.10.2']) {
     await upgradeKinex({ ...f.options, all: true })
     assert.equal(f.downloads.length, 1)
     assert.ok(!f.calls.some(call => call.args[0] === 'install'))
-    assert.equal(f.calls.at(-1).args.at(-1), 'update')
+    assert.deepEqual(f.calls.at(-1).args.slice(-2), ['update', '--extensions'])
     await assert.rejects(stat(f.options.dataDir), { code: 'ENOENT' })
   })
 }

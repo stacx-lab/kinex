@@ -1,7 +1,7 @@
 # Documentation
 
 For usage, start with the [project README](../README.md) and
-[in-session command reference](commands.md). The design documents below describe
+[command reference](commands.md). The design documents below describe
 Kinex's package boundaries and runtime contracts; start with architecture, then
 read the topics relevant to your change.
 

@@ -38,7 +38,7 @@ def close():
 run(dispatch, close)
 `)
     await core.dispose()
-    const child = spawn(process.execPath, [entry, 'run', '--auto', '--model', 'fake/test', '--record', 'sensor=2', 'Wait for shutdown'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, [entry, '-p', '--auto', '--model', 'fake/test', '--record', 'sensor=2', 'Wait for shutdown'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
     let stderr = ''
     child.stdout.resume()
     child.stderr.on('data', data => { stderr += data })
@@ -76,8 +76,8 @@ for (const [specs, json] of [['sensor=2', false], ['sensor=2 camera=2', true], [
       statusDuringTask = (await reader.recording.recent())[0]?.status
       return { text: 'TASK_COMPLETED' }
     }
-    const child = spawn(process.execPath, [entry, 'run', '--auto', '--model', 'fake/test',
-      '--record', specs, ...(json ? ['--json'] : []), 'Read the sensors'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, [entry, '-p', '--auto', '--model', 'fake/test',
+      '--record', specs, ...(json ? ['--mode', 'json'] : []), 'Read the sensors'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', data => { stdout += data })

@@ -21,12 +21,16 @@ file references. Self-upgrade recognizes this direct npm installation; source an
 linked installs stay unchanged. Neither installation nor upgrade downgrades a newer
 version. npm failure can leave a partial installation and reports recovery commands.
 
+`kinex update` (or `kinex update --self`) updates Kinex and its bundled Pi SDK.
+Use `kinex update --extensions` for installed packages, `kinex update <source>`
+for one package, and `kinex update --all` for both. The combined update runs the
+newly installed CLI with `update --extensions` after self-update succeeds.
+
 ## Validation
 
 CI checks core, setup, standalone, PTY behavior and relocated packed consumers.
 
 See [Getting Started](../README.md#getting-started) for installation and
-[Contributing & Development](../README.md#contributing--development) for checks
-and release commands.
+[Contributing & Development](../README.md#contributing--development) for checks.
 
 [Design index](README.md)

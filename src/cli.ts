@@ -1,33 +1,45 @@
-import { parseArgs } from "node:util"
 import { readFile } from "node:fs/promises"
 import { InteractiveMode, runPrintMode } from "@earendil-works/pi-coding-agent"
 import { createApplication } from "./application.ts"
 import { executeRoboticsCommand } from "@kinex/core"
 import { exportSession } from "./export.ts"
 import { runPackageCommand } from "./packages.ts"
+import { isPrintMode, parseKinexArgs } from "./arguments.ts"
+import { selectSession } from "./sessions.ts"
+import { installResumeHint } from "./resume-hint.ts"
 
 const help = `Kinex — robotics coding agent
 
-kinex [options]                       Interactive terminal
-kinex run [options] "prompt"          Run once; prints the final reply
-kinex run "/devices"                  Direct robotics command; no model needed
+kinex [options] ["prompt" ...]         Interactive terminal with optional prompts
+kinex -p "prompt"                     Run once; prints the final reply
+kinex run "prompt"                    Alias for kinex -p
+kinex -p "/devices"                   Direct robotics command; no model needed
 kinex --export session.jsonl [output.html]  Export a session without a model
 kinex install <source> [-l, --local]   Install a Pi package (npm, Git, directory)
 kinex remove <source> [-l, --local]    Remove a package; uninstall is an alias
 kinex list                           List configured and bundled packages
-kinex update [source]                Update packages; preserve version/ref pins
-kinex upgrade [--all]                Upgrade Kinex; --all also updates packages
+kinex update [--self]                 Update Kinex and its bundled Pi SDK
+kinex update --extensions             Update packages; preserve version/ref pins
+kinex update <source>                 Update one installed package
+kinex update --all                    Update Kinex and installed packages
 
---model provider/model               Select a Pi model/provider
---thinking off|minimal|low|medium|high|xhigh
---continue                           Continue the latest workspace session
+--model <pattern>                    Pi model matching; accepts provider/model
+--provider <name>                    Limit --model to a provider
+--thinking off|minimal|low|medium|high|xhigh|max
+--print, -p                          Process prompts and exit (also for pipes)
+--mode text|json                     Final text or JSON event output
+--continue, -c                       Continue the latest workspace session
+--resume, -r                         Choose a previous Kinex session
 --session <id|file>                   Open a Kinex SDK session
 --auto                               Approve tool permissions; keep interviews
 --yolo                               Approve permissions; disable interviews
 --enable-recording                   Expose recording controls to the model
 --record "arm=10 camera=2"            Record during a headless run
---seed "prompt"                      Submit after interactive startup
---json                               Headless SDK events as JSON lines
+--help, -h                           Show help
+--version, -v                        Show Kinex version
+
+Piped text is prepended to the first prompt. Use -- before prompts starting with -.
+RPC, @file attachments and advanced Pi tool/resource flags are not supported.
 
 TUI: /load /unload /ping /stop /devices /record
      /onboarding /register /calibrate /mode /model /login /new /compact
@@ -36,13 +48,8 @@ Pi's /reload refreshes agent resources. Python/uv remain external dependencies.
 
 async function main(): Promise<void> {
   if (await runPackageCommand(process.argv.slice(2))) return
-  const { values, positionals } = parseArgs({ allowPositionals: true, strict: true, options: {
-    help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" },
-    model: { type: "string" }, thinking: { type: "string" }, effort: { type: "string" },
-    export: { type: "string" },
-    continue: { type: "boolean" }, session: { type: "string" }, auto: { type: "boolean" }, yolo: { type: "boolean" },
-    "enable-recording": { type: "boolean" }, record: { type: "string" }, seed: { type: "string" }, json: { type: "boolean" },
-  } })
+  const { pi: values, mode, enableRecording, record } = parseKinexArgs(process.argv.slice(2))
+  for (const diagnostic of values.diagnostics) console.error(`Kinex: ${diagnostic.message}`)
   if (values.help) { console.log(help); return }
   if (values.version) {
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
@@ -50,23 +57,28 @@ async function main(): Promise<void> {
     return
   }
   if (values.export !== undefined) {
-    if (!values.export || positionals.length > 1 || positionals[0] === "") throw new Error("Usage: kinex --export <session.jsonl> [output.html]")
-    process.exitCode = await exportSession(values.export, positionals[0])
+    if (!values.export || values.messages.length > 1 || values.messages[0] === "") throw new Error("Usage: kinex --export <session.jsonl> [output.html]")
+    process.exitCode = await exportSession(values.export, values.messages[0])
     return
   }
-  if (values.auto && values.yolo) throw new Error("Choose --auto or --yolo")
-  const thinking = values.thinking ?? values.effort
-  if (thinking !== undefined && thinking !== "off" && thinking !== "minimal" && thinking !== "low" && thinking !== "medium" && thinking !== "high" && thinking !== "xhigh") throw new Error("Invalid thinking level")
-  const headless = positionals[0] === "run"
-  if (!headless && positionals.length) throw new Error("Use kinex run <prompt> or --seed <prompt>")
-  const prompt = positionals.slice(1).join(" ")
-  if (headless && !prompt) throw new Error("Usage: kinex run <prompt>")
-  if (!headless && (values.json || values.record)) throw new Error("--json and --record require kinex run")
+  const headless = isPrintMode(values, !!process.stdin.isTTY, !!process.stdout.isTTY)
+  if (!headless && record) throw new Error("--record requires non-interactive mode; use --print")
+  let session = values.session
+  if (!session && values.resume) {
+    session = await selectSession(process.cwd())
+    if (!session) { console.log("No session selected"); return }
+  }
+  let stdin = ""
+  if (!process.stdin.isTTY) {
+    process.stdin.setEncoding("utf8")
+    for await (const chunk of process.stdin) stdin += chunk
+  }
+  const messages = [...values.messages]
+  const initialMessage = [stdin.trim(), messages.shift()].filter(value => value !== undefined && value !== "").join("") || undefined
   const app = await createApplication({
-    cwd: process.cwd(), model: values.model, thinkingLevel: thinking,
-    mode: values.yolo ? "yolo" : values.auto ? "auto" : "ask",
-    enableRecording: values["enable-recording"], continue: values.continue, session: values.session,
-    report: text => { if (!values.json) console.log(text) },
+    cwd: process.cwd(), model: values.model, provider: values.provider, thinkingLevel: values.thinking,
+    mode, enableRecording, continue: values.continue, session,
+    report: text => { if (values.mode !== "json") console.log(text) },
   })
   let interactive: InteractiveMode | undefined
   const shutdown = () => {
@@ -75,11 +87,12 @@ async function main(): Promise<void> {
     })
   }
   process.once("SIGINT", shutdown)
+  let restoreHint: (() => void) | undefined
   try {
     if (headless) {
-      if (values.record && app.owner.runtime) {
+      if (record && app.owner.runtime) {
         await Promise.all((await app.owner.runtime.devices.warmLoaded()).map(activation => activation.ready))
-        const started = await executeRoboticsCommand(app.owner.runtime, "record", `start ${values.record}`, {
+        const started = await executeRoboticsCommand(app.owner.runtime, "record", `start ${record}`, {
           sessionID: app.host.session.sessionId, confirm: async () => false,
         })
         if (started.kind !== "output") throw new Error("Recording did not return a result")
@@ -90,16 +103,16 @@ async function main(): Promise<void> {
         }
       }
       process.exitCode = await runPrintMode(app.host, {
-        mode: values.json ? "json" : "text",
-        initialMessage: prompt,
+        mode: values.mode === "json" ? "json" : "text", initialMessage, messages,
       })
       if (app.owner.failure) process.exitCode = 1
     } else {
-      if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("Interactive Kinex needs a terminal; use kinex run <prompt>")
-      interactive = new InteractiveMode(app.host, { initialMessage: values.seed })
+      restoreHint = installResumeHint(() => app.host.session.sessionManager)
+      interactive = new InteractiveMode(app.host, { initialMessage, initialMessages: messages })
       await interactive.run()
     }
   } finally {
+    restoreHint?.()
     process.off("SIGINT", shutdown)
     await app.dispose()
   }

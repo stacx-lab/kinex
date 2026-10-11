@@ -12,8 +12,7 @@ const usages: Record<string, string> = {
   remove: "kinex remove <source> [-l, --local]",
   uninstall: "kinex uninstall <source> [-l, --local]",
   list: "kinex list",
-  update: "kinex update [source]",
-  upgrade: "kinex upgrade [--all]",
+  update: "kinex update [source] [--self|--extensions|--all]",
 }
 
 function checkSettings(manager: SettingsManager): void {
@@ -24,6 +23,7 @@ function checkSettings(manager: SettingsManager): void {
 /** Management commands never construct an agent session or execute package extensions. */
 export async function runPackageCommand(args: string[], cwd = process.cwd()): Promise<boolean> {
   const command = args[0]
+  if (command === "upgrade") throw new Error("kinex upgrade was removed; use kinex update [--all]")
   if (!command || !Object.hasOwn(usages, command)) return false
   const scoped = command === "install" || command === "remove" || command === "uninstall"
   const { values, positionals } = parseArgs({
@@ -31,18 +31,24 @@ export async function runPackageCommand(args: string[], cwd = process.cwd()): Pr
     options: {
       help: { type: "boolean", short: "h" },
       ...(scoped ? { local: { type: "boolean" as const, short: "l" } } : {}),
-      ...(command === "upgrade" ? { all: { type: "boolean" as const } } : {}),
+      ...(command === "update" ? {
+        self: { type: "boolean" as const }, extensions: { type: "boolean" as const }, all: { type: "boolean" as const },
+      } : {}),
     },
   })
   if (values.help) {
-    console.log(`Usage: ${usages[command]}\n\nSources: npm:package[@version], git:host/owner/repo[@ref], or a local directory.\nInstalls default to the Kinex user scope; --local selects this project.\nupdate preserves version/ref pins. upgrade updates Kinex and its bundled Pi; --all also updates packages.`)
+    console.log(`Usage: ${usages[command]}\n\nSources: npm:package[@version], git:host/owner/repo[@ref], or a local directory.\nInstalls default to the Kinex user scope; --local selects this project.\nupdate updates Kinex and its bundled Pi; --extensions updates packages; --all does both.\nA source selects one package. Package updates preserve version/ref pins.`)
     return true
   }
   if (positionals.length > (scoped || command === "update" ? 1 : 0) ||
     (scoped && !positionals[0]) || positionals.some(source => !source.trim())) throw new Error(`Usage: ${usages[command]}`)
-  if (command === "upgrade") {
-    await upgradeKinex({ all: values.all === true, cwd })
-    return true
+  if (command === "update") {
+    if ([values.self, values.extensions, values.all].filter(Boolean).length > 1 ||
+      (positionals.length && (values.self || values.extensions || values.all))) throw new Error(`Usage: ${usages.update}`)
+    if (!values.extensions && !positionals.length) {
+      await upgradeKinex({ all: values.all === true, cwd })
+      return true
+    }
   }
   const manager = settings(cwd)
   checkSettings(manager)

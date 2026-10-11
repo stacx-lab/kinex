@@ -31,13 +31,27 @@ async function fixture(t) {
 test('package CLI validates arguments and lists bundled defaults without initializing a workspace', async t => {
   const { root, cwd, invoke } = await fixture(t)
   assert.match((await invoke('list')).stdout, /bundled\s+pi-web-search@1\.7\.0\s+fallback active/)
-  for (const args of [['install'], ['remove'], ['update', 'one', 'two'], ['list', '--local'], ['upgrade', '--model', 'x']]) {
+  for (const args of [['install'], ['remove'], ['update', 'one', 'two'], ['list', '--local'], ['upgrade', '--model', 'x'],
+    ['update', '--self', '--extensions'], ['update', '--all', '--extensions'], ['update', '--all', 'source'], ['update', '--self', 'source'], ['update', '--extensions', 'source']]) {
     await assert.rejects(invoke(...args), error => error.code === 1)
   }
   assert.match((await invoke('install', '--help')).stdout, /npm:package/)
   for (const file of [path.join(cwd, '.kinex'), path.join(cwd, '.pi'), path.join(root, 'data'), path.join(root, 'config')]) {
     await assert.rejects(stat(file), { code: 'ENOENT' })
   }
+})
+
+test('update defaults to self-update; extension updates do not invoke the updater', async t => {
+  const { root, env, invoke } = await fixture(t)
+  // Source installs reject self-update before any network or installation effects.
+  for (const args of [['update'], ['update', '--self'], ['update', '--all']]) {
+    await assert.rejects(invoke(...args), error => /npm ci and npm run build/.test(error.stderr))
+  }
+  env.PI_OFFLINE = '1'
+  for (const args of [['update', '--extensions'], ['update', 'npm:fixture']]) {
+    await assert.rejects(invoke(...args), error => /PI_OFFLINE disables package updates/.test(error.stderr))
+  }
+  await assert.rejects(stat(path.join(root, 'data')), { code: 'ENOENT' })
 })
 
 test('local package install, list and remove preserve scopes, filters and unrelated settings without loading code', async t => {
@@ -114,7 +128,7 @@ test('npm packages install in both scopes, update unpinned versions and preserve
   const projectManifest = path.join(cwd, '.pi/npm/node_modules/pi-managed-fixture/package.json')
   assert.equal(JSON.parse(await readFile(globalManifest, 'utf8')).version, '1.0.0')
   latest = '2.0.0'
-  await invoke('update')
+  await invoke('update', '--extensions')
   assert.equal(JSON.parse(await readFile(globalManifest, 'utf8')).version, '2.0.0')
   assert.equal(JSON.parse(await readFile(projectManifest, 'utf8')).version, '1.0.0')
   await invoke('install', 'npm:pi-managed-fixture@2.0.0', '-l')
@@ -145,7 +159,7 @@ test('Git packages use Pi project paths and respect pinned refs during updates',
   await writeFile(path.join(repo, 'marker.txt'), 'second')
   await git('add', '.')
   await git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'second')
-  await invoke('update')
+  await invoke('update', '--extensions')
   assert.equal(await readFile(marker, 'utf8'), 'first')
   await invoke('install', 'git:example.test/owner/fixture', '-l')
   await invoke('update', 'git:example.test/owner/fixture')

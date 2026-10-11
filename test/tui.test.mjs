@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { stripTerminalSequences } from '@earendil-works/pi-tui'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { isolate, fakeProvider, workspace, seed } from './helpers.mjs'
+import { SessionManager } from '@earendil-works/pi-coding-agent'
+import { sessionDirectory } from '../dist/settings.js'
 const exec = promisify(execFile)
 const isolation = await isolate()
 after(isolation.cleanup)
@@ -21,7 +23,7 @@ test('real PTY renders Kinex, SDK tools/replies and device command completion', 
   const runtime = createKinexRuntime({ directory: cwd })
   await seed(runtime)
   await runtime.dispose()
-  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', '--seed', 'TUI smoke'], {
+  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', 'TUI smoke'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'KINEX_TUI_READY', TUI_TEST_KEYS: JSON.stringify([
       [0.05, '/load sen'], [0.05, '\t'], [0.05, '\r'], ['sensor loaded', '/devices\r'], [0.1, '/reload\r'],
@@ -54,7 +56,7 @@ for (const tuiMode of ['regular', 'fullscreen']) test(`real PTY ${tuiMode} keeps
   await seed(runtime)
   await (await runtime.devices.load('sensor')).ready
   await runtime.dispose()
-  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--enable-recording', '--model', 'fake/test', '--seed', 'Record the sensor'], {
+  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--enable-recording', '--model', 'fake/test', 'Record the sensor'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'RECORDING_READY', TUI_TEST_KEYS: JSON.stringify([
       [0.05, '\u000f'], [0.05, '\u000f'], [0.05, '/record stop success\r'], ['stopped', '/quit\r'],
@@ -83,7 +85,7 @@ test('real PTY permission dialog approves a coding tool through the keyboard', {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
   fake.steps.push({ tool: 'write', args: { path: 'approved.txt', content: 'approved' } }, { text: 'APPROVAL_DONE' })
-  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', '--seed', 'Ask permission'], {
+  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', 'Ask permission'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Allow once', TUI_TEST_KEYS: JSON.stringify([[0.05, '\r'], ['APPROVAL_DONE', '/quit\r']]) },
   })
@@ -96,7 +98,7 @@ test('real PTY keeps interviews enabled in auto mode', { timeout: 30000 }, async
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
   fake.steps.push({ tool: 'question', args: { questions: [{ header: 'Camera', question: 'Which camera should be used?', options: [{ label: 'Left camera' }, { label: 'Right camera' }] }] } }, { text: 'INTERVIEW_DONE' })
-  const { stdout } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', '--seed', 'Ask a question'], {
+  const { stdout } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', 'Ask a question'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Left camera', TUI_TEST_KEYS: JSON.stringify([[0.05, '\r'], ['INTERVIEW_DONE', '/quit\r']]) },
   })
@@ -108,10 +110,92 @@ test('real PTY Escape cancels a permission dialog without executing the write', 
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
   fake.steps.push({ tool: 'write', args: { path: 'denied.txt', content: 'must not exist' } })
-  await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', '--seed', 'Ask permission'], {
+  await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', 'Ask permission'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'Allow once', TUI_TEST_KEYS: JSON.stringify([[0.05, '\u001b'], [0.1, '/quit\r']]) },
   })
   await assert.rejects(stat(path.join(cwd, 'denied.txt')), { code: 'ENOENT' })
   assert.equal(fake.requests.length, 1)
+})
+
+test('exit hint reopens the same session from another directory with quoted storage paths', { timeout: 30000 }, async t => {
+  const cwd = await workspace(t), elsewhere = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  fake.steps.push({ text: 'RESUME_HINT_READY' })
+  const config = path.join(cwd, 'isolated config')
+  await mkdir(path.join(config, 'agent'), { recursive: true })
+  for (const name of ['models.json', 'settings.json']) {
+    await writeFile(path.join(config, 'agent', name), await readFile(path.join(isolation.root, 'config/agent', name)))
+  }
+  const env = { ...process.env, TERM: 'xterm-256color', KINEX_CONFIG_DIR: config, KINEX_DATA_DIR: path.join(cwd, "state with 'quotes'"),
+    TUI_TEST_TRIGGER: 'RESUME_HINT_READY', TUI_TEST_KEYS: JSON.stringify([[0.05, '/quit\r']]) }
+  const first = await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', 'remember HINT_HISTORY'], {
+    cwd, env, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
+  })
+  const hint = stripTerminalSequences(first.stdout).match(/To resume this session: (kinex [^\r\n]+)/)?.[1]
+  assert.ok(hint, first.stdout + first.stderr)
+  assert.doesNotMatch(hint, /--session-dir/)
+  // Execute the exact shell-quoted command, resolving kinex to this checkout's launcher.
+  const resumed = exec('bash', ['-c', `kinex() { "$KINEX_TEST_NODE" "$KINEX_TEST_ENTRY" "$@"; }\n${hint} -p 'recall the marker'`], {
+    cwd: elsewhere, env: { ...env, KINEX_TEST_NODE: process.execPath, KINEX_TEST_ENTRY: entry }, timeout: 20000,
+  })
+  resumed.child.stdin.end()
+  assert.match((await resumed).stdout, /FAKE_REPLY_OK/)
+  assert.equal(fake.requests.length, 2)
+  assert.match(JSON.stringify(fake.requests[1].messages), /HINT_HISTORY/)
+})
+
+test('resume picker selects the existing session and sends the positional prompt', { timeout: 30000 }, async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  const initial = exec(process.execPath, [entry, '-p', 'remember PICKER_HISTORY'], { cwd, env: process.env, timeout: 20000 })
+  initial.child.stdin.end()
+  await initial
+  fake.steps.push({ text: 'PICKER_RESUMED' })
+  const [before] = await SessionManager.list(cwd, sessionDirectory(cwd))
+  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '-r', 'continue that conversation'], {
+    cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
+    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'PICKER_HISTORY',
+      TUI_TEST_KEYS: JSON.stringify([[0.15, '\r'], ['PICKER_RESUMED', '/quit\r']]) },
+  })
+  assert.match(stripTerminalSequences(stdout), /Resume Session/)
+  assert.match(stripTerminalSequences(stdout), /To resume this session: kinex --session/)
+  assert.equal(stderr, '')
+  assert.equal(fake.requests.length, 2)
+  assert.match(JSON.stringify(fake.requests[1].messages), /PICKER_HISTORY/)
+  const [after] = await SessionManager.list(cwd, sessionDirectory(cwd))
+  assert.equal(after.id, before.id)
+})
+
+test('resume picker cancellation creates no robotics workspace or session', { timeout: 30000 }, async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--resume'], {
+    cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
+    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'No sessions in current folder',
+      TUI_TEST_KEYS: JSON.stringify([[0.05, '\u001b']]) },
+  })
+  assert.match(stdout, /No session selected/)
+  assert.equal(stderr, '')
+  assert.equal(fake.requests.length, 0)
+  await assert.rejects(stat(sessionDirectory(cwd)), { code: 'ENOENT' })
+  await assert.rejects(stat(path.join(cwd, '.kinex')), { code: 'ENOENT' })
+})
+
+test('exit hint follows a session switched inside the TUI', { timeout: 30000 }, async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  const { createApplication } = await import('../dist/application.js')
+  const target = await createApplication({ cwd, model: 'fake/test' })
+  await target.host.session.bindExtensions({ mode: 'print' })
+  await target.host.session.prompt('SWITCH_TARGET_HISTORY')
+  const file = target.host.session.sessionFile
+  await target.dispose()
+  fake.steps.push({ text: 'SWITCH_READY' })
+  const { stdout } = await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', 'start another session'], {
+    cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
+    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'SWITCH_READY',
+      TUI_TEST_KEYS: JSON.stringify([[0.1, '/resume\r'], ['Resume Session', 'SWITCH_TARGET_HISTORY'], [0.2, '\r'], [0.5, '/quit\r']]) },
+  })
+  assert.ok(stripTerminalSequences(stdout).includes(`To resume this session: kinex --session '${file}'`))
 })
