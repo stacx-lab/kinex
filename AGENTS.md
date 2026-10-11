@@ -1,6 +1,6 @@
 # Kinex
 
-Read [doc/README.md](doc/README.md) for design contracts and [README.md](README.md)
+Read [docs/README.md](docs/README.md) for design contracts and [README.md](README.md)
 for usage.
 Design history and progress belong in git.
 
@@ -28,8 +28,8 @@ Design history and progress belong in git.
   cannot change device lifecycle; model recording remains opt-in.
 - Preserve initialization ordering, cancellation, recording ownership and disposal.
   Use the owned process helper for core subprocesses; never terminate borrowed
-  services. Retain the [control](doc/control.md) and
-  [calibration](doc/setup.md) contracts.
+  services. Retain the [control](docs/control.md) and
+  [calibration](docs/setup.md) contracts.
 - Keep dynamic state out of stable prompt prefixes. Refresh capabilities within
   tasks and restore context after compaction without bypassing host permissions.
 

@@ -116,7 +116,7 @@ Plugin releases and their bundled core versions are updated independently.
 ## Contributing & Development
 
 Issues and pull requests are welcome. Read [AGENTS.md](AGENTS.md) for contribution
-rules and the [design documentation](doc/README.md) for package boundaries and
+rules and the [design documentation](docs/README.md) for package boundaries and
 runtime contracts.
 The [core](packages/core/README.md) and [setup](packages/setup/README.md) docs cover
 APIs, control examples and onboarding.
