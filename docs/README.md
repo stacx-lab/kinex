@@ -1,7 +1,9 @@
-# Design documentation
+# Documentation
 
-These documents describe Kinex's package boundaries and runtime contracts.
-Start with architecture, then read the topics relevant to your change.
+For usage, start with the [project README](../README.md) and
+[in-session command reference](commands.md). The design documents below describe
+Kinex's package boundaries and runtime contracts; start with architecture, then
+read the topics relevant to your change.
 
 | Topic | Covers |
 | --- | --- |
