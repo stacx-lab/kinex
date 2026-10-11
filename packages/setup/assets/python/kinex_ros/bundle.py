@@ -1,4 +1,4 @@
-"""Public bundle API and resumable provisioning orchestration (Python 3.10+).
+"""Public bundle API and resumable provisioning orchestration (Python 3.12+).
 
 Manifest/fact rules, host installation and generated files live in the sibling
 bundle_manifest, bundle_install and bundle_render modules. Vendor provisioners

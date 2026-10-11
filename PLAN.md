@@ -1,34 +1,34 @@
 # Current work
 
-## ROS dependency installation simplification
+## ROS baseline and dependency simplification
 
 - [x] Remove the apt model tool, terminal handoff, setup host callbacks and inherited stdin.
 - [x] Keep apt dependency checks read-only; use the existing shell tool or user-run sudo commands.
 - [x] Preserve pip/Git/colcon preparation, ROS adapters, generation recovery and application composition.
-- [x] Replace installation/authentication tests with missing-dependency and resume coverage.
 - [x] Rebase PR #24 onto main at e434f5f and resolve conflicts.
-- [x] Complete integration, Python 3.10 helper and documentation checks.
-- [x] Prepare the removal commit for PR #24.
+- [x] Drop Humble/Python 3.10 compatibility and its CI job; use Jazzy/Python 3.12 fixtures and guidance.
+- [x] Restore core cleanup to main and use native subprocess process-group options.
+- [x] Validate the simplified baseline and prepare the PR #24 update.
 
-ROS implementation stays in setup. Core retains only Python 3.10 cleanup and
-CRLF parsing changes. Setup adds four skills and no new apt tool or ROS command.
-Bundle provisioning checks apt dependencies without installing them; `--install`
-continues to enable pip/Git preparation and source builds after prerequisites pass.
-The agent uses normal shell permissions for installation and hands sudo-required
-commands to the user on the driver host. Dependencies stay incomplete until verified.
+ROS implementation stays in setup. Core retains only the CRLF parsing change.
+Setup adds four skills and no new apt tool or ROS command. Supported ROS setup is
+Jazzy on Ubuntu 24.04 with system Python 3.12; detection never guesses an unlisted
+distribution. Bundle provisioning checks apt dependencies without installing them;
+`--install` enables pip/Git preparation and source builds after prerequisites pass.
+The agent hands sudo-required commands to the user on the driver host and verifies
+dependencies afterward.
 
-Validation: Node 22.19.0 / Python 3.12.13 `npm run check` passed all 358 tests,
-including build/typecheck, PTY, packed consumers and release checks, with no skips.
-Python 3.10.20 passed all 116 helper tests. Both final runs used normal bytecode
-settings; the generation-inventory assertion now permits Python's cache directory.
-Diff checks passed; 23 local documentation paths were checked, with only the
-existing unavailable sibling plugin README unresolved.
+Validation: Node 22.19.0 / Python 3.12.13 `npm run check` passed all 357 tests,
+including build/typecheck, ROS helpers, PTY, packed consumers and release checks,
+with no skips. Distro-selection coverage rejects Humble and does not autodetect
+unlisted installations. The Jazzy-only smoke script passes shell syntax checking
+and rejects the former distro argument before invoking Docker. Diff checks passed;
+17 local documentation paths were checked, with only the existing unavailable
+sibling plugin README unresolved. Native ROS container tests were not rerun.
 
-An initial ad hoc helper run also hit an intermittent concurrent-provisioning
-ownership failure; subsequent helper and full runs passed. That ownership code
-is unchanged. Native ROS smoke tests were not rerun for this removal. Vendor-specific
-production bundles, physical robots and real ros2_control validation remain deferred.
-Native plugin snapshots remain independent.
+The existing FastWAM inference environment on main is separate from this ROS
+compatibility change. Vendor-specific production bundles, physical robots and real
+ros2_control validation remain deferred. Native plugin snapshots remain independent.
 
 ## Active session time
 

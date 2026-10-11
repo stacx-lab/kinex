@@ -3,11 +3,11 @@ name: demo-arm
 device: {type: joint}
 robot: {kind: arm, model_fact: arm_type}
 parent: null
-ros: {distros: [humble, jazzy], rmw: rmw_cyclonedds_cpp, python: /usr/bin/python3}
+ros: {distros: [jazzy], rmw: rmw_cyclonedds_cpp, python: /usr/bin/python3}
 facts:
   - {key: robot_ip, type: ip, required: true, description: "Controller IP"}
   - {key: arm_type, type: enum, enum: [demo5, demo10], required: true, description: "Arm model"}
-  - {key: ros_distro, type: enum, enum: [humble, jazzy], default: {detect: ros_distro}}
+  - {key: ros_distro, type: enum, enum: [jazzy], default: {detect: ros_distro}}
   - {key: domain_id, type: int, min: 0, max: 232, default: 0}
   - {key: namespace, type: string, pattern: "^(/?[A-Za-z_][A-Za-z0-9_/]*)?$", default: ""}
   - {key: name, type: string, pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]*$", default: demo-arm}
@@ -24,7 +24,7 @@ pins:
 preflight:
   - {id: linux, kind: platform, value: linux}
   - {id: distro, kind: file, path: "${ros_root}/${ros_distro}/setup.bash"}
-  - {id: python_version, kind: python, min: "3.10"}
+  - {id: python_version, kind: python, min: "3.12"}
   - {id: reach, kind: command, argv: [ping, -c, "1", -W, "1", "${robot_ip}"], skip_when: use_mock_hardware}
   - {id: apt, kind: apt, packages: pins.apt}
   - {id: secrets, kind: env_file, names: secrets, skip_when: use_mock_hardware}

@@ -655,15 +655,14 @@ def coerce_fact(fact, value):
 
 
 def detect_ros_distro(bundle):
-    """First listed distro present under the ROS root, else the only installed one."""
+    """First declared distro present under the ROS root; never guess an unlisted one."""
     root = Path(ros_root())
     if not root.is_dir():
         return None
     for distro in bundle.manifest["ros"]["distros"]:
         if (root / distro).is_dir():
             return distro
-    present = sorted(entry.name for entry in root.iterdir() if entry.is_dir())
-    return present[0] if len(present) == 1 else None
+    return None
 
 
 def _default(bundle, fact):

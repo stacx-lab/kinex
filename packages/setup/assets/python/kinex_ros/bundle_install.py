@@ -40,7 +40,7 @@ def _run(argv, cwd=None, timeout=600, env=None):
             previous[signum] = signal.signal(signum, interrupt)
         # Own a separate process group for timeout and cancellation cleanup.
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True, preexec_fn=os.setpgrp)
+                                stderr=subprocess.PIPE, text=True, process_group=0)
         if cancelled:
             raise SystemExit(128 + cancelled)
         output, error = proc.communicate(timeout=timeout)

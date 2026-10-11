@@ -44,7 +44,9 @@ For core alone use `{ contributions: runtime => [coreContribution(runtime)] }`.
 Custom setup composition explicitly supplies `setupSkillRoots`, `setupToolNames`
 and its setup contribution. Omitted values do not inherit standalone's defaults.
 
-The `onboard-ros2` skill owns ROS policy and the `kinex_ros` library. Setup context
+The `onboard-ros2` skill owns ROS policy and the `kinex_ros` library.
+ROS support targets Jazzy on Ubuntu 24.04 with system Python 3.12; older ROS
+distributions and Python 3.10 are unsupported. Setup context
 provides separate absolute `core_library` and `setup_library` roots for provisioning.
 A completed generation contains its own ROS helpers; its profile pins entry and
 interpreter paths. Removing setup leaves that driver operational through core.

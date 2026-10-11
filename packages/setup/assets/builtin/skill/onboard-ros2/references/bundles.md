@@ -28,6 +28,11 @@ both library roots and executes the source provisioner with command-local
 before provisioning. `--questionnaire` returns declared facts; `--step NAME`
 forces a new attempt through that step and completes subsequent preparation.
 
+Target ROS 2 Jazzy with system Python 3.12; declare `ros.distros: [jazzy]`,
+restrict the `ros_distro` fact to that value, and include a Python 3.12 minimum
+in preflight. Detection considers only declared distributions, leaving the fact
+unresolved if none is installed.
+
 The manifest is version 1 and rejects unknown keys. Inspect the setup library's
 `kinex_ros/bundle_manifest.py` for fields. Declare the device type, facts, required
 apt/git dependencies, driver adapter/topics, expected interfaces, optional stack,

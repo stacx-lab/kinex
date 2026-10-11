@@ -113,7 +113,8 @@ still apply. `calib_sample` archives attempt evidence; `calib_compute` runs offl
 solvers and proposes profile changes. See [setup API and migration](packages/setup/README.md).
 
 For new hardware integrations, `/onboarding` and `/register` prefer compatible
-ROS 2 packages. Direct vendor SDKs are a fallback for missing or insufficient ROS
+ROS 2 packages. ROS support targets Jazzy on Ubuntu 24.04 with system Python 3.12;
+older ROS distributions and Python 3.10 are unsupported by these adapters. Direct vendor SDKs are a fallback for missing or insufficient ROS
 support, or an explicit user choice; setup explains the reason. Existing working
 integrations are preserved unless the task calls for replacing them.
 Onboarding checks installed driver packages and reuses their launch files and

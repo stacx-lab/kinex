@@ -333,7 +333,7 @@ class Session:
         deadline = time.monotonic() + max(0, timeout_s)
         def stage(action, remaining):
             _bounded(action, max(0, deadline - time.monotonic()) / remaining)
-        # Humble's thread-pool shutdown can wait despite timeout_sec. Bound each
+        # Executor cleanup may block beyond its timeout. Bound each
         # stage externally; the owning driver process handles unreleased threads.
         release(lambda: stage(lambda: executor.shutdown(timeout_sec=max(0, deadline - time.monotonic())), 5) if executor else None,
                 lambda: stage(lambda: release(*(action.client.destroy for action in actions)), 4),

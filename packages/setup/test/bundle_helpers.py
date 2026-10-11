@@ -118,6 +118,7 @@ class FactTests(unittest.TestCase):
     def test_rejections(self):
         cases = [({"robot_ip": "not-an-ip"}, "facts.robot_ip must be an IP address"),
                  ({"arm_type": "demo7"}, "facts.arm_type must be one of demo5, demo10"),
+                 ({"ros_distro": "humble"}, "facts.ros_distro must be one of jazzy"),
                  ({"domain_id": "300"}, "facts.domain_id must be <= 232"),
                  ({"domain_id": "-1"}, "facts.domain_id must be >= 0"),
                  ({"domain_id": "seven"}, "facts.domain_id must be an integer"),
@@ -168,8 +169,9 @@ class FactTests(unittest.TestCase):
                 self.assertEqual(kb.detect_ros_distro(self.bundle), "jazzy")
                 self.assertEqual(kb.validate_facts(self.bundle, {"robot_ip": "10.0.0.1", "arm_type": "demo10"})["ros_distro"], "jazzy")
                 (root / "humble").mkdir()
-                self.assertEqual(kb.detect_ros_distro(self.bundle), "humble")
-                (root / "rolling").mkdir()
+                self.assertEqual(kb.detect_ros_distro(self.bundle), "jazzy")
+                shutil.rmtree(root / "jazzy")
+                self.assertIsNone(kb.detect_ros_distro(self.bundle))
                 bundle = copy.deepcopy(self.bundle)
                 bundle.manifest["ros"]["distros"] = []
                 self.assertIsNone(kb.detect_ros_distro(bundle))
@@ -228,11 +230,11 @@ class RenderTests(unittest.TestCase):
             program = ("import signal,sys,time; from pathlib import Path; "
                        "signal.signal(signal.SIGINT, signal.SIG_IGN if sys.argv[2] == 'worker' else lambda *_: sys.exit(0)); "
                        "Path(sys.argv[1]).touch(); time.sleep(30)")
-            leader = subprocess.Popen([sys.executable, "-c", program, str(directory / "leader-ready"), "leader"], preexec_fn=os.setpgrp)
+            leader = subprocess.Popen([sys.executable, "-c", program, str(directory / "leader-ready"), "leader"], process_group=0)
             worker = stop = None
             try:
                 worker = subprocess.Popen([sys.executable, "-c", program, str(directory / "worker-ready"), "worker"],
-                                          preexec_fn=lambda: os.setpgid(0, leader.pid))
+                                          process_group=leader.pid)
                 deadline = time.monotonic() + 3
                 while not all((directory / f"{name}-ready").exists() for name in ("leader", "worker")):
                     self.assertLess(time.monotonic(), deadline, "process group did not start")
@@ -438,7 +440,8 @@ class PreflightTests(unittest.TestCase):
             bundle = kb.load(FIXTURE)
             bundle.directory = bundle.device_directory = bundle.target_directory = Path(directory)
             root = fake_ros_root(directory)
-            facts = {"robot_ip": "10.0.0.1", "arm_type": "demo5", "ros_distro": "humble", "use_mock_hardware": False}
+            facts = {"robot_ip": "10.0.0.1", "arm_type": "demo5", "ros_distro": "jazzy", "use_mock_hardware": False}
+            (root / "jazzy/setup.bash").unlink()
             with patch.dict(os.environ, {"KINEX_BUNDLE_SKIP_INSTALL": "1", "KINEX_BUNDLE_ROS_ROOT": str(root)}):
                 report = kb.preflight_report(bundle, facts)
                 self.assertEqual([(entry["id"], entry["status"]) for entry in report],
@@ -446,11 +449,12 @@ class PreflightTests(unittest.TestCase):
                                   ("apt", "skipped"), ("secrets", "needs")])
                 needs = kb.preflight(bundle, facts)
                 self.assertEqual([need["kind"] for need in needs], ["file", "env"])
-                self.assertIn(str(root / "humble" / "setup.bash").replace("\\", "/").split("/")[-2], needs[0]["text"])
+                self.assertIn(str(root / "jazzy" / "setup.bash").replace("\\", "/").split("/")[-2], needs[0]["text"])
                 self.assertEqual(needs[1]["names"], ["ROBOT_AES_KEY"])
                 self.assertIn("env.sh", needs[1]["text"])
                 (Path(directory) / "env.sh").write_text("export ROBOT_AES_KEY=do-not-print\n")
-                self.assertEqual([need["id"] for need in kb.preflight(bundle, {**facts, "ros_distro": "jazzy"})], [])
+                (root / "jazzy/setup.bash").write_text("# fake\n")
+                self.assertEqual(kb.preflight(bundle, facts), [])
                 self.assertEqual([entry["status"] for entry in kb.preflight_report(bundle, {**facts, "use_mock_hardware": True})][-1], "skipped")
                 self.assertEqual(kb.install(bundle, facts), [])
 

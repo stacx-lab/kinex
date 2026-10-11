@@ -34,10 +34,8 @@ export async function provisionBundle(t, source, { facts = {}, name, prepare } =
   const directory = path.join(workspace, '.kinex/devices', name ?? facts.name ?? manifest.name)
   await mkdir(path.dirname(directory), { recursive: true })
   const rosRoot = path.join(workspace, 'opt-ros')
-  for (const distro of ['humble', 'jazzy']) {
-    await mkdir(path.join(rosRoot, distro), { recursive: true })
-    await writeFile(path.join(rosRoot, distro, 'setup.bash'), '# software fixture\n')
-  }
+  await mkdir(path.join(rosRoot, 'jazzy'), { recursive: true })
+  await writeFile(path.join(rosRoot, 'jazzy/setup.bash'), '# software fixture\n')
   if (prepare) await prepare(directory)
   const env = { KINEX_BUNDLE_SKIP_INSTALL: '1', KINEX_BUNDLE_ROS_ROOT: rosRoot }
   const args = [path.join(source, 'provision.py'), '--dir', directory, '--core-library', coreLibrary, '--setup-library', library,

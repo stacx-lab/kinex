@@ -45,10 +45,11 @@ where the driver will execute; a local workstation is not a substitute for the
 robot host. For non-ROS devices, install only their guide's required dependencies.
 
 For ROS devices, inspect `/etc/os-release`, architecture, installed ROS
-distributions and the selected guide/manifest. Reuse a compatible installed
-distribution; otherwise select one supported by both the host and device from
-official ROS/vendor docs.
-Ask only if the evidence leaves a material choice. Check the ROS apt repository
+distributions and the selected guide/manifest. The supported baseline is ROS 2
+Jazzy on Ubuntu 24.04 with system Python 3.12. Reuse an installed Jazzy environment
+and verify vendor support from official documentation. If the host or driver
+requires an older ROS release, report the incompatibility; do not provision it
+through these adapters or upgrade the host/distribution automatically. Check the ROS apt repository
 and configure it from that distribution's official installation instructions
 through the host's normal shell permissions when needed; hand privileged changes
 to the user as described below. Do not change an

@@ -5,6 +5,10 @@ description: Register or repair ROS 2 hardware integrations using reusable packa
 
 # Onboard ROS 2 hardware
 
+Supported ROS baseline: Jazzy on Ubuntu 24.04 with its system Python 3.12.
+Use that interpreter for ROS adapters; older ROS distributions and Python 3.10
+are unsupported.
+
 Use for new or replaced hardware integrations during `/onboarding` or `/register`.
 Preserve working integrations unless replacement is part of the task. Prefer a
 compatible ROS package; use a direct vendor SDK only for a concrete unsupported

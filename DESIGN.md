@@ -29,6 +29,9 @@ Unregister also removes unloaded devices without starting their drivers.
 ## Setup and ROS boundary
 
 Core contains no ROS implementation, installer policy or ROS Python dependency.
+Setup ROS support targets Jazzy on Ubuntu 24.04 with system Python 3.12. Bundle
+detection selects only declared distributions; it never falls back to an unlisted
+installation. ROS helpers carry no Python 3.10 compatibility layer.
 Its existing `kind: ros` connection shapes are inert metadata. Setup's
 `onboard-ros2` skill owns integration selection during onboarding and registration:
 reuse suitable installed ROS packages, then apt binaries, with an evidenced reason

@@ -14,7 +14,6 @@ import time
 import unittest
 from unittest.mock import patch
 
-from kinex.driver_protocol import CleanupError
 from kinex_ros.ros2 import (BundleError, Latest, Session, StopConfirm, StopNotConfirmed,
                         camera_info_patch, joint_state_vector, jtc_hold, jtc_point,
                         message_class, stamp_seconds, twist, zero_twist)
@@ -182,7 +181,7 @@ class Helpers(unittest.TestCase):
         shutdown = executor.shutdown
         executor.shutdown = lambda timeout_sec: (shutdown(timeout_sec), gate.wait(5))
         start = time.monotonic()
-        with self.assertRaises(CleanupError):
+        with self.assertRaises(ExceptionGroup):
             session.close(.2)
         self.assertLess(time.monotonic() - start, .5)
         self.assertTrue(node.destroyed)
