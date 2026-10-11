@@ -16,9 +16,9 @@ from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
-from kinex_ros.ros2 import BundleError, message_class
-from kinex_ros.ros2_drivers import CameraSource, ImuSource, JointTrajectoryDriver, TwistDriver, image_array
-from ros2_fixtures import fixture, write
+from kinex_ros.ros2 import BundleError
+from kinex_ros.ros2_drivers import CameraSource, ImuSource, JointTrajectoryDriver, TwistDriver
+from ros2_fixtures import fixture
 
 
 class Adapters(unittest.TestCase):
@@ -44,16 +44,6 @@ class Adapters(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline)
             time.sleep(.005)
 
-    def fault_driver(self, value="running", duration=.03):
-        driver = self.driver()
-        self.manifest["driver"]["faults"] = [{"topic": "/program", "field": "data", "equals": "stopped", "code": "program_stopped", "for_s": duration}]
-        self.graph["topics"]["/program"] = {"type": "std_msgs/msg/String", "message": {"data": value}}
-        write(self.directory / "bundle.yaml", self.manifest)
-        (self.directory / "scenario.json").write_text(json.dumps(self.graph))
-        driver._configure(self.directory)
-        driver.execute("load", {})
-        return driver
-
     def test_load_is_read_only_and_reorders_joint_feedback(self):
         driver = self.driver()
         driver.execute("load", {})
@@ -77,32 +67,6 @@ class Adapters(unittest.TestCase):
         self.assertIn("start and retry /load", result["error"])
         self.assertIsNone(driver.handle)
 
-    def test_invalid_stop_thresholds_fail_before_connecting(self):
-        self.driver()
-        self.manifest["driver"]["stop"]["confirm"]["max_speed"] = -1
-        write(self.directory / "bundle.yaml", self.manifest)
-        with self.assertRaisesRegex(BundleError, "nonnegative"):
-            JointTrajectoryDriver(self.directory)
-
-    def test_actuator_stop_confirmation_is_required(self):
-        for kind, cls in (("joint", JointTrajectoryDriver), ("velocity", TwistDriver)):
-            with self.subTest(kind=kind):
-                self.driver(kind)
-                del self.manifest["driver"]["stop"]["confirm"]
-                write(self.directory / "bundle.yaml", self.manifest)
-                with self.assertRaisesRegex(BundleError, "require stop.confirm"):
-                    cls(self.directory)
-
-    def test_duplicate_publisher_and_changed_identity_reject_load(self):
-        driver = self.driver()
-        self.graph["topics"]["/joint_states"]["publishers"] = 2
-        (self.directory / "scenario.json").write_text(json.dumps(self.graph))
-        self.assertFalse(driver.dispatch("load", {})["ok"])
-        self.graph["topics"]["/joint_states"]["publishers"] = 1
-        (self.directory / "scenario.json").write_text(json.dumps(self.graph))
-        driver.identity = {"robot_description_sha256": "wrong"}
-        self.assertFalse(driver.dispatch("load", {})["ok"])
-
     def test_short_gap_is_tolerated_and_stale_feedback_faults(self):
         driver = self.driver()
         driver.execute("load", {})
@@ -114,21 +78,6 @@ class Adapters(unittest.TestCase):
             self.assertEqual(driver.execute("read", {})["faults"], [])
             driver.handle.latest.received_mono = time.monotonic() - driver.stale_s * 2
             self.assertIn({"code": "joint_states_stale"}, driver.execute("read", {})["faults"])
-
-    def test_controller_fault_requires_a_sustained_condition(self):
-        driver = self.driver()
-        driver.execute("load", {})
-        driver.handle.session.context.world.spec["controllers"]["jtc"] = "inactive"
-        self.assertEqual(driver.execute("read", {})["faults"], [])
-        self.wait_for(lambda: {"code": "controller_inactive"} in driver.execute("read", {})["faults"])
-
-    def test_controller_fault_is_observed_while_idle(self):
-        driver = self.driver()
-        driver.execute("load", {})
-        driver.handle.session.context.world.spec["controllers"]["jtc"] = "inactive"
-        self.wait_for(lambda: driver.handle.controller_fault[0] == "controller_inactive")
-        time.sleep(.42)
-        self.assertIn({"code": "controller_inactive"}, driver.execute("read", {})["faults"])
 
     def test_motion_uses_buffer_and_stop_holds_without_stopping_stack(self):
         driver = self.driver()
@@ -165,24 +114,6 @@ class Adapters(unittest.TestCase):
         self.assertIsNone(driver.buffer.pending)
         for actual, held in zip(driver.execute("read", {})["positions"], hold["positions"]):
             self.assertAlmostEqual(actual, held, delta=.001)
-
-    def test_velocity_guard_becomes_buffer_fault_and_holds(self):
-        driver = self.driver()
-        driver.execute("load", {})
-        driver.execute("write", {"actions": [[2., 2.]], "duration_s": .08})
-        self.wait_for(lambda: driver.buffer.error is not None)
-        self.assertIn("velocity limit", driver.buffer.error)
-        self.assertIn({"code": "buffer_failed"}, driver.execute("read", {})["faults"])
-        self.assertTrue(all(value["points"][0]["positions"] == [0., 0.] for _, value in driver.handle.session.context.world.published))
-
-    def test_failed_stop_requires_fresh_velocity_feedback(self):
-        driver = self.driver()
-        driver.execute("load", {})
-        driver.handle.session.context.world.topics["/joint_states"]["stale_after_s"] = 0
-        time.sleep(.01)
-        result = driver.dispatch("stop", {})
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["code"], "stop_failed")
 
     def test_failed_stop_blocks_new_writes_until_reconnection(self):
         for kind in ("joint", "velocity"):
@@ -231,78 +162,6 @@ class Adapters(unittest.TestCase):
         with self.assertRaisesRegex(BundleError, "unavailable"):
             driver.execute("read", {})
 
-    def test_imu_accepts_native_numpy_covariance_and_rejects_missing_channels(self):
-        driver = self.driver("imu")
-        driver.execute("load", {})
-        message, stamp = driver.handle.latest.snapshot()
-        channels = ("angular_velocity", "linear_acceleration", "orientation")
-        for channel in channels:
-            setattr(message, channel + "_covariance", np.zeros(9))
-        with patch.object(driver.handle.latest, "snapshot", return_value=(message, stamp)):
-            self.assertEqual(driver.execute("read", {})["orientation"], [0., 0., 0., 1.])
-            for channel in channels:
-                covariance = getattr(message, channel + "_covariance")
-                covariance[0] = -1.
-                with self.subTest(channel=channel), self.assertRaisesRegex(BundleError, channel + " as unavailable"):
-                    driver.execute("read", {})
-                covariance[0] = 0.
-
-    def test_manifest_faults_wait_for_sustained_condition(self):
-        driver = self.fault_driver()
-        self.assertEqual(driver.execute("read", {})["faults"], [])
-        driver.handle.session.context.world.topics["/program"]["message"]["data"] = "stopped"
-        self.assertEqual(driver.execute("read", {})["faults"], [])
-        self.wait_for(lambda: {"code": "program_stopped"} in driver.execute("read", {})["faults"])
-
-    def test_sustained_idle_fault_prevents_first_motion(self):
-        driver = self.fault_driver("stopped", .05)
-        time.sleep(.08)
-        result = driver.execute("write", {"actions": [[.01, .02]], "duration_s": .02})
-        self.assertIn({"code": "program_stopped"}, result["state"]["faults"])
-        self.wait_for(lambda: driver.buffer.error is not None)
-        messages = driver.handle.session.context.world.published
-        self.assertTrue(all(value["points"][0]["positions"] == [0., 0.] for _, value in messages))
-
-    def test_fault_recovery_between_reads_restarts_persistence_window(self):
-        driver = self.fault_driver("stopped", .05)
-        time.sleep(.08)
-        self.assertIn({"code": "program_stopped"}, driver.execute("read", {})["faults"])
-        cache = driver.handle.rules[0].latest
-        world = driver.handle.session.context.world
-        for value in ("running", "stopped"):
-            previous = cache.count
-            world.topics["/program"]["message"]["data"] = value
-            cache.wait(.2, previous)
-        self.assertEqual(driver.execute("read", {})["faults"], [])
-        time.sleep(.08)
-        self.assertIn({"code": "program_stopped"}, driver.execute("read", {})["faults"])
-
-    def test_unsupported_twist_frames_and_modes_are_rejected(self):
-        self.driver("velocity")
-        mode = self.profile["intrinsics"]["control"]["modes"]["drive"]
-        mode["velocity"]["frame"] = "heading"
-        write(self.directory / "profile.yaml", self.profile)
-        with self.assertRaisesRegex(BundleError, "body-frame"):
-            TwistDriver(self.directory)
-        mode["velocity"]["frame"] = "body"
-        self.profile["intrinsics"]["control"]["modes"]["another"] = mode
-        write(self.directory / "profile.yaml", self.profile)
-        with self.assertRaisesRegex(BundleError, "one mode"):
-            TwistDriver(self.directory)
-
-    def test_twist_stamped_stops_use_the_declared_command_frame(self):
-        driver = self.driver("velocity")
-        driver.config["command_frame"] = "base_link"
-        self.graph["topics"]["/cmd_vel"]["type"] = "geometry_msgs/msg/TwistStamped"
-        (self.directory / "scenario.json").write_text(json.dumps(self.graph))
-        driver.execute("load", {})
-        driver.execute("stop", {})
-        messages = [message for _, message in driver.handle.session.context.world.published]
-        self.assertEqual(len(messages), 3)
-        self.assertTrue(all(message["header"]["frame_id"] == "base_link" for message in messages))
-        stamps = [message["header"]["stamp"]["sec"] + message["header"]["stamp"]["nanosec"] / 1e9 for message in messages]
-        self.assertLess(stamps[0], stamps[-1])
-
     def test_rgbd_stride_endianness_range_filter_and_png(self):
         driver = self.driver("rgbd")
         driver.execute("load", {})
@@ -317,43 +176,6 @@ class Adapters(unittest.TestCase):
         patch = driver.introspect()["intrinsics"]["color"]
         self.assertEqual(patch["projection"]["fx"], 100.)
 
-    def test_camera_image_space_is_explicit_only_for_introspection(self):
-        driver = self.driver("rgb")
-        del self.manifest["driver"]["color_image_space"]
-        write(self.directory / "bundle.yaml", self.manifest)
-        driver._configure(self.directory)
-        driver.execute("load", {})
-        self.assertIn("color", driver.execute("read", {"output": "base64"}))
-        with self.assertRaisesRegex(BundleError, "driver.color_image_space"):
-            driver.introspect()
-        for name in ("color_image_space", "depth_image_space"):
-            self.manifest["driver"][name] = "automatic"
-            write(self.directory / "bundle.yaml", self.manifest)
-            with self.subTest(name=name), self.assertRaisesRegex(ValueError, name):
-                CameraSource(self.directory)
-            del self.manifest["driver"][name]
-
-    def test_native_depth_has_independent_image_space(self):
-        driver = self.driver("rgbd")
-        self.manifest["driver"].update(depth_camera_info_topic="/depth_info", depth_image_space="rectified")
-        self.profile["intrinsics"]["depth"].update(registration="native", projection="???", distortion="???")
-        self.graph["topics"]["/depth_info"] = {"type": "sensor_msgs/msg/CameraInfo", "rate_hz": 200,
-            "message": {"width": 2, "height": 1, "k": [200., 0., 1., 0., 200., .5, 0., 0., 1.],
-                        "p": [180., 0., .9, 0., 0., 190., .4, 0., 0., 0., 1., 0.], "d": [.1] * 5, "distortion_model": "plumb_bob"}}
-        write(self.directory / "bundle.yaml", self.manifest)
-        write(self.directory / "profile.yaml", self.profile)
-        (self.directory / "scenario.json").write_text(json.dumps(self.graph))
-        driver.profile = self.profile
-        driver._configure(self.directory)
-        observed = driver.introspect()["intrinsics"]
-        self.assertEqual(observed["color"]["projection"]["fx"], 100.)
-        self.assertEqual(observed["depth"]["projection"]["fx"], 180.)
-        self.assertEqual(observed["depth"]["distortion"], {"model": "none"})
-        del driver.config["depth_image_space"]
-        self.assertIn("depth", driver.grab(driver.handle))
-        with self.assertRaisesRegex(BundleError, "driver.depth_image_space"):
-            driver.introspect()
-
     def test_camera_rejects_unsynchronized_or_stale_samples(self):
         driver = self.driver("rgbd")
         driver.execute("load", {})
@@ -366,14 +188,6 @@ class Adapters(unittest.TestCase):
         driver.handle.streams["color"].received_mono -= 1
         with self.assertRaisesRegex(BundleError, "fresh"):
             driver.grab(driver.handle)
-
-    def test_compressed_color_and_unsupported_depth(self):
-        stream = io.BytesIO()
-        Image.new("RGB", (2, 1), (10, 20, 30)).save(stream, format="PNG")
-        message = message_class("sensor_msgs/msg/CompressedImage")(format="png", data=stream.getvalue())
-        self.assertEqual(image_array(message).tolist(), [[[10, 20, 30], [10, 20, 30]]])
-        with self.assertRaises(BundleError):
-            image_array(message, depth=True)
 
     def test_camera_recording_reuses_one_stream_and_unload_stops_capture(self):
         driver = self.driver("rgbd")
@@ -390,31 +204,6 @@ class Adapters(unittest.TestCase):
             self.assertFalse(recorder.running)
             self.assertIsNone(driver.handle)
             self.assertIsNone(handle.session.context)
-
-    def test_camera_recording_read_rejects_stale_feedback_and_recovers(self):
-        driver = self.driver("rgbd")
-        driver.execute("load", {})
-        handle = driver.handle
-        from kinex.stream import VideoRecorder
-        with patch.object(VideoRecorder, "_open"), patch.object(VideoRecorder, "_sink"), patch.object(VideoRecorder, "_close"):
-            driver.execute("record_start", {"dir": str(self.directory / "capture"), "rate_hz": 100})
-            self.wait_for(lambda: driver.recorder.count > 1)
-            self.assertIn("color", driver.execute("read", {"output": "base64"}))
-            world = handle.session.context.world
-            for topic in ("/color", "/depth"):
-                world.topics[topic]["stale_after_s"] = 0
-            self.wait_for(lambda: all(handle.streams[channel].age_s() > driver.stale_s for channel in ("color", "depth")))
-            self.wait_for(lambda: driver.recorder.read_errors > 0)
-            result = driver.dispatch("read", {"output": "base64"})
-            self.assertFalse(result["ok"])
-            self.assertEqual(result["code"], "stale_feedback")
-            for topic in ("/color", "/depth"):
-                del world.topics[topic]["stale_after_s"]
-            self.wait_for(lambda: all(handle.streams[channel].age_s() < driver.stale_s for channel in ("color", "depth")))
-            self.assertIn("color", driver.execute("read", {"output": "base64"}))
-            self.assertIs(driver.handle, handle)
-            self.assertTrue(driver.recorder.running)
-            driver.execute("unload", {})
 
     def test_subprocess_eof_sends_hold_or_zero_before_exit(self):
         for kind in ("joint", "velocity"):

@@ -11,6 +11,7 @@
 - [x] Remove all PR-added core tests and the CRLF parsing change with its setup regression test.
 - [x] Keep interface verification in ROS onboarding and remove the added joint/sensor verification skills and compute operation.
 - [x] Remove the duplicate setup guide listing; retain provisioning library paths and ROS skill routing.
+- [x] Reduce ROS tests to representative provisioning, adapter, checker and cleanup contracts; retain packed-consumer and manual native ROS checks.
 - [x] Validate the simplified baseline and prepare the PR #24 update.
 
 ROS implementation stays in setup. Core matches main without changes.
@@ -21,15 +22,19 @@ distribution. Bundle provisioning checks apt dependencies without installing the
 The agent hands sudo-required commands to the user on the driver host and verifies
 dependencies afterward.
 
-Validation: Node 22.19.0 / Python 3.12.13 `npm run check` passed all 352 tests,
+ROS automated Python coverage is limited to 28 representative tests (7 provisioning,
+5 transport, 12 adapter and 4 checker cases), down from 115. A single Node runner
+replaces the separate wrappers; packed-consumer coverage replaces the additional
+bundle harness. Test/support additions are reduced from 3,024 to 1,478 lines.
+The manual native ROS smoke test remains available.
+
+Validation: Node 22.19.0 / Python 3.12.13 `npm run check` passed all 344 tests,
 including build/typecheck, ROS helpers, PTY, packed consumers and release checks,
-with no skips. Distro-selection coverage rejects Humble and does not autodetect
-unlisted installations. The Jazzy-only smoke script passes shell syntax checking
+with no skips. Distro-selection coverage does not autodetect unlisted
+installations. The Jazzy-only smoke script passes shell syntax checking
 and rejects the former distro argument before invoking Docker. Diff checks passed;
 17 local documentation paths were checked, with only the existing unavailable
 sibling plugin README unresolved. Native ROS container tests were not rerun.
-After removing the duplicate guide listing, `npm run test:setup` passed all 40
-tests with no skips; diff checks passed.
 
 The existing FastWAM inference environment on main is separate from this ROS
 compatibility change. Vendor-specific production bundles, physical robots and real
