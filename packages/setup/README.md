@@ -197,8 +197,6 @@ Python executable. Custom computations use host tools and archive their evidence
 | `calibrate-fixed-arm-mount`, `calibrate-dual-arm` | Rigid parent/arm or cross-arm transforms. |
 | `calibrate-joint-range`, `calibrate-world-geometry` | Joint/model limits and independently measured environment geometry. |
 | `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected base conventions, motion response, expiry/stop and posture references, evaluated with `verify-base`. |
-| `verify-joint-interface`, `verify-joint-motion` | Joint names, feedback, controller state and freshness; small gated motions with stop and hold, evaluated with `verify-checks`. |
-| `verify-sensor-interface` | Camera, IMU and force-torque rate, resolution and calibration metadata from fresh samples, evaluated with `verify-checks`. |
 
 Fixed arms, dual arms, wheeled manipulators, quadrupeds with arms and humanoids use
 actual endpoint/frame compositions. Moving torso attachments and body/heading
@@ -208,11 +206,11 @@ their units. No gait tuning, odometry optimization or inferred motion limits.
 
 Collect incrementally, reuse suitable factory/model/simulator facts and stop when
 minimum evidence, coverage and quality meet the task. Explicit tolerances are
-required for verification measurements; missing references remain incomplete. The
-shared evidence format for `verify-base` and `verify-checks` is documented in the
-`calib_compute` tool description; bundle `check.sh` scripts emit it directly.
-Both operations use the existing `verify_base.py` evaluator. Base skills and
-workspace copies retain their existing `verify-base` calls.
+required for verification measurements; missing references remain incomplete.
+ROS onboarding assesses `check.sh` results directly and retains its measurement
+file as evidence on the preparation node when setup planning is used. Failed
+checks leave onboarding incomplete. Existing base procedures use `verify-base`
+with the evidence format documented in the `calib_compute` tool description.
 
 ## Migration and checks
 

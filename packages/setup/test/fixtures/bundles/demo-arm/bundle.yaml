@@ -76,10 +76,5 @@ recipe:
   nodes:
     - {id: "${name}-access", title: "Prepare ${name} access", kind: prepare, skill: onboard-ros2,
        outputs: [{kind: profile, device: "${name}", pointer: /access/driver}]}
-    - {id: "${name}-interface", title: "Verify ${name} ROS interface", kind: verify, skill: verify-joint-interface,
-       bindings: {arm: "${name}"}, dependsOn: ["${name}-access"],
-       inputs: [{kind: profile, device: "${name}", pointer: /access/driver}, {kind: profile, device: "${name}", pointer: /access/connection}]}
-    - {id: "${name}-motion", title: "Verify ${name} gated motion", kind: verify, skill: verify-joint-motion,
-       bindings: {arm: "${name}"}, dependsOn: ["${name}-interface"], optional: true}
-  task: {objective: "Operate ${name}", targets: ["${name}-interface"]}
+  task: {objective: "Operate ${name}", targets: ["${name}-access"]}
 satellites: []

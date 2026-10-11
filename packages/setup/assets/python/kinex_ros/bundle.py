@@ -308,9 +308,9 @@ def next_commands(bundle, facts):
     commands.append(f"profile_write kind=device with {directory / 'profile.generated.json'} (new device); preserve existing facts when replacing access")
     if bundle.manifest["stack"] is not None or bundle.parent_directory:
         commands.append(f"bash {quote(str(directory / 'stack.sh'))} start")
-    verification = "verify-base" if bundle.type == "velocity" else "verify-checks"
-    commands += [f"/load {name}", f"bash {quote(str(directory / 'check.sh'))}",
-                 f"calib_compute operation:{verification} measurements:{bundle.device_directory / 'verify/measurements.json'}"]
+    commands += [f"/load {name}", f"bash {quote(str(directory / 'check.sh'))}"]
+    if bundle.type == "velocity":
+        commands.append(f"calib_compute operation:verify-base measurements:{bundle.device_directory / 'verify/measurements.json'}")
     return commands
 
 

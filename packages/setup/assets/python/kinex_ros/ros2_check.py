@@ -1,7 +1,8 @@
 """Read-only ROS interface checks and explicitly requested model capture.
 
-The measurement document is consumed by setup's verify-base or verify-checks operation. This
-module runs from a provisioned generation and never commands a robot or manages its stack.
+Onboarding uses the exit status and measurement document as interface evidence;
+base procedures can also consume the document through verify-base. This module
+runs from a provisioned generation and never commands a robot or manages its stack.
 """
 
 import argparse

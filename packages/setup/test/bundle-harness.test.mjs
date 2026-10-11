@@ -17,10 +17,16 @@ for (const kind of ['joint', 'velocity', 'imu', 'rgb', 'rgbd']) {
     })
     const bundle = await provisionBundle(t, source)
     assert.equal(bundle.profile.type, kind)
-    const procedure = kind === 'velocity' ? 'verify-base-interface' : kind === 'joint' ? 'verify-joint-interface' : 'verify-sensor-interface'
-    const descriptor = JSON.parse(await readFile(new URL(`../assets/builtin/skill/${procedure}/procedure.json`, import.meta.url), 'utf8'))
-    const command = bundle.provision().next.find(command => command.startsWith('calib_compute '))
-    assert.ok(descriptor.computes.includes(command.match(/operation:(\S+)/)[1]), command)
+    const commands = bundle.provision().next
+    assert.ok(commands.some(command => command.includes('/check.sh')))
+    const computeCommands = commands.filter(command => command.startsWith('calib_compute '))
+    if (kind === 'velocity') {
+      assert.equal(computeCommands.length, 1)
+      const descriptor = JSON.parse(await readFile(new URL('../assets/builtin/skill/verify-base-interface/procedure.json', import.meta.url), 'utf8'))
+      assert.ok(descriptor.computes.includes(computeCommands[0].match(/operation:(\S+)/)[1]), computeCommands[0])
+    } else {
+      assert.deepEqual(computeCommands, [])
+    }
     await assert.rejects(stat(path.join(bundle.directory, 'DEVICE.md')), { code: 'ENOENT' })
     await bundle.runtime.profiles.writeDevice({ name: bundle.profile.name, loaded: true })
     assert.match((await bundle.runtime.context()).conventions, new RegExp(`type="${kind}"`))

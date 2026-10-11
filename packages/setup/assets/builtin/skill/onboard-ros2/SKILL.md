@@ -32,12 +32,20 @@ generic profile, driver, permission and lifecycle contracts.
    retains them. Never write profile YAML directly from provisioning scripts.
 5. Start the stack only through its returned command when authorized, then load
    through core. Run the generation's `check.sh`; it only observes interfaces.
+   Require a successful exit and inspect its named results. Retain
+   `<device dir>/verify/measurements.json` unchanged as evidence; report failed
+   checks by name without pruning checks or relaxing tolerances. For cameras,
+   establish raw versus rectified image space from interface documentation and
+   declare `driver.color_image_space` (and `driver.depth_image_space` for native
+   depth with its own CameraInfo). Use `--introspect` to compare the live output
+   with the declared intrinsics; apply observed fields from `profile.patch.json`
+   through `profile_write`, reload and rerun checks after a mismatch.
    Registration alone does not imply measured readiness or authorize motion.
 6. When setup planning is in use, save the generated recipe or update the existing
-   preparation nodes with exact outputs and evidence. Use `verify-base` for base
-   procedures and `verify-checks` for joint/sensor procedures. Reuse `verify-base-motion`
-   for task-required base trials; use `verify-base-posture` only when the device
-   exposes posture control and the task needs it. Motion verification requires
+   preparation nodes with exact outputs and record the measurement evidence on
+   the onboarding node. Use `verify-base` for existing base procedures. Reuse
+   `verify-base-motion` for task-required base trials; use `verify-base-posture`
+   only when the device exposes posture control and the task needs it. Motion verification requires
    separate authorization. Failed or pending installation and failed checks remain incomplete.
 
 Provisioning stages all entrypoints and helpers together; it never changes the
