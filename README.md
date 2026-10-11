@@ -23,6 +23,7 @@
 <p align="center">
   <a href="#news">News</a> ·
   <a href="#getting-started">Getting Started</a> ·
+  <a href="#try-simulator-tasks-with-roboenv">Simulator Tasks</a> ·
   <a href="#kinex-and-the-pi-ecosystem">Pi Ecosystem</a> ·
   <a href="#using-kinex-with-other-harnesses">Other Harnesses</a>
 </p>
@@ -78,6 +79,74 @@ kinex --help                            # All commands and options
 
 Pi provides familiar commands such as `/settings`, `/new`, `/resume` and `/compact`.
 `/reload` refreshes agent resources; restart devices with `/unload` then `/load`.
+
+## Try Simulator Tasks with RoboEnv
+
+[RoboEnv](https://github.com/stacx-lab/RoboEnv/tree/dev/v1.0.0) runs robotics
+simulator tasks and exposes their robots as Kinex devices. Kinex supplies the
+coding agent; RoboEnv owns the simulation and task verdict. You can try this
+RoboCasa kitchen task with Kinex installed as above, Linux, Git, uv, and a
+compatible NVIDIA GPU. See RoboEnv's
+[setup guide](https://github.com/stacx-lab/RoboEnv/blob/dev/v1.0.0/docs/setup.md)
+for simulator prerequisites and asset downloads; RoboCasa needs about 10 GB of
+kitchen assets.
+
+In terminal A, prepare RoboCasa and launch a task:
+
+```sh
+git clone --branch dev/v1.0.0 https://github.com/stacx-lab/RoboEnv.git
+cd RoboEnv
+bash tools/bootstrap.sh
+source .venv/bin/activate
+roboenv prepare robocasa
+roboenv tasks list --simulator robocasa
+roboenv launch robocasa/pick-place-microwave --port 8123
+```
+
+Wait for `Ready` and leave this terminal running. Preparation installs the
+simulator in its own environment; subsequent runs can go straight to launch.
+
+In terminal B, activate the same RoboEnv CLI, then create an agent workspace:
+
+```sh
+source /path/to/RoboEnv/.venv/bin/activate
+mkdir -p kinex-sim-workspace
+cd kinex-sim-workspace
+roboenv setup --list
+roboenv setup robocasa/robocasa-panda-omron
+export ROBOENV_ENDPOINT=http://127.0.0.1:8123
+roboenv describe
+kinex
+```
+
+Replace `/path/to/RoboEnv` with your checkout location. `roboenv setup` creates
+`.kinex/` if needed and exports `workspace.yaml`, device profiles, and drivers
+into the current workspace. Existing robot configuration is protected;
+`--force` replaces the manifest and entire device collection while preserving
+other workspace content. Setup does not start a simulator or install dependencies.
+Kinex prepares its separate `.kinex/python` environment when first needed.
+
+In Kinex, use `/login` and `/model` if you have not configured a provider, then
+inspect the connection:
+
+```text
+/devices
+/ping all
+```
+
+Give the agent the task instruction reported by `roboenv describe`, for example:
+
+> Read the camera images, then pick the object off the counter and place it into
+> the container in the microwave. Use the connected robot devices and check the
+> result with camera observations.
+
+To inspect the simulator's task verdict, run `roboenv score` in a terminal with
+the same `ROBOENV_ENDPOINT`. Stop the simulation with Ctrl-C in terminal A.
+For another task, choose an ID from `roboenv tasks list` and export its matching
+robot from `roboenv setup --list`. After restarting the simulation or replacing
+device files, restart Kinex or use `/unload all` followed by `/load all`.
+See RoboEnv's [Kinex walkthrough](https://github.com/stacx-lab/RoboEnv/blob/dev/v1.0.0/docs/kinex-local.md)
+for device checks, recording, and playback.
 
 ## Kinex and the Pi Ecosystem
 
