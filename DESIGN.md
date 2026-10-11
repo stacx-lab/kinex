@@ -80,7 +80,7 @@ Standalone selects an `ApplicationComposition` before creating its runtime. Its
 roots, tool reservations and contribution factory travel together across sessions
 and workspace changes. Defaults include setup; custom compositions replace those
 defaults completely. Core-only composition supplies no setup roots or reservations.
-Dynamic setup library paths and instance guides live in contributed context sections.
+Setup library paths live in contributed context sections; core supplies device guide roots.
 
 ## Core contracts
 

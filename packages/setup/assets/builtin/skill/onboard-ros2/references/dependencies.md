@@ -81,3 +81,13 @@ which remain blocked while apt prerequisites are missing. For dependency repair
 after a completed generation, rerun `--step install --install` to force rechecking.
 Keep repository, network and package failures incomplete and resolve their cause;
 they are not grounds for switching to a source build by themselves.
+
+For dependencies available only through pip, Ubuntu 24.04's system Python is
+externally managed. Install `python3-venv` through the same apt flow, then create
+a driver-specific environment with `/usr/bin/python3 -m venv --system-site-packages
+<project>/.kinex/ros-python/<device>` using the normal shell tool. Keep it outside
+the provisioning destination and set the bundle's `ros.python` to that environment's
+absolute `bin/python` path before provisioning. This
+uses system Python 3.12 and retains access to apt-installed ROS packages while
+installing pip dependencies into that environment. Do not use `--user` or
+`--break-system-packages`, and do not reuse core's `.kinex/python` environment.

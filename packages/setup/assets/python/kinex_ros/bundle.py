@@ -229,7 +229,7 @@ def _validate_generation(bundle):
     if not staged.is_file():
         raise BundleError(f"generated driver entry {entry} is missing")
     model = profile.get("intrinsics", {}).get("model", {})
-    if model.get("format") == "urdf" and isinstance(model.get("path"), str) and model["path"] != "???":
+    if isinstance(model, dict) and model.get("format") == "urdf" and isinstance(model.get("path"), str) and model["path"] != "???":
         from xml.etree import ElementTree
         file = bundle.device_directory / model["path"]
         if file.is_relative_to(bundle.target_directory):

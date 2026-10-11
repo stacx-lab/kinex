@@ -46,7 +46,7 @@ def render_ros_python(bundle, facts, library, parent=None):
              "set -euo pipefail", 'HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"']
     lines += [f"DEVICE={quote(str(bundle.device_directory.resolve()))}"]
     lines += environment_lines(bundle, facts)
-    lines += [f'export PYTHONPATH={quote(str(bundle.target_directory.resolve() / "python") + ":" + library)}"${{PYTHONPATH:+:$PYTHONPATH}}"', f'exec {bundle.manifest["ros"]["python"]} "$@"', ""]
+    lines += [f'export PYTHONPATH={quote(str(bundle.target_directory.resolve() / "python") + ":" + library)}"${{PYTHONPATH:+:$PYTHONPATH}}"', f'exec {quote(bundle.manifest["ros"]["python"])} "$@"', ""]
     return "\n".join(lines)
 
 
@@ -180,7 +180,7 @@ def render_profile(bundle, facts, interpreter=None):
     if bundle.type not in NO_EXTRINSICS:
         profile["extrinsics"] = {"source": "default", **render_tree(manifest["profile"]["extrinsics"], facts)}
     model = profile["intrinsics"].get("model", {})
-    if model.get("format") == "urdf" and isinstance(model.get("path"), str):
+    if isinstance(model, dict) and model.get("format") == "urdf" and isinstance(model.get("path"), str):
         model_path = Path(model["path"])
         if not model_path.is_absolute() and (bundle.directory / model_path).is_file():
             model["path"] = str((bundle.target_directory / model_path).relative_to(bundle.device_directory))

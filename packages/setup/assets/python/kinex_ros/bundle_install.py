@@ -183,7 +183,7 @@ def preflight(bundle, facts):
 def _install_pip(bundle, pins):
     if not pins:
         return []
-    argv = [bundle.manifest["ros"]["python"], "-m", "pip", "install", "--user"] + pins
+    argv = [bundle.manifest["ros"]["python"], "-m", "pip", "install"] + pins
     result = _run(argv, timeout=1800)
     if result.returncode == 0:
         return []

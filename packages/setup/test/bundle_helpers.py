@@ -190,6 +190,12 @@ class ProvisionTests(unittest.TestCase):
         for name in ("provision.py", "setup.sh"):
             self.assertFalse((generation / name).exists())
 
+        manifest = kb.read_yaml(self.source / "bundle.yaml")
+        manifest["profile"]["intrinsics"]["model"] = "???"
+        kb.write_yaml(self.source / "bundle.yaml", manifest)
+        partial = json.loads((self.generation() / "profile.generated.json").read_text())
+        self.assertEqual(partial["intrinsics"]["model"], "???")
+
     def test_unrelated_registered_devices_are_not_claimed(self):
         self.directory.mkdir(parents=True)
         for name, kind in (("other", "joint"), ("left", "imu")):
