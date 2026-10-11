@@ -36,8 +36,8 @@ for source builds or a direct SDK. Preserve working integrations unless replacem
 is requested. Domain/namespace live in bundle facts and CameraInfo topics in driver
 configuration; the core schema does not learn those settings.
 
-Setup's `/onboarding-ros2` command explicitly selects that skill and reuses the
-onboarding workflow. Hosts discover it through the setup command contribution.
+Existing onboarding and registration workflows select that skill for ROS devices;
+setup adds no dedicated ROS command or alias.
 
 Setup owns `kinex_ros`, provisioning and `kinex_install_apt`. Provisioning requires
 explicit absolute core/setup Python library roots. It stages a complete generation
@@ -48,13 +48,21 @@ unloading the device; provisioning never edits the selected profile. Failed
 candidates leave selected files intact. Satellites pin their parent's generation;
 all destinations are checked before writes and locked during provisioning.
 
-Each generation includes the setup Python helpers it needs. Its wrapper sources
+Each generation includes only `bundle_manifest`, `ros2`, `ros2_drivers`,
+`ros2_check` and their package initializer. Drivers and checkers read configuration
+directly from `bundle_manifest`; provisioning and installer modules stay in setup.
+Source `provision.py` and `setup.sh` affect the generation digest but are not
+deployed. Runtime inventory changes create new generations without rewriting old
+ones. Deployed Python is checked for direct provisioning imports, including those
+in custom helper modules; custom entrypoints require offline validation of their
+runtime dependencies. Dynamic imports are not proven by static inspection.
+The wrapper sources
 the declared ROS installation and device overlay, then adds generation-local
 `kinex_ros` and installed core `kinex` paths. Removing setup does not break an
 already provisioned device. Host package installation and source overlays are shared
 external dependencies and are not rolled back with a generation. Legacy ROS profiles
 require explicit migration; failed legacy migration stays unloaded and repairs forward.
-See [bundle contracts](doc/ros2-robot-bundles.md).
+See [bundle contracts](packages/setup/assets/builtin/skill/onboard-ros2/references/bundles.md).
 
 The apt tool uses tracked core tool execution, shell permission and an owned process
 group. Setup may request a terminal through `SetupHost.withTerminal`; standalone

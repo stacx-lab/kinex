@@ -40,9 +40,9 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.equal(context.sections['setup.plan'], undefined)
   assert.doesNotMatch((await runtime.context()).instructions, /setup_plan|\/onboarding/)
   assert.deepEqual(await readdir(directory), [])
-  assert.deepEqual(capabilities.commands.filter(command => command.kind === 'workflow').map(command => command.name).sort(), ['calibrate', 'onboarding', 'onboarding-ros2', 'register'])
+  assert.deepEqual(capabilities.commands.filter(command => command.kind === 'workflow').map(command => command.name).sort(), ['calibrate', 'onboarding', 'register'])
   assert.ok(coreContribution(runtime).commands.some(command => command.name === 'unregister'))
-  assert.deepEqual(setupContribution(setup).commands.map(command => command.name).sort(), ['calibrate', 'onboarding', 'onboarding-ros2'])
+  assert.deepEqual(setupContribution(setup).commands.map(command => command.name).sort(), ['calibrate', 'onboarding'])
   assert.deepEqual(setupToolNames, ['setup_plan', 'calib_sample', 'calib_compute', 'kinex_install_apt'])
   assert.equal(tools.tools.filter(tool => tool.name === 'profile_write').length, 1)
   assert.ok(!tools.tools.some(tool => tool.name === 'calib_write'))
@@ -51,6 +51,18 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.match(roots.core_library, /core.*assets[/\\]python$/)
   assert.match(roots.setup_library, /setup.*assets[/\\]python$/)
   assert.equal(context.sections['core.readiness'], undefined)
+})
+
+test('setup skill discovery preserves metadata with Windows line endings', async t => {
+  const { directory, capabilities } = await fixture(t)
+  const source = await readFile(new URL('../assets/builtin/skill/onboard-ros2/SKILL.md', import.meta.url), 'utf8')
+  const target = path.join(directory, '.kinex/skill/onboard-ros2')
+  await mkdir(target, { recursive: true })
+  const file = path.join(target, 'SKILL.md')
+  await writeFile(file, source.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'))
+  const skill = (await capabilities.skills.list()).find(skill => skill.name === 'onboard-ros2')
+  assert.equal(skill.file, file)
+  assert.match(skill.description, /ROS 2 hardware/)
 })
 
 async function pythonSensor(runtime, directory, { fail = false, slowRead = false } = {}) {

@@ -808,8 +808,95 @@ class ProvisionTests(GenerationFixture):
         result = subprocess.run([str(generation / "ros-python"), "-c", "import kinex, kinex_ros; print(kinex_ros.__file__)"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(str(generation / "python"), result.stdout)
-        for name in ["bundle", "bundle_install", "bundle_manifest", "bundle_render", "ros2", "ros2_drivers", "ros2_check"]:
-            self.assertTrue((generation / f"python/kinex_ros/{name}.py").is_file())
+        self.assertEqual({file.name for file in (generation / "python/kinex_ros").iterdir()},
+                         {"__init__.py", "bundle_manifest.py", "ros2.py", "ros2_drivers.py", "ros2_check.py"})
+        for name in ("provision.py", "setup.sh"):
+            self.assertFalse((generation / name).exists())
+
+    def test_custom_entrypoints_and_runtime_imports_work_without_setup_or_source(self):
+        setup = self.root / "setup-python"
+        shutil.copytree(LIBRARY, setup)
+        data = kb.read_yaml(self.source / "bundle.yaml")
+        data.update(driver={}, expected={})
+        data["ros"]["python"] = sys.executable
+        kb.write_yaml(self.source / "bundle.yaml", data)
+        (self.source / "driver.py").write_text(
+            "from pathlib import Path\nfrom kinex_ros.bundle_manifest import load\n"
+            "def name(): return load(Path(__file__).parent).facts['name']\n"
+            "if __name__ == '__main__': print(name())\n")
+        (self.source / "check.py").write_text(
+            "from kinex_ros.bundle_manifest import load\n"
+            "def checks(session, bundle, facts):\n"
+            "    return [{'name': 'custom-name', 'expected': 'left',\n"
+            "             'measured': load(bundle.directory).facts['name'],\n"
+            "             'reference': 'generated bundle facts'}]\n")
+        generation = self.generation("--setup-library", str(setup))
+        shutil.rmtree(setup)
+        shutil.rmtree(self.source)
+        test_root = Path(__file__).parent
+        env = {**os.environ, "PYTHONPATH": os.pathsep.join(map(str, (test_root / "fake_rclpy", test_root))),
+               "PYTHONDONTWRITEBYTECODE": "1"}
+        commands = (([str(generation / "ros-python"), str(generation / "driver.py")], "left"),
+                    (["bash", str(generation / "check.sh")], "ok"))
+        for command, expected in commands:
+            result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.strip(), expected)
+        evidence = json.loads((self.directory / "verify/measurements.json").read_text())
+        self.assertTrue(any(check["name"] == "custom-name" and check["measured"] == "left" for check in evidence["checks"]))
+        probe = ("import sys; import kinex_ros.ros2_drivers, kinex_ros.ros2_check; "
+                 "assert 'rclpy' not in sys.modules; "
+                 "assert not {'kinex_ros.bundle', 'kinex_ros.bundle_install', 'kinex_ros.bundle_render'} & sys.modules.keys()")
+        result = subprocess.run([str(generation / "ros-python"), "-c", probe], env=env,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_runtime_provisioning_imports_are_rejected_before_selection(self):
+        first = self.generation()
+        selected = (first / "profile.generated.json").read_bytes()
+        (self.directory / "profile.yaml").write_bytes(selected)
+        before = {file.relative_to(first): file.read_bytes() for file in first.rglob("*") if file.is_file()}
+        cases = [
+            ("driver.py", "import kinex_ros.bundle\n", "kinex_ros.bundle"),
+            ("check.py", "from kinex_ros import bundle_install as installer\n", "kinex_ros.bundle_install"),
+            ("helpers/runtime.py", "from kinex_ros.bundle_render import render_profile\n", "kinex_ros.bundle_render"),
+            ("python/kinex_ros/custom.py", "from . import bundle\n", "kinex_ros.bundle"),
+            ("helpers/runtime.py", "from provision import configure\n", "provision"),
+        ]
+        for path, source, dependency in cases:
+            with self.subTest(path=path, dependency=dependency):
+                def vendor(bundle, facts, state):
+                    (bundle.directory / "model.urdf").write_text('<robot name="test"/>')
+                    file = bundle.directory / path
+                    file.parent.mkdir(parents=True, exist_ok=True)
+                    file.write_text(source)
+                    if path.startswith("helpers/"):
+                        (bundle.directory / "driver.py").write_text("from helpers import runtime\n")
+                code, result = self.run_provision("--reset", steps={"custom": vendor})
+                self.assertEqual(code, 1, result)
+                self.assertIn(f"{path}:1: runtime must not import {dependency}", result["error"])
+                self.assertIn("bundle_manifest", result["error"])
+                self.assertEqual((self.directory / "profile.yaml").read_bytes(), selected)
+                self.assertEqual(list((self.directory / "ros/generations").iterdir()), [first])
+        self.assertEqual(before, {file.relative_to(first): file.read_bytes() for file in first.rglob("*") if file.is_file()})
+
+    def test_provisioning_inputs_and_runtime_inventory_each_invalidate_generation(self):
+        first = self.generation()
+        previous = first
+        for name in ("provision.py", "setup.sh"):
+            with (self.source / name).open("a") as file:
+                file.write("\n# changed build input\n")
+            current = self.generation()
+            self.assertNotEqual(current, previous)
+            self.assertFalse((current / name).exists())
+            previous = current
+        (self.source / "runtime.json").write_text('{"version": 1}\n')
+        with patch.object(kb, "RUNTIME_FILES", (*kb.RUNTIME_FILES, "runtime.json")):
+            current = self.generation()
+            self.assertNotEqual(current, previous)
+            self.assertTrue((current / "runtime.json").is_file())
+            self.assertEqual(self.generation(), current)
+        self.assertFalse((first / "runtime.json").exists())
 
     def test_registered_device_can_be_provisioned_without_replacing_its_files(self):
         self.directory.mkdir(parents=True)

@@ -11,6 +11,7 @@
 import { readFile } from "node:fs/promises"
 import { pathToFileURL } from "node:url"
 
+// Retain the last opener for sessions saved before the dedicated ROS command was removed.
 const DEFAULT_FROM = /^(Register a new device|Prepare only what is needed|Load the onboard-ros2 skill)/
 
 export function parseSession(text) {

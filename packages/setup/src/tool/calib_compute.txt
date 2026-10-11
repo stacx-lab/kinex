@@ -12,9 +12,10 @@ quality assessment; never treat missing or invalid results as approximate estima
 Apply accepted proposedChanges with core profile_write, preserving unrelated facts.
 Proposed patches never clear calibration requests automatically. A pivot solve
 measures translation only; RGB-D color calibration does not measure depth facts.
-URDF introspection is offline and does not require activation. verify-checks
-evaluates explicit named checks with tolerances, without controller tuning; bundle
-check scripts emit this format directly.
+URDF introspection is offline and does not require activation. verify-base for
+base procedures and verify-checks for joint/sensor procedures share the same
+evaluator for explicit named checks and tolerances, without controller tuning.
+Bundle check scripts emit this evidence format directly.
 
 Archive manual/factory facts or external solver results as evidence for setup_plan
 record. Reuse valid evidence and stop as soon as the current task is supported.

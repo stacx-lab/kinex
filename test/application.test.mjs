@@ -115,7 +115,7 @@ test('guided workflows wait for the SDK response and recordings reference persis
   await bind(app)
   await app.host.session.prompt('/load sensor')
   await app.host.session.prompt('/record start sensor=2')
-  for (const command of ['onboarding', 'onboarding-ros2', 'kinex-onboarding-ros2']) {
+  for (const command of ['onboarding', 'register', 'calibrate']) {
     const requests = fake.requests.length
     const objective = `inspect the sensor via ${command}`
     await app.host.session.prompt(`/${command} ${objective}`)
@@ -124,7 +124,7 @@ test('guided workflows wait for the SDK response and recordings reference persis
       .map(message => typeof message.content === 'string' ? message.content : message.content.map(block => block.text ?? '').join('\n'))
       .findLast(text => text.includes(objective))
     assert.match(prompt, /inspect the sensor/)
-    if (command.endsWith('ros2')) assert.match(prompt, /^Load the onboard-ros2 skill/)
+    if (command === 'onboarding') assert.match(prompt, /onboard-ros2/)
   }
   const timing = app.host.session.sessionManager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'kinex-active-time')
   assert.ok(timing.length >= 3)
@@ -252,7 +252,7 @@ test('composition owns setup discovery and reservations across session and works
         assert.equal(app.host.session.getAllTools().some(tool => tool.name === 'setup_plan'), setup)
         assert.equal(Boolean(app.host.session.extensionRunner.getCommand('onboarding')), setup)
         for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2'])
-          assert.equal(Boolean(app.host.session.extensionRunner.getCommand(name)), setup)
+          assert.equal(app.host.session.extensionRunner.getCommand(name), undefined)
         const tools = await core.tools.list()
         assert.equal(tools.tools.some(tool => tool.name === 'kinex_install_apt'), !setup)
         await assert.rejects(stat(path.join(core.directory, '.kinex/python')), { code: 'ENOENT' })

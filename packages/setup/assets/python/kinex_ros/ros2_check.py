@@ -1,6 +1,6 @@
 """Read-only ROS interface checks and explicitly requested model capture.
 
-The measurement document is consumed by setup's verify-checks operation. This
+The measurement document is consumed by setup's verify-base or verify-checks operation. This
 module runs from a provisioned generation and never commands a robot or manages its stack.
 """
 
@@ -13,8 +13,7 @@ import math
 from pathlib import Path
 from xml.etree import ElementTree
 
-from kinex_ros import bundle as bundles
-from kinex_ros.bundle_manifest import atomic_write, generation_metadata, write_json
+from kinex_ros.bundle_manifest import atomic_write, generation_metadata, render_tree, write_json
 from kinex_ros.ros2 import BundleError, Session
 from kinex_ros.ros2_drivers import CameraSource, configuration, positive
 
@@ -127,7 +126,7 @@ def _check(directory, out, duration_s, ready, save_urdf, introspect, timeout_s):
     directory = Path(directory).resolve()
     bundle, driver, expected, identity = configuration(directory, allow_missing_model=save_urdf or ready)
     duration_s = positive(duration_s, "duration_s")
-    stack = bundles.render_tree(bundle.manifest["stack"] or {}, bundle.facts)
+    stack = render_tree(bundle.manifest["stack"] or {}, bundle.facts)
     deadline_s = positive(timeout_s if timeout_s is not None else stack.get("ready_timeout_s", 60), "timeout_s")
     session = Session("kinex_check", bundle.facts.get("domain_id", 0), bundle.facts.get("namespace", ""), driver.get("clock", {}).get("max_skew_s", .5))
     output = Path(out) if out else bundle.device_directory / "verify/measurements.json"

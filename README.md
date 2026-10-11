@@ -79,7 +79,6 @@ environments run without syncing. The ordinary shell environment stays unchanged
 | `/record stop [success|failure|partial] [summary]` | Finish a recording. |
 | `/record status` | Inspect current and recent recordings. |
 | `/onboarding [description]` | Prepare the embodiment and current task through a setup DAG. |
-| `/onboarding-ros2 [description]` | Prepare ROS 2 hardware using the onboard-ros2 skill. |
 | `/register <type-or-template>` | Ask the model to prepare an unloaded profile. |
 | `/calibrate [scope]` | Resolve only the selected calibration prerequisites. |
 | `/mode [ask|auto|yolo]` | Select the Kinex permission/interaction mode. |
@@ -121,8 +120,8 @@ Onboarding checks installed driver packages and reuses their launch files and
 descriptions before installing missing apt binaries. Cloning/building vendor
 source requires a specific missing package, version or feature, or your explicit
 request. Multiple arms/cameras share the installed packages with separate settings.
-Use `/onboarding-ros2 [description]` to select the setup-owned `onboard-ros2` skill
-explicitly. It prepares required ROS/system packages on the driver's Linux host.
+Use `/onboarding [description]` or `/register` for ROS devices; their workflows
+select the setup-owned `onboard-ros2` skill. It prepares required ROS/system packages on the driver's Linux host.
 It checks the ROS distribution and package sources,
 installs missing apt dependencies through the normal shell approval, verifies
 them and resumes setup. Existing packages are reused. Setup's

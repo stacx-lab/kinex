@@ -11,8 +11,8 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
   assert.ok(!setup.files.some(file => file.path.includes('assets/builtin/device/') || file.path.includes('/setup-device/')))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/calibrate-camera-intrinsics/SKILL.md'))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/verify-base-motion/procedure.json'))
-  assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_checks.py'))
-  assert.ok(!setup.files.some(file => file.path === 'assets/compute/verify_base.py'))
+  assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_base.py'))
+  assert.ok(!setup.files.some(file => file.path === 'assets/compute/verify_checks.py'))
   for (const skill of ['verify-joint-interface', 'verify-joint-motion', 'verify-sensor-interface'])
     assert.ok(setup.files.some(file => file.path === `assets/builtin/skill/${skill}/procedure.json`), skill)
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/kinex/') || file.path.endsWith('.pyc')))
@@ -85,7 +85,7 @@ try {
   await rm(path.join(installed, 'node_modules/@kinex/setup'), { recursive: true })
   await exec(process.execPath, ['--input-type=module', '--eval', `
 import assert from 'node:assert/strict'
-import { mkdir, symlink, writeFile, stat, readFile } from 'node:fs/promises'
+import { mkdir, symlink, writeFile, stat, readFile, readdir } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { createKinexRuntime } from '@kinex/core'
@@ -127,6 +127,9 @@ try {
   await runtime.devices.unload('arm')
   const profile = (await runtime.profiles.snapshot()).devices.find(device => device.name === 'arm')
   const generation = path.dirname(path.resolve('.kinex/devices/arm', profile.access.driver.entry))
+  assert.deepEqual((await readdir(path.join(generation, 'python/kinex_ros'))).filter(name => name.endsWith('.py')).sort(),
+    ['__init__.py', 'bundle_manifest.py', 'ros2.py', 'ros2_check.py', 'ros2_drivers.py'])
+  for (const name of ['provision.py', 'setup.sh']) await assert.rejects(stat(path.join(generation, name)), {code:'ENOENT'})
   execFileSync('bash', [path.join(generation, 'check.sh'), '--duration-s', '.05'], {env: process.env})
   const checks = JSON.parse(await readFile('.kinex/devices/arm/verify/measurements.json', 'utf8'))
   assert.ok(checks.checks.length)

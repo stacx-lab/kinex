@@ -63,13 +63,25 @@ test('degenerate survey cannot propose a profile patch or complete a node', asyn
 
 test('base checks require explicit tolerances, units, reference evidence and fresh timestamps', async t => {
   const { runtime, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
-  const input = { operation: 'verify-checks', procedure: 'verify-base-interface', bindings: { base: 'base' } }
+  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity', intrinsics: {
+    control: { mode: 'motion', body_frame: 'base', modes: { drive: {
+      velocity: { frame: 'body', components: [{ axis: 'vx', units: 'm/s', bounds: null }] },
+      posture: { reference: 'nominal', components: [{ axis: 'height', units: 'm', bounds: null, default: .5 }] },
+    } } }, stop: { behavior: 'halt', affected_devices: ['base'] },
+  } })
+  const input = { operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' } }
   const check = { name: 'vx', expected: .1, measured: .105, tolerance: .01, units: 'm/s', reference: 'tracked displacement / measured elapsed time', timestamps: [1, 2] }
   const file = await json('measurements.json', { required_checks: ['vx'], checks: [check] })
-  const result = JSON.parse((await compute({ ...input, measurements: file })).output)
-  assert.equal(result.quality, 'passed')
-  assert.deepEqual(result.data.coverage, ['vx'])
+  for (const procedure of ['verify-base-interface', 'verify-base-motion', 'verify-base-posture']) {
+    const response = await compute({ ...input, procedure, measurements: file })
+    assert.ok(!response.isError, response.output)
+    const result = JSON.parse(response.output)
+    assert.equal(result.operation, 'verify-base')
+    assert.equal(result.quality, 'passed')
+    assert.deepEqual(result.data.coverage, ['vx'])
+  }
+  const wrong = await compute({ ...input, operation: 'verify-checks', measurements: file })
+  assert.match(wrong.output, /does not declare verify-checks/)
   for (const bad of [{ ...check, tolerance: undefined }, { ...check, units: undefined },
     { ...check, reference: '' }, { ...check, timestamps: [1, 1] }, { ...check, measured: .2 }]) {
     await json('measurements.json', { required_checks: ['vx'], checks: [bad] })
@@ -106,19 +118,35 @@ test('joint interface checks accept exact joint names and rate shortfalls and fa
   assert.equal(JSON.parse((await compute({ ...input, measurements: file })).output).quality, 'failed')
 })
 
+test('sensor checks share the verifier while retaining their declared operation', async t => {
+  const { runtime, compute, json } = await fixture(t)
+  await runtime.profiles.writeDevice({ name: 'imu', type: 'imu', access: { connection: { kind: 'ros', state_topic: '/imu' } } })
+  const input = { operation: 'verify-checks', procedure: 'verify-sensor-interface', bindings: { sensor: 'imu' } }
+  const check = { name: 'rate', expected: 100, measured: 100, tolerance: 1, units: 'Hz', reference: 'timestamped IMU samples', timestamps: [1, 2] }
+  const file = await json('measurements.json', { required_checks: ['rate'], checks: [check] })
+  const response = await compute({ ...input, measurements: file })
+  assert.ok(!response.isError, response.output)
+  const result = JSON.parse(response.output)
+  assert.equal(result.operation, 'verify-checks')
+  assert.equal(result.quality, 'passed')
+  assert.deepEqual(result.proposedChanges, [])
+  await json('measurements.json', { required_checks: ['rate'], checks: [{ ...check, measured: 90 }] })
+  assert.equal(JSON.parse((await compute({ ...input, measurements: file })).output).quality, 'failed')
+})
+
 test('attempts reject changed participants and inputs and keep repeated computations', async t => {
   const { runtime, compute, json, directory } = await fixture(t)
   await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
   const file = await json('measurements.json', { required_checks: ['units'], checks: [{ name: 'units', expected: 'normalized',
     measured: 'normalized', reference: 'SDK metadata' }] })
-  const first = JSON.parse((await compute({ operation: 'verify-checks', procedure: 'verify-base-interface', bindings: { base: 'base' },
+  const first = JSON.parse((await compute({ operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' },
     inputs: [{ kind: 'profile', device: 'base', pointer: '/type' }], measurements: file })).output)
-  const second = JSON.parse((await compute({ operation: 'verify-checks', run: first.run, measurements: file })).output)
+  const second = JSON.parse((await compute({ operation: 'verify-base', run: first.run, measurements: file })).output)
   assert.notEqual(first.evidence, second.evidence)
-  const wrong = await compute({ operation: 'verify-checks', run: first.run, bindings: { base: 'other' }, measurements: file })
+  const wrong = await compute({ operation: 'verify-base', run: first.run, bindings: { base: 'other' }, measurements: file })
   assert.match(wrong.output, /immutable/)
   await writeFile(path.join(directory, '.kinex/devices/base/profile.yaml'), 'name: base\ntype: other\n')
-  const stale = await compute({ operation: 'verify-checks', run: first.run, measurements: file })
+  const stale = await compute({ operation: 'verify-base', run: first.run, measurements: file })
   assert.match(stale.output, /inputs changed/)
 })
 
@@ -164,7 +192,7 @@ test('cancelling an owned computation never publishes a result', async t => {
   const marker = path.join(directory, 'started')
   await writeFile(interpreter, `#!/usr/bin/env python3\nimport time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('started')\ntime.sleep(30)\n`, { mode: 0o755 })
   const abort = new AbortController()
-  const pending = setup.tools.call('calib_compute', { operation: 'verify-checks', procedure: 'verify-base-interface',
+  const pending = setup.tools.call('calib_compute', { operation: 'verify-base', procedure: 'verify-base-interface',
     bindings: { base: 'base' }, measurements: await json('measurements.json', {}), interpreter }, { sessionID: 'cancel', signal: abort.signal })
   for (let i = 0; i < 100; i++) {
     if (await stat(marker).then(() => true, () => false)) break

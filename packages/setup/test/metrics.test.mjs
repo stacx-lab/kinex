@@ -51,7 +51,7 @@ test('metrics slice from the workflow opener to the first successful load', asyn
   assert.match(markdownRow('go2', measured), /^\| go2 \| 60 \| 4 \| 4 \| 5000 \| 230 \| 400 \| 40 \| 1 \| 1 \|$/)
 })
 
-test('metrics recognize the explicit ROS onboarding workflow', () => {
+test('metrics retain historical sessions from the removed ROS onboarding command', () => {
   const entries = parseSession(session())
   entries.find(entry => entry.id === 'u1').message.content = 'Load the onboard-ros2 skill and follow it for ROS 2 hardware onboarding.'
   assert.equal(measure(entries).wall_clock_s, 60)

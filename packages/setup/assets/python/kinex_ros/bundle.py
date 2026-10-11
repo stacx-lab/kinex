@@ -11,6 +11,7 @@ from contextlib import ExitStack
 import secrets
 import hashlib
 import json
+from importlib.util import resolve_name
 import os
 import shutil
 import sys
@@ -33,7 +34,10 @@ from kinex_ros.bundle_render import (
     render_ros_python, render_stack_sh, write_profile, write_scripts,
 )
 
-SHIPPED_FILES = ("bundle.yaml", "driver.py", "provision.py", "setup.sh", "check.py")
+SOURCE_FILES = ("bundle.yaml", "driver.py", "provision.py", "setup.sh", "check.py")
+RUNTIME_FILES = ("bundle.yaml", "driver.py", "check.py")
+RUNTIME_MODULES = ("__init__", "bundle_manifest", "ros2", "ros2_drivers", "ros2_check")
+PROVISIONING_MODULES = ("provision", "kinex_ros.bundle", "kinex_ros.bundle_install", "kinex_ros.bundle_render")
 
 
 class Needs(Exception):
@@ -176,7 +180,7 @@ def satellite_targets(bundle, facts, directory):
 
 
 def _source_digest(source, setup_library):
-    files = [(source / name, name) for name in SHIPPED_FILES if (source / name).is_file()]
+    files = [(source / name, name) for name in SOURCE_FILES if (source / name).is_file()]
     files += [(file, "python/" + str(file.relative_to(setup_library))) for file in sorted((setup_library / "kinex_ros").rglob("*.py"))]
     return {name: hashlib.sha256(file.read_bytes()).hexdigest() for file, name in files}
 
@@ -186,11 +190,32 @@ def _needs(needs):
         raise Needs(needs)
 
 
+def _validate_runtime_imports(file, directory, tree):
+    """Reject provisioning imports in deployed Python, including local helpers."""
+    relative = file.relative_to(directory)
+    parts = relative.parts[1:] if relative.parts[0] == "python" else relative.parts
+    package = ".".join(parts[:-1])
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level and package:
+                module = resolve_name("." * node.level + module, package)
+            names = [module, *(f"{module}.{alias.name}".lstrip(".") for alias in node.names)]
+        else:
+            continue
+        for name in names:
+            if any(name == banned or name.startswith(banned + ".") for banned in PROVISIONING_MODULES):
+                raise BundleError(f"{relative}:{node.lineno}: runtime must not import {name}; "
+                                  "read configuration from kinex_ros.bundle_manifest and move provisioning to the source provisioner")
+
+
 def _validate_generation(bundle):
     """Check staged syntax and required references without connecting to hardware."""
     for file in bundle.directory.rglob("*.py"):
-        if "python" in file.relative_to(bundle.directory).parts or file.parent == bundle.directory:
-            ast.parse(file.read_text(), filename=str(file))
+        tree = ast.parse(file.read_text(), filename=str(file))
+        _validate_runtime_imports(file, bundle.directory, tree)
     for name in ("ros-python", "stack.sh", "check.sh"):
         file = bundle.directory / name
         if file.is_file():
@@ -217,7 +242,7 @@ def _stage(source, facts, directory, args, steps, parent=None):
     digest = inputs_hash({"files": _source_digest(source.directory, args.setup_library), "facts": facts,
                          "core_library": str(args.core_library), "setup_library": str(args.setup_library),
                          "parent": str(parent) if parent else None, "ros_root": ros_root(), "install": args.install,
-                         "skip": skip_install()})
+                         "skip": skip_install(), "runtime_files": RUNTIME_FILES, "runtime_modules": RUNTIME_MODULES})
     attempt = state.data.get("attempt", {})
     if attempt.get("digest") != digest or args.reset or args.step:
         attempt = {"id": secrets.token_hex(8), "digest": digest, "complete": False}
@@ -239,12 +264,14 @@ def _stage(source, facts, directory, args, steps, parent=None):
     state.save()
 
     def stage_source():
-        for name in SHIPPED_FILES:
+        for name in RUNTIME_FILES:
             file = source.directory / name
             if file.is_file():
                 shutil.copyfile(file, staging / name)
-        shutil.copytree(args.setup_library / "kinex_ros", staging / "python/kinex_ros", dirs_exist_ok=True,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        helpers = staging / "python/kinex_ros"
+        helpers.mkdir(parents=True, exist_ok=True)
+        for name in RUNTIME_MODULES:
+            shutil.copyfile(args.setup_library / "kinex_ros" / f"{name}.py", helpers / f"{name}.py")
         write_yaml(staging / "facts.yaml", facts)
         write_json(staging / "generation.json", {"device_directory": str(directory), "target_directory": str(target),
                    "parent_directory": str(parent) if parent else None, "digest": digest})
@@ -280,8 +307,9 @@ def next_commands(bundle, facts):
     commands.append(f"profile_write kind=device with {directory / 'profile.generated.json'} (new device); preserve existing facts when replacing access")
     if bundle.manifest["stack"] is not None or bundle.parent_directory:
         commands.append(f"bash {quote(str(directory / 'stack.sh'))} start")
+    verification = "verify-base" if bundle.type == "velocity" else "verify-checks"
     commands += [f"/load {name}", f"bash {quote(str(directory / 'check.sh'))}",
-                 f"calib_compute operation:verify-checks measurements:{bundle.device_directory / 'verify/measurements.json'}"]
+                 f"calib_compute operation:{verification} measurements:{bundle.device_directory / 'verify/measurements.json'}"]
     return commands
 
 

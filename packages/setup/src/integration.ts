@@ -15,7 +15,6 @@ export function setupContribution(setup: KinexSetup): KinexContribution {
     context: setup.context,
     commands: ([
       { name: "onboarding", description: "Set up a robotics workspace", arguments: "[description]" },
-      { name: "onboarding-ros2", description: "Set up ROS 2 hardware", arguments: "[description]" },
       { name: "calibrate", description: "Resolve calibration requirements", arguments: "[scope]" },
     ] as const).map(command => ({
       ...command, kind: "workflow" as const,

@@ -16,7 +16,7 @@ import shlex
 import threading
 import time
 
-from kinex_ros import bundle as bundles
+from kinex_ros.bundle_manifest import load, render_tree
 from kinex.driver_protocol import release, run
 from kinex.joint_driver import Driver as JointDriver
 from kinex.velocity_driver import Driver as VelocityDriver
@@ -36,9 +36,9 @@ def remediation(directory, missing):
 
 
 def configuration(directory, allow_missing_model=False):
-    bundle = bundles.load(directory)
-    driver = bundles.render_tree(bundle.manifest["driver"], bundle.facts)
-    expected = bundles.render_tree(bundle.manifest["expected"], bundle.facts)
+    bundle = load(directory)
+    driver = render_tree(bundle.manifest["driver"], bundle.facts)
+    expected = render_tree(bundle.manifest["expected"], bundle.facts)
     identity_file = bundle.device_directory / "identity.json"
     identity = json.loads(identity_file.read_text(encoding="utf8")) if identity_file.is_file() else {}
     if not isinstance(identity, dict):
@@ -245,7 +245,7 @@ class ROSDevice:
 
 class JointTrajectoryDriver(ROSDevice, JointDriver):
     def __init__(self, directory):
-        JointDriver.__init__(self, bundles.load(directory).device_directory)
+        JointDriver.__init__(self, load(directory).device_directory)
         self._configure(directory)
         self.joints = self.model().joints
         self.names = [joint["name"] for joint in self.joints]
@@ -316,7 +316,7 @@ def velocity_vector(message):
 
 class TwistDriver(ROSDevice, VelocityDriver):
     def __init__(self, directory):
-        VelocityDriver.__init__(self, bundles.load(directory).device_directory)
+        VelocityDriver.__init__(self, load(directory).device_directory)
         self._configure(directory)
         if self.config.get("stop", {}).get("method") != "zero_twist_repeat":
             raise BundleError("velocity adapter requires zero_twist_repeat stop mapping", "invalid_bundle")
@@ -385,7 +385,7 @@ class TwistDriver(ROSDevice, VelocityDriver):
 
 class SensorSource(ROSDevice):
     def __init__(self, directory):
-        self.profile = settings(bundles.load(directory).device_directory)
+        self.profile = settings(load(directory).device_directory)
         self._configure(directory)
         self.handle = None
 
@@ -621,7 +621,7 @@ class CameraSource(SensorSource):
 
 def bundle_driver(directory):
     """Factory for the small driver.py shipped by a generic ROS bundle."""
-    bundle = bundles.load(directory)
+    bundle = load(directory)
     adapters = {"JointTrajectoryDriver": JointTrajectoryDriver, "TwistDriver": TwistDriver,
                 "ImuSource": ImuSource, "CameraSource": CameraSource}
     name = bundle.manifest["driver"].get("adapter")

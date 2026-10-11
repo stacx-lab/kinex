@@ -63,7 +63,8 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
       await app.host.session.bindExtensions({ mode: 'print' })
       assert.ok(app.host.session.getAllTools().some(tool => tool.name === 'web_search'))
       assert.ok(app.host.session.extensionRunner.getCommand('btw'))
-      for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2']) assert.ok(app.host.session.extensionRunner.getCommand(name))
+      assert.ok(app.host.session.extensionRunner.getCommand('onboarding'))
+      for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2']) assert.equal(app.host.session.extensionRunner.getCommand(name), undefined)
     } finally { await app.dispose() }
   `], { cwd: relocated, env, timeout: 20000 })
   const session = JSON.stringify({ type: 'session', version: 2, id: 'packaged-export', timestamp: new Date().toISOString(), cwd: relocated }) + '\n'

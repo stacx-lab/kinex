@@ -30,9 +30,11 @@ generic profile, driver, permission and lifecycle contracts.
    through core. Run the generation's `check.sh`; it only observes interfaces.
    Registration alone does not imply measured readiness or authorize motion.
 6. When setup planning is in use, save the generated recipe or update the existing
-   preparation nodes with exact outputs and evidence. Use `verify-checks` with the
-   appropriate joint/sensor interface procedure; perform only task-required motion
-   verification. Failed installation, authentication or checks remain incomplete.
+   preparation nodes with exact outputs and evidence. Use `verify-base` for base
+   procedures and `verify-checks` for joint/sensor procedures. Reuse `verify-base-motion`
+   for task-required base trials; use `verify-base-posture` only when the device
+   exposes posture control and the task needs it. Motion verification requires
+   separate authorization. Failed installation, authentication or checks remain incomplete.
 
 Provisioning stages all entrypoints and helpers together; it never changes the
 active profile. Keep stack commands and driver paths pinned to the selected

@@ -54,7 +54,7 @@ The `onboard-ros2` skill owns ROS policy and the `kinex_ros` library. Setup cont
 provides separate absolute `core_library` and `setup_library` roots for provisioning.
 A completed generation contains its own ROS helpers; its profile pins entry and
 interpreter paths. Removing setup leaves that driver operational through core.
-See [bundle contracts](../../doc/ros2-robot-bundles.md) and
+See [bundle contracts](assets/builtin/skill/onboard-ros2/references/bundles.md) and
 [legacy migration](assets/builtin/skill/onboard-ros2/references/migration.md).
 
 Setup also bundles `pi-web-search` 1.7.0 and `pi-btw` 0.7.1 as npm dependencies.
@@ -86,8 +86,8 @@ objective's prerequisite subgraph. Without a task it prepares profiles/drivers a
 reports possible next steps, leaving measurements deferred. `/calibrate [scope]`
 resumes selected measurement work; it never exhausts an unrelated backlog.
 
-`/onboarding-ros2 [description]` selects `onboard-ros2` explicitly and follows the
-same onboarding workflow. Standalone also exposes `/kinex-onboarding-ros2` as an alias.
+For ROS devices, `/onboarding [objective]` and `/register` select `onboard-ros2`
+through their existing workflows. No dedicated ROS command or alias is needed.
 
 Core owns `profile_write`, `setup-device`, registration, generic provisioning and driver operation,
 load/unload, read/write, motion and stop. Prepare profiles/drivers incrementally
@@ -201,7 +201,7 @@ Python executable. Custom computations use host tools and archive their evidence
 | `calibrate-tcp-offset` | Tool-tip translation; orientation is separate. |
 | `calibrate-fixed-arm-mount`, `calibrate-dual-arm` | Rigid parent/arm or cross-arm transforms. |
 | `calibrate-joint-range`, `calibrate-world-geometry` | Joint/model limits and independently measured environment geometry. |
-| `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected base conventions, motion response, expiry/stop and posture references, evaluated with `verify-checks`. |
+| `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected base conventions, motion response, expiry/stop and posture references, evaluated with `verify-base`. |
 | `verify-joint-interface`, `verify-joint-motion` | Joint names, feedback, controller state and freshness; small gated motions with stop and hold, evaluated with `verify-checks`. |
 | `verify-sensor-interface` | Camera, IMU and force-torque rate, resolution and calibration metadata from fresh samples, evaluated with `verify-checks`. |
 
@@ -214,8 +214,10 @@ their units. No gait tuning, odometry optimization or inferred motion limits.
 Collect incrementally, reuse suitable factory/model/simulator facts and stop when
 minimum evidence, coverage and quality meet the task. Explicit tolerances are
 required for verification measurements; missing references remain incomplete. The
-`verify-checks` evidence format is documented in the `calib_compute` tool
-description; bundle `check.sh` scripts emit it directly.
+shared evidence format for `verify-base` and `verify-checks` is documented in the
+`calib_compute` tool description; bundle `check.sh` scripts emit it directly.
+Both operations use the existing `verify_base.py` evaluator. Base skills and
+workspace copies retain their existing `verify-base` calls.
 
 ## Migration and checks
 
@@ -225,8 +227,8 @@ with `calib_compute` (`operation:urdf-introspect`, procedure:`calibrate-joint-ra
 bindings:{arm:deviceName}); migrate its permission key to `calib_compute`.
 Replace sampler `routine` with a node or procedure/bindings, then reuse `run`.
 Replace `calibrate-joint-range-workspace` with `calibrate-joint-range` or
-`calibrate-world-geometry`. `verify-base` is renamed to `verify-checks`; update
-workspace skill copies; no alias. No compatibility aliases are provided.
+`calibrate-world-geometry`. No compatibility aliases are provided for these renamed
+calibration commands and procedures.
 
 Except for legacy ROS profiles described above, existing profiles and historical
 calibration files remain unchanged. Old evidence

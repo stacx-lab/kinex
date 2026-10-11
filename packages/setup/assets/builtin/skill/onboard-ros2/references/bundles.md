@@ -33,13 +33,25 @@ Available adapters are `JointTrajectoryDriver`, `TwistDriver`, `ImuSource` and
 `CameraSource`. Vendor subclasses reuse their measured-state/buffer/stop contracts.
 
 The last stdout line contains `{status, needs, manual_steps, next, generations}`.
-Completed artifacts live under `ros/generations/<id>/`, including a private copy
-of `kinex_ros`. Profile entry/interpreter paths select that same generation.
+Completed artifacts live under `ros/generations/<id>/`, with only `__init__`,
+`bundle_manifest`, `ros2`, `ros2_drivers` and `ros2_check` in their private
+`kinex_ros` package. Profile entry/interpreter paths select that same generation.
 Use returned paths, not assumed root `driver.py`, `stack.sh` or `check.sh` paths.
 Identical inputs resume; changes create a separate candidate. A failed candidate
 leaves selected files intact. Completed vendor steps retain their generated artifacts
 on resume. Provision satellites through their parent bundle to pin its completed
 generation. Host package installation is not rolled back.
+
+Custom drivers and `check.py` hooks read configuration from `bundle_manifest`.
+Keep installation and generation in the source provisioner: runtime imports of
+`kinex_ros.bundle`, `bundle_install`, `bundle_render` or `provision` are rejected
+before publishing a candidate, including imports in generated helper modules.
+Use `checks(session, bundle, facts)` in `check.py` to return measured assertions.
+Deploy custom runtime resources through vendor steps and test them without setup
+or the source directory; static checks cannot establish arbitrary dynamic imports.
+Provisioning inputs and the runtime file list both affect generation identity.
+Source `provision.py` and `setup.sh` are not deployed; existing generations remain
+unchanged until explicitly replaced through the normal profile lifecycle.
 
 A generated recipe prepares access with `onboard-ros2` and verifies only the
 selected task. Shared type guides stay in core's device guide roots. Only

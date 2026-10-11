@@ -2,7 +2,7 @@ import { hasMissing } from "./common.ts"
 import { jointModel, jointModelErrors } from "./joint.ts"
 import { cameraMissing } from "./camera.ts"
 import { ProfileStore, type ProfileSnapshot, type NeededEntry } from "./store.ts"
-import { driverExists, interpreterExists } from "../driver.ts"
+import { driverExists } from "../driver.ts"
 import { missingActions, requiredActions } from "../interface.ts"
 import {
   deviceMount,
@@ -47,11 +47,9 @@ interface PlanContext {
   robot?: RobotManifest
   devices: Device[]
   needed: NeededEntry[]
-  // Device names whose access.driver file exists on disk, and whose
-  // access.driver.interpreter exists or is unset. Precomputed so the node
-  // checks stay synchronous.
+  // Device names whose access.driver file exists on disk. Precomputed so the
+  // node checks stay synchronous.
   drivers: Set<string>
-  interpreters: Set<string>
 }
 
 interface Check {
@@ -173,11 +171,6 @@ function accessCheck(device: Device, ctx: PlanContext): Check {
   if (!access.driver) return { done: false, detail: `${kind}: no access.driver` }
   if (!ctx.drivers.has(device.name))
     return { done: false, detail: `${kind}, access.driver is ${access.driver.entry} but that file does not exist` }
-  if (!ctx.interpreters.has(device.name))
-    return {
-      done: false,
-      detail: `${kind} via ${access.driver.entry}, but access.driver.interpreter ${access.driver.interpreter} does not exist - provide an existing interpreter executable`,
-    }
   const missing = missingActions(device, access.driver.actions)
   if (missing.length > 0)
     return {
@@ -327,16 +320,9 @@ function topoSort(nodes: Node[]): Node[] {
   return order
 }
 
-async function presentDevices(cwd: string, devices: Device[], present: (cwd: string, device: Device) => Promise<boolean>): Promise<Set<string>> {
-  const names = await Promise.all(devices.map(async (device) => await present(cwd, device) ? device.name : undefined))
-  return new Set(names.filter((name) => name !== undefined))
-}
-
 async function planContext(cwd: string, snapshot: ProfileSnapshot): Promise<PlanContext> {
-  const [drivers, interpreters] = await Promise.all([
-    presentDevices(cwd, snapshot.devices, driverExists), presentDevices(cwd, snapshot.devices, interpreterExists),
-  ])
-  return { ...snapshot, needed: ProfileStore.needed(snapshot), drivers, interpreters }
+  const drivers = await Promise.all(snapshot.devices.map(async (device) => await driverExists(cwd, device) ? device.name : undefined))
+  return { ...snapshot, needed: ProfileStore.needed(snapshot), drivers: new Set(drivers.filter((name) => name !== undefined)) }
 }
 
 // Raw completeness check used before an explicit marker clear is committed.
