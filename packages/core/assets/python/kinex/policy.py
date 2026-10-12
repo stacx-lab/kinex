@@ -40,7 +40,7 @@ def joint_sequence(entry, actions):
     ik_frame = f"{name}:{prof['intrinsics']['kinematics']['frame']}"
     target = spec.get("target_frame", ik_frame)
     reference = spec.get("frame", name)
-    state = device(name).get("data") or {}
+    state = device(name)
     if state.get("faults"):
         raise ValueError(f"{name} reports faults before policy planning")
     seed = project_seed(state.get("positions"), entry["model"]["joints"])
@@ -57,7 +57,7 @@ def joint_sequence(entry, actions):
         current = delta_pose(current, action) if spec["space"] == "pose_delta" else xyzq_to_rt(pose(action))
         goal = flat(compose_rt(compose_rt(reference_to_base, current), target_to_ik))
         try:
-            solved = device(name, "ik", pose=goal, seed=seed).get("data") or {}
+            solved = device(name, "ik", {"pose": goal, "seed": seed})
             seed = joint_target(solved.get("joints"), entry["model"]["joints"])
         except (RuntimeError, ValueError) as error:
             if getattr(error, "code", None) == "stop_failed":

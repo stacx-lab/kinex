@@ -78,11 +78,13 @@ const missingDevicesError = (name: string, missing: string[]) =>
 // profile / robot / call other PERCEPTION tools; controller additionally may
 // COMMAND devices (isCommandAction) and call any tool.
 type Request = Record<string, unknown>
-type MotionContext = Context & { motionOwner: string }
+type ExecutionContext = Context & { approved?: boolean; output?: (text: string) => void }
+type MotionContext = ExecutionContext & { motionOwner: string }
 type PythonExecution = Pick<ToolManifest, "name" | "kind" | "interpreter" | "timeout_s"> & {
   directory: string
   entry: string[]
   source?: string
+  script?: { file?: string; argv: string[]; exitCode: number | null }
 }
 
 function execution(info: PyToolInfo): PythonExecution {
@@ -104,6 +106,15 @@ async function composed(result: Promise<unknown>): Promise<Record<string, unknow
     if (error instanceof PermissionDeniedError) throw error
     return { ok: false, ...failure(error) }
   }
+}
+
+async function dispatchDevices(name: "device" | "devices", input: unknown, ctx: MotionContext, kind: PythonExecution["kind"], authorize: boolean) {
+  const calls = name === "device" ? [DeviceCallSchema.parse(input)] : DeviceCallsSchema.parse(input).calls
+  const results = await callDevices(calls, ctx, { kind, owner: ctx.motionOwner, authorize })
+  if (name === "devices") return { ok: true, result: { results } }
+  const result = results[0]!
+  return result.ok ? { ok: true, result: { ...result.data, ...(result.file ? { file: result.file } : {}) } }
+    : { ok: false, error: result.error, ...failureMetadata({ ...result }) }
 }
 
 async function dispatch(cwd: string, info: PythonExecution, request: Request, ctx: MotionContext, depth: number): Promise<Record<string, unknown>> {
@@ -136,11 +147,8 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
     return { ok: true, profile: model ? { ...device, resolved_model: model } : device }
   }
   if (call === "device" || call === "devices") {
-    const commands = call === "device" ? [request] : z.array(z.record(z.string(), z.unknown())).min(1).parse(request["commands"])
-    const calls = commands.map(command => DeviceCallSchema.parse({ deviceID: command["device"], action: command["action"], args: command["args"] }))
-    const results = await callDevices(calls, ctx, { kind: info.kind, owner: ctx.motionOwner, authorize: false })
-    if (call === "device") return { ...results[0] }
-    return { ok: true, results: results.map(({ deviceID, ...result }) => ({ device: deviceID, ...result })) }
+    const { call: _, ...input } = request
+    return dispatchDevices(call, input, ctx, info.kind, false)
   }
   if ((call === "tool" || call === "inline") && depth >= MAX_DEPTH)
     return { ok: false, error: `tool composition deeper than ${MAX_DEPTH} — likely a cycle` }
@@ -148,19 +156,13 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
     const { python, kind, args } = InlineRequest.parse(request)
     if (info.kind === "perception" && kind !== "perception")
       return { ok: false, error: `perception tool "${info.name}" may only compose perception tools` }
-    return composed(invoke(cwd, { ...info, name: "inline", kind, entry: ["-m", "kinex._inline"], source: python }, args, ctx, depth + 1, ctx.motionOwner))
+    return composed(invoke(cwd, { ...info, name: "inline", kind, entry: ["-m", "kinex._inline"], source: python, script: undefined }, args, ctx, depth + 1, ctx.motionOwner))
   }
   if (call === "tool") {
     const name = request["name"]
     if (typeof name !== "string") return { ok: false, error: "tool call needs a name" }
-    if (name === "device" || name === "devices") {
-      const calls = name === "device" ? [DeviceCallSchema.parse(request["args"])] : DeviceCallsSchema.parse(request["args"]).calls
-      const results = await callDevices(calls, ctx, { kind: info.kind, owner: ctx.motionOwner })
-      if (name === "devices") return { ok: true, result: { results } }
-      const result = results[0]!
-      return result.ok ? { ok: true, result: { ...result.data, ...(result.file ? { file: result.file } : {}) } }
-        : { ok: false, error: result.error, ...failureMetadata({ ...result }) }
-    }
+    if (name === "device" || name === "devices")
+      return dispatchDevices(name, request["args"], ctx, info.kind, !ctx.approved)
     const target = (await listPyTools(cwd)).tools.find((tool) => tool.manifest.name === name)
     if (!target) return { ok: false, error: `unknown python tool "${name}"` }
     if (info.kind === "perception" && target.manifest.kind !== "perception")
@@ -174,24 +176,27 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
 }
 
 // Run the dialog to completion; preserve the returned JSON value, including null.
-async function invoke(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: Context, depth: number, motionOwner: string = shortID()): Promise<unknown> {
+async function invoke(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: ExecutionContext, depth: number, motionOwner: string = shortID()): Promise<unknown> {
   const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(info.timeout_s * 1000))])
   const scoped = { ...ctx, abort: signal, motionOwner }
   signal.throwIfAborted()
   const runtime = await pythonLaunch(cwd, "tool", info.interpreter, signal)
   signal.throwIfAborted()
-  const request = JSON.stringify({ args, source: info.source }) + "\n"
+  const request = JSON.stringify({ args, source: info.source, file: info.script?.file, argv: info.script?.argv }) + "\n"
   const proc = spawnProcess([runtime.executable, ...info.entry], {
     cwd: info.directory,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
     env: runtime.env,
+    group: true,
   })
+  // A script may leave children holding output pipes open after it exits.
+  void proc.exit.then(() => proc.kill("SIGKILL")).catch(() => {})
   const onAbort = () => proc.kill()
   signal.addEventListener("abort", onAbort, { once: true })
   if (signal.aborted) onAbort()
-  const served = serveProcess(proc)
+  const served = serveProcess(proc, ctx.output)
   const source = served.source
   const deadline = Date.now() + info.timeout_s * 1000
 
@@ -202,13 +207,17 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
         throw error
       })
       if (line === undefined) {
-        await abortable(proc.exited, signal)
+        const code = await abortable(proc.exited, signal)
+        await served.drained
+        if (info.script && code === 0) return null
         const stderr = served.stderr.tail
         const reason = stderr.trim().slice(-4000)
+        const message = info.script ? `script exited with code ${code}${reason ? `\n${reason}` : ""}`
+          : reason || `tool exited without a {"return": ...} line`
         throw new PyToolError(
           ctx.abort.aborted
             ? "tool interrupted"
-            : pythonDiagnostic(reason || `tool exited without a {"return": ...} line`, runtime.executable),
+            : pythonDiagnostic(message, runtime.executable),
         )
       }
       const message = (() => {
@@ -240,8 +249,17 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
     throw new PyToolError(`cannot send tool request: ${error instanceof Error ? error.message : String(error)}`)
   })
   const finished = await Promise.all([sent, dialog]).then(([, result]) => result).finally(async () => {
-    signal.removeEventListener("abort", onAbort)
-    await terminate(served, true)
+    try {
+      await terminate(served, !signal.aborted)
+      await served.drained
+    } finally {
+      signal.removeEventListener("abort", onAbort)
+      if (info.script) info.script.exitCode = proc.exitCode
+    }
+  }).then(result => {
+    signal.throwIfAborted()
+    if (info.script && proc.exitCode !== 0) throw new PyToolError(`script exited with code ${proc.exitCode}`)
+    return result
   }).catch(async (error: unknown) => {
     // Stop before returning a failed controller to its caller, including a parent tool.
     if (info.kind === "controller") {
@@ -250,6 +268,54 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
     throw error
   })
   return finished
+}
+
+interface ScriptInput {
+  python?: string
+  file?: string
+  args: Record<string, unknown>
+  argv: string[]
+  interpreter?: string
+  timeout_s: number
+}
+
+export async function runScript(input: ScriptInput, ctx: Context): Promise<Result> {
+  await ctx.ask({ permission: "python_tool_controller", description: `run Python exec ${JSON.stringify(input)}` })
+  const script: NonNullable<PythonExecution["script"]> = {
+    file: input.file ? path.resolve(ctx.directory, input.file) : undefined, argv: input.argv, exitCode: null,
+  }
+  let output = "", dropped = 0
+  const capture = (text: string) => {
+    output += text
+    const length = output.length
+    output = output.slice(-16_384)
+    // Leave room for JSON escaping and the surrounding result envelope.
+    while (JSON.stringify(output).length > 16_384) output = output.slice(Math.ceil(output.length / 4))
+    dropped += length - output.length
+  }
+  let result: unknown, error: ReturnType<typeof failure> | undefined
+  try {
+    result = await invoke(ctx.directory, {
+      name: "exec", kind: "controller", directory: ctx.directory, entry: ["-u", "-m", "kinex._exec"],
+      interpreter: input.interpreter, timeout_s: input.timeout_s, source: input.python, script,
+    }, input.args, { ...ctx, approved: true, output: capture }, 0)
+  } catch (caught) {
+    if (caught instanceof PermissionDeniedError) throw caught
+    error = failure(caught)
+  }
+  return {
+    title: "exec (Python)",
+    output: formatJSON({ exit_code: script.exitCode, output: `${dropped ? `(output truncated: ${dropped} characters dropped)\n` : ""}${output}`,
+      ...(error ?? { result }) }),
+    ...(error ? { isError: true } : await resultAttachments(result, ctx.directory)),
+  }
+}
+
+async function resultAttachments(returned: unknown, directory = process.cwd()) {
+  const value = z.record(z.string(), z.unknown()).safeParse(returned).data
+  const file = typeof value?.["file"] === "string" ? path.resolve(directory, value["file"]) : undefined
+  const mime = file ? await imageMime(file) : undefined
+  return mime && file ? { attachments: [{ mime, path: file }] } : {}
 }
 
 export async function runPyTool(cwd: string, info: PyToolInfo, args: Record<string, unknown>, ctx: Context): Promise<Result> {
@@ -267,12 +333,9 @@ export async function runPyTool(cwd: string, info: PyToolInfo, args: Record<stri
   )
   await validateInputs(cwd, info, args)
   const returned = await invoke(cwd, execution(info), args, ctx, 0)
-  const value = z.record(z.string(), z.unknown()).safeParse(returned).data
-  const file = typeof value?.["file"] === "string" ? value["file"] : undefined
-  const mime = file ? await imageMime(file) : undefined
   return {
     title: `${name} (${kind} tool)`,
     output: formatJSON(returned),
-    ...(mime && file ? { attachments: [{ mime, path: file }] } : {}),
+    ...await resultAttachments(returned),
   }
 }

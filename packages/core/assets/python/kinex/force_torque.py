@@ -11,7 +11,7 @@ def read(name):
     if spec["type"] != "force_torque":
         raise ValueError("input device must have type force_torque")
     # Dispatch validates and subtracts profile bias. Never subtract it again.
-    return device(name)["data"]
+    return device(name)
 
 
 def transform(sample, pose):

@@ -50,6 +50,264 @@ async function pythonTool(directory, name, code, kind = 'perception', timeout = 
   return dir
 }
 
+const execScript = (runtime, input, invocation = {}) => runtime.tools.call('exec',
+  { interpreter: 'python3', ...input }, { sessionID: 'exec-test', ...invocation })
+
+test('exec runs ordinary source and files with normal globals, arguments and runtime access', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  const source = `import sys, os, __main__
+from kinex import args, robot
+assert __name__ == '__main__'
+assert __main__.__dict__ is globals()
+assert sys.stdin.read() == '' and os.read(0, 1) == b''
+assert args() == {'value': 7}
+assert sys.argv[1:] == ['hello', 'two words']
+print(robot()['identity']['id'])
+print('ordinary script')
+`
+  const options = { args: { value: 7 }, argv: ['hello', 'two words'] }
+  const inline = await execScript(runtime, { python: source, ...options })
+  assert.ok(!inline.isError, inline.output)
+  assert.deepEqual(JSON.parse(inline.output), { exit_code: 0, output: 'node-test\nordinary script\n', result: null })
+  const scripts = path.join(directory, 'scripts')
+  await mkdir(scripts)
+  await writeFile(path.join(scripts, 'helper.py'), 'value = 9\n')
+  await writeFile(path.join(scripts, 'my script.py'), `${source}
+from helper import value
+from pathlib import Path
+assert value == 9 and Path(__file__).name == 'my script.py'
+assert Path.cwd() == Path(__file__).parent.parent
+`)
+  const file = await execScript(runtime, { file: 'scripts/my script.py', ...options })
+  assert.ok(!file.isError, file.output)
+  assert.deepEqual(JSON.parse(file.output), JSON.parse(inline.output))
+  const plain = await execScript(runtime, { python: 'print("no runtime imports")' })
+  assert.equal(JSON.parse(plain.output).output, 'no runtime imports\n')
+  for (const python of ['pass', 'import sys; sys.exit(0)', 'import os; os._exit(0)']) {
+    const result = await execScript(runtime, { python })
+    assert.ok(!result.isError, result.output)
+    assert.deepEqual(JSON.parse(result.output), { exit_code: 0, output: '', result: null })
+  }
+})
+
+test('exec isolates raw and subprocess output from RPC, bounds logs and carries large Unicode source', async t => {
+  const { runtime } = await fixture(t, { host })
+  const python = `# ${'🦾画像'.repeat(100000)}
+import os, sys, subprocess
+from kinex import robot, finish
+print('{"return": "fake"}')
+os.write(1, b'{"call":"device","device":"missing"}\\n')
+subprocess.run([sys.executable, '-c', 'import kinex; print("ordinary child")'], check=True)
+assert robot()['identity']['id'] == 'node-test'
+finish({'actual': True})
+`
+  const response = await execScript(runtime, { python })
+  assert.ok(!response.isError, response.output)
+  const value = JSON.parse(response.output)
+  assert.deepEqual(value.result, { actual: true })
+  assert.match(value.output, /fake.*missing.*ordinary child/s)
+  const noisy = await execScript(runtime, { python: `import os
+os.write(1, b'x' * 1024 * 1024)
+os.write(2, b'\\x01' * 1024 * 1024)
+print('🦾 END')
+` })
+  assert.ok(!noisy.isError, noisy.output)
+  const captured = JSON.parse(noisy.output)
+  assert.match(captured.output, /output truncated/)
+  assert.ok(captured.output.endsWith('🦾 END\n'))
+  assert.ok(noisy.output.length < 30000)
+})
+
+test('exec preserves optional results and image attachments, and reports exit and RPC errors', async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  const image = path.join(directory, 'frame.png')
+  await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'))
+  const response = await execScript(runtime, { python: 'from kinex import args, finish\nprint("before finish")\nfinish({"value": 0}, file=args()["image"])', args: { image: 'frame.png' } })
+  assert.ok(!response.isError, response.output)
+  assert.deepEqual(JSON.parse(response.output), { exit_code: 0, output: 'before finish\n', result: { value: 0, file: 'frame.png' } })
+  assert.deepEqual(response.attachments, [{ mime: 'image/png', path: image }])
+  for (const [python, code, error] of [
+    ['print("before failure"); raise ValueError("broken script")', 1, /broken script/],
+    ['import sys; print("before failure"); sys.exit(7)', 7, /code 7/],
+    ['print("before failure"); from kinex import fail; fail("explicit failure")', 0, /explicit failure/],
+    ['if:', 1, /SyntaxError/],
+    ['from kinex import finish; finish({1, 2})', 1, /not JSON serializable/],
+  ]) {
+    const result = await execScript(runtime, { python })
+    assert.equal(result.isError, true, result.output)
+    const value = JSON.parse(result.output)
+    assert.equal(value.exit_code, code)
+    assert.match(value.error, error)
+    if (python.includes('before failure')) assert.match(value.output, /before failure/)
+  }
+  const rpc = await execScript(runtime, { python: 'from kinex import RPCError\nraise RPCError("driver failed", code="fault", details={"joint": 0})' })
+  assert.equal(rpc.isError, true)
+  assert.equal(JSON.parse(rpc.output).code, 'fault')
+  assert.deepEqual(JSON.parse(rpc.output).details, { joint: 0 })
+  const missing = await execScript(runtime, { file: 'does-not-exist.py' })
+  assert.equal(missing.isError, true)
+  assert.match(JSON.parse(missing.output).error, /FileNotFoundError/)
+})
+
+test('exec validates before approval and denial does not prepare Python or run code', async t => {
+  const { runtime, directory } = await fixture(t)
+  const catalog = await runtime.tools.list()
+  assert.ok(catalog.tools.some(tool => tool.name === 'exec'))
+  for (const input of [{}, { python: '' }, { python: 'pass', file: 'script.py' }, { python: 'pass', kind: 'controller' }, { python: 'pass', timeout_s: 0 }]) {
+    const result = await runtime.tools.call('exec', input, { sessionID: 's', ask: async () => assert.fail('invalid input must not prompt') })
+    assert.equal(result.isError, true)
+  }
+  await assert.rejects(runtime.tools.call('exec', { python: 'open("executed", "w").close()' }, { sessionID: 's' }), PermissionDeniedError)
+  assert.ok(!(await readdir(directory)).includes('executed'))
+  assert.ok(!(await readdir(path.join(directory, '.kinex'))).includes('python'))
+})
+
+test('exec approval covers direct, composed and inline calls while preserving capability restrictions', async t => {
+  const { runtime, directory, events } = await trackingFixture(t)
+  await pythonDriver(runtime, directory)
+  await (await runtime.devices.load('sensor')).ready
+  await pythonTool(directory, 'nested_exec', `from kinex import call, finish
+finish(call('device', deviceID='sensor'))
+`)
+  const permissions = []
+  const response = await execScript(runtime, { python: `from kinex import device, devices, call, inline, finish
+device('sensor')
+devices([{'deviceID': 'sensor'}])
+call('device', deviceID='sensor')
+call('devices', calls=[{'deviceID': 'sensor'}])
+call('nested_exec')
+inline("lambda: __import__('kinex').call('nested_exec')", {})
+finish(call('act', target=.2))
+` }, { ask: async request => { permissions.push(request.permission) } })
+  assert.ok(!response.isError, response.output)
+  assert.deepEqual(permissions, ['python_tool_controller'])
+  assert.deepEqual(JSON.parse(response.output).result, { custom: true })
+  assert.ok(!events.some(event => event.action === 'stop'), 'successful scripts retain pending motion')
+  for (const expression of ['device("arm", "unload")', 'call("device", deviceID="arm", action="unload")']) {
+    const result = await execScript(runtime, { python: `from kinex import device, call\n${expression}` })
+    assert.equal(result.isError, true)
+    assert.match(JSON.parse(result.output).error, /inside Python tools/)
+  }
+  const batch = await execScript(runtime, { python: 'from kinex import call, finish\nfinish(call("devices", calls=[{"deviceID":"arm", "action":"load"}]))' })
+  assert.ok(!batch.isError, batch.output)
+  assert.match(JSON.parse(batch.output).result.results[0].error, /inside Python tools/)
+  for (const expression of ['device("arm", "write", {"actions": [[.2]], "duration_s": .1})', 'call("act", target=.2)']) {
+    await pythonTool(directory, 'restricted', `from kinex import device, call\n${expression}`)
+    const result = await execScript(runtime, { python: 'from kinex import call\ncall("restricted")' })
+    assert.equal(result.isError, true)
+    assert.match(JSON.parse(result.output).error, /may not command|may only compose/)
+  }
+  const recording = await execScript(runtime, { python: 'from kinex import call\ncall("record", action="start")' })
+  assert.equal(recording.isError, true)
+  assert.match(JSON.parse(recording.output).error, /unknown python tool/)
+})
+
+test('exec shares closed_loop execution without changing its stage interface', async t => {
+  const { runtime, args } = await trackingFixture(t)
+  const response = await execScript(runtime, { python: `from kinex import args, call, finish
+finish(call('closed_loop', **args()))`, args: { ...args, max_rounds: 1, process: { python: 'lambda observation: {"target": .2}' } } })
+  assert.ok(!response.isError, response.output)
+  assert.equal(JSON.parse(response.output).result.terminated_by, 'max_rounds')
+  assert.equal(JSON.parse(response.output).result.rounds, 1)
+})
+
+test('Python device APIs accept tool inputs and return the same single and batch layouts', async t => {
+  const { runtime } = await trackingFixture(t)
+  const single = { deviceID: 'world', args: {} }
+  const batch = { calls: [{ deviceID: 'world' }, { deviceID: 'missing' }, { deviceID: 'sensor' }] }
+  const expectedSingle = JSON.parse((await runtime.tools.call('device', single, { sessionID: 's' })).output)
+  const expectedBatch = JSON.parse((await runtime.tools.call('devices', batch, { sessionID: 's' })).output)
+  const response = await execScript(runtime, { args: { single, batch }, python: `from kinex import args, device, devices, call, Device, finish
+a = args()
+finish({'single': device(**a['single']), 'positional': device('world', 'read', {}),
+        'composed': call('device', **a['single']), 'handle': Device('world').read({}),
+        'batch': devices(**a['batch']), 'batch_composed': call('devices', **a['batch'])})
+` })
+  assert.ok(!response.isError, response.output)
+  const result = JSON.parse(response.output).result
+  for (const key of ['single', 'positional', 'composed', 'handle']) assert.deepEqual(result[key], expectedSingle)
+  for (const key of ['batch', 'batch_composed']) assert.deepEqual(result[key], expectedBatch)
+  const control = await execScript(runtime, { python: `from kinex import devices, Device, finish
+submitted = Device('arm').act('write', {'actions': [[.2]], 'duration_s': .1})
+batch = devices(calls=[{'deviceID': 'world'}, {'deviceID': 'hand', 'action': 'write',
+                      'args': {'actions': [[.1]], 'duration_s': .1}}])
+assert 'execution_id' in submitted
+assert all(item['ok'] for item in batch['results'])
+assert 'execution_id' in batch['results'][1]['data']
+finish(batch)
+` })
+  assert.ok(!control.isError, control.output)
+  assert.deepEqual(JSON.parse(control.output).result.results.map(row => row.action), ['read', 'write'])
+})
+
+test('Python device APIs validate requests before dispatch', async t => {
+  const { runtime, events } = await trackingFixture(t)
+  for (const expression of [
+    'devices([{"device": "sensor"}])',
+    'device("sensor", args=[])',
+    'call("device", deviceID="sensor", output="file")',
+    'call("devices", calls=[{"device": "sensor"}])',
+  ]) {
+    const response = await execScript(runtime, { python: `from kinex import device, devices, call\n${expression}` })
+    assert.equal(response.isError, true, `${expression}: ${response.output}`)
+  }
+  assert.equal(events.length, 0)
+})
+
+test('exec failure, timeout, cancellation and disposal stop only motion still owned by the script', { timeout: 20000 }, async t => {
+  for (const mode of ['failure', 'timeout', 'cancel', 'dispose']) await t.test(mode, async t => {
+    const { runtime, events } = await trackingFixture(t)
+    let started
+    const ready = new Promise(resolve => { started = resolve })
+    t.after(runtime.subscribe(({ type, event }) => {
+      if (type === 'device' && event.device.name === 'sensor' && event.action === 'read') started()
+    }))
+    const abort = new AbortController()
+    t.after(() => abort.abort())
+    const pending = execScript(runtime, { timeout_s: mode === 'timeout' ? 2 : 10,
+      python: `import time
+from kinex import call, device
+call('act', target=.2)
+print('motion submitted')
+device('sensor')
+${mode === 'failure' ? "raise RuntimeError('after motion')" : 'time.sleep(30)'}
+` }, { signal: abort.signal })
+    await Promise.race([ready, pending.then(result => { throw Error(`exec exited too soon: ${result.output}`) })])
+    if (mode !== 'failure') await runtime.devices.dispatch('arm', 'write', { actions: [[.8]], duration_s: .1 })
+    if (mode === 'cancel') abort.abort()
+    if (mode === 'dispose') await runtime.dispose()
+    const result = await pending
+    assert.equal(result.isError, true, result.output)
+    const value = JSON.parse(result.output)
+    assert.match(value.error, /abort|interrupt|timeout|timed out|disposed|after motion/i)
+    assert.match(value.output, /motion submitted/)
+    const stopped = [...new Set(events.filter(event => event.action === 'stop').map(event => event.device.name))].sort()
+    if (mode !== 'dispose') assert.deepEqual(stopped, mode === 'failure' ? ['arm', 'hand'] : ['hand'])
+  })
+})
+
+test('exec reaps owned children even when they retain output pipes', { timeout: 20000 }, async t => {
+  const { runtime, directory } = await fixture(t, { host })
+  for (const python of [
+    'print("parent done")',
+    'from kinex import finish; finish({"done": True})',
+    'import time; time.sleep(30)',
+  ]) {
+    const result = await execScript(runtime, { timeout_s: python.includes('time.sleep') ? 2 : 5, python: `import subprocess, sys
+from pathlib import Path
+p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+Path('child.pid').write_text(str(p.pid))
+${python}
+` })
+    assert.equal(Boolean(result.isError), python.includes('time.sleep'), result.output)
+    const pid = Number(await readFile(path.join(directory, 'child.pid'), 'utf8'))
+    // Orphan zombies may await the container's init reaper, but must not run.
+    const state = await readFile(`/proc/${pid}/stat`, 'utf8').catch(() => '')
+    if (state) assert.match(state, /^\d+ \(.*\) Z /)
+    else assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' })
+  }
+})
+
 test('Python startup carries large Unicode arguments and inline source through nested calls', async t => {
   const { runtime, directory } = await fixture(t, { host })
   await pythonTool(directory, 'digest', `import hashlib, os, subprocess, sys
@@ -794,14 +1052,14 @@ async function trackingFixture(t) {
   await install('closed-loop', await readFile(new URL('../assets/builtin/tool/closed-loop/tool.yaml', import.meta.url), 'utf8'),
     await readFile(new URL('../assets/builtin/tool/closed-loop/tool.py', import.meta.url), 'utf8'))
   await install('sample', 'name: sample\nkind: perception\ndescription: test',
-    'from kinex import device, finish\nfinish(device("arm")["data"])\n')
+    'from kinex import device, finish\nfinish(device("arm"))\n')
   await install('convert', 'name: convert\nkind: perception\ndescription: test\nparameters: {type: object}', `import time
 from kinex import args, device, call, stop_owned, finish
 from kinex.control import read
 a = args()
 mode = a.get('mode')
 if mode == 'stop': stop_owned()
-if mode == 'write': device('arm', 'write', actions=[[.2]], duration_s=.1)
+if mode == 'write': device('arm', 'write', {'actions': [[.2]], 'duration_s': .1})
 if mode == 'compose': call('act', target=.2)
 if mode == 'invalid': finish({'target': 'invalid'})
 if mode == 'model': device('policy', 'infer')
@@ -822,7 +1080,7 @@ parameters:
   properties:
     target: {type: number}
   required: [target]`, `from kinex import args, devices, finish
-results = devices([{'device': name, 'action': 'write', 'args': {'actions': [[args()['target']]], 'duration_s': .1}} for name in ['arm', 'hand']])
+results = devices([{'deviceID': name, 'action': 'write', 'args': {'actions': [[args()['target']]], 'duration_s': .1}} for name in ['arm', 'hand']])['results']
 if not all(r['ok'] for r in results): raise RuntimeError(str(results))
 finish({'custom': True})
 `)
@@ -938,7 +1196,7 @@ test('failed large startup writes in composed tools stop owned motion', async t 
   const { runtime, directory, events } = await trackingFixture(t)
   await pythonTool(directory, 'blocked', 'import time\ntime.sleep(30)\n', 'perception', 1)
   await pythonTool(directory, 'starts', `from kinex import args, device, call, finish
-device('arm', 'write', actions=[[.2]], duration_s=.1)
+device('arm', 'write', {'actions': [[.2]], 'duration_s': .1})
 finish(call('blocked', value=args()['value']))
 `, 'controller')
   const result = await runtime.tools.call('starts', { value: 'x'.repeat(3 * 1024 * 1024) }, { sessionID: 's' })
@@ -1223,18 +1481,18 @@ def dispatch(action, args):
 run(dispatch, lambda: None)
 `)
   await (await runtime.devices.load('sensor')).ready
-  await pythonTool(directory, 'rpc_device', 'from kinex import device\ndevice("sensor", fail=True)\n')
+  await pythonTool(directory, 'rpc_device', 'from kinex import device\ndevice("sensor", args={"fail": True})\n')
   await pythonTool(directory, 'rpc_call', 'from kinex import call\ncall("device", deviceID="sensor", args={"fail": True})\n')
-  await pythonTool(directory, 'rpc_batch', 'from kinex import devices, finish\nfinish(devices([{"device": "sensor", "args": {"fail": True}}]))\n')
+  await pythonTool(directory, 'rpc_batch', 'from kinex import devices, finish\nfinish(devices([{"deviceID": "sensor", "args": {"fail": True}}]))\n')
   await pythonTool(directory, 'rpc_call_batch', 'from kinex import call, finish\nfinish(call("devices", calls=[{"deviceID": "sensor", "args": {"fail": True}}]))\n')
   await pythonTool(directory, 'rpc_catch', `from kinex import device, RPCError, finish
 try:
-    device('sensor', fail=True)
+    device('sensor', args={'fail': True})
 except RPCError as error:
     assert isinstance(error, RuntimeError)
     finish(error.payload())
 `)
-  await pythonTool(directory, 'rpc_controller', 'from kinex import device\ndevice("sensor", "write", actions=[[0]], duration_s=.1)\ndevice("sensor", fail=True)\n', 'controller')
+  await pythonTool(directory, 'rpc_controller', 'from kinex import device\ndevice("sensor", "write", {"actions": [[0]], "duration_s": .1})\ndevice("sensor", args={"fail": True})\n', 'controller')
   await pythonTool(directory, 'rpc_nested', 'from kinex import call\ncall("rpc_controller")\n', 'controller')
   await pythonTool(directory, 'rpc_inline', `from kinex import inline
 inline("lambda: __import__('kinex').call('rpc_controller')", {}, kind='controller')
@@ -1257,7 +1515,7 @@ inline("lambda: __import__('kinex').call('rpc_controller')", {}, kind='controlle
     const response = await runtime.tools.call(name, {}, { sessionID: 's' })
     assert.ok(!response.isError, response.output)
     const value = JSON.parse(response.output)
-    check(name === 'rpc_batch' ? value[0] : name === 'rpc_call_batch' ? value.results[0] : value)
+    check(name === 'rpc_catch' ? value : value.results[0])
   }
   assert.ok((await runtime.devices.dispatch('sensor', 'read')).data.stops >= 3)
 })
@@ -1464,7 +1722,7 @@ def main(target):
 test('inline perception cannot acquire controller or lifecycle capabilities', async t => {
   const { runtime, args, events } = await trackingFixture(t)
   const cases = [
-    ['perceive', 'device("arm", "write", actions=[[.2]], duration_s=.1)', /may not command/],
+    ['perceive', 'device("arm", "write", {"actions": [[.2]], "duration_s": .1})', /may not command/],
     ['process', 'stop_owned()', /only controller tools/],
     ['until', 'call("act", target=.2)', /may only compose/],
     ['process', 'inline("lambda: None", {}, kind="controller")', /may only compose/],
@@ -1571,16 +1829,16 @@ test('camera modes return images to agents and preserve Python output selection'
     } })
   await pythonTool(directory, 'camera_modes', `import numpy as np
 from kinex import Device, device, devices, call, finish
-samples = [device('camera')['data'], device('camera', output='array')['data'],
-           Device('camera').read()['data'],
-           devices([{'device': 'camera'}])[0]['data'],
+samples = [device('camera'), device('camera', args={'output': 'array'}),
+           Device('camera').read(),
+           devices([{'deviceID': 'camera'}])['results'][0]['data'],
            call('device', deviceID='camera'),
            call('devices', calls=[{'deviceID': 'camera'}])['results'][0]['data']]
 for sample in samples:
     assert sample['color'].shape == (2, 2, 3) and sample['color'].dtype == np.uint8
     assert sample['depth'].shape == (2, 2) and sample['depth'].dtype == np.uint16
     assert sample['color'].flags.owndata and sample['depth'].flags.writeable
-encoded = device('camera', output='base64')['data']
+encoded = device('camera', args={'output': 'base64'})
 assert isinstance(encoded['color'], str) and isinstance(encoded['depth'], str)
 assert call('device', deviceID='camera', args={'output': 'base64'}) == encoded
 finish({'timestamp': samples[0]['timestamp']})
@@ -1623,13 +1881,13 @@ finish({'timestamp': samples[0]['timestamp']})
   }
   await assert.rejects(runtime.devices.dispatch('camera', 'read', { output: 'bytes' }))
   await pythonTool(directory, 'camera_file', `from kinex import device, finish
-finish(device('camera', output='file'))
+finish(device('camera', args={'output': 'file'}))
 `)
   const file = await runtime.tools.call('camera_file', {}, { sessionID: 's' })
   assert.ok(!file.isError, file.output)
   const saved = JSON.parse(file.output)
   assert.deepEqual(await readFile(saved.file), Buffer.from(wire.data.color, 'base64'))
-  assert.deepEqual(await readFile(saved.data.depth_file), Buffer.from(wire.data.depth, 'base64'))
+  assert.deepEqual(await readFile(saved.depth_file), Buffer.from(wire.data.depth, 'base64'))
   const recording = await runtime.recording.start({ specs: { sensor: { rate: 1 } }, sessionID: 's' })
   await runtime.devices.dispatch('camera', 'read')
   await runtime.recording.stop()

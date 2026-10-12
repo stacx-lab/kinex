@@ -22,7 +22,7 @@ def solve(name, prof, pose, start):
     if not (prof["intrinsics"].get("kinematics") or {}).get("ik"):
         raise ValueError("pose goals require declared IK")
     seed = project_seed(start, prof["resolved_model"]["joints"])
-    joints = (device(name, "ik", pose=unit_pose(pose), seed=seed).get("data") or {}).get("joints")
+    joints = device(name, "ik", {"pose": unit_pose(pose), "seed": seed}).get("joints")
     if joints is None:
         raise ValueError("ik returned no joints")
     return joints
@@ -62,9 +62,9 @@ def control(a):
                       a.get("speedFraction", 1.0), a.get("max_velocity"), a.get("max_acceleration"),
                       check_limits=check_limits,
                       start_tolerance=home_start_tolerance(prof, joints, goal))
-    outcome = device(name, "write", actions=plan.actions, duration_s=plan.duration_s)["data"]
+    outcome = device(name, "write", {"actions": plan.actions, "duration_s": plan.duration_s})
     if block:
-        device(world, "wait", duration_s=plan.duration_s)
+        device(world, "wait", {"duration_s": plan.duration_s})
     return {"device": name, "execution_id": outcome["execution_id"], "joints": goal,
             "duration_s": plan.duration_s, "actions_submitted": len(plan.actions)}
 

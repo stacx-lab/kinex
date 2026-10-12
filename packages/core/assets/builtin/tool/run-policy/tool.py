@@ -55,8 +55,8 @@ def control(a):
     options = a.get("inference_args", {})
     if set(options) & {"obs", "task"}:
         raise ValueError("inference_args cannot override obs or task")
-    inference = device(model, "infer", **options, obs=a["observation"],
-                       **({"task": a["task"]} if a.get("task") else {})).get("data") or {}
+    inference = device(model, "infer", {**options, "obs": a["observation"],
+                       **({"task": a["task"]} if a.get("task") else {})})
     actions = inference.get("actions")
     if actions is None:
         single = inference.get("action")
@@ -94,8 +94,8 @@ def control(a):
         else:
             scalar_command(entry["profile"], command)
     with stop_on_error(names):
-        results = devices([{"device": name, "action": "write", "args": {
-            "actions": sequences[name], "duration_s": duration}} for name in names])
+        results = devices([{"deviceID": name, "action": "write", "args": {
+            "actions": sequences[name], "duration_s": duration}} for name in names])["results"]
         for result in results:
             if not result.get("ok"):
                 raise RPCError(result.get("error", "policy write failed"),

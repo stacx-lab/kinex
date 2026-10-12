@@ -42,7 +42,7 @@ class FrameTests(unittest.TestCase):
             "rotation_xyzw": [0, 0, 0, 1]}}}
         profiles = {"arm": facts, "camera": camera}
         with patch.object(frames, "profile", side_effect=lambda name, **_: profiles[name]), patch.object(
-            frames, "device", return_value={"data": {"positions": [.4]}}
+            frames, "device", return_value={"positions": [.4]}
         ) as read:
             result = frames.pose("camera", "arm")
             self.assertAlmostEqual(result["translation"][0], math.cos(.4))
@@ -122,7 +122,7 @@ class FrameTests(unittest.TestCase):
     def test_frame_graph_uses_one_joint_sample_and_nested_static_edges(self):
         facts = profile()
         facts["intrinsics"]["frames"]["tip"] = definition([0, 0, .1, 0, 0, 0, 1], "tool")
-        with patch.object(frames, "profile", return_value=facts), patch.object(frames, "device", return_value={"data": {"positions": [.4]}}) as read:
+        with patch.object(frames, "profile", return_value=facts), patch.object(frames, "device", return_value={"positions": [.4]}) as read:
             result = frames.pose("arm:tip", "arm")
             expected = JointDevice(facts).fk([.4], "tip")["pose"]
             self.assert_pose([*result["translation"], *result["rotation"]], expected)
@@ -154,7 +154,7 @@ class FrameTests(unittest.TestCase):
             "center": {"frame": "center", "weights": {"finger": 1}, "rotation_xyzw": [0, 0, 0, 1]}}
         model = JointDevice(facts)
         self.assert_pose(model.fk([.4], "tip", "reference")["pose"], JointDevice(profile()).fk([.4])["pose"])
-        with patch.object(frames, "profile", return_value=facts), patch.object(frames, "device", return_value={"data": {"positions": [.4]}}):
+        with patch.object(frames, "profile", return_value=facts), patch.object(frames, "device", return_value={"positions": [.4]}):
             self.assertAlmostEqual(frames.pose("arm:center", "arm")["translation"][0], math.cos(.4))
 
     def test_hand_optional_geometry_shared_joints_and_fixed_references(self):
@@ -206,7 +206,7 @@ class FrameTests(unittest.TestCase):
             "world": {"type": "world", "intrinsics": {"frames": {}}},
         }
         with patch.object(frames, "profile", side_effect=lambda name, **_: profiles.get(name)), patch.object(
-            frames, "device", return_value={"data": {"frame_poses": {"torso": [0, 0, .2, 0, 0, 0, 1]}}}
+            frames, "device", return_value={"frame_poses": {"torso": [0, 0, .2, 0, 0, 0, 1]}}
         ) as read, patch.object(frames, "fail", side_effect=fail):
             self.assertEqual(frames.pose("camera", "base")["translation"], [.1, 0, .5])
             self.assertEqual(read.call_count, 1)

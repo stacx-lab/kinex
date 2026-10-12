@@ -23,7 +23,7 @@ def control(a):
 
     def check():
         nonlocal predicate_state
-        context["time_s"] = device(world)["data"]["time_s"]
+        context["time_s"] = device(world)["time_s"]
         result = stage(until, {**(until or {}).get("args", {}), "context": context, "state": predicate_state})
         if not isinstance(result, dict) or not isinstance(result.get("done", False), bool):
             raise ValueError("until must return a dict with optional done: boolean")
@@ -50,7 +50,7 @@ def control(a):
                 misses = 0
                 last = stage(controller, values, kind="controller")
                 context.update(control_args=values, control_result=last)
-            device(world, "wait", duration_s=a["wait_s"])
+            device(world, "wait", {"duration_s": a["wait_s"]})
             if a.get("stop_after_control", False):
                 stop_owned()
             reason = check() or reason

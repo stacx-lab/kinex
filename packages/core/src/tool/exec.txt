@@ -1,0 +1,3 @@
+Run ordinary Python source or a script file with Kinex runtime access. Import device, devices, call, profile, robot, or Device from kinex. print() goes to output; optional kinex.finish(value) returns value in result. Pass file=image_path to finish to attach an image.
+
+Device lifecycle changes and recording tool calls are unavailable. Failure, timeout or cancellation stops owned motion; successful completion may leave motion running. Use closed_loop for repeated feedback control.

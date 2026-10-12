@@ -19,6 +19,12 @@ resetting grants and ending recordings; workspace replacement/quit disposes them
 Robotics/question batches execute sequentially; denial/cancellation stops later
 calls without rolling back completed work. Pure coding batches remain parallel.
 
+`exec` requests `python_tool_controller` approval once for the script and its
+composed runtime calls. Device reads and actions share that approval; composed
+perception tools retain their capability restrictions. Python execution cannot
+change device lifecycle or call the recording tool. Existing manifest tools keep
+their permission behavior when invoked outside `exec`.
+
 ## Recording
 
 Manual recording is available; model recording is opt-in. Native capture or dispatch

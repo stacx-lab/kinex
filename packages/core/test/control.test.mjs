@@ -120,9 +120,12 @@ function dialog(file, callArgs, devices, tools = {}, owned = new Set()) {
         return reply({ ok: true })
       }
       if (call === 'profile') return reply({ ok: true, profile: devices[message.device]?.profile() ?? null })
-      if (call === 'device') return reply(act(devices[message.device], message.action ?? 'read', message.args ?? {}))
-      if (call === 'devices') return reply({ ok: true, results: message.commands.map((c) => ({
-        device: c.device, ...act(devices[c.device], c.action ?? 'read', c.args ?? {}) })) })
+      if (call === 'device') {
+        const result = act(devices[message.deviceID], message.action ?? 'read', message.args ?? {})
+        return reply(result.ok ? { ok: true, result: { ...result.data, ...(result.file ? { file: result.file } : {}) } } : result)
+      }
+      if (call === 'devices') return reply({ ok: true, result: { results: message.calls.map(c => ({
+        deviceID: c.deviceID, action: c.action ?? 'read', ...act(devices[c.deviceID], c.action ?? 'read', c.args ?? {}) })) } })
       if (call === 'tool') {
         // Compose real builtin tools recursively, as python-runner.ts does, so a
         // composition test exercises the actual tools rather than stand-ins.

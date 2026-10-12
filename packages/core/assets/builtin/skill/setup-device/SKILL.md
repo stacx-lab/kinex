@@ -16,10 +16,12 @@ setup script's profile. Follow the type's units, frames, commands and feedback.
 
 ## Provision and register
 
-Copy the driver scaffold and support files into the resolved workspace's
-`devices/<name>/`, independent of packaged template paths. Complete its SDK hooks;
-read connection, model and calibration settings from sibling `profile.yaml`.
-Shared vendor clients may use workspace `lib/`.
+Use the nearest `.kinex/` directory in the current directory or its ancestors;
+if none exists, use `.kinex/` in the current directory. Copy the driver scaffold
+and support files into that directory's `devices/<name>/` (the workspace's
+`.kinex/devices/<name>/`), independent of packaged template paths. Complete its SDK
+hooks; read connection, model and calibration settings from sibling `profile.yaml`.
+Shared vendor clients may use `.kinex/lib/` in the same workspace.
 
 Use context's core Python; record dependencies with
 `uv add --project <python.project> PACKAGE`. If the vendor or user requires another
@@ -32,7 +34,7 @@ unknowns as `???`, and mark missing calibration `kind=needed`. Clear resolved
 requests with `needs_calibration:null` in the relevant section. New devices stay
 unloaded; edits preserve activation intent.
 
-Custom `devices/<name>/DEVICE.md` files are allowed only for type `legged_base`.
+Custom `.kinex/devices/<name>/DEVICE.md` files are allowed only for type `legged_base`.
 For that type, write a concise `## Use` as required by its guide: it replaces the
 type's Use section, so include the applicable operating contract and verified
 examples. Keep provisioning in Setup. For every other type, do not create or

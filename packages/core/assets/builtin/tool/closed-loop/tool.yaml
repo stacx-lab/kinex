@@ -7,8 +7,7 @@ description: >-
   using world-time waits. Joint arrival can use servo as control and settled as
   until. Repeated policy inference can use run_policy with fresh observations.
   Optional perceive, process, control and until stages accept tools or inline
-  Python; omitted or null stages return an empty object. Do not use closed_loop
-  merely to obtain a Python execution context.
+  Python; omitted or null stages return an empty object.
 parameters:
   type: object
   additionalProperties: false

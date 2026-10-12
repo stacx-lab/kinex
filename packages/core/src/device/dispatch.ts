@@ -25,17 +25,16 @@ import { NamedError } from "../util/error.ts"
 // The one routing point for reaching a device: the agent-written driver, or
 // the in-memory mock — used by the device tools, the python-tool runner, the
 // recorder, and the lifecycle helpers below.
-export function route(cwd: string, device: Device, action: string, args: Record<string, unknown>, signal?: AbortSignal, admission?: CommandAdmission): Promise<DeviceReading> {
+export async function route(cwd: string, device: Device, action: string, args: Record<string, unknown>, signal?: AbortSignal, admission?: CommandAdmission): Promise<DeviceReading> {
   admission?.check()
   const access = device.access
   const kind = access && known(access.connection) ? access.connection.kind : undefined
   if (access?.driver) return runDriver(cwd, device, action, args, signal, admission)
-  if (kind === "mock") return Promise.resolve(mockAct(cwd, device, action, args))
-  if (action === "unload") return Promise.resolve({ deviceID: device.name, kind: device.type, data: { unloaded: true } })
-  return Promise.reject(
-    new Error(
-      `device "${device.name}" has no way to reach it: no access.driver is recorded (and its access.connection.kind is not "mock"). Write devices/${device.name}/driver.py and record it under access.driver first.`,
-    ),
+  if (kind === "mock") return mockAct(cwd, device, action, args)
+  if (action === "unload") return { deviceID: device.name, kind: device.type, data: { unloaded: true } }
+  const driver = path.join(await ProfileStore.deviceDir(cwd, device.name), "driver.py")
+  throw new Error(
+    `device "${device.name}" has no way to reach it: no access.driver is recorded (and its access.connection.kind is not "mock"). Write ${driver} and record it under access.driver first.`,
   )
 }
 

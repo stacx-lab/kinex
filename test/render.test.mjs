@@ -23,6 +23,9 @@ test('important tools show action and target, including streamed arguments and a
     ['closed_loop', { control: { args: { device: 'arm' } }, perceive: { tool: 'devices' } }, 'closed_loop arm devices'],
     ['closed_loop', {}, 'closed_loop'],
     ['closed_loop', { control: null, perceive: null }, 'closed_loop'],
+    ['exec', { file: 'scripts/inspect.py' }, 'exec scripts/inspect.py'],
+    ['exec', { python: 'from kinex import device\nprint(device("arm"))' }, 'exec from kinex import device'],
+    ['exec', {}, 'exec Python'],
   ]) assert.equal(plain(toolRenderers(name).renderCall(args, theme, context)), expected)
   for (const args of [undefined, null, {}, { devices: { arm: null } }]) {
     assert.doesNotThrow(() => plain(toolRenderers('record').renderCall(args, theme, context)))

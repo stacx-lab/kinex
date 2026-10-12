@@ -5,24 +5,29 @@ export interface ServeProcess {
   proc: ManagedProcess
   source: ReturnType<typeof lineSource>
   stderr: { tail: string }
+  drained: Promise<void>
   stopping?: Promise<void>
 }
 
 // Drain continuously: an unread stderr pipe can block the driver's SDK calls.
 // Keep only a bounded tail, including logs without newlines.
-export function serveProcess(proc: ServeProcess["proc"]): ServeProcess {
+export function serveProcess(proc: ServeProcess["proc"], onOutput?: (text: string) => void): ServeProcess {
   const stderr = { tail: "" }
-  void (async () => {
+  const append = (text: string) => {
+    stderr.tail = (stderr.tail + text).slice(-16_384)
+    onOutput?.(text)
+  }
+  const drained = (async () => {
     const decoder = new TextDecoder()
     const reader = proc.stderr.getReader()
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
-      stderr.tail = (stderr.tail + decoder.decode(value, { stream: true })).slice(-16_384)
+      append(decoder.decode(value, { stream: true }))
     }
-    stderr.tail = (stderr.tail + decoder.decode()).slice(-16_384)
+    append(decoder.decode())
   })().catch(() => {})
-  return { proc, source: lineSource(proc.stdout), stderr }
+  return { proc, source: lineSource(proc.stdout), stderr, drained }
 }
 
 // EOF lets the driver release its connection and recorder. Bound cleanup time,

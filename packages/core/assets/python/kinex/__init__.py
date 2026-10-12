@@ -10,8 +10,8 @@ protocol so tool code stays plain python:
 
     a = args()
     cam = profile(a["camera"])                      # parsed profile.yaml (white-box)
-    frame = device(a["camera"], output="file")      # {"data": {...}, "file": "/path.png"}
-    seg = device(a["model"], "detect", image=frame["file"], prompt=a["prompt"])
+    frame = device(a["camera"], args={"output": "file"})
+    seg = device(a["model"], "detect", {"image": frame["file"], "prompt": a["prompt"]})
     finish({"point": [0.1, 0.2, 0.3]}, file=seg.get("file"))
 
 On import, real stdout is captured for the protocol and sys.stdout is pointed
@@ -33,13 +33,15 @@ import sys
 # Outside a dialog (a skill script or driver importing kinex.geometry) the
 # import stays side-effect-free and any protocol call raises instead.
 _out = None
+_in = None
 _request = None
 if os.environ.get("KINEX_TOOL_DIALOG") == "1":
     os.environ.pop("KINEX_TOOL_DIALOG")
     _out = os.fdopen(os.dup(sys.stdout.fileno()), "w")
+    _in = os.fdopen(os.dup(sys.stdin.fileno()), "r")
     sys.stdout = sys.stderr
     # Consume startup before any RPC reads stdin, even if args() is never called.
-    line = sys.stdin.readline()
+    line = _in.readline()
     if not line:
         raise RuntimeError("missing tool startup request")
     _request = json.loads(line)
@@ -81,7 +83,7 @@ if _out is not None:
 
 def _rpc(payload):
     _emit(payload)
-    line = sys.stdin.readline()
+    line = _in.readline()
     if not line:
         raise RuntimeError("harness closed the dialog")
     response = json.loads(line)
@@ -99,50 +101,48 @@ def args():
     return json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
 
 
-def _camera_result(name, action, kwargs, result):
-    if action != "read" or kwargs.get("output", "array") != "array" or not result.get("ok", True):
-        return result
-    if "color" not in (result.get("data") or {}):
-        return result
-    camera = profile(name)
+def _camera_data(values, data):
+    if values.get("action", "read") != "read" or values.get("args", {}).get("output", "array") != "array" or "color" not in data:
+        return data
+    camera = profile(values["deviceID"])
     if camera["type"] in ("rgb", "rgbd"):
         from kinex.capture import arrays
-        result["data"] = arrays(camera, result["data"])
+        return arrays(camera, data)
+    return data
+
+
+def _device_result(tool, values, result):
+    if tool == "device":
+        return _camera_data(values, result)
+    if tool == "devices":
+        for value, item in zip(values["calls"], result["results"]):
+            if "data" in item:
+                item["data"] = _camera_data(value, item["data"])
     return result
 
 
-def device(name, action="read", **kwargs):
-    """Dispatch one action of a device's driver interface: returns
-    {"data": {...}?, "file": "/abs/path"?}.
-    Camera output="array" (default) returns NumPy color/depth in data;
-    output="base64" returns encoded PNG/PGM strings; output="file" saves images and returns paths. Commands on
-    an actuated device are controller-tool-only; load/unload use the separate device tool, not Python tools."""
-    result = _rpc({"call": "device", "device": name, "action": action, "args": kwargs})
-    return _camera_result(name, action, kwargs, result)
+def device(deviceID, action="read", args=None):
+    """Return device data fields plus optional file; failures raise RPCError.
 
-
-def devices(commands):
-    """Run device calls concurrently and return results in input order.
-
-    Entries are {device, action?, args?}; action defaults to read. Reads and writes
-    may be mixed. Each result reports its own success or failure. A new write
-    replaces prior motion on that device; reads bypass writes. Calls do not
-    promise simultaneous sampling or atomic effects across devices.
+    Camera reads default to NumPy arrays; args.output also accepts base64 or file.
     """
-    results = _rpc({"call": "devices", "commands": commands})["results"]
-    return [_camera_result(command["device"], command.get("action", "read"), command.get("args", {}), result)
-            for command, result in zip(commands, results)]
+    values = {"deviceID": deviceID, "action": action, "args": {} if args is None else args}
+    return _device_result("device", values, _rpc({"call": "device", **values})["result"])
+
+
+def devices(calls):
+    """Run {deviceID, action?, args?} calls concurrently; return {"results": [...]}.
+
+    Entries preserve input order and contain deviceID, action, ok and data/file or error.
+    """
+    values = {"calls": calls}
+    return _device_result("devices", values, _rpc({"call": "devices", **values})["result"])
 
 
 def call(tool, **kwargs):
     """Compose a Python tool or device/devices; returns its structured result."""
     result = _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
-    if tool == "device":
-        return _camera_result(kwargs["deviceID"], kwargs.get("action", "read"), kwargs.get("args", {}), {"data": result})["data"]
-    if tool == "devices":
-        result["results"] = [_camera_result(command["deviceID"], command.get("action", "read"), command.get("args", {}), value)
-                             for command, value in zip(kwargs["calls"], result["results"])]
-    return result
+    return _device_result(tool, kwargs, result)
 
 
 def inline(source, values, *, kind="perception"):
@@ -203,13 +203,13 @@ class Device:
     def type(self):
         return self.profile.get("type")
 
-    def read(self, **kwargs):
+    def read(self, args=None):
         """One sample of what the device knows (driver "read")."""
-        return device(self.name, "read", **kwargs)
+        return device(self.name, "read", args)
 
-    def act(self, action, **kwargs):
+    def act(self, action, args=None):
         """Dispatch any driver action (commands are controller-tool-only)."""
-        return device(self.name, action, **kwargs)
+        return device(self.name, action, args)
 
     def pose_in(self, other, frame=None):
         """This device's pose expressed in `other`'s frame (see frames.pose)."""

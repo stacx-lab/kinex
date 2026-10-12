@@ -38,7 +38,7 @@ class _Resolver:
 
     def read(self, name):
         if name not in self.readings:
-            self.readings[name] = device(name).get("data") or {}
+            self.readings[name] = device(name)
         return self.readings[name]
 
     def frames(self, name):
@@ -71,7 +71,7 @@ class _Resolver:
             args = {"joints": self.read(name)["positions"], "frame": frame,
                     "reference_frame": None}
             if source == "kinematics" and fk == "driver":
-                return xyzq_to_rt(device(name, "fk", **args)["data"]["pose"])
+                return xyzq_to_rt(device(name, "fk", args)["pose"])
             return xyzq_to_rt(JointDevice(prof).fk(**args)["pose"])
         value = self.read(name).get("frame_poses", {}).get(frame)
         if value is None:

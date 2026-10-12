@@ -68,7 +68,7 @@ test('wait_timeout survives direct tools and Python RPC without elapsed time', a
   const tool = path.join(directory, '.kinex/tool/wait_probe')
   await mkdir(tool, { recursive: true })
   await writeFile(path.join(tool, 'tool.yaml'), 'name: wait_probe\nkind: controller\ndescription: Wait timeout probe\ninterpreter: python3\ntimeout_s: 10\nparameters: {type: object}\n')
-  await writeFile(path.join(tool, 'tool.py'), 'from kinex import device\ndevice("world", "wait", duration_s=30)\n')
+  await writeFile(path.join(tool, 'tool.py'), 'from kinex import device\ndevice("world", "wait", {"duration_s": 30})\n')
   for (const [name, args] of [['device', { deviceID: 'world', action: 'wait', args: { duration_s: 30 } }], ['wait_probe', {}]]) {
     const result = await runtime.tools.call(name, args, { sessionID: 'timeout-test' })
     assert.equal(result.isError, true, result.output)

@@ -1,6 +1,5 @@
-Call several devices concurrently. Each call takes deviceID, action (default read),
-and args. Results remain in input order and include deviceID, action, ok, and data,
-file or error. Camera reads accept output="file", "base64", or "array". Direct reads default to base64 and attach RGB images in call order with camera identity and timestamp in every mode; no file-opening call is needed. Internal Python reads default to arrays. Calls are permission-checked
-before dispatch; failures are reported per entry. Cancellation interrupts the batch.
-Sampling is not simultaneous and effects are not atomic. Device scheduling still
-applies. Use device for a single call and device_stop for an immediate stop.
+Call devices concurrently with calls: [{deviceID, action?, args?}]; action defaults
+to read. Returns {results: [...]} in input order, with deviceID, action, ok and
+data/file or error per entry. Python devices(calls) uses the same structure.
+Camera modes match device; attached images follow call order. Permissions are
+checked before dispatch. Sampling is not simultaneous and effects are not atomic.

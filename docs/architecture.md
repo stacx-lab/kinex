@@ -48,7 +48,9 @@ See [device contracts](devices.md) for frames, motion and driver behavior.
 
 Tools are executable operations with names, descriptions and input schemas. They
 perform computation or sequences of device calls without requiring the agent to
-choose every intermediate step. Python tools declare their interface in
+choose every intermediate step. The `exec` tool runs ordinary Python source or
+script files with runtime access, without requiring a tool manifest. Reusable
+Python tools declare their interface in
 `tool.yaml` and implement it in `tool.py`, with two capability classes:
 
 - **Perception** tools read and compute. For example, `locate_object_3d` combines

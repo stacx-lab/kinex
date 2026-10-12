@@ -98,6 +98,22 @@ Sampling is not simultaneous and effects
 are not atomic. Python tools may compose these tools without gaining lifecycle
 or controller capabilities.
 
+Python uses the same request fields and result layouts:
+
+```python
+from kinex import device, devices
+
+request = {"deviceID": "camera", "action": "read", "args": {"output": "file"}}
+frame = device(**request)         # data fields directly, plus optional file
+batch = devices(calls=[request])  # {"results": [{deviceID, action, ok, data/file or error}]}
+```
+
+`device(deviceID, action="read", args=None)` accepts positional or keyword arguments.
+`call("device", ...)` and `call("devices", ...)` use the same inputs and results;
+`Device` handles expose `read(args=None)` and `act(action, args=None)`.
+Single failures raise `RPCError`; batches return per-entry errors.
+`compact` and `verbose` are tool-only presentation options.
+
 Actuator writes submit validated buffers with `duration_s` and return immediately
 with `{execution_id, state}`. State is measured at submission, not completion.
 Devices consume them at their fixed cadence. Position devices retain the last
@@ -392,6 +408,52 @@ uv is not needed to execute an already prepared environment. Import/discovery ne
 neither Python nor uv. Missing packages report errors without automatic installation
 or replay of the failed tool.
 
+## Python scripting
+
+Use `exec` to run ordinary Python with access to the active runtime. Supply exactly
+one of `python` (source) or `file` (a script path); no manifest, `main()` function or
+`kind` is required. Multiline source is passed directly, without shell syntax.
+
+```json
+{
+  "python": "from kinex import devices\nfor result in devices(calls=[{'deviceID': 'arm'}, {'deviceID': 'camera', 'args': {'output': 'file'}}])['results']:\n    print(result)"
+}
+```
+
+Files run from the runtime's working directory, with normal script-local imports,
+`__file__` and `__name__ == "__main__"`. Relative paths resolve from that working
+directory. For example:
+
+```json
+{"file": "scripts/inspect.py", "argv": ["--samples", "10"], "args": {"device": "arm"}}
+```
+
+`args` defaults to `{}` and is available through `kinex.args()`; `argv` defaults to
+`[]` and populates `sys.argv[1:]`. `interpreter` optionally selects a Python
+executable; otherwise execution lazily prepares and reuses Kinex's managed Python.
+`timeout_s` defaults to 120 wall-clock seconds. Each invocation uses a fresh
+process; script stdin receives EOF.
+
+The result contains `exit_code`, bounded combined stdout/stderr in `output`, and
+`result` (normally `null`). Normal completion and `sys.exit(0)` succeed. Optionally
+use `kinex.finish(value)` for a JSON result, or `kinex.finish(value, file=image_path)`
+to attach an image. Failures set the tool's error flag and return `error`, retaining
+RPC `code` and `details` when present. `exit_code` is null if Python never started.
+Output truncation is reported explicitly. Raw prints and subprocess output cannot
+be interpreted as runtime messages.
+
+One `python_tool_controller` approval covers script execution and composed runtime
+calls. Scripts can use `device`, `devices`, `call`, `profile`, `robot` and `Device`
+from `kinex`. Composed perception tools retain their restrictions. Python cannot
+load/unload devices or call the recording tool. Failure, timeout and cancellation
+stop motion still owned by the invocation and terminate owned subprocesses;
+successful completion may leave submitted motion running.
+
+`exec`, manifest tools and `closed_loop` inline stages share the execution runner.
+Closed-loop stages retain their lambda/`main(**args)` interface, stage capabilities
+and fresh-process behavior; use `closed_loop` for feedback control and `exec` for
+ordinary scripting.
+
 ## Development
 
 Python tools receive one startup JSON line on stdin: `{"args": {...}}`, with
@@ -403,7 +465,7 @@ from `sys.argv` must migrate to these helpers. Executable paths and `--serve` st
 in argv; payload size no longer selects a transport.
 
 Internal camera reads default to NumPy arrays. For file-based consumers, perception
-can return `{"image": device("camera", output="file")["file"]}`; with an identity
+can return `{"image": device("camera", args={"output": "file"})["file"]}`; with an identity
 processing stage, the controller mapping `"inputs": {"/observation/images/0": "/image"}` passes the
 current file path each round. Consumers open the file, and image tools can display
 it to the model. Internal reads do not automatically display images; call the

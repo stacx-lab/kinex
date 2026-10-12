@@ -7,4 +7,4 @@ Patches deep-merge. To switch a strict variant, supply the complete top-level se
 
 Outstanding requests persist across reads and replacements. Clear a resolved request with needs_calibration:null in its section; the store rejects clearing incomplete facts. Unknown required facts remain ???. Set source to the origin of the data; keep diagnostics in calibration evidence.
 
-New devices use loaded:false; activation uses the device tool (action="load") or /load, not profile edits. Profile paths are devices/<name>/profile.yaml beside the driver. Validation errors identify fields and the guide to consult.
+New devices use loaded:false; activation uses the device tool (action="load") or /load, not profile edits. Profiles live at .kinex/devices/<name>/profile.yaml beside the driver, using the nearest .kinex/ in the current directory or its ancestors (the current directory's .kinex/ if none exists). Validation errors identify fields and the guide to consult.

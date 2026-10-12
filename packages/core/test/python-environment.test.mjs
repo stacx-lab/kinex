@@ -105,6 +105,20 @@ test('existing default Python runs repeated and concurrent tools without uv or m
   assert.deepEqual(await f.calls(), [])
 })
 
+test('exec discovery is inert and default execution lazily prepares and reuses Kinex Python', async t => {
+  const f = await fixture(t)
+  const catalog = await f.runtime.tools.list()
+  assert.ok(catalog.tools.some(tool => tool.name === 'exec'))
+  assert.deepEqual(await f.calls(), [])
+  await assert.rejects(stat(f.status.project), { code: 'ENOENT' })
+  for (let i = 0; i < 2; i++) {
+    const result = await f.runtime.tools.call('exec', { python: 'import sys; print(sys.executable)' }, { sessionID: 'python' })
+    assert.ok(!result.isError, result.output)
+    assert.equal(JSON.parse(result.output).output.trim(), f.status.executable)
+    assert.equal((await f.calls()).length, 1)
+  }
+})
+
 test('concurrent first use across runtimes waits for complete preparation, then reuses and recreates the environment', async t => {
   const f = await fixture(t)
   await f.configure({ gate: true })

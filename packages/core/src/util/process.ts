@@ -27,6 +27,12 @@ export function spawnProcess(argv: string[], options: ProcessOptions = {}) {
   const group = options.group && process.platform !== "win32"
   const child = spawn(command, argv.slice(1), { cwd: options.cwd, env: options.env, detached: group, stdio: ["pipe", "pipe", "pipe"] })
   const state = { written: Promise.resolve(), timer: undefined as ReturnType<typeof setTimeout> | undefined }
+  // Unlike close, exit does not wait for pipes inherited by child processes.
+  const exit = new Promise<number>((resolve, reject) => {
+    child.once("error", reject)
+    child.once("exit", code => resolve(code ?? 128))
+  })
+  void exit.catch(() => {})
   const exited = new Promise<number>((resolve, reject) => {
     child.once("error", reject)
     child.once("close", (code) => resolve(code ?? 128))
@@ -62,6 +68,7 @@ export function spawnProcess(argv: string[], options: ProcessOptions = {}) {
     },
     stdout: Readable.toWeb(child.stdout),
     stderr: Readable.toWeb(child.stderr),
+    exit,
     exited,
     kill: terminate,
   }

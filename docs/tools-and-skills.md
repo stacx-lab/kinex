@@ -16,6 +16,13 @@ built-ins complement the host's coding tools, such as shell and file editing.
 | `profile_write` | Validate and save workspace/device facts, including calibration requests. New devices remain unloaded. |
 | `record` | Start/stop observation capture, take snapshots and inspect recordings. Exposed to the model only when recording is enabled. |
 | `skill` | Load a named skill's instructions into the agent's context. |
+| `exec` | Run ordinary Python source or a script file with runtime access, captured output and optional structured results. |
+
+Use `exec` for ad hoc scripting without a tool manifest or a required function
+signature. One execution approval covers runtime reads and commands, including
+composed Python tools. Scripts cannot load/unload devices or call the recording
+tool. See [Python scripting](../packages/core/README.md#python-scripting) for inputs
+and examples.
 
 ### Perception and control
 

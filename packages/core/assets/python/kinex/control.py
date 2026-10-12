@@ -7,7 +7,7 @@ from kinex import device, stop_owned
 
 def read(name):
     """One reading, for the verification a write's own report cannot provide."""
-    state = device(name).get("data") or {}
+    state = device(name)
     if not isinstance(state.get("faults"), list):
         raise ValueError(f"{name} read.faults must be a list")
     return state

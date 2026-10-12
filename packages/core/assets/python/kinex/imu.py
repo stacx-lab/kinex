@@ -7,4 +7,4 @@ def read(name):
     if profile(name)["type"] != "imu":
         raise ValueError("input device must have type imu")
     # Dispatch has already validated channels and subtracted the profile bias.
-    return device(name)["data"]
+    return device(name)

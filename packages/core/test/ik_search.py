@@ -311,25 +311,27 @@ class ControllerTests(unittest.TestCase):
             return {"type": "model", "intrinsics": {"operations": [{"name": "infer"}]}}
         return {**self.profile, "name": name}
 
-    def device(self, name, action="read", **args):
+    def device(self, deviceID, action="read", args=None):
+        args = {} if args is None else args
         if action == "infer":
-            return {"data": {"actions": self.actions}}
+            return {"actions": self.actions}
         if action == "read":
-            return {"data": {"positions": self.positions, "faults": [], "timestamp": 0}}
+            return {"positions": self.positions, "faults": [], "timestamp": 0}
         if action == "ik":
             seed = args.get("seed", self.model.project(self.positions))
             result = self.model.ik(args["pose"], seed)
             self.ik_calls.append((list(seed), result["joints"]))
-            return {"data": result}
+            return result
         if action == "write":
             self.model.command(args)
-            self.writes.append((name, args))
+            self.writes.append((deviceID, args))
             self.pending = args
-            return {"data": {"execution_id": "recovered"}}
+            return {"execution_id": "recovered"}
         raise AssertionError(f"unexpected device action {action}")
 
-    def devices(self, commands):
-        return [{"ok": True, **self.device(c["device"], c["action"], **c["args"])} for c in commands]
+    def devices(self, calls):
+        return {"results": [{"deviceID": c["deviceID"], "action": c["action"], "ok": True,
+                             "data": self.device(**c)} for c in calls]}
 
     def tool(self, name):
         path = Path(__file__).parent.parent / "assets" / "builtin" / "tool" / name / "tool.py"

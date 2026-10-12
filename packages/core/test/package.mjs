@@ -9,6 +9,7 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 
 export async function checkCorePackage(directory, env, pack) {
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
+  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/_exec.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
   for (const name of ['driver.py', 'setup.sh', 'provision.py', 'fastwam_config.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
@@ -73,6 +74,17 @@ export async function checkCorePackage(directory, env, pack) {
       const conventions = (await runtime.context()).conventions
       assert.match(conventions, /wait.*duration_s/)
       assert.doesNotMatch(conventions, /### Profile|## Setup|loaded: false/)
+      const reading = await runtime.tools.call('exec', { interpreter: 'python3', python: [
+        'from kinex import device, devices, finish',
+        'request = {"deviceID": "world", "args": {}}',
+        'finish({"single": device(**request), "batch": devices(calls=[request])})'
+      ].join('\\n') }, {sessionID:'package'})
+      assert.ok(!reading.isError, reading.output)
+      const value = JSON.parse(reading.output).result
+      assert.equal(typeof value.single.time_s, 'number')
+      assert.equal(value.single.data, undefined)
+      assert.equal(value.batch.results[0].deviceID, 'world')
+      assert.equal(typeof value.batch.results[0].data.time_s, 'number')
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
@@ -91,6 +103,12 @@ export async function checkCorePackage(directory, env, pack) {
       ].join('\\n')], { env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'} })
       const tools = await runtime.tools.list()
       assert.ok(tools.tools.some(tool => tool.name === 'device'))
+      assert.ok(tools.tools.some(tool => tool.name === 'exec'))
+      const script = await runtime.tools.call('exec', {
+        interpreter: 'python3', python: 'from kinex import robot; print(robot()["identity"]["id"])'
+      }, {sessionID:'package'})
+      assert.ok(!script.isError, script.output)
+      assert.deepEqual(JSON.parse(script.output), {exit_code:0, output:'clock\\n', result:null})
       await mkdir('.kinex/tool', {recursive:true})
       await writeFile('.kinex/tool/echo.ts', 'const text: string = "installed"; export default {description: text, execute: async () => ({title: text, output: text})}')
       assert.equal((await runtime.tools.call('echo', {}, {sessionID:'package'})).output, 'installed')
