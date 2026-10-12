@@ -1578,7 +1578,7 @@ run(dispatch, lambda: None)
     { deviceID: 'missing' },
     { deviceID: 'sensor', args: { batch: true, index: 2 } },
   ] }, { sessionID: 's' })
-  assert.equal(result.isError, true)
+  assert.equal(result.isError, false)
   const rows = JSON.parse(result.output).results
   assert.deepEqual(rows.map(row => [row.deviceID, row.action, row.ok]), [['sensor', 'read', true], ['missing', 'read', false], ['sensor', 'read', true]])
   assert.equal(rows[0].data.index, 0)
@@ -1865,10 +1865,16 @@ finish({'timestamp': samples[0]['timestamp']})
   const batch = await runtime.tools.call('devices', { calls: [
     { deviceID: 'rgb' }, { deviceID: 'missing' }, { deviceID: 'sensor' }, { deviceID: 'camera' },
   ] }, { sessionID: 's' })
-  assert.equal(batch.isError, true)
+  assert.equal(batch.isError, false)
   assert.deepEqual(batch.attachments.map(image => image.data), [rgb.data.color, wire.data.color])
   assert.deepEqual(JSON.parse(batch.output).results.map(row => row.deviceID), ['rgb', 'missing', 'sensor', 'camera'])
   assert.doesNotMatch(batch.output, /color|depth|attachments|iVBOR/)
+  const failed = await runtime.tools.call('devices', { calls: [
+    { deviceID: 'camera', args: { output: 'invalid' } }, { deviceID: 'missing' },
+  ] }, { sessionID: 's' })
+  assert.equal(failed.isError, true)
+  assert.equal(failed.attachments, undefined)
+  assert.deepEqual(JSON.parse(failed.output).results.map(row => row.ok), [false, false])
   await assert.rejects(readdir(out), { code: 'ENOENT' })
   assert.deepEqual((await runtime.devices.dispatch('camera', 'read', { output: 'base64' })).data, wire.data)
   for (const name of ['device', 'devices']) for (const output of ['array', 'base64', 'file']) {

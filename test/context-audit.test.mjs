@@ -75,6 +75,33 @@ async function wireProvider(t, api, { compat, steps = [] } = {}) {
   return requests
 }
 
+test('Anthropic receives partial camera batches with images and per-device errors as normal results', async t => {
+  const cwd = await workspace(t)
+  const requests = await wireProvider(t, 'anthropic-messages', { steps: [
+    { tool: 'devices', args: { calls: [{ deviceID: 'camera' }, { deviceID: 'missing' }] } },
+    { text: 'batch inspected' },
+  ] })
+  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  t.after(() => app.dispose())
+  await seed(app.owner.runtime)
+  await app.owner.runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true,
+    access: { connection: { kind: 'mock' } },
+    intrinsics: { color: { width: 2, height: 2, pixel_format: 'rgb8', image_format: 'png' } } })
+  await bind(app)
+  await app.host.session.prompt('read the camera and missing device')
+  assert.equal(requests.length, 2)
+  const result = messages(requests[1]).flatMap(message => Array.isArray(message.content) ? message.content : [])
+    .find(block => block.type === 'tool_result')
+  assert.equal(result.is_error, false)
+  assert.deepEqual(result.content.map(block => block.type), ['text', 'image'])
+  const rows = JSON.parse(result.content[0].text).results
+  assert.deepEqual(rows.map(row => [row.deviceID, row.ok]), [['camera', true], ['missing', false]])
+  assert.match(rows[1].error, /no device "missing"/)
+  assert.equal(result.content[1].source.media_type, 'image/png')
+  assert.ok(result.content[1].source.data.length > 0)
+  assert.equal(app.host.session.agent.state.messages.at(-1).content[0].text, 'batch inspected')
+})
+
 for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages']) {
   test(`${api}: full request prefixes survive device/skill state changes and session reopen`, async t => {
     const cwd = await workspace(t)

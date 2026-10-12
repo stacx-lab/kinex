@@ -11,6 +11,6 @@ export const DevicesTool = define("devices", {
     const attachments = results.flatMap(result => result.attachments ?? [])
     return { title: `devices: ${args.calls.length} calls`, output: formatJSON({ results: results.map(({ attachments, ...result }) => result) }),
       ...(attachments.length ? { attachments } : {}),
-      isError: results.some(result => !result.ok) }
+      isError: results.every(result => !result.ok) }
   },
 })
