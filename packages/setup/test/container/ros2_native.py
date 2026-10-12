@@ -5,7 +5,6 @@ in-process joint publisher. It does not validate a ros2_control controller.
 """
 
 import os
-import subprocess
 from pathlib import Path
 import tempfile
 import threading
@@ -18,46 +17,10 @@ from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import Imu, JointState
 from types import SimpleNamespace
 from trajectory_msgs.msg import JointTrajectory
-from kinex_ros.bundle_install import install
-from kinex_ros.bundle_manifest import Bundle, validate_manifest
 from kinex_ros.ros2_drivers import ImuSource, JointTrajectoryDriver
 from kinex_ros.ros2_check import check
-from kinex_ros.ros2 import BundleError, Latest, jtc_point
+from kinex_ros.ros2 import ROSError, Latest, jtc_point
 from ros2_fixtures import fixture, write
-
-
-class NativeProvisioning(unittest.TestCase):
-    def test_git_dependencies_build_regardless_of_manifest_order(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            pins = []
-            # Deliberately list the consumer before its source dependency.
-            for name, dependency in (("kinex_fixture_app", "kinex_fixture_dep"), ("kinex_fixture_dep", None)):
-                source = root / name
-                source.mkdir()
-                (source / "package.xml").write_text(
-                    f'<package format="3"><name>{name}</name><version>0.0.1</version>'
-                    '<description>Source dependency fixture</description>'
-                    '<maintainer email="fixture@example.invalid">Fixture</maintainer><license>MIT</license>'
-                    '<buildtool_depend>ament_cmake</buildtool_depend>'
-                    + (f'<depend>{dependency}</depend>' if dependency else '')
-                    + '<export><build_type>ament_cmake</build_type></export></package>')
-                (source / "CMakeLists.txt").write_text(
-                    f"cmake_minimum_required(VERSION 3.8)\nproject({name})\nfind_package(ament_cmake REQUIRED)\n"
-                    + (f"find_package({dependency} REQUIRED)\n" if dependency else '') + "ament_package()\n")
-                for args in (("init", "-b", "main"), ("add", "."),
-                             ("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
-                              "-c", "commit.gpgsign=false", "commit", "-m", "source fixture")):
-                    subprocess.run(["git", "-C", str(source), *args], check=True, capture_output=True)
-                pins.append({"url": str(source), "rev": "main", "build": "colcon"})
-            directory = root / "device"
-            manifest = validate_manifest({"version": 1, "name": "fixture", "device": {"type": "other"},
-                                          "facts": [], "pins": {"git": pins}})
-            bundle = Bundle(directory, manifest, {})
-            self.assertEqual(install(bundle, {"ros_distro": os.environ["ROS_DISTRO"]}, allow_install=True), [])
-            for pin in pins:
-                name = Path(pin["url"]).name
-                self.assertTrue((directory / "ws/install" / name / "share" / name / "cmake" / f"{name}Config.cmake").is_file())
 
 
 class NativeTransport(unittest.TestCase):
@@ -75,7 +38,7 @@ class NativeTransport(unittest.TestCase):
             handle = SimpleNamespace(latest=latest)
             self.assertEqual(driver.read_sample(handle)["angular_velocity"]["x"], .2)
             message.orientation_covariance[0] = -1.
-            with self.assertRaisesRegex(BundleError, "orientation as unavailable"):
+            with self.assertRaisesRegex(ROSError, "orientation as unavailable"):
                 driver.read_sample(handle)
 
     def test_joint_discovery_read_command_and_cleanup(self):
@@ -105,13 +68,13 @@ class NativeTransport(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temporary:
                 directory = Path(temporary)
                 manifest, _, _ = fixture(directory)
-                manifest['driver'].pop('action')
-                manifest['driver'].pop('controller')
-                manifest['driver']['connect_timeout_s'] = 5
-                manifest['driver']['stop']['confirm']['timeout_s'] = 1
+                manifest.pop('action')
+                manifest.pop('controller')
+                manifest['connect_timeout_s'] = 5
+                manifest['stop']['confirm']['timeout_s'] = 1
                 manifest['expected']['controllers'] = []
-                manifest['stack']['ready_timeout_s'] = 5
-                write(directory / 'bundle.yaml', manifest)
+                manifest['ready_timeout_s'] = 5
+                write(directory / 'profile_ros.yaml', manifest)
                 driver = JointTrajectoryDriver(directory)
                 driver.serving = True
                 try:

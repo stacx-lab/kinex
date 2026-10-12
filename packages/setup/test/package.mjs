@@ -14,7 +14,7 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
   assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_base.py'))
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/kinex/') || file.path.endsWith('.pyc')))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/onboard-ros2/SKILL.md'))
-  for (const name of ['bundle', 'bundle_install', 'bundle_manifest', 'bundle_render', 'ros2', 'ros2_check', 'ros2_drivers'])
+  for (const name of ['config', 'ros2', 'ros2_check', 'ros2_drivers'])
     assert.ok(setup.files.some(file => file.path === `assets/python/kinex_ros/${name}.py`))
   await writeFile(path.join(relocated, 'consumer.mts'), `
 import { createKinexRuntime } from '@kinex/core'
@@ -55,7 +55,7 @@ try {
   assert.ok((await runtime.skills.load('setup-device')).info.directory.includes('node_modules'))
   await assert.rejects(stat('.kinex'), {code:'ENOENT'})
   const write = async data => {
-    const result = await runtime.tools.call('profile_write', data, {sessionID:'provision'})
+    const result = await runtime.tools.call('profile_write', data, {sessionID:'configure'})
     assert.ok(!result.isError, result.output)
   }
   await write({kind:'robot', data:{identity:{id:'clock',name:'Clock',platform:'real',kind:'arm'}}})
@@ -70,13 +70,10 @@ try {
   assert.ok(await runtime.skills.load('onboard-ros2'))
   const coreLibrary = CoreAssets.python()
   const setupLibrary = fileURLToPath(new URL('../assets/python', import.meta.resolve('@kinex/setup')))
-  const pythonEnv = { ...process.env, PYTHONPATH: [setupLibrary, coreLibrary, ${JSON.stringify(path.join(root, 'test'))}].join(path.delimiter), KINEX_BUNDLE_SKIP_INSTALL: '1' }
-  execFileSync('python3', ['-c', "from ros2_fixtures import fixture; fixture('ros-source', 'joint')"], {env: pythonEnv})
-  const output = execFileSync('python3', ['ros-source/provision.py', '--dir', '.kinex/devices/arm', '--core-library', coreLibrary, '--setup-library', setupLibrary], {env: pythonEnv, encoding: 'utf8'})
-  const generation = JSON.parse(output).generations.arm
-  await write({kind:'device', data: JSON.parse(await readFile(path.join(generation, 'profile.generated.json'), 'utf8'))})
-  await copyFile('ros-source/scenario.json', 'ros-scenario.json')
-  await rm('ros-source', {recursive:true})
+  const pythonEnv = { ...process.env, PYTHONPATH: [setupLibrary, coreLibrary, ${JSON.stringify(path.join(root, 'test'))}].join(path.delimiter) }
+  const output = execFileSync('python3', ['-c', "import json, sys; from ros2_fixtures import runtime_fixture; print(json.dumps(runtime_fixture('.kinex/devices/arm', sys.argv[1], sys.argv[2])))", setupLibrary, coreLibrary], {env: pythonEnv, encoding: 'utf8'})
+  await write({kind:'device', data: JSON.parse(output)})
+  await copyFile('.kinex/devices/arm/scenario.json', 'ros-scenario.json')
 } finally {await runtime.dispose()}
 `], { cwd: relocated, env })
   await rm(path.join(installed, 'node_modules/@kinex/setup'), { recursive: true })
@@ -112,7 +109,7 @@ try {
   await (await runtime.devices.reload('world')).ready
   await runtime.devices.ping('world')
   await runtime.devices.unload('world')
-  // The ROS generation carries its own setup helpers after the package is removed.
+  // Device-local ROS helpers work after the setup package is removed.
   process.env.PYTHONPATH = ${JSON.stringify(path.join(root, 'test/fake_rclpy'))}
   process.env.KINEX_FAKE_RCLPY_SCENARIO = path.resolve('ros-scenario.json')
   process.env.ROS_DOMAIN_ID = '0'
@@ -124,13 +121,11 @@ try {
   await (await runtime.devices.reload('arm')).ready
   await runtime.devices.unload('arm')
   const profile = (await runtime.profiles.snapshot()).devices.find(device => device.name === 'arm')
-  const generation = path.dirname(path.resolve('.kinex/devices/arm', profile.access.driver.entry))
-  assert.deepEqual((await readdir(path.join(generation, 'python/kinex_ros'))).filter(name => name.endsWith('.py')).sort(),
-    ['__init__.py', 'bundle_manifest.py', 'ros2.py', 'ros2_check.py', 'ros2_drivers.py'])
-  for (const name of ['provision.py', 'setup.sh']) await assert.rejects(stat(path.join(generation, name)), {code:'ENOENT'})
-  execFileSync('bash', [path.join(generation, 'check.sh'), '--duration-s', '.05'], {env: process.env})
-  const checks = JSON.parse(await readFile('.kinex/devices/arm/verify/measurements.json', 'utf8'))
-  assert.ok(checks.checks.length)
+  assert.equal(profile.access.driver.entry, 'driver.py')
+  const deviceDirectory = path.resolve('.kinex/devices/arm')
+  assert.equal(profile.access.driver.interpreter, path.join(deviceDirectory, 'ros-python'))
+  assert.deepEqual((await readdir(path.join(deviceDirectory, 'python/kinex_ros'))).filter(name => name.endsWith('.py')).sort(),
+    ['__init__.py', 'config.py', 'ros2.py', 'ros2_drivers.py'])
   // Model resolution belongs to core even when its Python environment is newly prepared.
   const python = await runtime.python.initialize()
   await mkdir(path.dirname(python.executable), {recursive:true})

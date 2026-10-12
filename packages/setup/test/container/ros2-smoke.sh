@@ -7,7 +7,7 @@ tag="kinex-ros2-smoke:jazzy"
 docker build -t "$tag" - <<'DOCKERFILE'
 FROM osrf/ros:jazzy-desktop
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git cmake python3-colcon-common-extensions python3-yaml python3-numpy python3-pil \
+    python3-yaml python3-numpy python3-pil \
     ros-${ROS_DISTRO}-control-msgs ros-${ROS_DISTRO}-controller-manager-msgs \
     && rm -rf /var/lib/apt/lists/*
 DOCKERFILE

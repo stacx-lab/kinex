@@ -15,14 +15,14 @@ import time
 from kinex.driver_protocol import release
 
 
-class BundleError(RuntimeError):
+class ROSError(RuntimeError):
     def __init__(self, message, code="ros2_error", details=None):
         super().__init__(message)
         self.code = code
         self.details = details or {}
 
 
-class StopNotConfirmed(BundleError):
+class StopNotConfirmed(ROSError):
     def __init__(self, message="stop was not confirmed by fresh velocity feedback"):
         super().__init__(message, "stop_failed")
 
@@ -46,7 +46,7 @@ def _type(value):
 def _finite(values, name):
     result = list(values)
     if not result or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in result):
-        raise BundleError(f"{name} requires finite numeric values", "invalid_feedback")
+        raise ROSError(f"{name} requires finite numeric values", "invalid_feedback")
     return result
 
 
@@ -54,7 +54,7 @@ def _future(future, timeout_s):
     ready = threading.Event()
     future.add_done_callback(lambda _: ready.set())
     if not ready.wait(max(0, timeout_s)):
-        raise BundleError("ROS request timed out; its remote outcome is unknown", "ros_timeout")
+        raise ROSError("ROS request timed out; its remote outcome is unknown", "ros_timeout")
     return future.result()
 
 
@@ -69,7 +69,7 @@ def _bounded(action, timeout_s):
     worker.start()
     worker.join(max(0, timeout_s))
     if worker.is_alive():
-        raise BundleError("ROS cleanup timed out; process teardown is required", "cleanup_timeout")
+        raise ROSError("ROS cleanup timed out; process teardown is required", "cleanup_timeout")
     if errors:
         raise errors[0]
 
@@ -117,7 +117,7 @@ class Latest:
         """Keep a message and its acquisition timestamp from the same callback."""
         with self.condition:
             if self.message is None or (max_age_s is not None and time.monotonic() - self.received_mono > max_age_s):
-                raise BundleError(f"no fresh feedback on {self.topic}", "stale_feedback")
+                raise ROSError(f"no fresh feedback on {self.topic}", "stale_feedback")
             return self.message, self.stamp_s
 
     def age_s(self):
@@ -127,7 +127,7 @@ class Latest:
     def wait(self, timeout_s, after=None):
         with self.condition:
             if not self.condition.wait_for(lambda: self.message is not None and (after is None or self.count > after), max(0, timeout_s)):
-                raise BundleError(f"timed out waiting for {self.topic}", "stale_feedback")
+                raise ROSError(f"timed out waiting for {self.topic}", "stale_feedback")
             return self.message
 
     def rate_hz(self, window_s):
@@ -157,7 +157,7 @@ class StopConfirm:
                     values = _finite(self.speeds(message), "stop velocities")
                 if max(abs(value) for value in values) <= self.max_speed:
                     return
-            except BundleError as error:
+            except ROSError as error:
                 raise StopNotConfirmed(str(error)) from error
         raise StopNotConfirmed()
 
@@ -174,13 +174,13 @@ class Publisher:
         while not self.subscriber_count():
             self.session.check()
             if time.monotonic() >= deadline:
-                raise BundleError(f"no subscribers on {self.topic}", "no_subscribers")
+                raise ROSError(f"no subscribers on {self.topic}", "no_subscribers")
             time.sleep(.01)
 
     def publish(self, message):
         self.session.check()
         if self.subscriber_count() < 1:
-            raise BundleError(f"no subscribers on {self.topic}", "no_subscribers")
+            raise ROSError(f"no subscribers on {self.topic}", "no_subscribers")
         self.publisher.publish(message)
 
     def publish_repeat(self, message, n=5, period_s=.02):
@@ -201,7 +201,7 @@ class Service:
     def call(self, request=None, timeout_s=1):
         deadline = time.monotonic() + timeout_s
         if not self.client.wait_for_service(timeout_sec=max(0, timeout_s)):
-            raise BundleError("ROS service is unavailable", "service_unavailable")
+            raise ROSError("ROS service is unavailable", "service_unavailable")
         return _future(self.client.call_async(request or self.type.Request()), deadline - time.monotonic())
 
 
@@ -235,14 +235,14 @@ class Action:
     def send(self, goal, timeout_s=1):
         deadline = time.monotonic() + timeout_s
         if not self.client.wait_for_server(timeout_sec=timeout_s):
-            raise BundleError("ROS action server is unavailable", "action_unavailable")
+            raise ROSError("ROS action server is unavailable", "action_unavailable")
         future = self.client.send_goal_async(goal)
         with self.lock:
             self.pending.append(future)
         future.add_done_callback(self._accepted)
         handle = _future(future, deadline - time.monotonic())
         if not handle.accepted:
-            raise BundleError("ROS action goal was rejected", "goal_rejected")
+            raise ROSError("ROS action goal was rejected", "goal_rejected")
         return handle
 
     def cancel_all(self, timeout_s=1):
@@ -258,7 +258,7 @@ class Action:
         for handle in handles:
             response = _future(handle.cancel_goal_async(), deadline - time.monotonic())
             if response.return_code not in (0, 3):  # accepted or already terminated
-                raise BundleError("ROS action cancellation was rejected", "stop_failed")
+                raise ROSError("ROS action cancellation was rejected", "stop_failed")
             with self.lock:
                 if handle in self.handles:
                     self.handles.remove(handle)
@@ -286,7 +286,7 @@ class Session:
         if self.node is not None:
             return self
         if int(os.environ.get("ROS_DOMAIN_ID", "0")) != self.domain_id:
-            raise BundleError("ROS_DOMAIN_ID does not match the bundle facts", "domain_mismatch")
+            raise ROSError("ROS_DOMAIN_ID does not match profile_ros.yaml", "domain_mismatch")
         import rclpy
         from rclpy.context import Context
         from rclpy.executors import MultiThreadedExecutor
@@ -314,9 +314,9 @@ class Session:
 
     def check(self):
         if self.node is None or self.closing:
-            raise BundleError("ROS session is closed", "session_closed")
+            raise ROSError("ROS session is closed", "session_closed")
         if self.failure is not None:
-            raise BundleError(f"ROS executor failed: {self.failure}", "executor_failed")
+            raise ROSError(f"ROS executor failed: {self.failure}", "executor_failed")
 
     def close(self, timeout_s=3):
         if self.context is None:
@@ -357,7 +357,7 @@ class Session:
         types = self.topic_types().get(self.node.resolve_topic_name(topic), [])
         matches = [candidate for candidate in candidates if candidate in types]
         if len(matches) != 1:
-            raise BundleError(f"{topic}: expected exactly one of {candidates}, found {types}", "topic_type_mismatch")
+            raise ROSError(f"{topic}: expected exactly one of {candidates}, found {types}", "topic_type_mismatch")
         return matches[0]
 
     def latest(self, topic, type_name, qos=None, stamp_source="header"):
@@ -394,18 +394,18 @@ class Session:
         service = self.service(node.rstrip("/") + "/get_parameters", "rcl_interfaces/srv/GetParameters")
         result = service.call(service.type.Request(names=[name]), timeout_s)
         if len(result.values) != 1:
-            raise BundleError(f"parameter {name} is unavailable", "parameter_unavailable")
+            raise ROSError(f"parameter {name} is unavailable", "parameter_unavailable")
         value = result.values[0]
         fields = {1: "bool_value", 2: "integer_value", 3: "double_value", 4: "string_value"}
         if value.type not in fields:
-            raise BundleError(f"parameter {name} is missing or not scalar", "parameter_unavailable")
+            raise ROSError(f"parameter {name} is missing or not scalar", "parameter_unavailable")
         return getattr(value, fields[value.type])
 
     def robot_description(self, topic="/robot_description", timeout_s=1, parameter_node="/robot_state_publisher"):
         deadline = time.monotonic() + timeout_s
         try:
             return self.latest(topic, "std_msgs/msg/String", "transient_local").wait(timeout_s / 2).data
-        except BundleError as error:
+        except ROSError as error:
             if error.code != "stale_feedback":
                 raise
             return self.param(parameter_node, "robot_description", max(0, deadline - time.monotonic()))
@@ -434,7 +434,7 @@ class Session:
             if not missing:
                 return
             if time.monotonic() >= deadline:
-                raise BundleError(f"missing ROS topics: {', '.join(missing)}", "missing_topics", {"topics": missing})
+                raise ROSError(f"missing ROS topics: {', '.join(missing)}", "missing_topics", {"topics": missing})
             time.sleep(min(.02, max(0, deadline - time.monotonic())))
 
     def expect(self, expected, facts=None, duration_s=.1, identity=None):
@@ -478,7 +478,7 @@ class Session:
             topic = expected.get("state_topic", facts.get("state_topic", "/joint_states"))
             try:
                 actual = list(self.latest(topic, "sensor_msgs/msg/JointState").wait(max(.05, duration_s)).name)
-            except BundleError:
+            except ROSError:
                 actual = []
             add("joints", sorted(names), sorted(actual), "joint state names vs declared model")
         publisher_topic = expected.get("identity", {}).get("single_publisher")
@@ -523,7 +523,7 @@ class Session:
 def joint_state_vector(message, names):
     actual = list(message.name)
     if len(set(actual)) != len(actual) or len(set(names)) != len(names) or set(actual) != set(names):
-        raise BundleError("joint feedback names do not match the model", "joint_names_mismatch")
+        raise ROSError("joint feedback names do not match the model", "joint_names_mismatch")
     order = [actual.index(name) for name in names]
     result = {}
     for source, target in (("position", "positions"), ("velocity", "velocities"), ("effort", "efforts")):
@@ -532,7 +532,7 @@ def joint_state_vector(message, names):
             result[target] = None
             continue
         if len(values) != len(actual):
-            raise BundleError(f"joint {source} length does not match names", "invalid_feedback")
+            raise ROSError(f"joint {source} length does not match names", "invalid_feedback")
         values = _finite(values, source)
         result[target] = [values[index] for index in order]
     return result
@@ -583,18 +583,18 @@ def zero_twist(type_name="geometry_msgs/msg/Twist"):
 def camera_info_patch(message, image_space):
     """Describe the selected image stream, not the raw camera calibration alone."""
     if image_space not in ("raw", "rectified"):
-        raise BundleError("camera image_space must be raw or rectified", "invalid_bundle")
+        raise ROSError("camera image_space must be raw or rectified", "invalid_ros_profile")
     if message.width <= 0 or message.height <= 0:
-        raise BundleError("CameraInfo has invalid dimensions", "invalid_camera_info")
+        raise ROSError("CameraInfo has invalid dimensions", "invalid_camera_info")
     matrix = list(message.p if image_space == "rectified" else message.k)
     width = 4 if image_space == "rectified" else 3
     if len(matrix) != 3 * width:
-        raise BundleError("CameraInfo has an invalid camera matrix", "invalid_camera_info")
+        raise ROSError("CameraInfo has an invalid camera matrix", "invalid_camera_info")
     _finite(matrix, "camera matrix")
     if matrix[0] <= 0 or matrix[width + 1] <= 0:
-        raise BundleError("CameraInfo focal lengths must be positive", "invalid_camera_info")
+        raise ROSError("CameraInfo focal lengths must be positive", "invalid_camera_info")
     if matrix[width] != 0 or matrix[2 * width:] != ([0., 0., 1., 0.] if width == 4 else [0., 0., 1.]):
-        raise BundleError("CameraInfo camera matrix must describe a pinhole projection", "invalid_camera_info")
+        raise ROSError("CameraInfo camera matrix must describe a pinhole projection", "invalid_camera_info")
     if image_space == "rectified":
         distortion = {"model": "none"}
     else:
@@ -607,7 +607,7 @@ def camera_info_patch(message, image_space):
             distortion = dict(zip(("k1", "k2", "p1", "p2", "k3"), coefficients))
             distortion["model"] = "opencv_brown_conrady"
         else:
-            raise BundleError("raw CameraInfo distortion must use five-coefficient plumb_bob; declare rectified only for a rectified stream", "unsupported_distortion")
+            raise ROSError("raw CameraInfo distortion must use five-coefficient plumb_bob; declare rectified only for a rectified stream", "unsupported_distortion")
     return {"width": message.width, "height": message.height,
             "projection": {"model": "pinhole", "fx": matrix[0], "fy": matrix[width + 1],
                            "cx": matrix[2], "cy": matrix[width + 2], "skew": matrix[1]},

@@ -1,4 +1,4 @@
-# Setup, calibration and ROS provisioning
+# Setup, calibration and ROS integration
 
 ## Task prerequisites and calibration evidence
 
@@ -19,35 +19,30 @@ needs more time, advance it explicitly before invoking the sampler. General
 feedback loops use [Python execution with `exec`](tools-and-skills.md#python-execution-with-exec);
 the sampler's own settling and evidence checks remain part of setup.
 
-## ROS provisioning
+## ROS integration
 
-Setup owns ROS implementation, `kinex_ros` and dependency checks, targeting Jazzy
-on Ubuntu 24.04 with Python 3.12. Core's `kind: ros` is inert metadata. Onboarding
+Setup owns ROS configuration and the `kinex_ros` adapters. Match the interpreter
+to the selected ROS distribution. Core's `kind: ros` is inert metadata. Onboarding
 and registration route through `onboard-ros2`, preferring installed packages, then
 apt binaries; source builds/direct SDKs need an evidenced reason or user choice.
-Preserve working integrations unless replacement is requested. Detection never
-selects an undeclared distribution. Domain/namespace and CameraInfo configuration
-remain bundle/driver facts outside the core schema.
+Preserve working integrations unless replacement is requested. Domain/namespace
+and CameraInfo configuration live in the device-root `profile_ros.yaml`, outside the core schema.
 
-Provisioning requires explicit absolute core/setup Python roots. It stages and
-validates syntax and driver/URDF artifacts before renaming to
-`ros/generations/<id>`. Normal `profile_write` selects entry/interpreter after
-unload; provisioning never edits the selected profile. Failed candidates preserve
-selected files, satellites pin parent generations, and destinations are checked
-and locked before writing. Runtime inventories and declared source inputs affect
-the digest; missing inputs fail preparation.
+Device drivers and optional ROS configuration files live directly in the device
+directory. Use `profile_write` to register their actual entry/interpreter paths.
+Unload through core before replacing a device's runtime files, then validate and
+reload through the normal lifecycle. ROS drivers do not create auxiliary setup-state
+files. Profile fields are passed directly to the profile tool; interface observations are returned to the caller rather than saved as reports.
 
-Generations deploy runtime helpers, excluding provisioning/installer modules.
-Direct provisioning imports are rejected; custom runtime dependencies need offline
-validation, and static checks cannot prove dynamic imports. Wrappers source the
-declared ROS installation/overlay and use generation-local ROS helpers plus core
-Python. Provisioned devices survive setup removal. Shared host packages/overlays
-are not rolled back; failed legacy migration stays unloaded and repairs forward.
+ROS configuration loading and adapters remain independent library functions.
+The agent installs dependencies and writes startup scripts directly. Wrappers source
+the selected ROS installation and overlay in a separate process. Drivers may carry the ROS helpers they require so
+that removing setup does not break operation. Shared host packages/overlays are not
+rolled back.
 
-Apt checks are read-only. Installation uses the host's permission-checked shell;
-sudo-required commands go to the user with the target host, then dependencies are
-rechecked. `--install` covers pip/Git preparation and source builds only; missing
-apt prerequisites block them. See [bundle contracts](../packages/setup/assets/builtin/skill/onboard-ros2/references/bundles.md).
+Dependency installation uses the host's permission-checked shell;
+sudo-required commands go to the user with the target host. See the
+[ROS integration skill](../packages/setup/assets/builtin/skill/onboard-ros2/SKILL.md).
 
 See [project overview](overview.md) for the core/setup boundary and the
 [setup API](../packages/setup/README.md) for workflows and composition.

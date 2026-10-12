@@ -7,8 +7,6 @@ import { currentSignal } from "@kinex/core/scope"
 import { SetupPlanTool } from "./tool/setup_plan.ts"
 import { CalibSampleTool } from "./tool/calib_sample.ts"
 import { CalibComputeTool } from "./tool/calib_compute.ts"
-import { Assets as CoreAssets } from "@kinex/core/installation/assets"
-import { Assets } from "./assets.ts"
 import INSTRUCTIONS from "./instructions.txt"
 
 const tools: readonly Def[] = [SetupPlanTool, CalibSampleTool, CalibComputeTool]
@@ -36,9 +34,7 @@ export function createKinexSetup(runtime: KinexRuntime) {
     },
     context: () => runtime.operation(async () => ({
       instructions: INSTRUCTIONS,
-      sections: {
-        provisioning: JSON.stringify({ core_library: CoreAssets.python(), setup_library: Assets.python() }),
-      },
+      sections: {},
     })),
   }
 }

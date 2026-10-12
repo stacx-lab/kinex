@@ -44,14 +44,11 @@ For core alone use `{ contributions: runtime => [coreContribution(runtime)] }`.
 Custom setup composition explicitly supplies `setupSkillRoots`, `setupToolNames`
 and its setup contribution. Omitted values do not inherit standalone's defaults.
 
-The `onboard-ros2` skill owns ROS policy and the `kinex_ros` library.
-ROS support targets Jazzy on Ubuntu 24.04 with system Python 3.12; older ROS
-distributions and Python 3.10 are unsupported. Setup context
-provides separate absolute `core_library` and `setup_library` roots for provisioning.
-A completed generation contains its own ROS helpers; its profile pins entry and
-interpreter paths. Removing setup leaves that driver operational through core.
-See [bundle contracts](assets/builtin/skill/onboard-ros2/references/bundles.md) and
-[legacy migration](assets/builtin/skill/onboard-ros2/references/migration.md).
+The `onboard-ros2` skill owns ROS policy and the `kinex_ros` library. Match the
+ROS interpreter to the selected distribution as described by the skill. Configure
+runtime files directly in the device directory and register their paths through
+`profile_write`. Drivers can carry their runtime helpers to remain operational
+without setup. See [driver configuration](assets/builtin/skill/onboard-ros2/SKILL.md#device-files).
 
 Setup also bundles `pi-web-search` 1.7.0 and `pi-btw` 0.7.1 as npm dependencies.
 `setupPiExtensions()` from `@kinex/setup/extensions` returns their package names
@@ -86,7 +83,7 @@ resumes selected measurement work; it never exhausts an unrelated backlog.
 For ROS devices, `/onboarding [objective]` and `/register` select `onboard-ros2`
 through their existing workflows. No dedicated ROS command or alias is needed.
 
-Core owns `profile_write`, `setup-device`, registration, generic provisioning and driver operation,
+Core owns `profile_write`, `setup-device`, registration, device configuration and driver operation,
 load/unload, read/write, motion and stop. Prepare profiles/drivers incrementally
 before measurement. Apply accepted results through `profile_write`; clear requests
 explicitly only when their whole section is resolved. Translation-only TCP evidence
@@ -193,7 +190,7 @@ Python executable. Custom computations use host tools and archive their evidence
 
 | Skills | Coverage |
 | --- | --- |
-| `onboard-ros2` | ROS integration selection, provisioning, registration and interface verification; explicit plan requirements without a fixed procedure. |
+| `onboard-ros2` | ROS integration selection, configuration, registration and interface verification; explicit plan requirements without a fixed procedure. |
 | `calibrate-camera-intrinsics`, `calibrate-camera-extrinsics` | Color image geometry and camera mounting. |
 | `calibrate-tcp-offset` | Tool-tip translation; orientation is separate. |
 | `calibrate-fixed-arm-mount`, `calibrate-dual-arm` | Rigid parent/arm or cross-arm transforms. |
@@ -209,9 +206,8 @@ their units. No gait tuning, odometry optimization or inferred motion limits.
 Collect incrementally, reuse suitable factory/model/simulator facts and stop when
 minimum evidence, coverage and quality meet the task. Explicit tolerances are
 required for verification measurements; missing references remain incomplete.
-ROS onboarding assesses `check.sh` results directly and retains its measurement
-file as evidence on the preparation node when setup planning is used. Failed
-checks leave onboarding incomplete. Existing base procedures use `verify-base`
+ROS onboarding observes the selected interfaces directly and reports the results.
+Failed checks leave onboarding incomplete. Existing base procedures use `verify-base`
 with the evidence format documented in the `calib_compute` tool description.
 
 ## Migration and checks
@@ -225,9 +221,7 @@ Replace `calibrate-joint-range-workspace` with `calibrate-joint-range` or
 `calibrate-world-geometry`. No compatibility aliases are provided for these renamed
 calibration commands and procedures.
 
-Except for legacy ROS profiles described above, existing profiles and historical
-calibration files remain unchanged. Old evidence
-can be explicitly referenced after checking provenance; it is not automatically
+Historical calibration evidence can be explicitly referenced after checking provenance; it is not automatically
 promoted to a completed plan. Removing setup leaves core devices operational.
 Unregistering a device preserves new attempt history; affected plan requirements
 become missing/stale. Native plugin snapshot adoption is separate work.

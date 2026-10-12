@@ -1,9 +1,8 @@
-"""Software-only bundle/profile fixtures shared by ROS adapter and checker tests."""
+"""Software-only ROS configuration fixtures shared by ROS adapter and checker tests."""
 
 import json
 from pathlib import Path
 import yaml
-from kinex_ros import bundle as bundles
 
 
 URDF = '<robot name="demo"><link name="base"/><link name="tip"/><joint name="a" type="revolute"/><joint name="b" type="revolute"/></robot>'
@@ -59,23 +58,55 @@ def fixture(directory, kind="joint"):
             graph["topics"]["/depth"] = {"type": "sensor_msgs/msg/Image", "rate_hz": 200, "message": {"width": 2, "height": 1, "encoding": "16UC1", "step": 6, "is_bigendian": 1, "data": [3, 232, 255, 255, 0, 0]}}
     feedback = driver.get("state_topic", driver.get("color_topic"))
     expected["topics"] = [{"name": feedback, "type": graph["topics"][feedback]["type"], "min_hz": 1}]
-    manifest = {"version": 1, "name": name, "device": {"type": kind}, "facts": [{"key": "domain_id", "type": "int", "default": 0}, {"key": "namespace", "type": "string", "default": ""}],
-                "driver": driver, "expected": expected, "stack": {"ready_topics": [feedback], "ready_timeout_s": .1},
-                "profile": {"intrinsics": intrinsics, "extrinsics": {}},
-                "recipe": {"nodes": [{"id": name + "-access", "title": "Prepare access", "kind": "prepare", "skill": "onboard-ros2"}],
-                           "task": {"objective": "Verify the adapter", "targets": [name + "-access"]}}}
+    config = {"domain_id": 0, "namespace": "", **driver, "expected": expected,
+              "ready_topics": [feedback], "ready_timeout_s": .1}
     directory.mkdir(parents=True, exist_ok=True)
-    write(directory / "bundle.yaml", manifest)
-    write(directory / "facts.yaml", {"domain_id": 0, "namespace": ""})
-    bundle = bundles.load(directory)
-    profile = bundles.render_profile(bundle, bundle.facts)
+    write(directory / "profile_ros.yaml", config)
+    actions = ["read", "load", "unload", "status"]
+    if kind in ("joint", "velocity"):
+        actions += ["write", "stop"]
+    if kind in ("rgb", "rgbd"):
+        actions += ["introspect"]
+    if kind in ("joint", "rgb", "rgbd"):
+        actions += ["record_start", "record_stop"]
+    connection_keys = ("state_topic", "command_topic", "color_topic", "depth_topic")
+    profile = {
+        "name": name, "type": kind, "loaded": False,
+        "access": {"source": "default", "connection": {"kind": "ros", **{key: driver[key] for key in connection_keys if key in driver}},
+                   "driver": {"entry": "driver.py", "interpreter": str(directory.resolve() / "ros-python"),
+                              "actions": actions, "persistent": True, "timeout_s": 30}},
+        "intrinsics": {"source": "default", **intrinsics},
+        "extrinsics": {"source": "default"},
+    }
     write(directory / "profile.yaml", profile)
-    (directory / "driver.py").write_text("from pathlib import Path\nfrom kinex_ros.ros2_drivers import bundle_driver\nbundle_driver(Path(__file__).parent).main()\n", encoding="utf8")
-    (directory / "provision.py").write_text("import sys\nfrom pathlib import Path\nfrom kinex_ros.bundle import provision\nraise SystemExit(provision(Path(__file__).parent, sys.argv[1:]))\n", encoding="utf8")
+    (directory / "driver.py").write_text("from pathlib import Path\nfrom kinex_ros.ros2_drivers import ros_driver\nros_driver(Path(__file__).parent).main()\n", encoding="utf8")
     (directory / "DEVICE.md").write_text(f"# {name}\n\n## Setup\nSoftware-only {kind} adapter fixture.\n", encoding="utf8")
     (directory / "scenario.json").write_text(json.dumps(graph), encoding="utf8")
-    return manifest, profile, graph
+    return config, profile, graph
 
 
 def write(path, value):
     Path(path).write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf8")
+
+
+def runtime_fixture(directory, setup_library, core_library):
+    """Create a test driver in place; return fields for the profile tool."""
+    import shutil
+    import sys
+    from shlex import quote
+    directory = Path(directory).resolve()
+    _, profile, _ = fixture(directory)
+    (directory / "profile.yaml").unlink()
+    (directory / "DEVICE.md").unlink()
+    helpers = directory / "python/kinex_ros"
+    helpers.mkdir(parents=True)
+    for name in ("__init__", "config", "ros2", "ros2_drivers"):
+        shutil.copyfile(Path(setup_library) / "kinex_ros" / f"{name}.py", helpers / f"{name}.py")
+    # Fixed fake-ROS launcher for this test fixture, not a runtime script generator.
+    wrapper = directory / "ros-python"
+    libraries = str(directory / "python") + ":" + core_library
+    wrapper.write_text("#!/usr/bin/env bash\n"
+                       + f'export PYTHONPATH={quote(libraries)}"${{PYTHONPATH:+:$PYTHONPATH}}"\n'
+                       + f'exec {quote(sys.executable)} "$@"\n')
+    wrapper.chmod(0o755)
+    return profile

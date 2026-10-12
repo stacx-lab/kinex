@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
-from kinex_ros.ros2 import BundleError
+from kinex_ros.ros2 import ROSError
 from kinex_ros.ros2_drivers import CameraSource, ImuSource, JointTrajectoryDriver, TwistDriver
 from ros2_fixtures import fixture
 
@@ -57,14 +57,15 @@ class Adapters(unittest.TestCase):
         self.assertEqual(result["faults"], [])
         self.assertEqual(driver.handle.session.controllers(), {"jtc": "active"})
 
-    def test_failed_load_names_stack_command_and_rolls_back(self):
+    def test_failed_load_without_stack_script_reports_nodes_and_rolls_back(self):
         driver = self.driver()
         self.graph["topics"] = {}
         (self.directory / "scenario.json").write_text(json.dumps(self.graph))
         result = driver.dispatch("load", {})
         self.assertFalse(result["ok"])
-        self.assertIn("stack.sh", result["error"])
-        self.assertIn("start and retry /load", result["error"])
+        self.assertNotIn("stack.sh", result["error"])
+        self.assertIn("required ROS nodes", result["error"])
+        self.assertIn("retry /load", result["error"])
         self.assertIsNone(driver.handle)
 
     def test_short_gap_is_tolerated_and_stale_feedback_faults(self):
@@ -159,7 +160,7 @@ class Adapters(unittest.TestCase):
         self.assertIsNone(state["magnetic_field"])
         driver.handle.session.context.world.topics["/imu"]["message"]["orientation_covariance"][0] = -1
         driver.handle.latest.wait(.2, driver.handle.latest.count)
-        with self.assertRaisesRegex(BundleError, "unavailable"):
+        with self.assertRaisesRegex(ROSError, "unavailable"):
             driver.execute("read", {})
 
     def test_rgbd_stride_endianness_range_filter_and_png(self):
@@ -183,10 +184,10 @@ class Adapters(unittest.TestCase):
             driver.handle.session.context.world.topics[topic]["stale_after_s"] = 0
         time.sleep(.01)
         driver.handle.streams["depth"].stamp_s -= 1
-        with self.assertRaisesRegex(BundleError, "synchronized"):
+        with self.assertRaisesRegex(ROSError, "synchronized"):
             driver.grab(driver.handle)
         driver.handle.streams["color"].received_mono -= 1
-        with self.assertRaisesRegex(BundleError, "fresh"):
+        with self.assertRaisesRegex(ROSError, "fresh"):
             driver.grab(driver.handle)
 
     def test_camera_recording_reuses_one_stream_and_unload_stops_capture(self):

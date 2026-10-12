@@ -5,7 +5,7 @@ import path from 'node:path'
 import { Assets as CoreAssets } from '@kinex/core/installation/assets'
 
 for (const [file, description] of [
-  ['bundle_helpers.py', 'ROS provisioning checks prerequisites, resumes and preserves selected files'],
+  ['ros_profile.py', 'ROS adapters use validated device-local profile_ros.yaml settings'],
   ['ros2_helpers.py', 'ROS transport preserves cancellation and bounded cleanup'],
   ['ros2_drivers.py', 'ROS adapters preserve feedback, motion, sensors and cleanup'],
   ['ros2_check.py', 'ROS interface checks report measurements and failures'],

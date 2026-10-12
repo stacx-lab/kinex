@@ -12,7 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from kinex_ros.ros2 import BundleError, Latest, Session, StopConfirm, StopNotConfirmed
+from kinex_ros.ros2 import ROSError, Latest, Session, StopConfirm, StopNotConfirmed
 
 
 class Helpers(unittest.TestCase):
@@ -79,7 +79,7 @@ class Helpers(unittest.TestCase):
         handle = action.client.send_goal_async(action.type.Goal()).result()
         acceptance = Future()
         action.client.send_goal_async = lambda goal: acceptance
-        with self.assertRaisesRegex(BundleError, "outcome is unknown"):
+        with self.assertRaisesRegex(ROSError, "outcome is unknown"):
             action.send(action.type.Goal(), timeout_s=.01)
         self.assertEqual(action.pending, [acceptance])
         acceptance.set_result(handle)

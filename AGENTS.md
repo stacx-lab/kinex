@@ -10,7 +10,7 @@ Design history and progress belong in git.
   Python, tools, non-ROS provisioning bundles, device guides and setup-device. Core must not
   import setup, a host agent or UI.
 - `packages/setup` owns onboarding and calibration procedures/assets, including
-  ROS skills, provisioning, adapters and dependency checks. Core has no ROS implementation
+  ROS skills, configuration, adapters and interface checks. Core has no ROS implementation
   or dependency. Setup borrows core runtime resources through package exports.
 - `src` composes standalone with published Pi SDKs; `src/integration` owns its
   product policy. Do not fork/reimplement providers, coding tools, loops or TUI.
