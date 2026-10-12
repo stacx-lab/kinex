@@ -12,6 +12,7 @@ import { toolBridge, registerSkillTool } from "./tools.ts"
 import { footerIndicator } from "./footer.ts"
 import { formatElapsed, sessionTime, sessionTimeEntry } from "./session-time.ts"
 import type { CompactionControl } from "./compaction.ts"
+import { registerOpenAIFast } from "./openai-fast.ts"
 
 export interface SessionControl {
   prompt(text: string): Promise<void>
@@ -21,6 +22,7 @@ export interface SessionControl {
 
 export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capabilities: KinexCapabilities, report: (text: string) => void, session: SessionControl): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
+    registerOpenAIFast(pi, report)
     const instructions = await readFile(new URL("./instructions.txt", import.meta.url), "utf8")
     registerSkillTool(pi, capabilities)
     const bridge = toolBridge(pi, capabilities, owner.interaction)

@@ -8,16 +8,29 @@ Run `kinex --help` or see [Getting Started](../README.md#getting-started).
 ### Coding-agent controls
 
 These commands manage the usual coding-agent workflow. Pi supplies the model,
-session and resource commands; Kinex adds `/mode` for permissions and interaction.
+session and resource commands; Kinex adds `/mode` for permissions and interaction
+and `/openai-fast` for OpenAI request priority.
 
 | Command                   | Purpose                                                            |
 | ------------------------- | ------------------------------------------------------------------ |
 | `/login`, `/model`        | Connect a provider and select a model.                             |
 | `/mode [ask\|auto\|yolo]` | Choose tool approval and interaction behavior.                     |
 | `/settings`               | Open agent settings.                                               |
+| `/openai-fast [on\|off\|status]` | Request OpenAI Fast mode, standard processing, or inspect the selection. |
 | `/new`, `/resume`         | Start a new session or switch to a saved one.                      |
 | `/compact [instructions]` | Compact conversation context, optionally with custom instructions. |
 | `/reload`                 | Refresh agent resources, including extensions and skills.          |
+
+`/openai-fast` supports argument completion for `on`, `off`, and `status`;
+omitting the argument shows status. Initially, Kinex leaves the provider/project
+service tier unchanged. `on` sends `service_tier: "priority"`; `off` explicitly
+requests `service_tier: "default"`. The selection resets when the session or
+extensions reload, including `/new`, `/resume`, `/reload`, and restart.
+It applies only to the `openai` provider, not `openai-codex`, compatible providers,
+or separate extension child sessions such as `/btw`.
+[OpenAI Fast mode](https://developers.openai.com/api/docs/guides/fast-mode)
+has premium API pricing and depends on model/account support. The command reports
+the requested tier; the server response determines which tier was actually used.
 
 ### Device management
 
