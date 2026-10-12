@@ -89,7 +89,7 @@ function dispatchInWorkspace(workspace: string, device: Device, action: string, 
   const operation = modelOperation(device, action)
   args = modelInput(operation, args)
   if (action === "read" && (device.type === "rgb" || device.type === "rgbd"))
-    z.enum(["file", "array", "base64"]).parse(args.output === undefined ? "file" : args.output)
+    args = { ...args, output: z.enum(["file", "base64", "array"]).default("array").parse(args.output) }
   if (action === "write") args = writeCommand(device, args)
   if (device.type === "world") args = worldCommand(action, args)
   if (action === "stop" && origin && !ownsMotion(key, origin))

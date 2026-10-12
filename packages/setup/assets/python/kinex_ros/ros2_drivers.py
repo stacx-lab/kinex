@@ -599,7 +599,7 @@ class CameraSource(SensorSource):
             from kinex.capture import save
             # Reuse the ROS caches, applying freshness and sync checks even during recording.
             sample = self.grab(self.connection())
-            return save(self.profile, sample, self.directory / "out", args.get("output", "file"))
+            return save(self.profile, sample, self.directory / "out", args.get("output", "array"))
         if action == "introspect":
             return self.introspect(args)
         if action == "record_start":

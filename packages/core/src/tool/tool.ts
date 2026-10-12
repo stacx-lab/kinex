@@ -13,12 +13,10 @@ export interface Context {
   questions(questions: Question[]): Promise<Record<string, string>>
 }
 
-// An image file the model should see alongside the text output. Stored by path
-// (frames already live on disk); base64-encoded only when the request is built.
-export interface Attachment {
-  mime: string
-  path: string
-}
+export type Attachment = { mime: string } & (
+  | { path: string; data?: never }
+  | { data: string; path?: never }
+)
 
 export interface Result {
   title: string

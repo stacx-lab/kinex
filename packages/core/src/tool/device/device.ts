@@ -16,8 +16,9 @@ export const DeviceTool = define("device", {
     const [result] = await callDevices([args], ctx)
     if (!result?.ok) return { title: `device ${args.deviceID}`,
       output: renderFailure({ error: result?.error ?? "device call failed", ...failureMetadata({ ...result }) }), isError: true }
-    const reading = { deviceID: args.deviceID, kind: args.action, data: result.data, filePath: result.file }
+    const reading = { deviceID: args.deviceID, kind: args.action,
+      data: result.attachments ? { deviceID: args.deviceID, ...result.data } : result.data, filePath: result.file }
     const output = renderReading(reading, args.verbose || !["read", "write"].includes(args.action), args.compact)
-    return { title: `${args.action} on ${args.deviceID}`, output }
+    return { title: `${args.action} on ${args.deviceID}`, output, ...(result.attachments ? { attachments: result.attachments } : {}) }
   },
 })

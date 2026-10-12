@@ -1560,7 +1560,7 @@ test('nested Python device composition preserves permission denial as a host err
   assert.equal(events.length, 0)
 })
 
-test('Python camera reads decode arrays and keep agent-facing reads file-based', async t => {
+test('camera modes return images to agents and preserve Python output selection', async t => {
   const { runtime, directory } = await fixture(t, { host, enableRecording: true })
   await runtime.profiles.writeDevice({ name: 'camera', type: 'rgbd', loaded: true,
     access: { connection: { kind: 'mock' } }, intrinsics: {
@@ -1570,36 +1570,68 @@ test('Python camera reads decode arrays and keep agent-facing reads file-based',
         valid_range_m: { min: .001, max: 65.535 } },
     } })
   await pythonTool(directory, 'camera_modes', `import numpy as np
-from kinex import device, devices, call, finish
-samples = [device('camera', output='array')['data'],
-           devices([{'device': 'camera', 'args': {'output': 'array'}}])[0]['data'],
-           call('device', deviceID='camera', args={'output': 'array'}),
-           call('devices', calls=[{'deviceID': 'camera', 'args': {'output': 'array'}}])['results'][0]['data']]
+from kinex import Device, device, devices, call, finish
+samples = [device('camera')['data'], device('camera', output='array')['data'],
+           Device('camera').read()['data'],
+           devices([{'device': 'camera'}])[0]['data'],
+           call('device', deviceID='camera'),
+           call('devices', calls=[{'deviceID': 'camera'}])['results'][0]['data']]
 for sample in samples:
     assert sample['color'].shape == (2, 2, 3) and sample['color'].dtype == np.uint8
     assert sample['depth'].shape == (2, 2) and sample['depth'].dtype == np.uint16
     assert sample['color'].flags.owndata and sample['depth'].flags.writeable
 encoded = device('camera', output='base64')['data']
-assert encoded['color'].startswith('iVBOR') and isinstance(encoded['depth'], str)
+assert isinstance(encoded['color'], str) and isinstance(encoded['depth'], str)
+assert call('device', deviceID='camera', args={'output': 'base64'}) == encoded
 finish({'timestamp': samples[0]['timestamp']})
 `)
   const result = await runtime.tools.call('camera_modes', {}, { sessionID: 's' })
   assert.ok(!result.isError, result.output)
   assert.deepEqual(JSON.parse(result.output), { timestamp: 0 })
+  assert.equal(result.attachments, undefined)
   const out = path.join(directory, '.kinex/devices/camera/out')
   await assert.rejects(readdir(out), { code: 'ENOENT' })
-  for (const name of ['device', 'devices']) {
-    const call = { deviceID: 'camera', args: { output: 'array' } }
-    const rejected = await runtime.tools.call(name, name === 'device' ? call : { calls: [call] }, { sessionID: 's' })
-    assert.equal(rejected.isError, true)
-    assert.match(rejected.output, /inside Python tools/)
+  const reads = []
+  t.after(runtime.subscribe(({ type, event }) => { if (type === 'device') reads.push(event) }))
+  const image = await runtime.tools.call('device', { deviceID: 'camera' }, { sessionID: 's' })
+  assert.ok(!image.isError, image.output)
+  assert.equal(reads.at(-1).args.output, 'base64')
+  assert.deepEqual(JSON.parse(image.output), { deviceID: 'camera', timestamp: 0 })
+  const wire = await runtime.devices.dispatch('camera', 'read')
+  assert.deepEqual(image.attachments, [{ mime: 'image/png', data: wire.data.color }])
+  await runtime.profiles.writeDevice({ name: 'rgb', type: 'rgb', loaded: true,
+    access: { connection: { kind: 'mock' } }, intrinsics: {
+      color: { width: 3, height: 1, pixel_format: 'rgb8', image_format: 'png' },
+    } })
+  const rgb = await runtime.devices.dispatch('rgb', 'read')
+  const batch = await runtime.tools.call('devices', { calls: [
+    { deviceID: 'rgb' }, { deviceID: 'missing' }, { deviceID: 'sensor' }, { deviceID: 'camera' },
+  ] }, { sessionID: 's' })
+  assert.equal(batch.isError, true)
+  assert.deepEqual(batch.attachments.map(image => image.data), [rgb.data.color, wire.data.color])
+  assert.deepEqual(JSON.parse(batch.output).results.map(row => row.deviceID), ['rgb', 'missing', 'sensor', 'camera'])
+  assert.doesNotMatch(batch.output, /color|depth|attachments|iVBOR/)
+  await assert.rejects(readdir(out), { code: 'ENOENT' })
+  assert.deepEqual((await runtime.devices.dispatch('camera', 'read', { output: 'base64' })).data, wire.data)
+  for (const name of ['device', 'devices']) for (const output of ['array', 'base64', 'file']) {
+    const call = { deviceID: 'camera', args: { output } }
+    const response = await runtime.tools.call(name, name === 'device' ? call : { calls: [call] }, { sessionID: 's' })
+    assert.ok(!response.isError, response.output)
+    assert.deepEqual(response.attachments, image.attachments)
+    assert.equal(reads.at(-1).args.output, output)
+    assert.doesNotMatch(response.output, /"color"|"depth"|iVBOR/)
   }
-  const file = await runtime.tools.call('device', { deviceID: 'camera' }, { sessionID: 's' })
+  await assert.rejects(runtime.devices.dispatch('camera', 'read', { output: 'bytes' }))
+  await pythonTool(directory, 'camera_file', `from kinex import device, finish
+finish(device('camera', output='file'))
+`)
+  const file = await runtime.tools.call('camera_file', {}, { sessionID: 's' })
   assert.ok(!file.isError, file.output)
-  assert.ok(JSON.parse(file.output).file.endsWith('.png'))
-  assert.equal(file.attachments, undefined)
+  const saved = JSON.parse(file.output)
+  assert.deepEqual(await readFile(saved.file), Buffer.from(wire.data.color, 'base64'))
+  assert.deepEqual(await readFile(saved.data.depth_file), Buffer.from(wire.data.depth, 'base64'))
   const recording = await runtime.recording.start({ specs: { sensor: { rate: 1 } }, sessionID: 's' })
-  await runtime.devices.dispatch('camera', 'read', { output: 'base64' })
+  await runtime.devices.dispatch('camera', 'read')
   await runtime.recording.stop()
   const recorded = path.join(directory, '.kinex/recordings', recording.manifest.id)
   const events = (await readFile(path.join(recorded, 'passive/camera/events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)

@@ -15,7 +15,7 @@ function startsWith(bytes: Uint8Array, signature: number[], offset = 0): boolean
   return signature.every((byte, index) => bytes[offset + index] === byte)
 }
 
-function sniff(bytes: Uint8Array): string | undefined {
+export function imageMimeBytes(bytes: Uint8Array): string | undefined {
   if (startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png"
   if (startsWith(bytes, [0xff, 0xd8, 0xff])) return "image/jpeg"
   if (startsWith(bytes, [0x47, 0x49, 0x46, 0x38])) return "image/gif"
@@ -29,7 +29,7 @@ export async function imageMime(file: string): Promise<string | undefined> {
   if (!handle) return undefined
   const head = new Uint8Array(16)
   await handle.read(head, 0, 16, 0).finally(() => handle.close())
-  return sniff(head) ?? IMAGE_MIMES[path.extname(file).toLowerCase()]
+  return imageMimeBytes(head) ?? IMAGE_MIMES[path.extname(file).toLowerCase()]
 }
 
 // True when the bytes look like text (no NUL in the sample) — used to refuse

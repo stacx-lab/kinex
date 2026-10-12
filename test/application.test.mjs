@@ -82,23 +82,36 @@ test('same-workspace replacement retains drivers and finalizes recording', async
   assert.equal(app.owner.runtime, core)
 })
 
-test('tool images are stored as bytes and survive source replacement and session resume', async t => {
+for (const source of ['file', 'camera']) test(`${source} images are stored as bytes and survive session resume`, async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
-  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6rXcAAAAASUVORK5CYII=', 'base64')
+  let png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6rXcAAAAASUVORK5CYII=', 'base64')
   const image = path.join(cwd, 'frame.png')
-  await writeFile(image, png)
-  await mkdir(path.join(cwd, '.kinex/tool'), { recursive: true })
-  await writeFile(path.join(cwd, '.kinex/tool/capture.ts'), `export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:${JSON.stringify(image)}}]}) }`)
-  fake.steps.push({ tool: 'capture' }, { text: 'seen' })
   const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
   t.after(() => app.dispose())
+  if (source === 'file') {
+    await writeFile(image, png)
+    await mkdir(path.join(cwd, '.kinex/tool'), { recursive: true })
+    await writeFile(path.join(cwd, '.kinex/tool/capture.ts'), `export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:${JSON.stringify(image)}}]}) }`)
+    fake.steps.push({ tool: 'capture' })
+  } else {
+    await seed(app.owner.runtime)
+    await app.owner.runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true,
+      access: { connection: { kind: 'mock' } }, intrinsics: {
+        color: { width: 2, height: 2, pixel_format: 'rgb8', image_format: 'png' },
+      } })
+    png = Buffer.from((await app.owner.runtime.devices.dispatch('camera', 'read')).data.color, 'base64')
+    fake.steps.push({ tool: 'device', args: { deviceID: 'camera' } })
+  }
+  fake.steps.push({ text: 'seen' })
   await bind(app)
   await app.host.session.prompt('look')
+  assert.equal(fake.requests.length, 2)
   assert.match(JSON.stringify(fake.requests[1]), /data:image\/png;base64/)
+  if (source === 'camera') await assert.rejects(stat(path.join(cwd, '.kinex/devices/camera/out')), { code: 'ENOENT' })
   const session = app.host.session.sessionFile
   await app.dispose()
-  await writeFile(image, 'replaced')
+  if (source === 'file') await writeFile(image, 'replaced')
   const resumed = await createApplication({ cwd, session, mode: 'auto' })
   t.after(() => resumed.dispose())
   await bind(resumed)

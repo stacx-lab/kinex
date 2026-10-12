@@ -1,5 +1,5 @@
 import { dispatchDevice } from "../device/dispatch.ts"
-import type { Device } from "../device/profile/schema.ts"
+import { isCameraType, type Device } from "../device/profile/schema.ts"
 
 export interface SamplerStats {
   skipped: number
@@ -39,7 +39,7 @@ export function createSampler(input: { cwd: string }): Sampler {
   async function tick(entry: Entry) {
     if (entry.stopped) return
     const period = 1000 / entry.rate
-    await dispatchDevice(input.cwd, entry.device, "read", {}, "sampler").then(
+    await dispatchDevice(input.cwd, entry.device, "read", isCameraType(entry.device.type) ? { output: "file" } : {}, "sampler").then(
       () => { entry.count += 1 },
       () => { entry.readErrors += 1 },
     )

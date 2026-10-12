@@ -170,7 +170,7 @@ class Adapters(unittest.TestCase):
         self.assertEqual(sample["depth"].tolist(), [[1000, 0]])
         self.assertEqual(sample["depth"].dtype, np.uint16)
         self.assertTrue(sample["color"].flags.owndata)
-        result = driver.execute("read", {"output": "base64"})
+        result = driver.execute("read", {"output": "array"})
         with Image.open(io.BytesIO(base64.b64decode(result["color"]))) as image:
             self.assertEqual(image.getpixel((0, 0)), (10, 20, 30))
         patch = driver.introspect()["intrinsics"]["color"]
@@ -198,7 +198,7 @@ class Adapters(unittest.TestCase):
             driver.execute("record_start", {"dir": str(self.directory / "capture"), "rate_hz": 100})
             recorder = driver.recorder
             self.wait_for(lambda: recorder.count > 1)
-            self.assertIn("color", driver.execute("read", {"output": "base64"}))
+            self.assertIn("color", driver.execute("read", {"output": "array"}))
             self.assertIs(driver.handle, handle)
             driver.execute("unload", {})
             self.assertFalse(recorder.running)

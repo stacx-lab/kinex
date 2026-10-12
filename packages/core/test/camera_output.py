@@ -25,12 +25,13 @@ class CameraOutput(unittest.TestCase):
                   "depth": np.array([[0, 1], [256, 65535]], dtype=np.uint16)}
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory) / "images"
-            encoded = save(PROFILE, sample, out, "base64")
+            encoded = save(PROFILE, sample, out)
             wire = save(PROFILE, sample, out, "array")
+            self.assertEqual(encoded, save(PROFILE, sample, out, "base64"))
             self.assertFalse(out.exists())
             self.assertEqual(encoded, wire)
             decoded = arrays(PROFILE, wire)
-            files = save(PROFILE, sample, out)
+            files = save(PROFILE, sample, out, "file")
             self.assertEqual(files["timestamp"], decoded["timestamp"])
             for key, file_key in (("color", "file"), ("depth", "depth_file")):
                 self.assertEqual(base64.b64decode(encoded[key]), Path(files[file_key]).read_bytes())
@@ -41,7 +42,7 @@ class CameraOutput(unittest.TestCase):
                 decoded[key].fill(0)
                 self.assertTrue(sample[key].any())
             rgb = {**PROFILE, "type": "rgb"}
-            self.assertNotIn("depth", save(rgb, sample, out, "base64"))
+            self.assertNotIn("depth", save(rgb, sample, out))
 
     def test_invalid_modes_and_corrupt_images_fail(self):
         for mode in (None, "bytes", 1, []):

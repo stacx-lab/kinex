@@ -29,13 +29,13 @@ def validate(profile, sample):
     return sample
 
 
-def output_mode(value="file"):
-    if value not in ("file", "array", "base64"):
-        raise ValueError("camera output must be file, array or base64")
+def output_mode(value="array"):
+    if value not in ("file", "base64", "array"):
+        raise ValueError("camera output must be file, base64 or array")
     return value
 
 
-def save(profile, sample, directory, output="file"):
+def save(profile, sample, directory, output="array"):
     """Array requests use base64 on the wire; the Python client decodes them."""
     import numpy as np
     from PIL import Image

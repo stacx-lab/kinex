@@ -9,8 +9,8 @@ import { toolRenderers } from "./render.ts"
 export async function piResult(result: Result, signal?: AbortSignal): Promise<Awaited<ReturnType<ToolDefinition["execute"]>>> {
   const content: Awaited<ReturnType<ToolDefinition["execute"]>>["content"] = [{ type: "text", text: result.output }]
   for (const attachment of result.attachments ?? []) {
-    const bytes = await readFile(attachment.path, { signal })
-    content.push({ type: "image", mimeType: attachment.mime, data: bytes.toString("base64") })
+    const data = attachment.data ?? (await readFile(attachment.path, { signal })).toString("base64")
+    content.push({ type: "image", mimeType: attachment.mime, data })
   }
   return { content, details: { kinex: { title: result.title, isError: result.isError, metadata: result.metadata } } }
 }

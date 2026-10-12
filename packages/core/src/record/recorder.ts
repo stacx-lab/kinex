@@ -3,7 +3,7 @@ import fs from "node:fs"
 import fsp from "node:fs/promises"
 import path from "node:path"
 import { ProfileStore } from "../device/profile/store.ts"
-import { isModel, type Device } from "../device/profile/schema.ts"
+import { isCameraType, isModel, type Device } from "../device/profile/schema.ts"
 import { loadConfig, recordConfig, type RecordConfig } from "../config/config.ts"
 import { observeDevices, type DeviceEvent } from "../device/observe.ts"
 import { dispatchDevice } from "../device/dispatch.ts"
@@ -499,7 +499,7 @@ async function captureReads(active: Active, devices: string[], refusals: Record<
         return
       }
       active.designated.add(name)
-      const reading: DeviceReading | string = await dispatchDevice(active.cwd, resolved, "read", {}, "snap").catch(
+      const reading: DeviceReading | string = await dispatchDevice(active.cwd, resolved, "read", isCameraType(resolved.type) ? { output: "file" } : {}, "snap").catch(
         (error: unknown) => (error instanceof Error ? error.message : String(error)),
       )
       if (typeof reading === "string") {

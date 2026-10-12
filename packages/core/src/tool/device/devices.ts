@@ -8,7 +8,9 @@ export const DevicesTool = define("devices", {
   parameters: DeviceCallsSchema,
   execute: async (args, ctx) => {
     const results = await callDevices(args.calls, ctx)
-    return { title: `devices: ${args.calls.length} calls`, output: formatJSON({ results }),
+    const attachments = results.flatMap(result => result.attachments ?? [])
+    return { title: `devices: ${args.calls.length} calls`, output: formatJSON({ results: results.map(({ attachments, ...result }) => result) }),
+      ...(attachments.length ? { attachments } : {}),
       isError: results.some(result => !result.ok) }
   },
 })

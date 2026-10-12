@@ -85,7 +85,7 @@ def sample(stream):
 
 
 def read(args):
-    output = output_mode(args.get("output", "file"))
+    output = output_mode(args.get("output", "array"))
     return save(settings(HERE), latest_frame(), OUT, output)
 
 

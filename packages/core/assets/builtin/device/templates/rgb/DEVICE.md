@@ -135,8 +135,8 @@ previews may be resized; the profile describes original sensor output.
 
 SDK acquisition must produce a consistent snapshot. Serialize access and copy
 reused buffers; file paths identify immutable per-response artifacts. Finish
-recorder shutdown before disconnecting the source. Convert output to file,
-array or base64 in the driver without changing source/server transport. Arrays
+recorder shutdown before disconnecting the source. Convert output to file or
+array in the driver without changing source/server transport. Arrays
 cross JSON boundaries as encoded images and are decoded in the Python client.
 Pixel outer edges are -0.5 and size-0.5; the profile describes the full output,
 including projection/distortion. Native recording requires a persistent driver.
@@ -179,13 +179,14 @@ extrinsics:
 
 ## Use
 
-`read()` returns `file` (RGB8 PNG) and `timestamp`. Images are saved, not
-attached; inspect `file` with the host file-reading tool. Dimensions and
-calibration come from the profile. `status()` observes streaming/recording state.
+Direct agent `read()` calls attach the RGB image with camera identity and
+`timestamp` in every mode, defaulting to `output="base64"`; no file-opening call
+is needed. Dimensions and calibration come from the profile. `status()` observes
+streaming/recording state.
 
-Python tools may request `output="array"` for NumPy `color` or `"base64"` for a
-PNG string; these modes serve programmatic consumers, not model image inspection.
-File output is the default.
+Internal Python reads default to NumPy `color` in `data`. Request `output="file"`
+for a saved RGB8 PNG path in `file`, or `output="base64"` for encoded PNG data in
+`data.color`. Internal reads do not display images.
 
 Optical axes are X right, Y down, Z forward; pixel (0,0) is the top-left center.
 Mount places the optical frame in its parent. Use `kinex.camera` with the profile

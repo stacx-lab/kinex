@@ -10,7 +10,7 @@ protocol so tool code stays plain python:
 
     a = args()
     cam = profile(a["camera"])                      # parsed profile.yaml (white-box)
-    frame = device(a["camera"])                     # {"data": {...}, "file": "/path.png"}
+    frame = device(a["camera"], output="file")      # {"data": {...}, "file": "/path.png"}
     seg = device(a["model"], "detect", image=frame["file"], prompt=a["prompt"])
     finish({"point": [0.1, 0.2, 0.3]}, file=seg.get("file"))
 
@@ -100,17 +100,22 @@ def args():
 
 
 def _camera_result(name, action, kwargs, result):
-    if action == "read" and kwargs.get("output") == "array" and result.get("ok", True):
+    if action != "read" or kwargs.get("output", "array") != "array" or not result.get("ok", True):
+        return result
+    if "color" not in (result.get("data") or {}):
+        return result
+    camera = profile(name)
+    if camera["type"] in ("rgb", "rgbd"):
         from kinex.capture import arrays
-        result["data"] = arrays(profile(name), result["data"])
+        result["data"] = arrays(camera, result["data"])
     return result
 
 
 def device(name, action="read", **kwargs):
     """Dispatch one action of a device's driver interface: returns
     {"data": {...}?, "file": "/abs/path"?}.
-    Camera output="array" returns NumPy color/depth in data; "base64" returns
-    PNG/PGM strings; "file" (default) returns paths. Commands on
+    Camera output="array" (default) returns NumPy color/depth in data;
+    output="base64" returns encoded PNG/PGM strings; output="file" saves images and returns paths. Commands on
     an actuated device are controller-tool-only; load/unload use the separate device tool, not Python tools."""
     result = _rpc({"call": "device", "device": name, "action": action, "args": kwargs})
     return _camera_result(name, action, kwargs, result)

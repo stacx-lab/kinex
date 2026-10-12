@@ -97,8 +97,8 @@ clock. Use receipt time when acquisition time is unavailable; cached frames
 retain their original timestamp.
 
 Serialize SDK acquisition and copy reused buffers for a consistent snapshot.
-Shared kinex.capture validates dtype/resolution and encodes file, array or
-base64 output without changing source/server transport. File paths identify
+Shared kinex.capture validates dtype/resolution and encodes file, base64 or array
+output without changing source/server transport. File paths identify
 immutable per-response artifacts; arrays cross JSON as encoded images and are
 decoded in the Python client.
 introspect returns a patch with intrinsics.color, intrinsics.depth, and
@@ -193,14 +193,15 @@ extrinsics:
 
 ## Use
 
-`read()` returns `file` (RGB8 PNG), `depth_file` (uint16 PGM16) and one
-`timestamp` for the pair: the later acquisition/fallback receipt time.
-Images are saved, not attached; inspect RGB with the host file-reading tool.
-Dimensions and calibration come from the profile.
+Direct agent `read()` calls attach the RGB image with camera identity and one
+`timestamp` for color/depth: the later acquisition/fallback receipt time.
+They default to `output="base64"` and attach images in every mode without a
+file-opening call. Dimensions and calibration come from the profile.
 
-Python tools may request `output="array"` for NumPy `color`/`depth`, or
-`"base64"` for PNG/PGM16 strings. These are programmatic formats, not model image
-input. File output is the default.
+Internal Python reads default to NumPy `color`/`depth` in `data`.
+Request `output="file"` for `file` (RGB8 PNG) and `data.depth_file` (uint16 PGM16).
+Use `output="base64"` for encoded PNG/PGM strings in `data.color`/`data.depth`.
+Internal reads do not display images.
 
 Optical axes are X right, Y down, Z forward; (0,0) is the top-left pixel center.
 Mount places the color frame. Depth metres = raw * scale_m_per_unit;

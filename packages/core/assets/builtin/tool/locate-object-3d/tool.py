@@ -20,7 +20,7 @@ def main():
         fail("depth must be positive optical Z in metres")
     if depth is None and cam["type"] != "rgbd":
         fail("provide depth in metres or use an rgbd camera")
-    frame = device(camera)
+    frame = device(camera, output="file")
     image = frame.get("file")
     if not image:
         fail(f'camera "{camera}" returned no image file')

@@ -74,7 +74,7 @@ function mockCamera(workspace: string, device: Extract<Device, { type: "rgb" | "
     images.depth = Buffer.concat([Buffer.from(`P5\n${depth.width} ${depth.height}\n65535\n`), pixels])
   }
   const reading: DeviceReading = { deviceID: device.name, kind: device.type, data: { timestamp } }
-  if (output !== undefined && output !== "file") {
+  if (output !== "file") {
     reading.data = { timestamp, ...Object.fromEntries(Object.entries(images).map(([key, bytes]) => [key, bytes.toString("base64")])) }
     return reading
   }

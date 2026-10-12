@@ -29,7 +29,7 @@ try {
   const result = await runtime.tools.call("device", { deviceID: "camera" }, {
     sessionID: "host-session", callID: "host-call", signal: new AbortController().signal,
   })
-  // result includes text, error status, metadata and optional image file paths.
+  // result includes text, error status, metadata and optional image attachments.
 } finally {
   await runtime.dispose()
 }
@@ -76,7 +76,9 @@ const state = await capabilities.context() // stable instructions + source.secti
 
 A contribution can provide tools (`list`/`call`), skills (`list`/`load`), commands
 and context. Tools receive `Invocation` with session/call identity, abort signal,
-permission and question callbacks. Commands receive a distinct trusted
+permission and question callbacks. Image attachments use `{mime, path}` for a saved
+file or `{mime, data}` for an in-memory base64 payload; hosts forward the latter
+as image content rather than text. Commands receive a distinct trusted
 `CommandContext`, including an optional abort signal. Each feature must preserve
 authorization/cancellation internally.
 Duplicate identifiers are errors; tool directories are re-read when calling.
@@ -88,8 +90,10 @@ The existing root APIs remain available without adopting contributions.
 `device` calls one device; `devices` accepts `calls: [{deviceID, action?, args?}]`.
 Batch permissions are checked before dispatch. Calls run concurrently under each
 device's scheduler; results stay in input order and report individual errors.
-Camera reads return file paths in JSON; use the host file-reading tool to inspect
-images. Python tools may request array or base64 output for computation.
+Direct camera reads default to `output="base64"` and attach RGB images with camera
+identity and timestamp in every mode; no file-opening call is needed. Python
+camera reads default to NumPy arrays. Both accept `output="file"`, `"base64"`, or
+`"array"`.
 Sampling is not simultaneous and effects
 are not atomic. Python tools may compose these tools without gaining lifecycle
 or controller capabilities.
@@ -397,12 +401,13 @@ handles this and the existing persistent protocol. Custom scripts parsing payloa
 from `sys.argv` must migrate to these helpers. Executable paths and `--serve` stay
 in argv; payload size no longer selects a transport.
 
-Camera reads default to files. For example, perception can return
-`{"image": device("camera")["file"]}`; with an identity processing stage, the
-controller mapping `"inputs": {"/observation/images/0": "/image"}` passes the
+Internal camera reads default to NumPy arrays. For file-based consumers, perception
+can return `{"image": device("camera", output="file")["file"]}`; with an identity
+processing stage, the controller mapping `"inputs": {"/observation/images/0": "/image"}` passes the
 current file path each round. Consumers open the file, and image tools can display
-it to the model. Python consumers may instead request `output="array"` or
-`output="base64"` within their runtime; base64 text is not model image input.
+it to the model. Internal reads do not automatically display images; call the
+camera directly for visual inspection after a tool finishes. Use `output="base64"`
+for encoded PNG/PGM strings without array decoding, or `output="file"` for paths.
 
 From the repository root:
 

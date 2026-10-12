@@ -1,10 +1,12 @@
 import { z } from "zod"
+import { readFile } from "node:fs/promises"
 import { ProfileStore } from "../../device/profile/store.ts"
 import { dispatchDevice } from "../../device/dispatch.ts"
 import { lifecycleAction } from "../../device/lifecycle.ts"
 import { isCommandAction } from "../../device/interface.ts"
 import { NamedError } from "../../util/error.ts"
-import type { Context } from "../tool.ts"
+import { imageMimeBytes } from "../../util/media.ts"
+import type { Attachment, Context } from "../tool.ts"
 import { failure, type Failure } from "../errors.ts"
 
 export const DeviceCallSchema = z.strictObject({
@@ -25,6 +27,7 @@ export interface CallResult extends Partial<Failure> {
   ok: boolean
   data?: Record<string, unknown>
   file?: string
+  attachments?: Attachment[]
 }
 class DeviceCallError extends NamedError {
   constructor(message: string) { super("DeviceCallError", message) }
@@ -37,15 +40,16 @@ export async function callDevices(calls: Call[], ctx: Context, options: Options 
     try {
       const device = await ProfileStore.readDevice(ctx.directory, call.deviceID)
       if (!device) throw new DeviceCallError(`no device "${call.deviceID}" in this workspace`)
-      if (!options.kind && (device.type === "rgb" || device.type === "rgbd") && call.action === "read" && call.args.output !== undefined && call.args.output !== "file")
-        throw new DeviceCallError("Camera array/base64 output is available inside Python tools; agent-facing reads use file output")
+      const camera = (device.type === "rgb" || device.type === "rgbd") && call.action === "read"
+      if (!options.kind && camera)
+        call = { ...call, args: { output: "base64", ...call.args } }
       const lifecycle = call.action === "load" || call.action === "unload"
       if (options.kind && lifecycle) throw new DeviceCallError("load/unload are unavailable inside Python tools; use the device tool")
       if (!lifecycle && call.action !== "status" && !device.loaded) throw new DeviceCallError(`device "${device.name}" is unloaded`)
       if (lifecycle && Object.keys(call.args).length) throw new DeviceCallError("load/unload accept no arguments")
       const command = lifecycle || isCommandAction(device, call.action)
       if (options.kind === "perception" && command) throw new DeviceCallError(`perception tools may not command a device (${call.action} on ${device.name})`)
-      return { call, device, command }
+      return { call, device, command, camera }
     } catch (error) { return { call, failure: failure(error) } }
   }))
   for (const item of prepared) {
@@ -66,6 +70,17 @@ export async function callDevices(calls: Call[], ctx: Context, options: Options 
         ? await lifecycleAction(ctx.directory, item.device, action, ctx.abort)
         : await dispatchDevice(ctx.directory, item.device, action, args, options.owner, ctx.abort)
       ctx.abort.throwIfAborted()
+      if (item.camera && !options.kind) {
+        const data = reading.data?.color !== undefined
+          ? z.string().base64().parse(reading.data.color)
+          : (await readFile(z.string().parse(reading.filePath))).toString("base64")
+        if (imageMimeBytes(Buffer.from(data.slice(0, 32), "base64")) !== "image/png")
+          throw new DeviceCallError("Camera read did not return a PNG image")
+        return { deviceID, action, ok: true,
+          data: reading.filePath ? reading.data : { timestamp: reading.data?.timestamp },
+          ...(reading.filePath ? { file: reading.filePath } : {}),
+          attachments: [{ mime: "image/png", data }] }
+      }
       return { deviceID, action, ok: true, ...(reading.data ? { data: reading.data } : {}), ...(reading.filePath ? { file: reading.filePath } : {}) }
     } catch (error) {
       ctx.abort.throwIfAborted()

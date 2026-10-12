@@ -121,10 +121,12 @@ and blocks further writes until recovery.
 Observations and write-result states use finite numeric `timestamp` seconds in
 the device clock: acquisition time, otherwise receipt time. Combined observations
 use the latest component timestamp; cached data retains it. Timestamps carry no
-clock label and are not implicitly synchronized. Cameras support file, array and
-base64 output with one timestamp for color/depth. Arrays cross JSON as base64 and
-are decoded by Python; fixed dimensions are validated. Agent tools allow file
-output only; hosts inspect image paths explicitly.
+clock label and are not implicitly synchronized. Cameras support `file`, `base64`
+and `array` output with one timestamp for color/depth. Python reads default to
+arrays; direct agent reads default to base64. Arrays cross JSON as encoded image
+payloads and are decoded by Python; fixed dimensions are validated. Direct agent
+reads attach RGB images in every mode, reusing encoded payloads or reading saved
+files in the same call. Image data is sent as image content, not text.
 
 Persistent drivers may implement `record_start` and `record_stop` for native
 capture. Otherwise, recording samples through device dispatch. See
