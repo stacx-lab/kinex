@@ -15,7 +15,7 @@ import { deviceInputSchema } from "./device-input.ts"
 //                 (may read devices / profile / robot / call other perception tools)
 //   controller  — execute a loop of actions until a termination condition
 //                 (additionally may command devices and call any tool)
-// One DIRECTORY per tool: <root>/tool/<name>/{tool.yaml,tool.py}, discovered
+// One DIRECTORY per tool: <root>/tools/<name>/{tool.yaml,tool.py}, discovered
 // like skills (contentRoots: robot → project → global → builtin/tool/),
 // first-seen-wins by manifest name. The agent sees each as a first-class tool; the yaml's
 // `parameters` (raw JSON Schema) is sent verbatim as the input schema.
@@ -59,7 +59,7 @@ export interface PyToolInfo {
 // builtin/skill/), scanned LAST so robot/project copies of the same name override.
 const builtinDir = () => Assets.builtin("tool")
 
-export const toolRoots = (cwd: string) => contentRoots(cwd, "tool", builtinDir())
+export const toolRoots = (cwd: string) => contentRoots(cwd, "tools", builtinDir())
 
 // Problems are agent-readable one-liners (the loop appends them to runtime
 // context): a tool the agent just wrote must fail loudly, not vanish.

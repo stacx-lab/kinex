@@ -389,6 +389,9 @@ package. Only each loaded type's Use section enters normal runtime context;
 Setup/Profile is read when needed. Setup ships calibration skills separately.
 Copy drivers and their runtime support files into device workspaces when provisioning.
 
+Custom Python tools live in `.kinex/tools/<name>/{tool.yaml,tool.py}`, JS/TS tools
+in `.kinex/tools/`, and skills in `.kinex/skills/<name>/SKILL.md` (searched recursively).
+Global configuration uses the same `tools/` and `skills/` subdirectories.
 Discovery preserves workspace/project → parent projects → global → built-in
 precedence. `RuntimeOptions.builtinSkillRoots` appends feature-package skill roots
 to the builtin tier; discovery scans local/global roots only once.
@@ -413,6 +416,7 @@ or replay of the failed tool.
 Use `exec` to run ordinary Python with access to the active runtime. Supply exactly
 one of `python` (source) or `file` (a script path); no manifest, `main()` function or
 `kind` is required. Multiline source is passed directly, without shell syntax.
+Optional `description` supplies a short lowercase TUI label, such as `inspect arm state`.
 
 ```json
 {

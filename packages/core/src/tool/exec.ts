@@ -6,6 +6,7 @@ import DESCRIPTION from "./exec.txt"
 export const ExecTool = define("exec", {
   description: DESCRIPTION,
   parameters: z.strictObject({
+    description: z.string().optional().describe("Short lowercase description of the task, for display"),
     python: z.string().min(1).optional().describe("Python source, including multiline scripts; provide exactly one of python or file"),
     file: z.string().min(1).optional().describe("Script path, relative to the working directory or absolute"),
     args: z.record(z.string(), z.unknown()).default({}).describe("Values available through kinex.args()"),

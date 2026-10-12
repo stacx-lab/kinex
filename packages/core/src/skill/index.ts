@@ -44,7 +44,7 @@ export function parseFrontmatter(text: string): { meta: Record<string, string>; 
 export async function listSkills(cwd: string): Promise<SkillInfo[]> {
   const skills: SkillInfo[] = []
   const seen = new Set<string>()
-  for (const skillDir of [...await contentRoots(cwd, "skill", builtinDir()), ...(currentScope().builtinSkillRoots ?? [])]) {
+  for (const skillDir of [...await contentRoots(cwd, "skills", builtinDir()), ...(currentScope().builtinSkillRoots ?? [])]) {
     if (!(await exists(skillDir))) continue
     const pattern = "**/SKILL.md"
     for (const entry of (await glob(pattern, { cwd: skillDir, dot: true })).sort()) {

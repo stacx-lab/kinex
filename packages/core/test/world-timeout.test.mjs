@@ -65,7 +65,7 @@ test('world wait deadlines drain either reply order and preserve concurrent call
 
 test('wait_timeout survives direct tools and Python RPC without elapsed time', async t => {
   const { runtime, directory, status, pid } = await fixture(t)
-  const tool = path.join(directory, '.kinex/tool/wait_probe')
+  const tool = path.join(directory, '.kinex/tools/wait_probe')
   await mkdir(tool, { recursive: true })
   await writeFile(path.join(tool, 'tool.yaml'), 'name: wait_probe\nkind: controller\ndescription: Wait timeout probe\ninterpreter: python3\ntimeout_s: 10\nparameters: {type: object}\n')
   await writeFile(path.join(tool, 'tool.py'), 'from kinex import device\ndevice("world", "wait", {"duration_s": 30})\n')
@@ -109,7 +109,7 @@ test('blocking servo cancellation and wait timeout stop only its owned motion', 
         home: null, control: { mode: 'position' }, feedback: { velocities: true, efforts: false },
         stop: { behavior: 'hold', affected_devices: ['arm'] },
       } })
-    const tool = path.join(directory, '.kinex/tool/servo')
+    const tool = path.join(directory, '.kinex/tools/servo')
     await mkdir(tool, { recursive: true })
     await copyFile(new URL('../assets/builtin/tool/servo/tool.py', import.meta.url), path.join(tool, 'tool.py'))
     const manifest = await readFile(new URL('../assets/builtin/tool/servo/tool.yaml', import.meta.url), 'utf8')

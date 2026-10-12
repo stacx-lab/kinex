@@ -23,9 +23,13 @@ test('important tools show action and target, including streamed arguments and a
     ['closed_loop', { control: { args: { device: 'arm' } }, perceive: { tool: 'devices' } }, 'closed_loop arm devices'],
     ['closed_loop', {}, 'closed_loop'],
     ['closed_loop', { control: null, perceive: null }, 'closed_loop'],
+    ['exec', { description: 'inspect arm state', python: 'from kinex import device' }, 'exec inspect arm state'],
+    ['exec', { description: 'inspect arm state', file: 'scripts/inspect.py' }, 'exec inspect arm state'],
     ['exec', { file: 'scripts/inspect.py' }, 'exec scripts/inspect.py'],
-    ['exec', { python: 'from kinex import device\nprint(device("arm"))' }, 'exec from kinex import device'],
-    ['exec', {}, 'exec Python'],
+    ['exec', { description: '  ', file: 'scripts/inspect.py' }, 'exec scripts/inspect.py'],
+    ['exec', { python: 'from kinex import device\nprint(device("arm"))' }, 'exec python script'],
+    ['exec', { description: 'inspect' }, 'exec inspect'],
+    ['exec', {}, 'exec python script'],
   ]) assert.equal(plain(toolRenderers(name).renderCall(args, theme, context)), expected)
   for (const args of [undefined, null, {}, { devices: { arm: null } }]) {
     assert.doesNotThrow(() => plain(toolRenderers('record').renderCall(args, theme, context)))
@@ -37,6 +41,17 @@ test('important tools show action and target, including streamed arguments and a
   await bridge.refresh(true)
   assert.equal(plain(registered[0].renderCall({ deviceID: 'arm' }, theme, context)), 'kinex_device read arm')
   assert.equal(plain(toolRenderers('unknown_custom_tool').renderCall({}, theme, context)), 'unknown_custom_tool')
+})
+
+test('exec labels preserve aliases, sanitize text and truncate without hiding expanded source', () => {
+  const renderers = toolRenderers('exec', 'kinex_exec')
+  const args = { description: '\x1b[2Jinspect\narm state', python: 'from kinex import device\nprint(device("arm"))' }
+  assert.equal(plain(renderers.renderCall(args, theme, context)), 'kinex_exec inspect arm state')
+  const narrow = renderers.renderCall(args, theme, context).render(20)
+  assert.equal(narrow.length, 1)
+  assert.ok(visibleWidth(narrow[0]) <= 20)
+  const expanded = plain(renderers.renderCall(args, theme, { ...context, expanded: true }))
+  assert.match(expanded, /from kinex import device/)
 })
 
 test('all Kinex tools share JSON result formatting regardless of argument-summary support', () => {

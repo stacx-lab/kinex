@@ -8,7 +8,7 @@ const singleLine = (value: string) => stripTerminalSequences(value).replace(/[\r
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {}
 
 function summary(name: string, args: Record<string, unknown>): string {
-  if (name === "exec") return string(args.file) || string(args.python).split("\n")[0] || "Python"
+  if (name === "exec") return string(args.description).trim() || string(args.file) || "python script"
   if (name === "device") return `${string(args.action) || "read"} ${string(args.deviceID)}`.trim()
   if (name === "devices") return `${Array.isArray(args.calls) ? args.calls.length : 0} calls`
   if (name === "device_stop") return string(args.deviceID) || "all"

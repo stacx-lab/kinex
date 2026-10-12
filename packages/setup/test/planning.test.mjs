@@ -186,7 +186,7 @@ test('a usable base mode is not blocked by unknown bounds in an unused mode', as
 
 test('workspace skill override supplies the selected procedure and malformed deferred skills do not gate tasks', async t => {
   const { directory, runtime, setup, save } = await fixture(t)
-  const dir = path.join(directory, '.kinex/skill/calibrate-tcp-offset')
+  const dir = path.join(directory, '.kinex/skills/calibrate-tcp-offset')
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'SKILL.md'), '---\nname: calibrate-tcp-offset\ndescription: Local procedure\n---\nUse local data.\n')
   await writeFile(path.join(dir, 'procedure.json'), JSON.stringify({ version: 1, roles: { probe: { types: ['other'] } }, quality: 'Local evidence' }))

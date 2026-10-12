@@ -86,7 +86,7 @@ for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages
     await app.host.session.prompt('baseline')
     await app.host.session.prompt('/load sensor')
     await app.host.session.prompt('loaded')
-    const skillDir = path.join(cwd, '.kinex/skill/new-audit-skill')
+    const skillDir = path.join(cwd, '.kinex/skills/new-audit-skill')
     await mkdir(skillDir, { recursive: true })
     await writeFile(path.join(skillDir, 'SKILL.md'), '---\nname: new-audit-skill\ndescription: Unique new audit skill\n---\nFresh skill body')
     await app.host.session.prompt('skill added')
@@ -123,11 +123,11 @@ test('same-task discovery: new tools and skill catalogs appear on the next reque
   await bind(app)
   const skill = '---\nname: instant-skill\ndescription: Instant new skill\n---\nSKILL_BODY_V1'
   fake.steps.push(
-    { tool: 'write', args: { path: '.kinex/tool/instant_tool.ts', content: `export default {description:'Instant',execute:async()=>({title:'instant',output:'INSTANT_TOOL_OK'})}` } },
+    { tool: 'write', args: { path: '.kinex/tools/instant_tool.ts', content: `export default {description:'Instant',execute:async()=>({title:'instant',output:'INSTANT_TOOL_OK'})}` } },
     { tool: 'instant_tool' },
-    { tool: 'write', args: { path: '.kinex/skill/instant-skill/SKILL.md', content: skill } },
+    { tool: 'write', args: { path: '.kinex/skills/instant-skill/SKILL.md', content: skill } },
     { tool: 'skill', args: { name: 'instant-skill' } },
-    { tool: 'write', args: { path: '.kinex/skill/instant-skill/SKILL.md', content: skill.replace('V1', 'V2') } },
+    { tool: 'write', args: { path: '.kinex/skills/instant-skill/SKILL.md', content: skill.replace('V1', 'V2') } },
     { tool: 'skill', args: { name: 'instant-skill' } },
     { text: 'done' },
   )
@@ -161,12 +161,12 @@ for (const profile of [
 ]) {
   test(`${profile.name}: tool changes execute correctly and preserve the prior request prefix`, async t => {
     const cwd = await workspace(t)
-    const file = '.kinex/tool/late.ts'
+    const file = '.kinex/tools/late.ts'
     const source = version => `export default {description:'Late interface ${version}',execute:async()=>({title:'late',output:'LATE_${version}'})}`
     const requests = await wireProvider(t, profile.api, { compat: profile.compat, steps: [
       { tool: 'write', args: { path: file, content: source('V1') } },
       { tool: 'late' },
-      { tool: 'bash', args: { command: 'rm .kinex/tool/late.ts' } },
+      { tool: 'bash', args: { command: 'rm .kinex/tools/late.ts' } },
       { tool: 'write', args: { path: file, content: source('V2') } },
       { tool: 'late' },
       { text: 'done' },
@@ -209,7 +209,7 @@ for (const profile of [
 test('same-task tool implementation edits take effect without changing the tool declaration', async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
-  const directory = path.join(cwd, '.kinex/tool')
+  const directory = path.join(cwd, '.kinex/tools')
   await mkdir(directory, { recursive: true })
   const source = version => `export default {description:'Stable description',execute:async()=>({title:'stable',output:'IMPLEMENTATION_${version}'})}`
   await writeFile(path.join(directory, 'stable_tool.ts'), source('V1'))
@@ -218,7 +218,7 @@ test('same-task tool implementation edits take effect without changing the tool 
   await bind(app)
   fake.steps.push(
     { tool: 'stable_tool' },
-    { tool: 'write', args: { path: '.kinex/tool/stable_tool.ts', content: source('V2') } },
+    { tool: 'write', args: { path: '.kinex/tools/stable_tool.ts', content: source('V2') } },
     { tool: 'stable_tool' },
     { text: 'done' },
   )
@@ -237,9 +237,9 @@ test('same-task tool implementation edits take effect without changing the tool 
 test('same-task tool interface edits, discovery errors, recovery and deletion refresh the active tools', async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
-  const directory = path.join(cwd, '.kinex/tool')
+  const directory = path.join(cwd, '.kinex/tools')
   await mkdir(directory, { recursive: true })
-  const file = '.kinex/tool/changing.ts'
+  const file = '.kinex/tools/changing.ts'
   await writeFile(path.join(cwd, file), `export default {description:'Original interface',execute:async()=>({title:'old',output:'old'})}`)
   const updated = `import { z } from ${JSON.stringify(import.meta.resolve('zod'))}; export default {
     description:'Updated interface',parameters:z.object({value:z.string()}),
@@ -254,7 +254,7 @@ test('same-task tool interface edits, discovery errors, recovery and deletion re
     { tool: 'write', args: { path: file, content: `throw new Error('BROKEN_TOOL_DISCOVERY')` } },
     { tool: 'write', args: { path: file, content: updated } },
     { tool: 'changing', args: { value: 'RECOVERED' } },
-    { tool: 'bash', args: { command: 'rm .kinex/tool/changing.ts' } },
+    { tool: 'bash', args: { command: 'rm .kinex/tools/changing.ts' } },
     { text: 'done' },
   )
   await app.host.session.prompt('update, break, repair and remove a tool')
@@ -280,8 +280,8 @@ test('a batch refresh appends context after every tool result and does not dupli
   await bind(app)
   fake.steps.push(
     { tools: [
-      { name: 'write', args: { path: '.kinex/skill/batch-skill/SKILL.md', content: '---\nname: batch-skill\ndescription: Batch skill\n---\nBODY' } },
-      { name: 'write', args: { path: '.kinex/tool/batch_tool.ts', content: `export default {description:'Batch tool',execute:async()=>({title:'batch',output:'BATCH_OK'})}` } },
+      { name: 'write', args: { path: '.kinex/skills/batch-skill/SKILL.md', content: '---\nname: batch-skill\ndescription: Batch skill\n---\nBODY' } },
+      { name: 'write', args: { path: '.kinex/tools/batch_tool.ts', content: `export default {description:'Batch tool',execute:async()=>({title:'batch',output:'BATCH_OK'})}` } },
     ] },
     { tool: 'batch_tool' },
     { text: 'done' },
@@ -305,7 +305,7 @@ test('headless CLI discovers and executes a new tool with stdin closed', { timeo
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
   fake.steps.push(
-    { tool: 'write', args: { path: '.kinex/tool/headless.ts', content: `export default {description:'Headless tool',execute:async()=>({title:'headless',output:'HEADLESS_TOOL_OK'})}` } },
+    { tool: 'write', args: { path: '.kinex/tools/headless.ts', content: `export default {description:'Headless tool',execute:async()=>({title:'headless',output:'HEADLESS_TOOL_OK'})}` } },
     { tool: 'headless' },
     { text: 'HEADLESS_FINISHED' },
   )

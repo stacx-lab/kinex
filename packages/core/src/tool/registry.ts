@@ -12,7 +12,7 @@ import { RecordTool } from "./record.ts"
 import { ProfileWriteTool } from "./profile_write.ts"
 import { ExecTool } from "./exec.ts"
 
-// Zero-install custom tools: any .ts/.js file in tool/ under a content root
+// Zero-install custom tools: any .ts/.js file in tools/ under a content root
 // exporting {description, parameters (zod), execute}. Named <file> for default export,
 // <file>_<export> otherwise. Disable module and disk caches so edits reload.
 async function customTools(cwd: string): Promise<{ tools: Def[]; problems: string[] }> {

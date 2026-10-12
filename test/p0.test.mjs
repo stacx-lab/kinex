@@ -24,8 +24,8 @@ async function fixture(t, mode = 'auto') {
 }
 
 async function custom(cwd, name, body) {
-  await mkdir(path.join(cwd, '.kinex/tool'), { recursive: true })
-  await writeFile(path.join(cwd, '.kinex/tool', `${name}.ts`), body)
+  await mkdir(path.join(cwd, '.kinex/tools'), { recursive: true })
+  await writeFile(path.join(cwd, '.kinex/tools', `${name}.ts`), body)
 }
 
 for (const denied of [
@@ -39,7 +39,7 @@ for (const denied of [
     await custom(cwd, 'sibling', `import {writeFile} from 'node:fs/promises';import path from 'node:path';export default {
       description:'Sibling marker',execute:async(_,ctx)=>{await writeFile(path.join(ctx.directory,'core-started'),'started');return {title:'marker',output:'started'}}
     }`)
-    const directory = path.join(cwd, '.kinex/tool/denied_controller')
+    const directory = path.join(cwd, '.kinex/tools/denied_controller')
     await mkdir(directory, { recursive: true })
     await writeFile(path.join(directory, 'tool.yaml'), 'name: denied_controller\nkind: controller\ndescription: Permission test\ninterpreter: python3\n')
     await writeFile(path.join(directory, 'tool.py'), 'raise RuntimeError("must not run")\n')

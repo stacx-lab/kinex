@@ -91,8 +91,8 @@ for (const source of ['file', 'camera']) test(`${source} images are stored as by
   t.after(() => app.dispose())
   if (source === 'file') {
     await writeFile(image, png)
-    await mkdir(path.join(cwd, '.kinex/tool'), { recursive: true })
-    await writeFile(path.join(cwd, '.kinex/tool/capture.ts'), `export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:${JSON.stringify(image)}}]}) }`)
+    await mkdir(path.join(cwd, '.kinex/tools'), { recursive: true })
+    await writeFile(path.join(cwd, '.kinex/tools/capture.ts'), `export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:${JSON.stringify(image)}}]}) }`)
     fake.steps.push({ tool: 'capture' })
   } else {
     await seed(app.owner.runtime)
@@ -157,7 +157,7 @@ test('new and removed workspace tools refresh at the next prompt', async t => {
   const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
   t.after(() => app.dispose())
   await bind(app)
-  const directory = path.join(cwd, '.kinex/tool')
+  const directory = path.join(cwd, '.kinex/tools')
   await mkdir(directory, { recursive: true })
   const file = path.join(directory, 'new_tool.ts')
   await writeFile(file, `export default {description:'New tool',execute:async()=>({title:'new',output:'DYNAMIC_TOOL_OK'})}`)
@@ -247,8 +247,8 @@ test('composition owns setup discovery and reservations across session and works
       const session = target.host.session.sessionFile
       await target.dispose()
       for (const directory of [cwd, next]) {
-        await mkdir(path.join(directory, '.kinex/tool'), { recursive: true })
-        await writeFile(path.join(directory, '.kinex/tool/setup_plan.ts'), "export default { description:'workspace planner', execute:async()=>({title:'test',output:'workspace'}) }")
+        await mkdir(path.join(directory, '.kinex/tools'), { recursive: true })
+        await writeFile(path.join(directory, '.kinex/tools/setup_plan.ts'), "export default { description:'workspace planner', execute:async()=>({title:'test',output:'workspace'}) }")
       }
       const composition = kind === 'default' ? undefined : kind === 'core'
         ? { contributions: runtime => [coreContribution(runtime)] }

@@ -43,7 +43,7 @@ async function pythonDriver(runtime, directory, persistent = true) {
 }
 
 async function pythonTool(directory, name, code, kind = 'perception', timeout = 10) {
-  const dir = path.join(directory, '.kinex/tool', name)
+  const dir = path.join(directory, '.kinex/tools', name)
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'tool.yaml'), `name: ${name}\nkind: ${kind}\ndescription: test\ninterpreter: python3\ntimeout_s: ${timeout}\nparameters: {type: object}\n`)
   await writeFile(path.join(dir, 'tool.py'), code)
@@ -65,7 +65,7 @@ assert sys.argv[1:] == ['hello', 'two words']
 print(robot()['identity']['id'])
 print('ordinary script')
 `
-  const options = { args: { value: 7 }, argv: ['hello', 'two words'] }
+  const options = { description: 'inspect runtime', args: { value: 7 }, argv: ['hello', 'two words'] }
   const inline = await execScript(runtime, { python: source, ...options })
   assert.ok(!inline.isError, inline.output)
   assert.deepEqual(JSON.parse(inline.output), { exit_code: 0, output: 'node-test\nordinary script\n', result: null })
@@ -477,7 +477,7 @@ test('one-shot drivers release connections, and cancellation terminates persiste
 
 test('dynamic TypeScript and JavaScript tools reload under Node', async t => {
   const { runtime, directory } = await fixture(t)
-  const dir = path.join(directory, '.kinex', 'tool')
+  const dir = path.join(directory, '.kinex', 'tools')
   await mkdir(dir, { recursive: true })
   const source = label => `const label: string = ${JSON.stringify(label)}; export default { description: label, execute: async () => ({ title: label, output: label }) }`
   const file = path.join(dir, 'custom.ts')
@@ -492,7 +492,7 @@ test('dynamic TypeScript and JavaScript tools reload under Node', async t => {
 test('Python tools use the packaged client and drain noisy stderr', async t => {
   const { runtime, directory } = await fixture(t, { host })
   await runtime.profiles.writeDevice({ name: 'world', type: 'world', loaded: true, access: { connection: { kind: 'mock' } } })
-  const dir = path.join(directory, '.kinex', 'tool', 'node_python')
+  const dir = path.join(directory, '.kinex', 'tools', 'node_python')
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'tool.yaml'), 'name: node_python\nkind: perception\ndescription: test\ninterpreter: python3\n')
   await writeFile(path.join(dir, 'tool.py'), 'import os\nfrom kinex import robot, finish\nos.write(2, b"x" * 1024 * 1024)\nfinish(robot())\n')
@@ -625,16 +625,16 @@ test('cancelling a controller before motion does not stop unowned devices', { ti
       stop: { behavior: 'hold', affected_devices: ['arm'] },
     },
   })
-  const pred = path.join(directory, '.kinex/tool/settled')
+  const pred = path.join(directory, '.kinex/tools/settled')
   await mkdir(pred, { recursive: true })
   for (const name of ['tool.py', 'tool.yaml']) await writeFile(path.join(pred, name), await readFile(new URL(`../assets/builtin/tool/settled/${name}`, import.meta.url), 'utf8') + (name.endsWith('yaml') ? '\ninterpreter: python3\n' : ''))
-  const closedLoop = path.join(directory, '.kinex/tool/closed-loop')
+  const closedLoop = path.join(directory, '.kinex/tools/closed-loop')
   await mkdir(closedLoop, { recursive: true })
   for (const name of ['tool.py', 'tool.yaml']) {
     const source = await readFile(new URL(`../assets/builtin/tool/closed-loop/${name}`, import.meta.url), 'utf8')
     await writeFile(path.join(closedLoop, name), source + (name.endsWith('yaml') ? '\ninterpreter: python3\n' : ''))
   }
-  const perception = path.join(directory, '.kinex/tool/slow-point')
+  const perception = path.join(directory, '.kinex/tools/slow-point')
   await mkdir(perception, { recursive: true })
   await writeFile(path.join(perception, 'tool.yaml'), 'name: slow_point\nkind: perception\ndescription: Test perception delay\ninterpreter: python3\nparameters: {type: object, properties: {}}\ntimeout_s: 30\n')
   await writeFile(path.join(perception, 'tool.py'), 'import time\nfrom kinex import device, finish\ndevice("arm")\ntime.sleep(30)\nfinish({"point": None})\n')
@@ -898,7 +898,7 @@ for (const deviceType of ['joint', 'dexterous_hand']) test(`servo plans and vali
       stop: { behavior: 'hold', affected_devices: [name] },
     },
   })
-  const dir = path.join(directory, '.kinex/tool/servo')
+  const dir = path.join(directory, '.kinex/tools/servo')
   await mkdir(dir, { recursive: true })
   for (const name of ['tool.py', 'tool.yaml']) {
     const source = await readFile(new URL(`../assets/builtin/tool/servo/${name}`, import.meta.url), 'utf8')
@@ -1044,7 +1044,7 @@ async function trackingFixture(t) {
     })
   }
   const install = async (name, manifest, code) => {
-    const dir = path.join(directory, '.kinex/tool', name)
+    const dir = path.join(directory, '.kinex/tools', name)
     await mkdir(dir, { recursive: true })
     await writeFile(path.join(dir, 'tool.yaml'), `${manifest}\ninterpreter: python3\n`)
     await writeFile(path.join(dir, 'tool.py'), code)
@@ -1529,7 +1529,7 @@ test('builtin prerequisites validate selected devices and retain custom global g
   for (const folder of ['run-policy', 'locate-object-3d']) {
     const manifest = await readFile(new URL(`../assets/builtin/tool/${folder}/tool.yaml`, import.meta.url), 'utf8')
     assert.doesNotMatch(manifest, /^(devices|requires):/m)
-    const dir = path.join(directory, '.kinex/tool', folder)
+    const dir = path.join(directory, '.kinex/tools', folder)
     await mkdir(dir, { recursive: true })
     await writeFile(path.join(dir, 'tool.yaml'), manifest + '\ninterpreter: python3\n')
     // Isolate manifest gates from the tools' numerical and device operations.
@@ -1608,7 +1608,7 @@ test('devices denial dispatches nothing and cancellation interrupts a pending ba
 
 test('Python composes device tools without gaining lifecycle or motion capabilities', async t => {
   const { runtime, directory } = await trackingFixture(t)
-  const dir = path.join(directory, '.kinex/tool/probe')
+  const dir = path.join(directory, '.kinex/tools/probe')
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'tool.yaml'), 'name: probe\nkind: perception\ndescription: test\ninterpreter: python3\nparameters: {type: object}\n')
   await writeFile(path.join(dir, 'tool.py'), 'from kinex import args, call, finish\na = args()\nfinish(call(a["tool"], **a["args"]))\n')
@@ -1630,7 +1630,7 @@ test('Python composes device tools without gaining lifecycle or motion capabilit
 
 test('closed_loop consumes devices results through nested input mappings', async t => {
   const { runtime, directory, args } = await trackingFixture(t)
-  const dir = path.join(directory, '.kinex/tool/extract')
+  const dir = path.join(directory, '.kinex/tools/extract')
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'tool.yaml'), 'name: extract\nkind: perception\ndescription: test\ninterpreter: python3\nparameters: {type: object}\n')
   await writeFile(path.join(dir, 'tool.py'), 'from kinex import args, finish\nassert args()["position"] == 0\nfinish({"goal": .2, "unused": True})\n')
@@ -1646,9 +1646,9 @@ test('closed_loop consumes devices results through nested input mappings', async
 
 test('closed_loop executes inline stages immediately with mappings, fresh globals and predicate state', async t => {
   const { runtime, directory, args, events } = await trackingFixture(t)
-  const closedLoop = path.join(directory, '.kinex/tool/closed-loop')
+  const closedLoop = path.join(directory, '.kinex/tools/closed-loop')
   await writeFile(path.join(closedLoop, 'offset.json'), '0.1')
-  const files = await readdir(path.join(directory, '.kinex/tool'), { recursive: true })
+  const files = await readdir(path.join(directory, '.kinex/tools'), { recursive: true })
   const result = await runtime.tools.call('closed_loop', { ...args,
     perceive: { python: 'lambda target: {"measured": target}', args: { target: .1 } },
     process: {
@@ -1682,7 +1682,7 @@ def main(measurement, unused):
     terminated_by: 'target', rounds: 2, perception_misses: 0, last: { custom: true }, until_state: 3,
   })
   assert.equal(events.filter(e => e.action === 'wait').length, 2)
-  assert.deepEqual(await readdir(path.join(directory, '.kinex/tool'), { recursive: true }), files)
+  assert.deepEqual(await readdir(path.join(directory, '.kinex/tools'), { recursive: true }), files)
   for (const name of ['arm', 'hand']) assert.equal((await runtime.devices.dispatch(name, 'read')).data.stopped, true)
 })
 
@@ -1763,7 +1763,7 @@ test('inline execution inherits cancellation and the closed_loop deadline', { ti
   for (const mode of ['cancel', 'timeout']) await t.test(mode, async t => {
     const { runtime, directory, args, events } = await trackingFixture(t)
     if (mode === 'timeout') {
-      const manifest = path.join(directory, '.kinex/tool/closed-loop/tool.yaml')
+      const manifest = path.join(directory, '.kinex/tools/closed-loop/tool.yaml')
       await writeFile(manifest, (await readFile(manifest, 'utf8')).replace('timeout_s: 900', 'timeout_s: 1'))
     }
     let started
@@ -1806,7 +1806,7 @@ test('nested Python device composition preserves permission denial as a host err
     ['inner', 'finish(call("device", deviceID="sensor"))'], ['outer', 'finish(call("inner"))'],
     ['inline_outer', `finish(inline(${JSON.stringify(inline)}, {}))`],
   ]) {
-    const dir = path.join(directory, '.kinex/tool', name)
+    const dir = path.join(directory, '.kinex/tools', name)
     await mkdir(dir, { recursive: true })
     await writeFile(path.join(dir, 'tool.yaml'), `name: ${name}\nkind: perception\ndescription: test\ninterpreter: python3\n`)
     await writeFile(path.join(dir, 'tool.py'), `from kinex import call, finish, inline\n${body}\n`)

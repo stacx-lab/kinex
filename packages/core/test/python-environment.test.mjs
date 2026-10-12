@@ -75,7 +75,7 @@ finish();
       await symlink(python, status.executable)
     },
     tool: async (source = 'import sys\nfrom kinex import finish\nfinish({"python": sys.executable})\n', interpreter) => {
-      const tool = path.join(directory, '.kinex/tool/probe')
+      const tool = path.join(directory, '.kinex/tools/probe')
       await mkdir(tool, { recursive: true })
       await writeFile(path.join(tool, 'tool.yaml'), JSON.stringify({ name: 'probe', kind: 'perception', description: 'Python environment probe', ...(interpreter ? { interpreter } : {}) }))
       await writeFile(path.join(tool, 'tool.py'), source)

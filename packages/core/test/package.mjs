@@ -109,8 +109,8 @@ export async function checkCorePackage(directory, env, pack) {
       }, {sessionID:'package'})
       assert.ok(!script.isError, script.output)
       assert.deepEqual(JSON.parse(script.output), {exit_code:0, output:'clock\\n', result:null})
-      await mkdir('.kinex/tool', {recursive:true})
-      await writeFile('.kinex/tool/echo.ts', 'const text: string = "installed"; export default {description: text, execute: async () => ({title: text, output: text})}')
+      await mkdir('.kinex/tools', {recursive:true})
+      await writeFile('.kinex/tools/echo.ts', 'const text: string = "installed"; export default {description: text, execute: async () => ({title: text, output: text})}')
       assert.equal((await runtime.tools.call('echo', {}, {sessionID:'package'})).output, 'installed')
       console.log('packed Node package passed')
     } finally { await runtime.dispose() }

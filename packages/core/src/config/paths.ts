@@ -3,7 +3,7 @@ import { Global } from "../global.ts"
 import { findUp, exists } from "../util/filesystem.ts"
 
 export const ConfigPaths = {
-  // Every directory that may hold command/skill/tool subdirs, global first, nearest project dir last.
+  // Content roots, global first, nearest project dir last.
   async directories(cwd: string): Promise<string[]> {
     const project = await findUp([".kinex"], cwd)
     const all = [Global.Path.config, ...project.toReversed()]
