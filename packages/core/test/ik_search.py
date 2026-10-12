@@ -339,7 +339,7 @@ class ControllerTests(unittest.TestCase):
         return module.control
 
     def test_servo_recovers_through_shared_numerical_ik_before_writing(self):
-        result = self.tool("servo")({"device": "arm", "pose": RECOVERY["goal"]})
+        result = self.tool("servo")({"device": "arm", "block": False, "pose": RECOVERY["goal"]})
         self.assertEqual(result["execution_id"], "recovered")
         self.assertEqual(len(self.writes), 1)
         self.assertEqual(result["joints"], self.ik_calls[0][1])
@@ -350,14 +350,14 @@ class ControllerTests(unittest.TestCase):
         servo = self.tool("servo")
         for extra in ({"max_joint_delta": 1}, {"max_joint_delta": None}, {"ik": {}}, {"duration_s": 1}):
             with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "unsupported servo arguments"):
-                servo({"device": "arm", "joints": self.positions, **extra})
+                servo({"device": "arm", "block": False, "joints": self.positions, **extra})
         self.assertEqual(self.writes, [])
         self.assertEqual(self.pending, {"existing": True})
 
     def test_cancelled_servo_ik_preserves_existing_motion(self):
         with patch.object(kinematics, "solve_attempt", side_effect=InterruptedError("cancelled")):
             with self.assertRaises(InterruptedError):
-                self.tool("servo")({"device": "arm", "pose": RECOVERY["goal"]})
+                self.tool("servo")({"device": "arm", "block": False, "pose": RECOVERY["goal"]})
         self.assertEqual(self.writes, [])
         self.assertEqual(self.pending, {"existing": True})
 
@@ -387,7 +387,7 @@ class ControllerTests(unittest.TestCase):
                     self.pending = {"existing": True}
                     with patch.object(ik_search, "monotonic", side_effect=clock):
                         try:
-                            result = servo({"device": "arm", "pose": case["goal"]})
+                            result = servo({"device": "arm", "block": False, "pose": case["goal"]})
                         except ValueError as error:
                             self.assertIn("IK search exhausted", str(error))
                             self.assertEqual(self.writes, [])
@@ -429,7 +429,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(result["actions_submitted"], 0)
         self.assertEqual(result["execution_ids"], {})
         with self.assertRaisesRegex(ValueError, "IK search exhausted"):
-            self.tool("servo")({"device": "arm", "pose": bad})
+            self.tool("servo")({"device": "arm", "block": False, "pose": bad})
         self.assertEqual(self.writes, [])
         self.assertEqual(self.pending, {"existing": True})
 

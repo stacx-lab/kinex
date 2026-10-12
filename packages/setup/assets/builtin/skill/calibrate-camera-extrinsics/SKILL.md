@@ -17,8 +17,9 @@ by the solver must actually remain fixed during collection. Base/torso motion th
 changes it invalidates those pairs; holding commanded zero is not proof of rest.
 
 Verify participating devices answer before physical preparation. Move with
-`servo speedFraction <= 0.15`, allow execution with `world.wait`, and verify
-measured arrival. Record the named attachment frame, without applying TCP offset.
+`servo speedFraction <= 0.15`. Servo waits its planned duration by default.
+Set `block=false` for non-blocking motion. Verify measured arrival.
+Record the named attachment frame, without applying TCP offset.
 Use `calib_sample` for robot evidence and camera artifacts; retain both sample IDs
 and timestamps. Sequential captures are not claimed to be synchronized.
 

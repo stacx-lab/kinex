@@ -28,7 +28,7 @@ or unload devices, and both retain permissions and cancellation.
 | `relative_pose` | Perception | Express a frame or local pose relative to another frame. |
 | `locate_object_3d` | Perception | Combine a camera, detection/segmentation model and depth to estimate an object's position in the camera frame. |
 | `settled` | Perception | Check measured joint arrival and stability, typically as a feedback loop's stopping condition. |
-| `servo` | Controller | Plan and submit a joint trajectory to joint or pose targets. Returns immediately by default; verify arrival with feedback. |
+| `servo` | Controller | Plan a joint trajectory to joint or pose targets. Waits its duration on a loaded world clock. Set `block=false` to return immediately. Verify arrival with feedback. |
 | `run_policy` | Controller | Run policy inference once and submit the resulting valid action prefix across devices. |
 | `closed_loop` | Controller | Repeat perception, processing and control on a world clock until a stopping condition or limit is reached. |
 

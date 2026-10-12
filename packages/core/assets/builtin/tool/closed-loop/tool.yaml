@@ -5,9 +5,10 @@ description: >-
   Close the gap between commanded and measured results by observing feedback
   and repeating or adjusting control until a stopping condition or round limit,
   using world-time waits. Joint arrival can use servo as control and settled as
-  until; repeated policy inference can use run_policy with fresh observations.
+  until. Repeated policy inference can use run_policy with fresh observations.
   Optional perceive, process, control and until stages accept tools or inline
-  Python; omitted or null stages return an empty object. 
+  Python; omitted or null stages return an empty object. Do not use closed_loop
+  merely to obtain a Python execution context.
 parameters:
   type: object
   additionalProperties: false

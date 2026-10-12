@@ -99,9 +99,10 @@ extrinsics:
 ## Use
 
 `servo({device, joints, speedFraction?})` plans and submits a smooth trajectory
-from measured finger positions. It returns immediately; use world time and
-observations to check execution. Pose goals require declared endpoint IK;
-finger geometry alone supplies predictions, not pose-goal control.
+from measured finger positions. It waits the duration on a loaded world clock.
+Set `block=false` to return immediately. Verify arrival with measured feedback.
+Pose goals require declared endpoint IK; finger geometry alone supplies
+predictions, not pose-goal control.
 
 `write({actions, duration_s})` takes absolute joint vectors in model order
 (radians/metres); the final reference remains active. Reads return positions,

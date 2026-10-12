@@ -76,6 +76,9 @@ extrinsics:
 
 ## Use
 
+`servo` plans a joint trajectory and waits its duration on a loaded world clock.
+Set `block=false` to return immediately. Verify arrival with measured feedback.
+
 `write({actions, duration_s})` takes a sequence of absolute joint vectors in
 model order (radians/metres); the final reference remains active.
 `read()` returns positions, velocities, efforts, faults and timestamp.

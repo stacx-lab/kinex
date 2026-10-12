@@ -39,7 +39,7 @@ def control(a):
     extra = a.keys() - {"device", "joints", "pose", "frame", "speedFraction", "max_velocity", "max_acceleration", "block", "world"}
     if extra:
         raise ValueError(f"unsupported servo arguments: {', '.join(sorted(extra))}")
-    block = a.get("block", False)
+    block = a.get("block", True)
     if not isinstance(block, bool):
         raise ValueError("block must be a boolean")
     world = a.get("world", "world")

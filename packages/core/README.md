@@ -138,10 +138,10 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   conventions and [motion and stop](../../docs/devices.md#motion-and-stop) for
   buffering, cancellation and ownership contracts.
 - `servo` reads measured joints once, then plans and submits a full joint trajectory.
-  It accepts joints or a pose and returns immediately by default, with no duration input.
-  `block: true` checks the loaded `world` device before submission and waits the
-  computed duration;
-  optional `world` selects a different world clock. `block: false` requires no clock.
+  It accepts joints or a pose, with no duration input. `block` defaults to `true`.
+  It checks the loaded `world` device before submission and waits the computed duration.
+  Optional `world` selects a different world clock.
+  Set `block: false` to return immediately without requiring a clock.
   Results report `device`, the driver's `execution_id`, requested/IK-resolved
   target `joints`, computed `duration_s` and `actions_submitted`. The execution ID
   identifies the submission, not completion. Driver feedback is validated before
@@ -240,7 +240,7 @@ call("closed_loop", world="world", wait_s=0.1,
      perceive={"tool": "target_pose"},
      process={"tool": "relative_pose", "args": {"parent": {"frame": "arm"}},
               "inputs": {"/child/frame": "/frame", "/child/pose": "/pose"}},
-     control={"tool": "servo", "args": {"device": "arm"},
+     control={"tool": "servo", "args": {"device": "arm", "block": False},
               "inputs": {"/pose": "/pose"}},
      until={"tool": "settled", "args": {"timeout_s": 10}})
 ```
@@ -249,7 +249,7 @@ For a fixed target, omit perception and processing:
 
 ```python
 call("closed_loop", world="world", wait_s=0.1,
-     control={"tool": "servo", "args": {"device": "arm", "pose": [0.3, 0, 0.2, 0, 0, 0, 1]}},
+     control={"tool": "servo", "args": {"device": "arm", "block": False, "pose": [0.3, 0, 0.2, 0, 0, 0, 1]}},
      until={"tool": "settled", "args": {"timeout_s": 10}})
 ```
 
@@ -271,8 +271,9 @@ batches, nested Python calls and inline stages. Structured tool errors are JSON
 with `error`, `code` and/or `details`; plain errors retain readable text. Python
 raises `kinex.RPCError`, a `RuntimeError` subclass exposing `.code` and `.details`.
 `run_policy` propagates `stop_failed` instead of reporting a normal IK rejection.
-`wait_s` is the observation/replanning interval; a new control call can replace
-the remaining references of a full servo plan before it completes.
+Set servo `block: false` so `wait_s` controls the observation/replanning interval.
+A new control call can replace the remaining references of a full servo plan
+before it completes.
 
 Migration: remove `duration_s` from servo arguments; obsolete input is rejected.
 Servo results expose `execution_id` directly and omit `write` and `end_joints`;

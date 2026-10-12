@@ -119,7 +119,7 @@ test('blocking servo cancellation and wait timeout stop only its owned motion', 
     t.after(runtime.subscribe(({ type, event }) => {
       if (type === 'device' && event.action === 'stop') stops.push(event.device.name)
     }))
-    const pending = runtime.tools.call('servo', { device: 'arm', joints: [2], block: true },
+    const pending = runtime.tools.call('servo', { device: 'arm', joints: [2] },
       { sessionID: 'servo-wait', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]) })
     await until(status, value => value.waiting === 1)
     if (mode === 'replacement') await runtime.devices.dispatch('arm', 'write', { actions: [[.5]], duration_s: 1 })

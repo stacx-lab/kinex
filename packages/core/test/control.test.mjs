@@ -61,7 +61,7 @@ test('servo recovers home starts within a fixed one-degree angular margin', asyn
       p.intrinsics.home = { j0: 0 }
       return p
     }
-    const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [goal] }, { arm: self })
+    const { result, stderr } = await dialog(tool('servo'), { device: 'arm', block: false, joints: [goal] }, { arm: self })
     assert.equal(Boolean(result), accepted, stderr)
     assert.equal(self.writes, accepted ? 1 : 0)
     if (accepted) {
@@ -407,13 +407,13 @@ function clock(arm) {
 }
 const tracking = { world: 'world', wait_s: 0.1, max_rounds: 3,
   perceive: { tool: 'target' }, process: { tool: 'process' },
-  control: { tool: 'servo', args: { device: 'arm' } },
+  control: { tool: 'servo', args: { device: 'arm', block: false } },
   until: { tool: 'done' } }
 const stages = { target: () => ({ joints: [0.2, 0.1] }), process: ({ observation }) => observation, done: () => ({ done: false }) }
 
-for (const block of [undefined, false]) test(`servo submits without waiting when block=${block}`, async () => {
+test('servo submits without a world clock when block=false', async () => {
   const armDevice = arm({})
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], block }, { arm: armDevice })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], block: false }, { arm: armDevice })
   assert.ok(result, stderr)
   assert.equal(armDevice.writes, 1)
   assert.equal(armDevice.stops, 0)
@@ -426,12 +426,12 @@ for (const block of [undefined, false]) test(`servo submits without waiting when
   assert.equal(result.actions_submitted, armDevice.history.length)
 })
 
-for (const type of ['joint', 'dexterous_hand']) test(`blocking servo waits the planned duration for ${type} joints and poses`, async () => {
+for (const type of ['joint', 'dexterous_hand']) for (const block of [undefined, true]) test(`servo waits the planned duration for ${type} joints and poses when block=${block}`, async () => {
   for (const goal of [{ joints: [2, 1] }, { pose: [0, 0, 0, 0, 0, 0, 1] }]) {
     const armDevice = arm({ type, ik: [2, 1], rate: .01 }), world = clock(armDevice)
     world.profile = () => ({ type: 'world', loaded: true })
     const clockName = goal.pose ? 'simulation' : 'world'
-    const response = await dialog(tool('servo'), { device: 'arm', ...goal, block: true,
+    const response = await dialog(tool('servo'), { device: 'arm', ...goal, block,
       ...(goal.pose ? { world: clockName } : {}) }, { arm: armDevice, [clockName]: world })
     assert.ok(response.result, response.stderr)
     assert.equal(world.time, response.result.duration_s)
@@ -446,7 +446,7 @@ for (const type of ['joint', 'dexterous_hand']) test(`blocking servo waits the p
 
 test('servo validates blocking options before replacing motion', async () => {
   const armDevice = arm({})
-  const initial = await dialog(tool('servo'), { device: 'arm', joints: [.2, .1] }, { arm: armDevice })
+  const initial = await dialog(tool('servo'), { device: 'arm', block: false, joints: [.2, .1] }, { arm: armDevice })
   assert.ok(initial.result, initial.stderr)
   const pending = armDevice.pending
   for (const block of [null, 0, 1, 'true']) {
@@ -454,9 +454,9 @@ test('servo validates blocking options before replacing motion', async () => {
     assert.match(response.stderr, /block must be a boolean/)
     assert.equal(response.result, undefined)
   }
-  for (const world of [undefined, { profile: () => ({ type: 'joint', loaded: true }) },
+  for (const block of [undefined, true]) for (const world of [undefined, { profile: () => ({ type: 'joint', loaded: true }) },
     { profile: () => ({ type: 'world', loaded: false }) }]) {
-    const response = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], block: true }, { arm: armDevice, world })
+    const response = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], block }, { arm: armDevice, world })
     assert.equal(response.result, undefined)
     assert.match(response.stderr, /world/)
   }
@@ -486,7 +486,7 @@ test('servo preserves home recovery for pose goals with either blocking mode', a
 
 for (const type of ['joint', 'dexterous_hand']) test(`servo resolves ${type} pose targets through declared IK`, async () => {
   const armDevice = arm({ ik: [0.01, 0.02], type })
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', pose: [0, 0, 0, 0, 0, 0, 1] }, { arm: armDevice })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', block: false, pose: [0, 0, 0, 0, 0, 0, 1] }, { arm: armDevice })
   assert.ok(result, stderr)
   assert.deepEqual(armDevice.history.at(-1), [.01, .02])
   assert.equal(result.duration_s, Math.sqrt(10 / Math.sqrt(3) * .02 / 3))
@@ -498,11 +498,11 @@ for (const type of ['joint', 'dexterous_hand']) test(`servo resolves ${type} pos
 
 test('servo rejects removed arguments without replacing motion', async () => {
   const device = arm({ dof: 1 })
-  const initial = await dialog(tool('servo'), { device: 'arm', joints: [.2] }, { arm: device })
+  const initial = await dialog(tool('servo'), { device: 'arm', block: false, joints: [.2] }, { arm: device })
   assert.ok(initial.result, initial.stderr)
   const pending = device.pending
   for (const extra of [{ max_joint_delta: 1 }, { duration_s: 1 }, { ik: {} }]) {
-    const rejected = await dialog(tool('servo'), { device: 'arm', joints: [2], ...extra }, { arm: device })
+    const rejected = await dialog(tool('servo'), { device: 'arm', block: false, joints: [2], ...extra }, { arm: device })
     assert.equal(rejected.result, undefined)
     assert.match(rejected.stderr, /unsupported servo arguments/)
     assert.equal(device.writes, 1)
@@ -514,7 +514,7 @@ test('servo rejects removed arguments without replacing motion', async () => {
 test('servo preserves explicit bounded targets without imposing a travel cap', async () => {
   const device = arm({ dof: 1 })
   device.positions = [3.1]
-  const accepted = await dialog(tool('servo'), { device: 'arm', joints: [-3.1] }, { arm: device })
+  const accepted = await dialog(tool('servo'), { device: 'arm', block: false, joints: [-3.1] }, { arm: device })
   assert.ok(accepted.result, accepted.stderr)
   assert.deepEqual(device.history.at(-1), [-3.1])
 })
@@ -530,7 +530,7 @@ test('servo seeds IK from the same measured state used for planning and projects
     device.positions = [0, 0]
     return [3.1, .2]
   }
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', pose: [0, 0, 0, 0, 0, 0, 1] }, { arm: device })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', block: false, pose: [0, 0, 0, 0, 0, 0, 1] }, { arm: device })
   assert.ok(result, stderr)
   assert.equal(device.reads, 1)
   assert.ok(device.history[0][0] > 3.2)
@@ -539,13 +539,13 @@ test('servo seeds IK from the same measured state used for planning and projects
 
 test('servo scales full plans and rejects oversized plans before writing', async () => {
   const device = arm({})
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], speedFraction: .5 }, { arm: device })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', block: false, joints: [2, 1], speedFraction: .5 }, { arm: device })
   assert.ok(result, stderr)
   assert.equal(result.duration_s, 7.5)
   assert.equal(device.history.length, 750)
   assert.deepEqual(device.history.at(-1), [2, 1])
   const pending = device.pending
-  const failed = await dialog(tool('servo'), { device: 'arm', joints: [2, 1], speedFraction: .0001 }, { arm: device })
+  const failed = await dialog(tool('servo'), { device: 'arm', block: false, joints: [2, 1], speedFraction: .0001 }, { arm: device })
   assert.equal(failed.result, undefined)
   assert.match(failed.stderr, /one million/)
   assert.equal(device.writes, 1)
@@ -560,7 +560,7 @@ test('servo submits wrapped continuous references while settled checks the reque
     value.resolved_model.joints[0] = { name: 'j0', type: 'continuous', limits: null }
     return value
   }
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [-Math.PI + .1] }, { arm: device })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', block: false, joints: [-Math.PI + .1] }, { arm: device })
   assert.ok(result, stderr)
   assert.deepEqual(result.joints, [-Math.PI + .1])
   assert.ok(Math.abs(device.history.at(-1)[0] - (Math.PI + .1)) < 1e-12)
@@ -909,13 +909,13 @@ test('servo normalizes rounded pose goals before IK and rejects larger norm erro
   const rounded = [.2, 0, .95, .964, .264, .032, .011]
   for (const frame of [undefined, 'arm']) {
     const device = arm({ ik: [.1, .2] })
-    const { result, stderr } = await dialog(tool('servo'), { device: 'arm', pose: rounded, ...(frame ? { frame } : {}) }, { arm: device })
+    const { result, stderr } = await dialog(tool('servo'), { device: 'arm', block: false, pose: rounded, ...(frame ? { frame } : {}) }, { arm: device })
     assert.ok(result, stderr)
     assert.deepEqual(device.ikArgs.pose.slice(0, 3), rounded.slice(0, 3))
     const norm = Math.hypot(...rounded.slice(3))
     device.ikArgs.pose.slice(3).forEach((value, i) => assert.ok(Math.abs(value - rounded[i + 3] / norm) < 1e-12))
     assert.equal(device.writes, 1)
-    const far = await dialog(tool('servo'), { device: 'arm', pose: [.2, 0, .95, 0, 0, 0, 1.002] }, { arm: device })
+    const far = await dialog(tool('servo'), { device: 'arm', block: false, pose: [.2, 0, .95, 0, 0, 0, 1.002] }, { arm: device })
     assert.equal(far.result, undefined)
     assert.match(far.stderr, /pose requires a unit quaternion \[qx, qy, qz, qw\] \(xyzw\); got norm 1\.002/)
     assert.match(far.stderr, /within 0\.001 of 1/)
@@ -979,7 +979,7 @@ test('native servo accepts measured overshoot and explicit targets beyond model 
   const device = arm({}), original = device.profile
   device.profile = () => { const value = original(); value.intrinsics.control.limit_handling = 'native'; return value }
   device.positions = [3.201, 0]
-  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', joints: [4, 0] }, { arm: device })
+  const { result, stderr } = await dialog(tool('servo'), { device: 'arm', block: false, joints: [4, 0] }, { arm: device })
   assert.ok(result, stderr)
   assert.equal(device.writes, 1)
   assert.deepEqual(result.joints, [4, 0])

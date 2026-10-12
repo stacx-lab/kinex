@@ -19,7 +19,8 @@ operator hand-guiding with stationary `calib_sample` readings. A powered sweep
 requires clear surroundings, payload removed, an operator at the e-stop, one joint
 at a time, and observation for self-collision. Use small type-appropriate increments
 (2–5 degrees in radians for revolute joints, small metre increments for prismatic
-joints) with `servo speedFraction:0.05`. Wait and verify arrival after each step.
+joints) with `servo speedFraction:0.05`. Servo waits its planned duration by default.
+Set `block=false` for non-blocking motion. Verify arrival after each step.
 Stop immediately on fault, no progress, near-stop report or operator interruption;
 do not probe a hard stop. Preserve the stopped position/reason as partial evidence.
 

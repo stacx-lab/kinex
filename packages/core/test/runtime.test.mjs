@@ -393,7 +393,7 @@ test('cancelling a controller before motion does not stop unowned devices', { ti
   t.after(() => abort.abort())
   const pending = runtime.tools.call('closed_loop', {
     perceive: { tool: 'slow_point' }, process: { tool: 'relative_pose', args: { parent: { frame: 'arm' } }, inputs: { '/child': '' } },
-    control: { tool: 'servo', args: { device: 'arm' } },
+    control: { tool: 'servo', args: { device: 'arm', block: false } },
     world: 'world', wait_s: .1, until: { tool: 'settled' },
   }, { sessionID: 's', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(5000)]) })
   const settled = pending.then(result => ({ result }), error => ({ error }))
@@ -662,7 +662,7 @@ for (const deviceType of ['joint', 'dexterous_hand']) test(`servo plans and vali
     assert.equal(invalid.isError, true)
   }
   assert.ok(!events.some(event => event.action === 'write' || event.action === 'stop'))
-  const response = await runtime.tools.call('servo', { device: name, joints: [2, 1] }, { sessionID: 's' })
+  const response = await runtime.tools.call('servo', { device: name, joints: [2, 1], block: false }, { sessionID: 's' })
   assert.ok(!response.isError, response.output)
   const result = JSON.parse(response.output)
   const submission = events.find(event => event.action === 'write').reading.data
@@ -681,7 +681,7 @@ for (const deviceType of ['joint', 'dexterous_hand']) test(`servo plans and vali
   assert.deepEqual((await runtime.devices.dispatch(name, 'read')).data.positions, [2, 1])
 
   const submit = async joints => {
-    const response = await runtime.tools.call('servo', { device: name, joints }, { sessionID: 's' })
+    const response = await runtime.tools.call('servo', { device: name, joints, block: false }, { sessionID: 's' })
     assert.ok(!response.isError, response.output)
     return JSON.parse(response.output)
   }
@@ -697,11 +697,11 @@ for (const deviceType of ['joint', 'dexterous_hand']) test(`servo plans and vali
   await runtime.devices.dispatch('world', 'wait', { duration_s: interrupted.duration_s + 10 })
   assert.deepEqual((await runtime.devices.dispatch(name, 'read')).data.positions, stopped)
 
-  for (const world of [undefined, 'simulation']) {
+  for (const block of [undefined, true]) for (const world of [undefined, 'simulation']) {
     if (world) await runtime.profiles.writeDevice({ name: world, type: 'world', loaded: true, access: { connection: { kind: 'mock' } } })
     events.length = 0
     const joints = world ? [1, .5] : [0, 0]
-    const response = await runtime.tools.call('servo', { device: name, joints, block: true,
+    const response = await runtime.tools.call('servo', { device: name, joints, block,
       ...(world ? { world } : {}) }, { sessionID: 's' })
     assert.ok(!response.isError, response.output)
     const result = JSON.parse(response.output)
@@ -760,7 +760,7 @@ run(dispatch, lambda: None)
   await (await runtime.devices.load('policy')).ready
   let stops = 0
   for (const tool of ['servo', 'run_policy']) for (const [goal, error] of [[-1, /positions/], [1, /write reported faults/]]) {
-    const args = tool === 'servo' ? { device: 'sensor', joints: [goal] }
+    const args = tool === 'servo' ? { device: 'sensor', joints: [goal], block: false }
       : { model: 'policy', observation: { goal }, command: [{ device: 'sensor' }] }
     const response = await runtime.tools.call(tool, args, { sessionID: 's' })
     assert.equal(response.isError, true)
