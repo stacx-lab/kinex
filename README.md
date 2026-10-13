@@ -149,7 +149,7 @@ kinex remove npm:pi-web-search          # Restore the bundled fallback
 
 Installs default to user scope; `-l` selects the project. Restart after changing
 packages. Browse [Pi packages](https://pi.dev/packages) or read the
-[package documentation](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/packages.md).
+[package documentation](https://github.com/earendil-works/pi/blob/v1.2.0/packages/coding-agent/docs/packages.md).
 
 ## Using Kinex with Other Harnesses
 
