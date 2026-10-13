@@ -408,11 +408,6 @@ function clock(arm) {
   return { time: 0, read() { return { time_s: this.time } },
     wait({ duration_s }) { this.time += duration_s; arm.advance(duration_s); return { time_s: this.time, waited_s: duration_s } } }
 }
-const tracking = { world: 'world', wait_s: 0.1, max_rounds: 3,
-  perceive: { tool: 'target' }, process: { tool: 'process' },
-  control: { tool: 'servo', args: { device: 'arm', block: false } },
-  until: { tool: 'done' } }
-const stages = { target: () => ({ joints: [0.2, 0.1] }), process: ({ observation }) => observation, done: () => ({ done: false }) }
 
 test('servo submits without a world clock when block=false', async () => {
   const armDevice = arm({})
@@ -555,7 +550,7 @@ test('servo scales full plans and rejects oversized plans before writing', async
   assert.equal(device.pending, pending)
 })
 
-test('servo submits wrapped continuous references while settled checks the requested goal', async () => {
+test('servo submits wrapped continuous references while returning the requested goal', async () => {
   const device = arm({ dof: 1 }), profile = device.profile
   device.positions = [Math.PI - .1]
   device.profile = () => {
@@ -567,259 +562,6 @@ test('servo submits wrapped continuous references while settled checks the reque
   assert.ok(result, stderr)
   assert.deepEqual(result.joints, [-Math.PI + .1])
   assert.ok(Math.abs(device.history.at(-1)[0] - (Math.PI + .1)) < 1e-12)
-  const context = { time_s: 0, control_result: result }
-  const before = await dialog(tool('settled'), { context }, { arm: device })
-  assert.equal(before.result.done, false)
-  device.positions = [...device.history.at(-1)]
-  device.clock = 1
-  const arrived = await dialog(tool('settled'), { context: { ...context, time_s: 1 } }, { arm: device })
-  assert.equal(arrived.result.done, false)
-  device.clock = 1.2
-  const quiet = await dialog(tool('settled'), { context: { ...context, time_s: 1.2 }, state: arrived.result.state }, { arm: device })
-  assert.equal(quiet.result.reason, 'settled')
-})
-
-test('closed_loop waits after submission and optionally stops before until', async () => {
-  for (const stop_after_control of [false, true]) {
-    const armDevice = arm({}), world = clock(armDevice), observed = []
-    const { result, stderr } = await dialog(tool('closed-loop'), { ...tracking, stop_after_control }, { arm: armDevice, world }, {
-      ...stages, done: ({ context, state }) => { observed.push([context.round, world.time, armDevice.stops]); return { done: false, state: (state ?? 0) + 1 } },
-    })
-    assert.ok(result, stderr)
-    assert.equal(result.rounds, 3)
-    assert.equal(result.until_state, 4)
-    assert.equal(armDevice.writes, 3)
-    assert.equal(armDevice.stops, stop_after_control ? 4 : 1)
-    assert.ok(Math.abs(world.time - .3) < 1e-9)
-    assert.deepEqual(observed.map(row => row[2]), stop_after_control ? [0, 1, 2, 3] : [0, 0, 0, 0])
-  }
-})
-
-test('closed_loop continues through partial and empty policy prefixes without interpreting IK diagnostics', async () => {
-  const armDevice = cartesianArm(), world = clock(armDevice), observed = []
-  world.profile = () => ({ name: 'world', type: 'world', intrinsics: { frames: {} } })
-  const model = policy([{ actions: Array(3).fill([.1, 0, 0, 0, 0, 0]) }])
-  armDevice.ik = args => {
-    armDevice.solves.push(args)
-    if (model.calls === 2 || model.calls === 1 && armDevice.solves.length === 2) throw new Error('unreachable')
-    return [.1 * model.calls, 0]
-  }
-  const { result, stderr } = await dialog(tool('closed-loop'), {
-    ...tracking,
-    control: { tool: 'run_policy', args: { model: 'policy', action_hz: 10,
-      command: [{ device: 'arm', space: 'pose_delta' }] } },
-  }, { arm: armDevice, world, policy: model }, {
-    target: () => ({}), process: ({ observation }) => ({ observation }),
-    done: ({ context }) => {
-      if (context.round) observed.push({ ...context.control_result,
-        pending: armDevice.pending, positions: [...armDevice.positions], stops: armDevice.stops })
-      return { done: false }
-    },
-  })
-  assert.ok(result, stderr)
-  assert.equal(result.terminated_by, 'max_rounds')
-  assert.equal(result.rounds, 3)
-  assert.equal(result.perception_misses, 0)
-  assert.equal(model.calls, 3)
-  assert.deepEqual(observed.map(row => row.actions_submitted), [1, 0, 3])
-  assert.deepEqual(observed.map(row => row.ik_failure?.action_index ?? null), [1, 0, null])
-  assert.deepEqual(observed.map(row => row.stops), [0, 0, 0])
-  assert.equal(observed[0].positions[0], .1)
-  assert.equal(observed[1].pending, observed[0].pending)
-  assert.deepEqual(observed[1].execution_ids, {})
-  assert.equal(armDevice.writes, 2)
-  assert.equal(armDevice.stops, 1)
-  assert.ok(Math.abs(world.time - .3) < 1e-9)
-})
-
-test('closed_loop replans each capped policy horizon from a fresh observation', async () => {
-  const self = arm({}), world = clock(self), observations = [], submissions = []
-  const chunks = [
-    { actions: [[.1, 0], [.2, 0], [99, 0]] },
-    { actions: [[.3, 0], [.4, 0], [99, 0]] },
-    { actions: [[.5, 0], [.6, 0], [99, 0]] },
-  ]
-  const model = policy(chunks)
-  const { result, stderr } = await dialog(tool('closed-loop'), {
-    ...tracking, wait_s: .1,
-    control: { tool: 'run_policy', args: { model: 'policy', max_actions: 2,
-      action_hz: 20, command: [{ device: 'arm' }] } },
-  }, { arm: self, world, policy: model }, {
-    target: () => {
-      const observation = { time_s: world.time, positions: [...self.positions] }
-      observations.push(observation)
-      return observation
-    },
-    process: ({ observation }) => ({ observation }),
-    done: ({ context }) => {
-      if (context.round) submissions.push(context.control_result)
-      return { done: false }
-    },
-  })
-  assert.ok(result, stderr)
-  assert.equal(result.rounds, 3)
-  assert.equal(model.calls, 3)
-  assert.deepEqual(model.seen, observations.map(obs => ({ obs })))
-  assert.deepEqual(observations.map(obs => obs.time_s), [0, .1, .2])
-  assert.deepEqual(observations.map(obs => obs.positions[0]), [0, .1, .2])
-  assert.deepEqual(self.history, chunks.flatMap(chunk => chunk.actions.slice(0, 2)))
-  assert.deepEqual(submissions.map(out => out.actions_submitted), [2, 2, 2])
-  assert.deepEqual(submissions.map(out => out.duration_s), [.1, .1, .1])
-  assert.equal(self.writes, 3)
-})
-
-test('closed_loop waits on misses, resets consecutive misses and propagates predicate state', async () => {
-  const armDevice = arm({}), world = clock(armDevice)
-  let rounds = 0
-  const { result, stderr } = await dialog(tool('closed-loop'), { ...tracking, max_rounds: 6, max_misses: 2 }, { arm: armDevice, world }, {
-    ...stages, process: ({ observation }) => ++rounds === 2 ? observation : null,
-  })
-  assert.ok(result, stderr)
-  assert.equal(result.terminated_by, 'perception_lost')
-  assert.equal(result.rounds, 4)
-  assert.equal(armDevice.writes, 1)
-  assert.equal(world.time, .4)
-})
-
-test('closed_loop propagates stage failures and stops owned motion', async () => {
-  const armDevice = arm({}), world = clock(armDevice)
-  let rounds = 0
-  const { result, stderr } = await dialog(tool('closed-loop'), tracking, { arm: armDevice, world }, {
-    ...stages, process: ({ observation }) => { if (++rounds === 2) throw Error('processing failed'); return observation },
-  })
-  assert.equal(result, undefined)
-  assert.match(stderr, /processing failed/)
-  assert.equal(armDevice.stops, 1)
-})
-
-test('settled persists stable time across fresh tool processes and resets on goal changes', async () => {
-  const armDevice = arm({}), world = clock(armDevice)
-  let state = null
-  const check = async (time, joints = [0, 0]) => {
-    armDevice.clock = 100 + time
-    const out = await dialog(tool('settled'), { context: { time_s: time, world: 'world', control_result: { device: 'arm', joints } }, state }, { arm: armDevice, world })
-    assert.ok(out.result, out.stderr)
-    state = out.result.state
-    return out.result.done
-  }
-  assert.equal(await check(0), false)
-  assert.equal(await check(.05), false)
-  assert.equal(await check(.1), true)
-  assert.equal(await check(.2, [.1, 0]), false)
-  assert.equal(state.since_s, null)
-})
-
-test('settled separates sample freshness from world-time stability and timeout', async () => {
-  const device = arm({}), original = device.read
-  let state, velocity = 0
-  device.read = () => ({ ...original(), velocities: [velocity, 0] })
-  const check = async (time, timestamp, joints = [0, 0], timeout_s) => {
-    device.clock = timestamp
-    const out = await dialog(tool('settled'), { context: { time_s: time }, device: 'arm', joints, state, timeout_s }, { arm: device })
-    if (out.result) state = out.result.state
-    return out
-  }
-  assert.equal((await check(100, 7)).result.done, false)
-  assert.equal(state.sample_timestamp, 7)
-  assert.equal(state.since_s, 100)
-  assert.equal((await check(100.2, 7)).result.done, false, 'cached feedback cannot establish arrival')
-  assert.equal((await check(100.3, 7.01)).result.reason, 'settled', 'duration uses world time, not device time')
-  velocity = .1
-  assert.equal((await check(100.4, 7.02)).result.done, false)
-  assert.equal(state.since_s, null)
-  velocity = 0
-  assert.equal((await check(100.5, 7.03)).result.done, false)
-  assert.equal(state.since_s, 100.5)
-  assert.match((await check(100.6, 6)).stderr, /device sample clock moved backwards/)
-  assert.match((await check(99, 7.04)).stderr, /world clock moved backwards/)
-  assert.equal((await check(100.6, 7.04, [.001, 0])).result.done, false)
-  assert.equal(state.since_s, 100.6, 'a changed goal starts a new stability interval')
-  assert.equal(state.started_s, 100)
-  const reads = device.reads
-  assert.equal((await check(101, 7.04, [.001, 0], 1)).result.reason, 'timeout')
-  assert.equal(device.reads, reads, 'world timeout is checked before device feedback')
-})
-
-test('settled estimates missing velocities from fresh position history across tool processes', async () => {
-  const device = arm({ dof: 1 }), original = device.profile
-  device.profile = () => {
-    const p = original()
-    p.intrinsics.feedback.velocities = false
-    return p
-  }
-  device.read = () => ({ positions: device.positions, velocities: [], faults: [], timestamp: device.clock })
-  let state
-  const check = async (time, timestamp, position = 0, joints = [0], timeout_s) => {
-    device.clock = timestamp
-    device.positions = [position]
-    const out = await dialog(tool('settled'), {
-      context: { time_s: time }, device: 'arm', joints, state, timeout_s,
-    }, { arm: device })
-    if (out.result) state = out.result.state
-    return out
-  }
-  assert.equal((await check(0, 10)).result.done, false)
-  assert.equal((await check(1, 10)).result.done, false)
-  assert.equal(state.sample_history.length, 1, 'cached samples do not fill the window')
-  assert.equal((await check(2, 10.1)).result.done, false, 'two readings are insufficient')
-  assert.equal((await check(2.2, 10.2)).result.reason, 'settled')
-  assert.equal((await check(2.3, 10.3, .009)).result.done, false, 'motion inside goal tolerance is not quiet')
-  assert.equal((await check(2.4, 10.4, 0)).result.done, false, 'oscillation cannot cancel across the window')
-  assert.equal((await check(2.5, 10.5)).result.done, false)
-  assert.equal((await check(2.6, 10.6)).result.done, false)
-  assert.equal((await check(2.8, 10.7)).result.done, true)
-  assert.equal(state.sample_history.length, 3, 'history remains bounded')
-  assert.equal((await check(3, 10.8, 0, [.001])).result.done, false)
-  assert.equal(state.sample_history.length, 1, 'new goals reset history')
-  assert.match((await check(3.1, 10.7, 0, [.001])).stderr, /device sample clock moved backwards/)
-  assert.equal((await check(4, 10.8, 0, [.001], 4)).result.reason, 'timeout')
-})
-
-test('settled position fallback uses device time, wraps continuous joints and still requires arrival', async () => {
-  const device = arm({ dof: 1 }), original = device.profile
-  device.profile = () => {
-    const p = original()
-    p.intrinsics.feedback.velocities = false
-    p.resolved_model.joints[0] = { name: 'j0', type: 'continuous', limits: null }
-    return p
-  }
-  device.read = () => ({ positions: device.positions, faults: [], timestamp: device.clock })
-  let state
-  const check = async (time, timestamp, position) => {
-    device.clock = timestamp
-    device.positions = [position]
-    const out = await dialog(tool('settled'), {
-      context: { time_s: time }, device: 'arm', joints: [Math.PI], state,
-    }, { arm: device })
-    assert.ok(out.result, out.stderr)
-    state = out.result.state
-    return out.result.done
-  }
-  assert.equal(await check(0, 50, Math.PI - .001), false)
-  assert.equal(await check(.2, 51, -Math.PI + .001), false)
-  assert.equal(await check(.4, 52, Math.PI - .001), true)
-  assert.equal(await check(10, 52.001, -Math.PI + .001), false, 'speed uses device time, not world time')
-  assert.equal(await check(11, 53, 0), false)
-  assert.equal(await check(12, 54, 0), false)
-  assert.equal(await check(13, 55, 0), false, 'quiet readings away from the goal cannot establish arrival')
-})
-
-test('settled restarts stability when caller state has no sample timestamp', async () => {
-  const device = arm({})
-  const { result, stderr } = await dialog(tool('settled'), {
-    context: { time_s: 10 }, device: 'arm', joints: [0, 0],
-    state: { device: 'arm', joints: [0, 0], since_s: 0, started_s: 0, time_s: 0 },
-  }, { arm: device })
-  assert.ok(result, stderr)
-  assert.equal(result.done, false)
-  assert.equal(result.state.since_s, 10)
-  assert.equal(result.state.started_s, 0)
-})
-
-test('settled uses world time for timeout even without a resolved target', async () => {
-  const first = await dialog(tool('settled'), { context: { time_s: 3 }, timeout_s: 1 }, {})
-  const next = await dialog(tool('settled'), { context: { time_s: 4 }, state: first.result.state, timeout_s: 1 }, {})
-  assert.equal(next.result.reason, 'timeout')
 })
 
 test('run_policy flattens end-effector columns and validates the entire chunk before writes', async () => {
@@ -857,38 +599,6 @@ test('run_policy submits complete chunks without advancing time', async () => {
   assert.equal(result.ik_failure, null)
   assert.equal(armDevice.clock, 0)
   assert.equal(armDevice.stops, 0)
-})
-
-test('closed_loop maps a measured pose through relative_pose into servo', async () => {
-  const device = arm({ ik: [0.1, 0.2] }), prof = device.profile, world = clock(device)
-  device.profile = () => { const p = prof(); p.intrinsics.frames.camera = { parent_frame: null, translation_m: [1, 2, 3], rotation_xyzw: [0, 0, 0, 1] }; return p }
-  const options = { ...tracking, max_rounds: 1,
-    process: { tool: 'relative_pose', args: { parent: { frame: 'arm' } },
-      inputs: { '/child/frame': '/frame', '/child/pose': '/poses/0' } },
-    control: { ...tracking.control, inputs: { '/pose': '/pose' } } }
-  const { result, stderr } = await dialog(tool('closed-loop'), options, { arm: device, world }, {
-    ...stages, target: () => ({ frame: 'arm:camera', poses: [[0.1, 0.2, 0.3, 0, 0, 1, 0]] }) })
-  assert.ok(result, stderr)
-  assert.deepEqual(device.ikArgs.pose, [1.1, 2.2, 3.3, 0, 0, 1, 0])
-  assert.equal(world.time, 0.1)
-  assert.equal(device.writes, 1)
-  assert.equal(device.stops, 1)
-})
-
-test('closed_loop input mapping handles array destinations, escaped keys, nulls and missing paths', async () => {
-  for (const mode of ['valid', 'null', 'missing', 'invalid']) {
-    const device = arm({}), world = clock(device)
-    const { result, stderr } = await dialog(tool('closed-loop'), { ...tracking, max_rounds: 1, max_misses: 1,
-      process: { tool: 'process', args: { retained: true }, inputs: { '/values/0': '/a~1b/~0key' } },
-      control: { ...tracking.control, inputs: { '/joints': mode === 'missing' ? '/missing' : '/goal' } },
-    }, { arm: device, world }, { ...stages,
-      target: () => ({ 'a/b': { '~key': mode === 'null' ? null : [0.2, 0.1] } }),
-      process: args => { assert.deepEqual(args, { retained: true, values: [[0.2, 0.1]] }); return mode === 'invalid' ? [] : { goal: args.values[0], ignored: true } },
-    })
-    if (mode === 'valid') { assert.ok(result, stderr); assert.equal(device.writes, 1) }
-    else if (mode === 'null') { assert.equal(result.terminated_by, 'perception_lost'); assert.equal(device.writes, 0) }
-    else { assert.equal(result, undefined); assert.match(stderr, mode === 'missing' ? /missing input path/ : /dict or null/); assert.equal(device.writes, 0) }
-  }
 })
 
 test('relative_pose bridges disconnected frames only with supplied estimates', async () => {
@@ -986,7 +696,4 @@ test('native servo accepts measured overshoot and explicit targets beyond model 
   assert.ok(result, stderr)
   assert.equal(device.writes, 1)
   assert.deepEqual(result.joints, [4, 0])
-  const checked = await dialog(tool('settled'), { context: { time_s: 0, control_result: result } }, { arm: device })
-  assert.ok(checked.result, checked.stderr)
-  assert.equal(checked.result.done, false)
 })

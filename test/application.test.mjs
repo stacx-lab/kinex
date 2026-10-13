@@ -82,11 +82,13 @@ test('same-workspace replacement retains drivers and finalizes recording', async
   assert.equal(app.owner.runtime, core)
 })
 
-for (const source of ['file', 'camera']) test(`${source} images are stored as bytes and survive session resume`, async t => {
+for (const source of ['file', 'camera', 'exec']) test(`${source} images are stored as bytes and survive session resume`, async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
   let png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6rXcAAAAASUVORK5CYII=', 'base64')
   const image = path.join(cwd, 'frame.png')
+  const second = path.join(cwd, 'second.png')
+  const secondPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=', 'base64')
   const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
   t.after(() => app.dispose())
   if (source === 'file') {
@@ -94,6 +96,12 @@ for (const source of ['file', 'camera']) test(`${source} images are stored as by
     await mkdir(path.join(cwd, '.kinex/tools'), { recursive: true })
     await writeFile(path.join(cwd, '.kinex/tools/capture.ts'), `export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:${JSON.stringify(image)}}]}) }`)
     fake.steps.push({ tool: 'capture' })
+  } else if (source === 'exec') {
+    await writeFile(image, png)
+    await writeFile(second, secondPng)
+    fake.steps.push({ tool: 'exec', args: { interpreter: 'python3',
+      python: 'from kinex import finish\nfinish({"observed": True}, file=["second.png", "frame.png"])',
+    } })
   } else {
     await seed(app.owner.runtime)
     await app.owner.runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true,
@@ -108,15 +116,23 @@ for (const source of ['file', 'camera']) test(`${source} images are stored as by
   await app.host.session.prompt('look')
   assert.equal(fake.requests.length, 2)
   assert.match(JSON.stringify(fake.requests[1]), /data:image\/png;base64/)
+  const imageURLs = request => request.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
+    .filter(block => block.type === 'image_url').map(block => block.image_url.url)
+  if (source === 'exec') {
+    assert.deepEqual(imageURLs(fake.requests[1]), [secondPng, png].map(bytes => `data:image/png;base64,${bytes.toString('base64')}`))
+    assert.match(JSON.stringify(fake.requests[1]), /observed/)
+  }
   if (source === 'camera') await assert.rejects(stat(path.join(cwd, '.kinex/devices/camera/out')), { code: 'ENOENT' })
   const session = app.host.session.sessionFile
   await app.dispose()
-  if (source === 'file') await writeFile(image, 'replaced')
+  if (source !== 'camera') await writeFile(image, 'replaced')
+  if (source === 'exec') await rm(second)
   const resumed = await createApplication({ cwd, session, mode: 'auto' })
   t.after(() => resumed.dispose())
   await bind(resumed)
   await resumed.host.session.prompt('look again')
   assert.match(JSON.stringify(fake.requests.at(-1)), new RegExp(png.toString('base64').replace(/[+]/g, '\\+')))
+  if (source === 'exec') assert.deepEqual(imageURLs(fake.requests.at(-1)), imageURLs(fake.requests[1]))
 })
 
 test('guided workflows wait for the SDK response and recordings reference persisted messages', async t => {

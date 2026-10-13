@@ -313,9 +313,14 @@ export async function runScript(input: ScriptInput, ctx: Context): Promise<Resul
 
 async function resultAttachments(returned: unknown, directory = process.cwd()) {
   const value = z.record(z.string(), z.unknown()).safeParse(returned).data
-  const file = typeof value?.["file"] === "string" ? path.resolve(directory, value["file"]) : undefined
-  const mime = file ? await imageMime(file) : undefined
-  return mime && file ? { attachments: [{ mime, path: file }] } : {}
+  const file = value?.["file"]
+  const files = z.array(z.string()).safeParse(typeof file === "string" ? [file] : file).data ?? []
+  const attachments = (await Promise.all(files.map(async file => {
+    const resolved = path.resolve(directory, file)
+    const mime = await imageMime(resolved)
+    return mime ? [{ mime, path: resolved }] : []
+  }))).flat()
+  return attachments.length ? { attachments } : {}
 }
 
 export async function runPyTool(cwd: string, info: PyToolInfo, args: Record<string, unknown>, ctx: Context): Promise<Result> {
@@ -336,6 +341,6 @@ export async function runPyTool(cwd: string, info: PyToolInfo, args: Record<stri
   return {
     title: `${name} (${kind} tool)`,
     output: formatJSON(returned),
-    ...await resultAttachments(returned),
+    ...await resultAttachments(returned, cwd),
   }
 }

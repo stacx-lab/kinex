@@ -140,7 +140,7 @@ def devices(calls):
 
 
 def call(tool, **kwargs):
-    """Compose a Python tool or device/devices; returns its structured result."""
+    """Compose a Python tool or device/devices: call("servo", **params), not call("servo", params)."""
     result = _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
     return _device_result(tool, kwargs, result)
 
@@ -168,7 +168,7 @@ def robot():
 
 
 def finish(result=None, file=None):
-    """End the tool successfully. `file` (an image path) is shown to the agent."""
+    """End successfully; `file` is an image path or ordered list of image paths."""
     payload = {**(result or {}), "file": file} if file else result
     _emit({"return": payload})
     sys.exit(0)

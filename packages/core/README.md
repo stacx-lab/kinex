@@ -226,62 +226,53 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
   quaternions with norms in `[0.999, 1.001]`, including frame estimates. Values
   outside that range are rejected with the received norm. Persisted profiles
   and velocity readings retain their stricter validation.
-- `closed_loop` composes perceive → process → control → world.wait → optional stop → until.
-  A successful control call does not guarantee the intended physical outcome;
-  the loop uses feedback to repeat or adjust control toward a stopping condition.
-  Only `world` and `wait_s` are required. All four stages default to null; omitted
-  or null stages return `{}` without execution. A disabled process does not
-  forward observation. Until receives context/state and returns a dict with
-  optional boolean `done`, state and reason. Missing `done` means false;
-  without a stopping decision, round and timeout limits apply.
-  Process receives `observation` and returns a dict that overrides `control.args`.
-  Optional `inputs` on process/control maps destination argument JSON Pointers
-  to source paths in the preceding result. With mappings, only selected values
-  are injected. Null results or selected null values count as misses; missing
-  paths are errors. `settled` checks joint error and quiet velocity over stable
-  world time, with an optional world-time timeout. Without velocity feedback,
-  it requires three fresh position samples.
-  Its state retains the device `sample_timestamp` separately from world time;
-  cached samples cannot establish arrival and backwards clocks are errors.
-  Changing the target resets stability without restarting the timeout. Older
-  state without `sample_timestamp` starts a new stability interval.
-  Each stage accepts either `tool` or `python`, alongside the same `args` and
-  mappings. Inline Python is a lambda or source defining `main`; it receives
-  keyword arguments and returns JSON data without calling `finish`.
-
-For a workspace perception tool returning `{frame, pose}`:
+Use `exec` for bounded feedback loops and return observations with control results.
+For example, for a revolute arm, pass target `joints` and a positive
+`tolerance_rad` in the exec arguments:
 
 ```python
-call("closed_loop", world="world", wait_s=0.1,
-     perceive={"tool": "target_pose"},
-     process={"tool": "relative_pose", "args": {"parent": {"frame": "arm"}},
-              "inputs": {"/child/frame": "/frame", "/child/pose": "/pose"}},
-     control={"tool": "servo", "args": {"device": "arm", "block": False},
-              "inputs": {"/pose": "/pose"}},
-     until={"tool": "settled", "args": {"timeout_s": 10}})
+from kinex import args, call, device, finish, stop_owned
+
+params = args()
+try:
+    motion = call("servo", device="arm", joints=params["joints"])
+    # Blocking servo already waited its planned duration. Check fresh feedback.
+    previous_stamp = None
+    for _ in range(20):
+        feedback = device("arm")
+        if feedback["faults"]:
+            raise RuntimeError(str(feedback["faults"]))
+        fresh = feedback["timestamp"] != previous_stamp
+        previous_stamp = feedback["timestamp"]
+        error = max(abs(q - goal) for q, goal in
+                    zip(feedback["positions"], motion["joints"], strict=True))
+        if fresh and error <= params["tolerance_rad"]:
+            break
+        device("world", "wait", {"duration_s": 0.1})
+    else:
+        raise TimeoutError("joint target not confirmed")
+finally:
+    stop_owned()
+
+feedback = device("arm")
+head = device("head_camera", args={"output": "file"})
+wrist = device("wrist_camera", args={"output": "file"})
+finish({"feedback": feedback, "cameras": ["head_camera", "wrist_camera"]},
+       file=[head["file"], wrist["file"]])
 ```
 
-For a fixed target, omit perception and processing:
+Use the workspace's actual camera names, joint units and tolerances. Position
+agreement alone does not establish stability, grasp success or task completion;
+check the feedback appropriate to the task. Bound loops, reject faults and missing
+feedback, and stop owned motion when the loop ends. When the next action needs
+visual interpretation, return selected images to the model rather than continuing
+without that decision. Printing camera paths does not attach images.
 
-```python
-call("closed_loop", world="world", wait_s=0.1,
-     control={"tool": "servo", "args": {"device": "arm", "block": False, "pose": [0.3, 0, 0.2, 0, 0, 0, 1]}},
-     until={"tool": "settled", "args": {"timeout_s": 10}})
-```
-
-The old `track` name has no alias. Update calls and refresh workspace tool copies
-from `builtin/tool/closed-loop`, removing obsolete `track` manifests.
-
-Inline stages bypass discovery and run in fresh subprocesses through the existing
-JSONL dialog, inheriting the caller's interpreter, working directory, deadline and
-permissions. Source and arguments travel over JSONL, never argv.
-Only inline control has controller capabilities. Until state is passed explicitly
-between rounds. Python tools can also use `inline(source, values, kind="perception")`;
-requesting controller capability requires a controller caller.
-
-`closed_loop` stops owned motion on misses, errors, cancellation and final exit.
-`stop_after_control` also stops it after each round's wait. Cleanup cannot stop
-another invocation's replacement. Uncertain writes are never retried.
+Python tools can also use `inline(source, values, kind="perception")` for a lambda
+or source defining `main(**kwargs)`. It returns JSON data and runs in a fresh
+subprocess with the caller's interpreter, directory, deadline and permissions.
+Only controller callers may request `kind="controller"`. Cleanup never stops
+another invocation's replacement motion; uncertain writes are never retried.
 Device failures preserve optional `code` and `details` through direct tools,
 batches, nested Python calls and inline stages. Structured tool errors are JSON
 with `error`, `code` and/or `details`; plain errors retain readable text. Python
@@ -441,7 +432,8 @@ process; script stdin receives EOF.
 The result contains `exit_code`, bounded combined stdout/stderr in `output`, and
 `result` (normally `null`). Normal completion and `sys.exit(0)` succeed. Optionally
 use `kinex.finish(value)` for a JSON result, or `kinex.finish(value, file=image_path)`
-to attach an image. Failures set the tool's error flag and return `error`, retaining
+to attach an image. Pass `file=[path1, path2]` to attach multiple images in order.
+Failures set the tool's error flag and return `error`, retaining
 RPC `code` and `details` when present. `exit_code` is null if Python never started.
 Output truncation is reported explicitly. Raw prints and subprocess output cannot
 be interpreted as runtime messages.
@@ -453,10 +445,11 @@ load/unload devices or call the recording tool. Failure, timeout and cancellatio
 stop motion still owned by the invocation and terminate owned subprocesses;
 successful completion may leave submitted motion running.
 
-`exec`, manifest tools and `closed_loop` inline stages share the execution runner.
-Closed-loop stages retain their lambda/`main(**args)` interface, stage capabilities
-and fresh-process behavior; use `closed_loop` for feedback control and `exec` for
-ordinary scripting.
+`call("servo", device="arm", joints=target)` and `call("servo", **params)`
+use keyword arguments, not a positional dictionary. In contrast,
+`device("world", "wait", {"duration_s": duration})` accepts an argument dictionary.
+`call` composes Python tools or `device`/`devices`, not host tools such as shell
+or file editing. `exec`, manifest tools and inline Python share the execution runner.
 
 ## Development
 
