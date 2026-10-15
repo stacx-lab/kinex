@@ -27,6 +27,7 @@
   <a href="#getting-started">Getting Started</a> ·
   <a href="#use-kinex-with-simulators">Simulators</a> ·
   <a href="#use-kinex-with-real-world-robots">Real-World Robots</a> ·
+  <a href="#safety">Safety</a> ·
   <a href="#kinex-and-the-pi-ecosystem">Pi Ecosystem</a> ·
   <a href="#using-kinex-with-other-harnesses">Other Harnesses</a>
 </p>
@@ -130,6 +131,9 @@ for more setup and connection details.
 
 ## Use Kinex with Real-World Robots
 
+Read the [safety requirements](#safety) before connecting or operating hardware,
+including during onboarding and calibration.
+
 Open Kinex in your robot workspace and describe your hardware, how it connects,
 and the task you want to perform:
 
@@ -147,6 +151,37 @@ Once ready, give Kinex the task in plain language. Use `/stop` to cancel the
 response and stop actuators within their declared scope, or `/unload <device>`
 to release a device. See [onboarding and calibration](https://stacx-lab.github.io/kinex/docs/onboarding/)
 for more detail.
+
+## Safety
+
+**Real robots can move unexpectedly and cause injury or property damage.**
+Apply these requirements whenever Kinex is connected to physical hardware:
+
+- **Human supervision:** A trained operator must remain present, monitor the
+  robot and its surroundings, and be ready to intervene throughout every run,
+  including onboarding and calibration. Never leave physical operation
+  unattended. Keep people clear of the robot's reachable workspace.
+- **Emergency stop:** Before motion, locate and verify the robot's physical
+  emergency-stop control using the manufacturer's procedure, and keep it within
+  immediate reach. In an emergency, use that control immediately. In standalone
+  Kinex, `/stop` cancels the agent response and requests a stop from loaded
+  actuators; `/stop <device>` targets one device and its declared stop scope.
+  The result depends on the driver, controller and connection. These software
+  commands, Ctrl-C, `/unload`, and closing Kinex are not substitutes for a
+  hardware emergency stop. Confirm the robot has stopped before approaching it;
+  resolve the cause and follow the manufacturer's reset procedure before resuming.
+- **Motion limits:** Before each run, verify joint and workspace bounds,
+  keep-out zones, speed and acceleration limits, and applicable force, torque
+  and payload limits for the robot, tool and task. Configure and verify the
+  corresponding controller protections and device profiles. Start with low
+  speeds and small motions in a clear area, and validate tasks in simulation
+  where possible. Do not assume that a prompt, a declared limit or a successful
+  simulation guarantees enforcement or collision avoidance on hardware.
+- **Disclaimer:** Kinex is provided "AS IS", without warranties, under the
+  [Apache License 2.0](LICENSE); see its warranty disclaimer and limitation of
+  liability. Users are responsible for assessing risks, validating their
+  hardware integration and following the manufacturer's operating instructions.
+  Kinex and agent-generated actions do not replace a robot safety system.
 
 ## Kinex and the Pi Ecosystem
 
