@@ -47,8 +47,9 @@ load/reload only through core lifecycle tools, with existing permissions. Driver
 need reload before live verification. Record known control/feedback/stop semantics and
 source geometry; preserve optional unknowns that the current operation does not need.
 
-Archive verify persisted facts. Existing valid facts can complete a node without new measurement.
+Archive verification evidence when needed, including facts not recorded in `profile.yaml`.
+Existing valid facts can complete a node without new measurement.
 Unresolved facts block only dependent operations. Never demand global profile completeness.
-Keep output short, avoid writing long markdown documents.
+Keep output short, avoid writing long markdown documents. Archive used evidence after all devices are set up.
 
 Continue until all devices are set up before stopping.

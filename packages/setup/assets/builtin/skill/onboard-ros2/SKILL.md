@@ -11,6 +11,12 @@ Prefer compatible installed driver packages, then apt binaries.
 Use vendor source or a direct SDK only for a concrete unsupported capability/version
 or the user's explicit choice; record the reason.
 
+## Devices and shared ROS backend
+
+Do not invent virtual devices that are not related to real hardware.
+Prefer a shared ROS backend in `.kinex/lib` to handle the ROS communication lifecycle
+and communication across multiple topics.
+
 ## Device files
 
 Create only the files needed by the driver. Devices sharing a ROS stack reuse its
