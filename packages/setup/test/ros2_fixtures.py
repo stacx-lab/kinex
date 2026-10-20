@@ -17,7 +17,7 @@ def fixture(directory, kind="joint"):
     expected = {"topics": [], "domain": True}
     if kind == "joint":
         driver.update(adapter="JointTrajectoryDriver", state_topic="/joint_states", command_topic="/jtc/joint_trajectory", controller="jtc",
-                      action="/jtc/follow_joint_trajectory", time_from_start_s=.1,
+                      time_from_start_s=.1,
                       stop={"method": "measured_position_and_cancel", "confirm": {"max_speed": .001, "timeout_s": .2},
                             "driver_loss": {"command_timeout_s": .1, "source": "fixture controller model"}})
         intrinsics = {"frames": {}, "kinematics": None, "home": None,
@@ -101,7 +101,7 @@ def runtime_fixture(directory, setup_library, core_library):
     helpers = directory / "python/kinex_ros"
     helpers.mkdir(parents=True)
     for name in ("__init__", "config", "ros2", "ros2_drivers"):
-        shutil.copyfile(Path(setup_library) / "kinex_ros" / f"{name}.py", helpers / f"{name}.py")
+        shutil.copyfile(Path(core_library) / "kinex_ros" / f"{name}.py", helpers / f"{name}.py")
     # Fixed fake-ROS launcher for this test fixture, not a runtime script generator.
     wrapper = directory / "ros-python"
     libraries = str(directory / "python") + ":" + core_library

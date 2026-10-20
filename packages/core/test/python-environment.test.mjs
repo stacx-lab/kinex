@@ -49,8 +49,8 @@ finish();
   const previousPath = process.env.PATH
   process.env.PATH = [bin, previousPath].filter(Boolean).join(path.delimiter)
   const runtimes = []
-  const create = () => {
-    const runtime = createKinexRuntime({ directory, host: { ask: async () => {} } })
+  const create = (options = {}) => {
+    const runtime = createKinexRuntime({ directory, host: { ask: async () => {} }, ...options })
     runtimes.push(runtime)
     return runtime
   }
@@ -212,12 +212,12 @@ test('missing imports report the interpreter without synchronization or replay',
   assert.deepEqual(await f.calls(), [])
 })
 
-test('explicit tool interpreters bypass default environment preparation', async t => {
+test('tool interpreter overrides are rejected without preparing another environment', async t => {
   const f = await fixture(t)
   await f.tool(undefined, python)
-  const result = await f.runtime.tools.call('probe', {}, { sessionID: 'python' })
-  assert.ok(!result.isError, result.output)
-  assert.equal(JSON.parse(result.output).python, python)
+  const catalog = await f.runtime.tools.list()
+  assert.ok(catalog.problems.some(problem => /interpreters on devices/.test(problem)))
+  assert.ok(!catalog.tools.some(tool => tool.name === 'probe'))
   await assert.rejects(stat(f.status.project), { code: 'ENOENT' })
   assert.deepEqual(await f.calls(), [])
 })
@@ -244,4 +244,48 @@ test('default persistent and one-shot drivers use the prepared interpreter witho
     await f.runtime.devices.unload(name)
   }
   assert.deepEqual(await f.calls(), [])
+})
+
+test('ROS environment selection is inert, workspace-configured and independent of devices', async t => {
+  const f = await fixture(t)
+  const before = {...process.env}
+  await mkdir(path.join(f.directory, '.kinex'), {recursive:true})
+  await writeFile(path.join(f.directory, '.kinex/kinex.json'), JSON.stringify({python:{provider:'ros-jazzy',interfaces:['../interfaces']}}))
+  const status = await f.runtime.python.status()
+  assert.equal(status.provider,'ros-jazzy')
+  assert.equal(status.present,false)
+  assert.equal(status.executable,path.join(f.directory,'.kinex/python/.pixi/envs/default/bin/python3'))
+  assert.deepEqual(status.interfaces,[path.join(f.directory,'interfaces')])
+  await f.runtime.tools.list()
+  await f.runtime.context()
+  await assert.rejects(stat(status.project),{code:'ENOENT'})
+  assert.deepEqual({...process.env},before)
+  // A host override follows the same precedence as other core settings.
+  const override = f.create({settings:{python:{provider:'uv',interfaces:[]}}})
+  assert.equal((await override.python.status()).provider,'uv')
+})
+
+test('prepared ROS exec sources its own overlays and ignores ambient Python import paths', async t => {
+  const f = await fixture(t)
+  await mkdir(path.join(f.directory,'.kinex'),{recursive:true})
+  await writeFile(path.join(f.directory,'.kinex/kinex.json'),JSON.stringify({python:{provider:'ros-jazzy'}}))
+  const status=await f.runtime.python.status()
+  await mkdir(path.dirname(status.executable),{recursive:true})
+  await symlink(python,status.executable)
+  for(const [index,overlay] of status.overlays.entries()) {
+    await mkdir(path.dirname(overlay),{recursive:true})
+    await writeFile(overlay,`export KINEX_TEST_OVERLAY_${index}=own\n`)
+  }
+  await writeFile(path.join(status.project,'ros-ready.json'),JSON.stringify({interfaces:[]}))
+  const previous=process.env.PYTHONPATH
+  process.env.PYTHONPATH='/must/not/inherit/simulator'
+  t.after(()=>{if(previous===undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH=previous})
+  const result=await f.runtime.tools.call('exec',{python:`import os, sys
+from kinex import finish
+assert '/must/not/inherit/simulator' not in sys.path
+assert os.environ['KINEX_TEST_OVERLAY_0'] == os.environ['KINEX_TEST_OVERLAY_1'] == 'own'
+finish({'python':sys.executable})`},{sessionID:'ros-python'})
+  assert.ok(!result.isError,result.output)
+  assert.equal(JSON.parse(result.output).result.python,status.executable)
+  assert.deepEqual(await f.calls(),[])
 })

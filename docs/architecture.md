@@ -28,11 +28,14 @@ OS interfaces and libraries rather than calling hardware drivers directly.
 
 ## Devices
 
-A device is a named resource with a **type**, **profile** and **driver**. Its type
-defines operations and data conventions; its profile describes access, intrinsic
-properties and spatial relationships. The driver implements the interface using
-a hardware SDK, simulator API or service connection, handling units, validation
-and connection cleanup. Hardware and simulators share these contracts.
+A device is a named resource with a type, a profile and a communication interface.
+The type describes physical or computational facts. Its operation catalog declares
+arbitrary typed topics and services; nodes implement those interfaces through a
+hardware SDK, simulator API or computational service. A device can start several
+owned nodes or expose a subset of endpoints from an existing shared node. Core
+owns only the nodes declared in that device's runtime; external nodes retain
+their own lifecycle. The world device owns time. Hardware and simulators share
+these contracts.
 
 Examples include:
 
@@ -40,8 +43,8 @@ Examples include:
   measured state. Command acceptance does not establish arrival: verify feedback.
 - A detection or policy model exposes inference as a device. Controller tools
   decide how to apply its output to the robot.
-- A `world` device exposes environment time through `read` and `wait`, so tools
-  can use the driver's clock for hardware or simulation.
+- A `world` device exposes environment time through its clock topic and wait services.
+  Tools schedule work through these operations for hardware or simulation.
 
 See [device contracts](devices.md) for frames, motion and driver behavior.
 
@@ -55,16 +58,15 @@ compose perception and control tools, wait on the world clock, check measured
 feedback in bounded loops, and return structured results with multiple images.
 The agent interprets those observations before choosing the next action.
 
-Reusable Python tools declare their interface in `tool.yaml` and run the manifest's
-entry script (`tool.py` by default), with two capability classes:
+Reusable Python tools declare their schema in `tool.yaml`. Async entries export
+`main(args, io)` and compose operations with `publish`, `subscribe`, `request` and
+`serve`. Ordinary Python branching and asyncio task groups define the workflow.
+Perception and control share one execution approval. Tools and their temporary
+communication resources end with the invocation; model state persists in devices.
 
-- **Perception** tools read and compute. For example, `locate_object_3d` combines
-  camera imagery, a detection or segmentation model, and depth to estimate an
-  object's position in the camera frame.
-- **Controller** tools can also command devices and run feedback loops. For
-  example, `servo` plans and submits a joint trajectory from measured state,
-  then waits its planned duration on a loaded world clock by default. Arrival
-  still requires fresh feedback; `block=false` skips the wait.
+For example, `servo` plans and publishes a trajectory, observes its acceptance,
+and waits on the world by default. Arrival still requires measured feedback.
+`relative_pose` queries tf2; camera intrinsics are carried in CameraInfo.
 
 Python tools and `exec` preserve permissions, cancellation and motion ownership;
 they cannot load or unload devices. Scripts own their stopping conditions and

@@ -1,5 +1,7 @@
 # Project overview
 
+The operational ROS contract is described in [communication](communication.md).
+
 Kinex composes a robotics runtime and optional setup features with a Pi-powered
 standalone agent. For the device, tool and skill abstractions, start with
 [architecture](architecture.md). Paths in the ownership table are relative to the
@@ -9,8 +11,8 @@ repository root.
 
 | Location | Owns |
 | --- | --- |
-| `packages/core` | Device management, non-ROS provisioning, schemas, runtime Python, operational tools, setup-device and device guides. No setup, ROS, agent or UI dependency. |
-| `packages/setup` | Onboarding, calibration, ROS configuration and adapters. Imports core through package exports. |
+| `packages/core` | Device management, ROS communication and supervision, schemas, runtime Python, operational tools, setup-device and device guides. No setup, agent or UI dependency. |
+| `packages/setup` | Onboarding, calibration and ROS setup procedures. Imports core through package exports. |
 | `src`, `src/integration` | Standalone CLI, storage and product policy. Published Pi SDKs supply providers, coding tools, agent loops and TUI. |
 | `../kinex-plugins` | Plugins for Pi, Claude Code and Codex using a shared MCP adapter and explicit packed core/setup snapshots. |
 
@@ -51,11 +53,13 @@ content from the old singular directories to these discovery roots. Packaged
 assets retain their internal `builtin/tool` and `builtin/skill` paths.
 Ordinary scripts passed to `exec` need no discovery entry or manifest.
 
-Core prepares `.kinex/python` with uv when its interpreter is missing, and retries
-incomplete bootstraps remembered by the current process. Concurrent first use
-waits for preparation to finish. Existing environments run without dependency
-synchronization; repair is explicit. Explicit interpreters own
-their dependencies. Ordinary host shells retain their environment.
+Core lazily prepares `.kinex/python`: uv for non-ROS workspaces, or independent
+Pixi/RoboStack Jazzy when workspace configuration selects `ros-jazzy`. Exec,
+helpers, ROS clients, tf2 and recording use Kinex Python, independent of device
+load state. Only device processes may select separate SDK interpreters.
+Concurrent first use waits for preparation; incomplete bootstraps retry. Existing
+prepared environments run without synchronization; `python.prepare()` explicitly
+synchronizes dependencies and builds interfaces. Host shells retain their environment.
 
 User commands and permission-checked model tools control lifecycle; Python tools
 cannot. `loaded` is intent, not readiness; ordinary calls never restart failed

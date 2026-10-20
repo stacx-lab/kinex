@@ -19,7 +19,7 @@ function mergeSections(existing: Record<string, unknown>, patch: Record<string, 
   for (const key of replace) {
     if (!allowed.includes(key) || !Object.hasOwn(patch, key)) throw new Error(`replace needs a supplied section: ${key}`)
     if (patch[key] === null) {
-      if (!["access", "extrinsics", "sim"].includes(key)) throw new Error(`cannot remove required section ${key}`)
+      if (!["access", "extrinsics"].includes(key)) throw new Error(`cannot remove required section ${key}`)
       delete merged[key]
       continue
     }
@@ -138,7 +138,7 @@ export const ProfileStore = {
   async writeManifest(cwd: string, patch: Record<string, unknown>, replace: readonly string[] = []): Promise<RobotManifest> {
     const file = path.join(await ProfileStore.workspaceDir(cwd), "workspace.yaml")
     const existing = (await readYaml(file)) ?? {}
-    const merged = mergeSections(existing, patch, replace, ["identity", "sim", "devices", "safety"])
+    const merged = mergeSections(existing, patch, replace, ["identity", "devices", "safety"])
     const now = new Date().toISOString()
     const meta = (merged["meta"] as Record<string, unknown> | undefined) ?? { created_at: now }
     merged["meta"] = { ...meta, updated_at: now }
@@ -164,12 +164,14 @@ export const ProfileStore = {
     if (typeof patch.name !== "string" || patch.name === "") throw new Error("device patch needs a non-empty name")
     const file = await ProfileStore.deviceFile(cwd, patch.name)
     const existing = (await readYaml(file)) ?? {}
+    if (existing.loaded && existing.runtime && ["runtime", "operations"].some(key => key in patch && JSON.stringify(patch[key]) !== JSON.stringify(existing[key])))
+      throw new Error("unload before changing runtime definitions or operations")
     // Merging across union variants would interleave two intrinsics shapes —
     // a retype replaces the file wholesale instead.
     const retyped = typeof existing["type"] === "string" && typeof patch["type"] === "string" && existing["type"] !== patch["type"]
     if (replace.includes("extrinsics") && patch.extrinsics === null && !["model", "detection", "segmentation", "world"].includes(String(patch.type ?? existing.type)))
       throw new Error("cannot remove required section extrinsics")
-    const merged = mergeSections(retyped ? {} : existing, patch, replace, DEVICE_SECTIONS)
+    const merged = mergeSections(retyped ? {} : existing, patch, replace, [...DEVICE_SECTIONS, "runtime", "operations"])
     const now = new Date().toISOString()
     const meta = (retyped ? undefined : (merged["meta"] as Record<string, unknown> | undefined)) ?? { created_at: now }
     merged["meta"] = { ...meta, updated_at: now }

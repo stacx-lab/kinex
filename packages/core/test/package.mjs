@@ -8,6 +8,10 @@ const exec = promisify(execFile)
 const root = fileURLToPath(new URL('../', import.meta.url))
 
 export async function checkCorePackage(directory, env, pack) {
+  for (const name of ['config', 'ros2', 'ros2_check', 'ros2_drivers'])
+    assert.ok(pack.files.some(file => file.path === `assets/python/kinex_ros/${name}.py`))
+  for (const file of ['srv/Wait.srv', 'srv/Stop.srv', 'msg/CommandStatus.msg', 'package.xml', 'CMakeLists.txt'])
+    assert.ok(pack.files.some(entry => entry.path === `assets/ros/kinex_interfaces/${file}`))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/_exec.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
@@ -31,7 +35,7 @@ export async function checkCorePackage(directory, env, pack) {
     '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2023', '--lib', 'ES2024', '--types', 'node', 'consumer.mts'], { cwd: directory })
   const { stdout } = await exec(process.execPath, ['--input-type=module', '--eval', `
     import assert from 'node:assert/strict'
-    import { copyFile, stat, mkdir, writeFile } from 'node:fs/promises'
+    import { copyFile, stat, mkdir, writeFile, symlink } from 'node:fs/promises'
     import { execFileSync } from 'node:child_process'
     import path from 'node:path'
     const count = () => process.eventNames().map(name => [name, process.listenerCount(name)])
@@ -74,7 +78,9 @@ export async function checkCorePackage(directory, env, pack) {
       const conventions = (await runtime.context()).conventions
       assert.match(conventions, /wait.*duration_s/)
       assert.doesNotMatch(conventions, /### Profile|## Setup|loaded: false/)
-      const reading = await runtime.tools.call('exec', { interpreter: 'python3', python: [
+      await mkdir('.kinex/python/.venv/bin', {recursive:true})
+      await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {encoding:'utf8'}).trim(), '.kinex/python/.venv/bin/python3')
+      const reading = await runtime.tools.call('exec', { python: [
         'from kinex import device, devices, finish',
         'request = {"deviceID": "world", "args": {}}',
         'finish({"single": device(**request), "batch": devices(calls=[request])})'
@@ -105,7 +111,7 @@ export async function checkCorePackage(directory, env, pack) {
       assert.ok(tools.tools.some(tool => tool.name === 'device'))
       assert.ok(tools.tools.some(tool => tool.name === 'exec'))
       const script = await runtime.tools.call('exec', {
-        interpreter: 'python3', python: 'from kinex import robot; print(robot()["identity"]["id"])'
+        python: 'from kinex import robot; print(robot()["identity"]["id"])'
       }, {sessionID:'package'})
       assert.ok(!script.isError, script.output)
       assert.deepEqual(JSON.parse(script.output), {exit_code:0, output:'clock\\n', result:null})

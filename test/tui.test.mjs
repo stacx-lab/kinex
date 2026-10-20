@@ -1,3 +1,4 @@
+import { recordingDevices } from "../packages/core/test/fixtures/recording.mjs"
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
@@ -49,12 +50,13 @@ for (const tuiMode of ['regular', 'fullscreen']) test(`real PTY ${tuiMode} keeps
   await writeFile(settingsFile, JSON.stringify({ ...JSON.parse(await readFile(settingsFile, 'utf8')), tuiMode }))
   fake.steps.push(
     { tool: 'device', args: { deviceID: 'sensor', action: 'read' } },
-    { tool: 'record', args: { action: 'start', devices: { sensor: 2 }, instruction: 'PTY recording' } },
+    { tool: 'record', args: { action: 'start', devices: { telemetry: 2 }, instruction: 'PTY recording' } },
     { text: 'RECORDING_READY' },
   )
   const runtime = createKinexRuntime({ directory: cwd })
   await seed(runtime)
   await (await runtime.devices.load('sensor')).ready
+  await recordingDevices(runtime, cwd)
   await runtime.dispose()
   const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--enable-recording', '--model', 'fake/test', 'Record the sensor'], {
     cwd, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
@@ -64,7 +66,7 @@ for (const tuiMode of ['regular', 'fullscreen']) test(`real PTY ${tuiMode} keeps
   })
   const text = stripTerminalSequences(stdout)
   assert.match(text, /device read sensor/)
-  assert.match(text, /record start sensor=2Hz/)
+  assert.match(text, /record start telemetry=2Hz/)
   assert.match(text, /rec: pty-recording/)
   assert.ok(text.split(/\r?\n/).some(line => /time \d+s/.test(line) && line.includes('CH')), 'time must share the usage stats line')
   assert.ok(text.split(/\r?\n/).some(line => line.includes(cwd) && line.includes('rec: pty-recording')), 'recording must share the directory line')

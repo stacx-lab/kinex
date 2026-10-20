@@ -73,19 +73,6 @@ class Helpers(unittest.TestCase):
         self.assertTrue(node.destroyed)
         self.assertFalse(context.ok())
 
-    def test_action_timeout_keeps_a_late_accepted_goal_cancellable(self):
-        session = self.session()
-        action = session.action("/jtc/follow_joint_trajectory")
-        handle = action.client.send_goal_async(action.type.Goal()).result()
-        acceptance = Future()
-        action.client.send_goal_async = lambda goal: acceptance
-        with self.assertRaisesRegex(ROSError, "outcome is unknown"):
-            action.send(action.type.Goal(), timeout_s=.01)
-        self.assertEqual(action.pending, [acceptance])
-        acceptance.set_result(handle)
-        action.cancel_all()
-        self.assertEqual(action.handles, [])
-        self.assertEqual(session.context.world.published[-1][1], {"cancel": True})
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { execFileSync } from "node:child_process"
+import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createServer } from 'node:http'
@@ -61,7 +62,12 @@ export async function bind(app, uiContext) {
   await app.host.session.bindExtensions({ mode: uiContext ? 'interactive' : 'print', uiContext, onError: error => { throw new Error(error.error) } })
 }
 
-export async function seed(core, name = 'sensor') {
+export async function seed(core, name = 'sensor', { preparePython = true } = {}) {
+  if (preparePython) {
+  const python = await core.python.status()
+  await mkdir(path.dirname(python.executable), {recursive:true})
+  await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {encoding:'utf8'}).trim(), python.executable).catch(e=>{if(e.code !== 'EEXIST') throw e})
+  }
   await core.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm', platform: 'real' } })
   await core.profiles.writeDevice({ name, type: 'other', loaded: false, access: { connection: { kind: 'mock' } } })
 }

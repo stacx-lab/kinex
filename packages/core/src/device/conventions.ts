@@ -19,11 +19,12 @@ class CustomDeviceGuideError extends NamedError {
 
 // Allowed instance guides take precedence; shared type guides are included once and
 // scoped to the loaded devices that actually use them.
-export async function deviceConventions(cwd: string, devices: readonly Pick<Device, "name" | "type">[]): Promise<string> {
+export async function deviceConventions(cwd: string, devices: readonly (Pick<Device, "name" | "type"> & Partial<Pick<Device, "runtime">>)[]): Promise<string> {
   const sections: string[] = []
   const roots = await deviceContentRoots(cwd)
   const guides = new Map<string, { type: string; names: string[] }>()
   for (const device of [...devices].sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name))) {
+    if (device.runtime) continue // ROS operations carry their own compact usage contracts.
     const customGuide = path.join(await ProfileStore.deviceDir(cwd, device.name), "DEVICE.md")
     if (await exists(customGuide) && !customGuideTypes.has(device.type))
       throw new CustomDeviceGuideError(customGuide, device.type)

@@ -7,3 +7,5 @@ const owners = scoped(() => new Map<string, string>())
 export function claimMotion(key: string, owner: string = shortID()) { owners().set(key, owner) }
 export function ownsMotion(key: string, owner: string) { return owners().get(key) === owner }
 export function ownedMotions(owner: string) { return [...owners()].filter(([, value]) => value === owner).map(([key]) => key) }
+
+export function releaseMotion(key: string, owner?: string) { if (!owner || ownsMotion(key, owner)) owners().delete(key) }

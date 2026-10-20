@@ -21,7 +21,7 @@ export const DeviceStopTool = define("device_stop", {
     const targets = devices.filter((device) =>
       args.deviceID
         ? device.name === args.deviceID
-        : device.loaded && isActuated(device),
+        : device.loaded && (isActuated(device) || Object.values(device.operations).some(op => op.motion)),
     )
     if (targets.length === 0)
       return {

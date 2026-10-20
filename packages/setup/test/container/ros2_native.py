@@ -68,7 +68,6 @@ class NativeTransport(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temporary:
                 directory = Path(temporary)
                 manifest, _, _ = fixture(directory)
-                manifest.pop('action')
                 manifest.pop('controller')
                 manifest['connect_timeout_s'] = 5
                 manifest['stop']['confirm']['timeout_s'] = 1
@@ -83,7 +82,6 @@ class NativeTransport(unittest.TestCase):
                     # Native generated ROS classes require floats even when
                     # the public command supplies an integral numeric target.
                     self.assertEqual(jtc_point(['a'], [0], .02).points[0].positions[0], 0.)
-                    driver.handle.session.action('/unused_goal')
                     driver.execute('write', {'actions': [[.01, .02]], 'duration_s': .1})
                     deadline = time.monotonic() + 3
                     while driver.execute('read', {})['positions'] != [.01, .02]:

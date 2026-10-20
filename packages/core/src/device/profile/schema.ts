@@ -4,6 +4,7 @@ import { perceptionOperations } from "./perception.ts"
 import { imuShape } from "./imu.ts"
 import { SensorConnection } from "./sensor.ts"
 import { z } from "zod"
+import { Operation, RosRuntime } from "./operations.ts"
 import { ForceTorqueConnection, forceTorqueShape } from "./force-torque.ts"
 import { worldShape, type WorkspaceBounds } from "./world.ts"
 export { WorkspaceBounds, Surface } from "./world.ts"
@@ -175,6 +176,8 @@ const MiscIntrinsics = z
 
 const deviceBase = {
   name: z.string(),
+  runtime: RosRuntime.optional(),
+  operations: z.record(z.string().regex(/^[a-zA-Z_]\w*$/), Operation).default({}),
   // Whether the agent may read from / calibrate this device. /load and /unload
   // flip it; an unloaded device keeps every profile fact but is off-limits to
   // the device tools and stops gating task-ready.
@@ -237,6 +240,13 @@ export const Device = z.discriminatedUnion("type", [
   }),
   z.strictObject({ ...deviceBase, type: z.literal("other"), intrinsics: MiscIntrinsics }),
 ]).superRefine((device, ctx) => {
+  for (const name of ["load", "unload", "status"])
+    if (Object.hasOwn(device.operations, name))
+      ctx.addIssue({ code: "custom", path: ["operations", name], message: "reserved host lifecycle operation" })
+  if (device.operations.stop && device.operations.stop.transport !== "service")
+    ctx.addIssue({ code: "custom", path: ["operations", "stop"], message: "stop must be a service" })
+  if (device.runtime && Object.values(device.operations).some(op => op.motion) && device.operations.stop?.type !== "kinex_interfaces/srv/Stop")
+    ctx.addIssue({ code: "custom", path: ["operations"], message: "managed motion requires a stop service" })
   if ("stop" in device.intrinsics) {
     const stop = device.intrinsics.stop
     if (known(stop) && !stop.affected_devices.includes(device.name)) ctx.addIssue({ code: "custom", path: ["intrinsics", "stop"], message: "stop scope must include this device" })
@@ -270,18 +280,6 @@ export const Device = z.discriminatedUnion("type", [
 })
 export type Device = z.infer<typeof Device>
 
-// [sim] — descriptive metadata for a simulated embodiment: which simulator the
-// profiles in this workspace describe. A simulator workspace SHIPS its device
-// profiles (a sim reads out its own intrinsics and extrinsics, so there is
-// nothing to interview and nothing to introspect at runtime), and each device
-// is reached through its own driver like any other — there is no harness-level
-// simulator connection.
-const SimConnection = z.object({
-  ...section,
-  simulator: z.string().describe('simulator kind: "libero" | "robotwin" | "robocasa" | ...'),
-  notes: z.string().optional().describe("task/scene/config facts worth carrying into every session"),
-})
-
 // The slim robot manifest: whole-assembly facts only. Devices are NOT listed
 // here — the devices/ directory is the single source of truth; the `devices`
 // section merely carries provenance for the inventory-complete assertion.
@@ -291,12 +289,9 @@ export const RobotManifest = z.strictObject({
     ...section,
     id: z.string(),
     name: z.string(),
-    platform: z.enum(["real", "sim"]),
     kind: z.enum(["arm", "mobile", "quadruped", "humanoid", "other"]),
     model: may(z.string()).default(MISSING).describe("make/model, e.g. UR5e, Panda"),
   }),
-  // Simulated embodiments only: which simulator these profiles describe.
-  sim: SimConnection.optional(),
   // [devices-declared] — inventory marker only; devices/*/profile.yaml are ground truth.
   devices: z.object({ ...section }).prefault({}),
   // [safety]

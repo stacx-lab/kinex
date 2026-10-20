@@ -1,6 +1,7 @@
 import { z } from "zod"
+import { rosDispatch, rosReady } from "./ros.ts"
 import { worldCommand, worldResult } from "./world.ts"
-import { claimMotion, ownsMotion, ownedMotions } from "./ownership.ts"
+import { claimMotion, ownsMotion, ownedMotions, releaseMotion } from "./ownership.ts"
 import { isCommandAction } from "./interface.ts"
 import { scheduleDevice, type CommandAdmission } from "./scheduler.ts"
 import { scoped } from "../scope.ts"
@@ -82,6 +83,16 @@ export async function dispatchDevice(
 
 // Synchronous reservation lets startup enqueue load before exposing device tools.
 function dispatchInWorkspace(workspace: string, device: Device, action: string, args: Record<string, unknown>, origin?: string, signal?: AbortSignal): Promise<DeviceReading> {
+  if (device.runtime) {
+    const wall = Date.now()
+    return rosDispatch(workspace, device, action, args, origin, signal).then(reading => {
+      notifyDevice({ workspace, device, action, args, origin, reading, wall, latencyMs: Date.now() - wall })
+      return reading
+    }, error => {
+      notifyDevice({ workspace, device, action, args, origin, error: String(error), wall, latencyMs: Date.now() - wall })
+      throw error
+    })
+  }
   const key = path.join(workspace, "devices", device.name)
   signal?.throwIfAborted()
   // Preflight before replacement; the driver independently validates at its boundary.
@@ -112,6 +123,7 @@ function dispatchInWorkspace(workspace: string, device: Device, action: string, 
     const failures = (await interruptions).filter(result => result.status === "rejected")
     if (failures.length) throw new NamedError("DeviceStopError", "stop applied but an affected driver could not acknowledge interruption")
     if (action === "load") inactive().delete(key)
+    if (action === "stop") releaseMotion(key, origin)
     if (isActuated(device) && action === "write") {
       try {
         return validateWriteResult(device, reading)
@@ -154,7 +166,8 @@ export async function probeDevice(cwd: string, device: Device): Promise<ProbeRes
   return {
     reading,
     elapsedMs: Date.now() - started,
-    ...(device.access?.driver?.persistent ? { serving: await isServing(cwd, device.name) } : {}),
+    ...(device.runtime ? { serving: await rosReady(cwd, device) }
+      : device.access?.driver?.persistent ? { serving: await isServing(cwd, device.name) } : {}),
   }
 }
 
@@ -163,14 +176,14 @@ export async function queueActivation(cwd: string, device: Device, signal?: Abor
   signal?.throwIfAborted()
   const ready = dispatchInWorkspace(workspace, device, "load", {}, undefined, signal)
   void ready.catch(() => {})
-  return { ready, activating: device.access?.driver !== undefined }
+  return { ready, activating: device.runtime !== undefined || device.access?.driver !== undefined }
 }
 
 export async function deactivateDevice(cwd: string, device: Device): Promise<void> {
   const workspace = await ProfileStore.workspaceDir(cwd)
   inactive().add(path.join(workspace, "devices", device.name))
   const errors: unknown[] = []
-  if (device.access?.driver?.actions.includes("stop") || "stop" in device.intrinsics)
+  if (!device.runtime && (device.access?.driver?.actions.includes("stop") || "stop" in device.intrinsics))
     await dispatchInWorkspace(workspace, device, "stop", {}).catch((error: unknown) => errors.push(error))
   await notifyDeactivation({ workspace, device, action: "deactivate", args: {}, wall: Date.now(), latencyMs: 0 })
     .catch((error: unknown) => errors.push(error))

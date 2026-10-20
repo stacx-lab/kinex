@@ -1,9 +1,10 @@
 # Device contracts
 
-A device is a named interface to hardware, a simulator or a service. Its **type**
-defines the operations, its **profile** records capabilities and configuration,
-and its **driver** implements access. Physical and simulated devices use the
-same contracts; Kinex provides a mock for testing, not a simulator engine.
+A device is a named interface to hardware, a simulator or a computational service.
+Its type selects physical/profile facts. Its extensible operation catalog declares
+typed ROS topics and services, implemented by persistent nodes. See
+[ROS communication](communication.md) for the runtime, Python and ownership
+contracts. Remaining direct hardware drivers use the contracts documented below.
 
 ## Types
 
@@ -30,13 +31,14 @@ An `rgbd` device satisfies an `rgb` tool requirement; `segmentation` satisfies a
 ## Profiles
 
 Each `.kinex/devices/<name>/profile.yaml` describes one device. The inventory comes
-from these profiles; `.kinex/workspace.yaml` holds assembly identity, simulator
-metadata and workspace safety configuration.
+from these profiles; `.kinex/workspace.yaml` holds assembly identity and
+workspace safety configuration. Runtime clock mode is not a workspace flag.
 
 | Field | Contract |
 | --- | --- |
 | `name`, `type` | Device identity and the schema governing its interface. |
 | `loaded` | Activation intent, not proof of a ready connection. Registration leaves devices unloaded; the model's `profile_write` tool preserves this intent. |
+| `runtime`, `operations` | Explicit ROS environment, owned node factories and typed topic/service catalog. |
 | `access` | Connection facts and driver configuration: entry, optional interpreter, declared actions, persistence and timeout. |
 | `intrinsics` | Type-specific facts, such as joint models, camera calibration, control limits or inference operations. |
 | `extrinsics` | Physical placement: a fixed mount or a measured pose reference. Omitted for world and model devices. |
@@ -55,8 +57,12 @@ loaded-device context. Shared type guides define conventions. Custom instance
 
 ### Frames and poses
 
-Frames form a forest; world is optional and missing relationships are not identity
-transforms. Local frames declare `parent_frame`, `translation_m` and
+The world device supplies time. Geometric relationships may remain disconnected;
+missing relationships are not identity transforms. Kinex publishes calibrated
+fixed relationships from profiles and dynamic relationships from device models
+and measured state; relative-pose calculations use tf2. A persistent arm
+kinematics node exposes FK/IK using its URDF or serial-chain model. Simulators
+supply state and measurements without owning the TF graph. Local frames declare `parent_frame`, `translation_m` and
 `rotation_xyzw`; null parent means device base and null components mean unknown.
 Computed joint/hand frames come from models, without duplicate declarations.
 Additional fixed frames may name computed parents. Joint feedback omits
@@ -68,6 +74,9 @@ Poses use `[x,y,z,qx,qy,qz,qw]` in metres with unit xyzw quaternions. See the
 frame conversion and quaternion validation.
 
 ## Drivers
+
+For new ROS integrations use `runtime` and `operations`. The following access
+contract remains for hardware adapters that have not been ported to node factories.
 
 Drivers adapt SDKs, simulator APIs or services to the type's operations. They own
 connections, unit conversion, boundary validation and cleanup. Declare implemented
@@ -156,13 +165,17 @@ one path or an ordered list to `finish(result, file=...)`. Include camera identi
 and acquisition timestamps in the result. Multiple captures remain separate
 observations, even when returned together.
 
-Persistent drivers may implement `record_start` and `record_stop` for native
-capture. Otherwise, recording samples through device dispatch. See
+Continuous recording subscribes to declared topic operations. Explicit snapshots
+use configured observations; capture does not invoke driver recording hooks. See
 [recording](agent-integration.md#recording) for capture products and attribution.
 
 ## World: time and geometry
 
-A `world` device gives tools access to the environment's clock. The supplied driver
+The ROS world exposes a Clock topic plus relative and absolute wait services.
+Concurrent waits share progress; subscriptions and TF queries do not advance it.
+Reset invalidates outstanding waits. See [world time](communication.md#world-time).
+
+For direct hardware drivers, a `world` device gives tools access to the environment's clock. The supplied driver
 uses real-world monotonic time; simulator drivers implement their own clock and
 wait behavior. World has no `extrinsics`: its optional bounds, surfaces and local
 frames are expressed in world coordinates. Bounds and surfaces are informational,

@@ -11,8 +11,10 @@ export const ExecTool = define("exec", {
     file: z.string().min(1).optional().describe("Script path, relative to the working directory or absolute"),
     args: z.record(z.string(), z.unknown()).default({}).describe("Values available through kinex.args()"),
     argv: z.array(z.string()).default([]).describe("Script command-line arguments"),
-    interpreter: z.string().min(1).optional().describe("Python executable; defaults to the managed Kinex Python environment"),
     timeout_s: z.number().positive().max(2_147_483).default(120),
+  }, { error: issue => issue.code === "unrecognized_keys" && issue.keys.includes("interpreter")
+    ? "exec always uses Kinex Python; remove interpreter and configure separate SDK environments on device profiles"
+    : undefined,
   }).refine(input => (input.python !== undefined) !== (input.file !== undefined), "provide exactly one of python or file"),
   execute: runScript,
 })

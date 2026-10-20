@@ -1,0 +1,27 @@
+[workspace]
+name = "kinex-python"
+channels = ["https://prefix.dev/robostack-jazzy", "https://prefix.dev/conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.12.*"
+ros-jazzy-ros-base = "*"
+ros-jazzy-sensor-msgs = "*"
+ros-jazzy-trajectory-msgs = "*"
+ros-jazzy-tf2-ros-py = "*"
+ros-jazzy-tf2-geometry-msgs = "*"
+ros-jazzy-rosgraph-msgs = "*"
+ros-jazzy-rosbag2 = "*"
+ros-jazzy-rosidl-default-generators = "*"
+colcon-common-extensions = "*"
+compilers = "*"
+cmake = "<4"
+ninja = "*"
+pkg-config = "*"
+numpy = "*"
+scipy = "*"
+pillow = "*"
+pyyaml = "*"
+opencv = "*"
+setuptools = "<80"
+pytest = "*"

@@ -41,7 +41,7 @@ for (const denied of [
     }`)
     const directory = path.join(cwd, '.kinex/tools/denied_controller')
     await mkdir(directory, { recursive: true })
-    await writeFile(path.join(directory, 'tool.yaml'), 'name: denied_controller\nkind: controller\ndescription: Permission test\ninterpreter: python3\n')
+    await writeFile(path.join(directory, 'tool.yaml'), 'name: denied_controller\nkind: controller\ndescription: Permission test\n')
     await writeFile(path.join(directory, 'tool.py'), 'raise RuntimeError("must not run")\n')
     await bind(app)
     fake.steps.push({ tools: [{ name: 'write', args: { path: 'completed.txt', content: 'completed' } }, denied, { name: 'sibling' }, marker] })

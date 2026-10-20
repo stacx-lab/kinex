@@ -1,0 +1,9 @@
+# Target relative to reference_frame, with the same frame conventions as FK.
+geometry_msgs/Pose target
+float64[] seed
+string frame
+string reference_frame
+---
+bool success
+string message
+float64[] joints

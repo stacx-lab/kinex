@@ -73,7 +73,6 @@ class Connection:
     session: Session
     latest: object = None
     publisher: object = None
-    action: object = None
     command_type: str = ""
     streams: dict = field(default_factory=dict)
     rules: list = field(default_factory=list)
@@ -258,10 +257,6 @@ class JointTrajectoryDriver(ROSDevice, JointDriver):
             joint_state_vector(handle.latest.wait(self.connect_timeout), self.names)
             handle.publisher = session.publisher(self.config["command_topic"], "trajectory_msgs/msg/JointTrajectory")
             handle.publisher.wait_subscribers(self.connect_timeout)
-            if self.config.get("action"):
-                handle.action = session.action(self.config["action"])
-                if not handle.action.client.wait_for_server(timeout_sec=self.connect_timeout):
-                    raise ROSError("trajectory action server is unavailable", "action_unavailable")
         expected = {**self.expected, "joints": self.names}
         return self._open(prepare, expected)
 
@@ -293,7 +288,6 @@ class JointTrajectoryDriver(ROSDevice, JointDriver):
             handle.publisher.publish(jtc_hold(self.names, state["positions"]))
         try:
             release(hold,
-                    lambda: handle.action.cancel_all(timeout_s=.5) if handle.action else None,
                     lambda: self._wait_confirm(handle, confirmation))
         except Exception as error:
             handle.stop_error = str(error)

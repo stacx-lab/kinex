@@ -1,4 +1,5 @@
 import { shortID } from "./util/id.ts"
+import { closeRos } from "./device/ros.ts"
 import path from "node:path"
 import { pythonEnvironment, initializePython, preparePython } from "./python/environment.ts"
 import { createScope, inScope, withSignal } from "./scope.ts"
@@ -126,6 +127,9 @@ export function createKinexRuntime(options: RuntimeOptions) {
       load: (name: string) => operation(() => loadSkill(directory, name)),
     },
     devices: {
+      operations: () => operation(async () => (await ProfileStore.listDevices(directory)).map(device => ({
+        name: device.name, loaded: device.loaded, operations: device.operations,
+      }))),
       warmLoaded: () => run(() => state.warm ??= operation(async () => {
         const values = await warmLoadedDevices(directory, abort.signal)
         return Promise.all(values.map(value => activation(Promise.resolve(value))))
@@ -179,10 +183,14 @@ export function createKinexRuntime(options: RuntimeOptions) {
           unobserve()
           listeners.clear()
           scope.closed = true
-          await closeDrivers()
-          const processes = [...scope.processes]
-          for (const proc of processes) proc.kill()
-          await Promise.allSettled(processes.map((proc) => proc.exited))
+          try {
+            await closeDrivers()
+            await closeRos()
+          } finally {
+            const processes = [...scope.processes]
+            for (const proc of processes) proc.kill()
+            await Promise.allSettled(processes.map((proc) => proc.exited))
+          }
         }
       })
       return state.disposed

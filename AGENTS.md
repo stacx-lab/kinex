@@ -7,11 +7,12 @@ Design history and progress belong in git.
 ## Ownership
 
 - `packages/core/src` owns device management and operation; core assets own runtime
-  Python, tools, non-ROS provisioning bundles, device guides and setup-device. Core must not
+  Python, operational ROS configuration/adapters/interfaces, tools, provisioning bundles,
+  device guides and setup-device. Core must not
   import setup, a host agent or UI.
 - `packages/setup` owns onboarding and calibration procedures/assets, including
-  ROS skills, configuration, adapters and interface checks. Core has no ROS implementation
-  or dependency. Setup borrows core runtime resources through package exports.
+  ROS onboarding skills and calibration evidence. Setup borrows core operational
+  runtime resources through package exports.
 - `src` composes standalone with published Pi SDKs; `src/integration` owns its
   product policy. Do not fork/reimplement providers, coding tools, loops or TUI.
 - Plugins for Pi, Claude Code and Codex live in the separate `../kinex-plugins`

@@ -1,5 +1,8 @@
 # Tools and skills
 
+For ROS devices, use the [async protocol API](communication.md). The world device
+owns timing, and relative_pose uses tf2 with ROS frame IDs.
+
 `@kinex/core` provides tools for operating devices and a skill for preparing them.
 Tools execute code; skills supply instructions that the agent follows. These
 built-ins complement the host's coding tools, such as shell and file editing.
@@ -67,7 +70,7 @@ paths does not attach them either. Direct `device`/`devices` camera reads attach
 images automatically.
 
 One execution approval covers runtime reads and commands, including composed
-Python tools. Composed perception tools retain their restrictions. Scripts cannot
+Python tools. Composed tools share the invocation approval. Scripts cannot
 load/unload devices or call the recording tool through the runtime API. Failure,
 timeout or cancellation triggers an attempt to stop motion still owned by the
 invocation; successful completion may leave it running. Each invocation uses a

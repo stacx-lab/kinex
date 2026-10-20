@@ -182,7 +182,7 @@ async function runServe(
     if (existing) await terminate(existing)
     const runtime = await pythonLaunch(cwd, "driver", device.access?.driver?.interpreter, signal)
     signal?.throwIfAborted()
-    const proc = spawnProcess([runtime.executable, file, "--serve"], {
+    const proc = spawnProcess([...runtime.command, file, "--serve"], {
       cwd: path.dirname(file),
       group: true,
       stdin: "pipe",
@@ -310,7 +310,7 @@ async function runOnce(
   signal.throwIfAborted()
   admission?.check()
   const request = JSON.stringify({ action, args }) + "\n"
-  const proc = spawnProcess([runtime.executable, file], {
+  const proc = spawnProcess([...runtime.command, file], {
     cwd: path.dirname(file),
     group: true,
     stdin: "pipe",

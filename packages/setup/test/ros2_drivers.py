@@ -91,12 +91,8 @@ class Adapters(unittest.TestCase):
         self.assertGreater(len(messages), 1)
         self.assertEqual(messages[-1]["points"][0]["positions"], [.03, .04])
         self.wait_for(lambda: all(abs(a - b) < .001 for a, b in zip(driver.execute("read", {})["positions"], [.03, .04])))
-        owned = driver.handle.action
-        owned.send(owned.type.Goal())
         driver.execute("stop", {})
-        self.assertEqual(world.published[-1][1], {"cancel": True})
-        self.assertEqual(world.published[-2][1]["points"][0]["velocities"], [0., 0.])
-        self.assertFalse(owned.handles)
+        self.assertEqual(world.published[-1][1]["points"][0]["velocities"], [0., 0.])
         self.assertTrue(driver.handle.session.context.ok())
 
     def test_stop_replaces_unfinished_trajectory_with_measured_hold(self):

@@ -163,6 +163,7 @@ function extrinsicsCheck(device: Device): Check {
 }
 
 function accessCheck(device: Device, ctx: PlanContext): Check {
+  if (device.runtime) return { done: true, detail: `${Object.keys(device.operations).length} declared ROS operations; load checks live readiness` }
   const access = device.access
   if (!access || !known(access.connection) || hasMissing(access.connection))
     return { done: false, detail: "access.connection is incomplete" }
@@ -246,7 +247,7 @@ function buildNodes(ctx: PlanContext): Node[] {
         const identity = robot.identity
         return {
           done: true,
-          detail: `${identity.id}: ${identity.kind} (${identity.platform}${known(identity.model) ? `, ${identity.model}` : ""})`,
+          detail: `${identity.id}: ${identity.kind} ${known(identity.model) ? `(${identity.model})` : ""}`,
         }
       },
     },
@@ -366,7 +367,7 @@ export async function readinessPlan(cwd: string, snapshot?: ProfileSnapshot): Pr
   for (const item of items) counts[item.status] += 1
   const next = items.filter((item) => item.status === "ready" && !item.optional)
   const needed = items.filter((item) => item.status === "needs-calibration")
-  return { robotID, platform: robot?.identity.platform, items, counts, next, needed }
+  return { robotID, items, counts, next, needed }
 }
 
 export function itemSelector(item: PlanItem): string | undefined {

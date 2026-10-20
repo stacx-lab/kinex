@@ -1,5 +1,4 @@
 name: locate_object_3d
-kind: perception
 description: >-
   Locate an object in the camera optical frame (+X right, +Y down, +Z forward)
   using a detection or segmentation device with RGBD or explicit optical depth.
@@ -44,3 +43,5 @@ device_inputs:
     types: [rgb, rgbd]
   model:
     types: [detection, segmentation]
+
+async: true

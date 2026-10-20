@@ -44,11 +44,12 @@ For core alone use `{ contributions: runtime => [coreContribution(runtime)] }`.
 Custom setup composition explicitly supplies `setupSkillRoots`, `setupToolNames`
 and its setup contribution. Omitted values do not inherit standalone's defaults.
 
-The `onboard-ros2` skill owns ROS policy and the `kinex_ros` library. Match the
+The `onboard-ros2` skill owns onboarding policy. Core owns the `kinex_ros` library
+and operational ROS resources. Match the
 ROS interpreter to the selected distribution as described by the skill. Configure
 runtime files directly in the device directory and register their paths through
 `profile_write`. Drivers can carry their runtime helpers to remain operational
-without setup. See [driver configuration](assets/builtin/skill/onboard-ros2/SKILL.md#device-files).
+without setup. See [device definitions](assets/builtin/skill/onboard-ros2/SKILL.md#device-definitions).
 
 Setup also bundles `pi-web-search` 1.7.0 and `pi-btw` 0.7.1 as npm dependencies.
 `setupPiExtensions()` from `@kinex/setup/extensions` returns their package names

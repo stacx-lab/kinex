@@ -1,6 +1,6 @@
-Kinex core Python: use the executable and library paths from the current Python
-context for robotics scripts, setting PYTHONPATH only for that command. Default
-Python execution prepares missing environments automatically; existing environments
-run directly. If dependencies are missing or need updating, repair the selected
-environment with uv add/uv sync using its project path. Explicit interpreters own
-their dependencies. Keep the ordinary shell environment unchanged.
+Kinex Python owns exec, helpers and ROS clients. Its environment is independent of
+world and device interpreters. Use exec without interpreter overrides; device SDK
+environments belong only to device processes. Discover devices and operation
+contracts on demand through kinex.runtime; select only needed results for finish().
+Prepare missing ROS support and interface packages in Kinex Python through setup.
+Do not patch sys.path or borrow a simulator environment. Ordinary shells remain unchanged.

@@ -20,7 +20,7 @@ export async function pythonTools(cwd: string): Promise<{ tools: Def[]; problems
   return {
     tools: tools.map((info) =>
       define(info.manifest.name, {
-        description: `[${info.manifest.kind} tool, python] ${info.manifest.description}${requiresNote(info.manifest)}`,
+        description: `[Python tool] ${info.manifest.description}${requiresNote(info.manifest)}`,
         parameters: z.record(z.string(), z.unknown()),
         jsonSchema: info.manifest.parameters,
         execute: (args, ctx) => runPyTool(cwd, info, args, ctx),
