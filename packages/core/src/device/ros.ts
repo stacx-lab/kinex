@@ -12,7 +12,7 @@ import { pythonLaunch } from "../python/launch.ts"
 import { ProfileStore } from "./profile/store.ts"
 import { serveProcess, terminate, type ServeProcess } from "./serve-process.ts"
 import type { Device } from "./profile/schema.ts"
-import type { DeviceReading } from "./driver.ts"
+import type { DeviceReading } from "./reading.ts"
 
 type Pending = ReturnType<typeof Promise.withResolvers<Record<string, unknown>>>
 interface Host extends ServeProcess {
@@ -38,7 +38,7 @@ function resolvedOperations(device: Device) {
 export async function rosLaunch(cwd: string, device: Device, signal?: AbortSignal) {
   if (!device.runtime) throw new NamedError("RosRuntimeError", "missing ROS runtime")
   const directory = await ProfileStore.deviceDir(cwd, device.name)
-  const runtime = await pythonLaunch(cwd, "driver", device.runtime.interpreter ? path.resolve(directory, device.runtime.interpreter) : undefined, signal)
+  const runtime = await pythonLaunch(cwd, "node", device.runtime.interpreter ? path.resolve(directory, device.runtime.interpreter) : undefined, signal)
   const overlays = [...runtime.overlays, ...device.runtime.overlays.map(file => path.resolve(directory, file))]
   return {
     ...runtime,
@@ -126,7 +126,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
   let host = hosts().get(directory)
   if (action === "unload") {
     if (host) {
-      try { await request(host, "unload", {}) }
+      try { if (host.proc.exitCode === null) await request(host, "unload", {}) }
       finally { await terminate(host, true); hosts().delete(directory) }
     }
     return { deviceID: device.name, kind: device.type, data: { unloaded: true } }
@@ -154,11 +154,12 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       host.ready = true
     } catch (error) {
       await terminate(host)
+      hosts().delete(directory)
       throw error
     }
     return { deviceID: device.name, kind: device.type, data: { ready: true } }
   }
-  if (!host?.ready || (action !== "cleanup" && action !== "stop" && host.definition !== await definition(directory, device)))
+  if (!host?.ready || (action !== "$cleanup" && action !== "stop" && host.definition !== await definition(directory, device)))
     throw new NamedError("DeviceInactiveError", `${device.name} requires explicit load or unload/validate/reload`)
   const data = await request(host, action, args, owner, signal,
     (device.operations[action]?.timeout_s ?? 30) * 1000)
@@ -190,11 +191,13 @@ export async function cleanupRos(cwd: string, owner: string, failed: boolean) {
   const key = path.join(await ProfileStore.workspaceDir(cwd), owner)
   const devices = enrolled().get(key)
   if (!devices) return
-  const results = await Promise.allSettled([...devices.values()].map(device =>
-    rosDispatch(cwd, device, "cleanup", { failed }, owner)))
+  const results = await Promise.allSettled([...devices.values()].map(async device => {
+    try { await rosDispatch(cwd, device, "$cleanup", { failed }, owner) }
+    catch (error) { throw new NamedError("RosCleanupError", `${device.name}: ${error}`) }
+  }))
   enrolled().delete(key)
   const errors = results.filter(result => result.status === "rejected").map(result => result.reason)
-  if (errors.length) throw new AggregateError(errors, "ROS invocation cleanup failed")
+  if (errors.length) throw new AggregateError(errors, `ROS invocation cleanup failed: ${errors.map(String).join("; ")}`)
 }
 
 export async function closeRos() {

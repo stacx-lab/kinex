@@ -1,7 +1,7 @@
 # Robotics
 
 Devices expose hardware or simulator interfaces; profiles define their facts and
-capabilities. Only drivers access SDKs/services directly. Use the device tool or
+capabilities. Only device nodes access SDKs/services directly. Use the device tool or
 Kinex device APIs for lifecycle, readings and commands.
 
 Consult each tool's description for its execution and completion semantics.

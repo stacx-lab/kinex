@@ -11,13 +11,13 @@ class DeviceGuideError extends NamedError {
 // and shell snippets contain headings without leaking Setup into normal context.
 export function parseDeviceGuide(text: string) {
   const state = { fence: "", section: "", profile: false }
-  const use: string[] = [], setup: string[] = [], profile: string[] = []
+  const setup: string[] = [], profile: string[] = []
   const seen = new Set<string>()
   for (const line of text.split(/\r?\n/)) {
     const fence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/)
     if (!state.fence && /^## /.test(line)) {
       const heading = line.slice(3).trim()
-      if (heading === "Use" || heading === "Setup") {
+      if (heading === "Setup") {
         if (seen.has(heading)) throw new DeviceGuideError(`duplicate ${heading} section`)
         seen.add(heading)
       }
@@ -25,7 +25,6 @@ export function parseDeviceGuide(text: string) {
       state.profile = false
       continue
     }
-    if (state.section === "Use") use.push(line)
     if (state.section === "Setup") setup.push(line)
     if (state.fence) {
       if (fence && fence[1]![0] === state.fence[0] && fence[1]!.length >= state.fence.length && !fence[2]!.trim()) {
@@ -50,7 +49,7 @@ export function parseDeviceGuide(text: string) {
     if (state.profile && line.trim()) throw new DeviceGuideError("Profile must contain one YAML code block")
   }
   if (state.fence) throw new DeviceGuideError("unclosed code fence")
-  return { use: use.join("\n").trim(), setup: setup.join("\n").trim(), profile: profile.join("\n").trim() }
+  return { setup: setup.join("\n").trim(), profile: profile.join("\n").trim() }
 }
 
 export async function readDeviceGuide(file: string) {

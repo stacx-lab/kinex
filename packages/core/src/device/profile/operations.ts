@@ -3,7 +3,7 @@ import { z } from "zod"
 const endpoint = z.string().regex(/^\/?[A-Za-z_]\w*(?:\/[A-Za-z_]\w*)*$/, "ROS endpoint must have valid name tokens")
 const type = z.string().regex(/^[A-Za-z]\w*\/(msg|srv)\/[A-Za-z]\w*$/)
 export const Operation = z.strictObject({
-  description: z.string().min(1),
+  description: z.string().describe("Operation-specific inputs, outputs, units, frames, timing and behavior; may be empty"),
   transport: z.enum(["topic", "service"]),
   direction: z.enum(["input", "output"]),
   endpoint,

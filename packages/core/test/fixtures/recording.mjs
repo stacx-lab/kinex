@@ -46,7 +46,7 @@ os.execv(executable, [executable, *sys.argv[1:]])
   ]) {
     // status is a host verb; use a different public operation name.
     if (operations.status) { operations.health = operations.status; delete operations.status }
-    await runtime.profiles.writeDevice({ name, type, loaded: false, runtime: { interpreter },
+    await runtime.profiles.writeDevice({ description: '', name, type, loaded: false, runtime: { interpreter },
       operations: Object.fromEntries(Object.entries(operations).map(([key, op]) => [key,
         { ...op, description: key, transport: 'topic', direction: 'output' }])) })
     await (await runtime.devices.load(name)).ready

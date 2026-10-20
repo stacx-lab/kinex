@@ -8,8 +8,8 @@ const exec = promisify(execFile)
 const root = fileURLToPath(new URL('../', import.meta.url))
 
 export async function checkCorePackage(directory, env, pack) {
-  for (const name of ['config', 'ros2', 'ros2_check', 'ros2_drivers'])
-    assert.ok(pack.files.some(file => file.path === `assets/python/kinex_ros/${name}.py`))
+  assert.ok(!pack.files.some(file => file.path.includes('driver_protocol') || file.path.includes('kinex_ros/')))
+  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/runtime.py'))
   for (const file of ['srv/Wait.srv', 'srv/Stop.srv', 'msg/CommandStatus.msg', 'package.xml', 'CMakeLists.txt'])
     assert.ok(pack.files.some(entry => entry.path === `assets/ros/kinex_interfaces/${file}`))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
@@ -34,6 +34,7 @@ export async function checkCorePackage(directory, env, pack) {
   await exec(process.execPath, [path.join(root, '../../node_modules/typescript/bin/tsc'),
     '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2023', '--lib', 'ES2024', '--types', 'node', 'consumer.mts'], { cwd: directory })
   const { stdout } = await exec(process.execPath, ['--input-type=module', '--eval', `
+    import {protocolDevice} from ${JSON.stringify(new URL('./fixtures/protocol.mjs',import.meta.url).href)}
     import assert from 'node:assert/strict'
     import { copyFile, stat, mkdir, writeFile, symlink } from 'node:fs/promises'
     import { execFileSync } from 'node:child_process'
@@ -66,35 +67,29 @@ export async function checkCorePackage(directory, env, pack) {
       await write({kind:'robot',data:{identity:{id:'clock',name:'Clock',platform:'real',kind:'arm'}}})
       const template = templates.find(template => template.name === 'world')
       const profile = await deviceGuideProfile(path.join(template.directory, 'DEVICE.md'))
-      profile.access.driver.interpreter = 'python3'
       await write({kind:'device',data:profile})
-      await copyFile(path.join(template.directory, 'driver.py'), '.kinex/devices/world/driver.py')
-      assert.equal((await runtime.devices.list())[0].loaded, false)
+      await protocolDevice(runtime, process.cwd(), 'world', {type:'world',description:'World description',loaded:true})
+      assert.equal((await runtime.devices.list())[0].loaded, true)
       const capabilities = coreContribution(runtime)
       assert.ok(capabilities.commands.some(command => command.name === 'unregister'))
-      await executeRoboticsCommand(runtime, 'load', 'world', context)
-      const first = (await runtime.devices.dispatch('world', 'read')).data.time_s
-      assert.ok((await runtime.devices.dispatch('world', 'wait', {duration_s:.02})).data.time_s > first)
-      const conventions = (await runtime.context()).conventions
-      assert.match(conventions, /wait.*duration_s/)
-      assert.doesNotMatch(conventions, /### Profile|## Setup|loaded: false/)
+      assert.equal('conventions' in await runtime.context(),false)
       await mkdir('.kinex/python/.venv/bin', {recursive:true})
       await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {encoding:'utf8'}).trim(), '.kinex/python/.venv/bin/python3')
       const reading = await runtime.tools.call('exec', { python: [
         'from kinex import device, devices, finish',
-        'request = {"deviceID": "world", "args": {}}',
+        'request = {"deviceID": "world", "action":"read", "args": {}}',
         'finish({"single": device(**request), "batch": devices(calls=[request])})'
       ].join('\\n') }, {sessionID:'package'})
       assert.ok(!reading.isError, reading.output)
       const value = JSON.parse(reading.output).result
-      assert.equal(typeof value.single.time_s, 'number')
+      assert.equal(typeof value.single.value, 'number')
       assert.equal(value.single.data, undefined)
       assert.equal(value.batch.results[0].deviceID, 'world')
-      assert.equal(typeof value.batch.results[0].data.time_s, 'number')
+      assert.equal(typeof value.batch.results[0].data.value, 'number')
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
-      execFileSync('python3', ['-c', 'import kinex; import kinex.driver_protocol; import kinex.stream; import kinex.policy; import kinex.kinematics'], {
+      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.stream; import kinex.policy; import kinex.kinematics'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
       execFileSync('python3', ['-c', [

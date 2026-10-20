@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { readFile } from "node:fs/promises"
 import { ProfileStore } from "../../device/profile/store.ts"
+import { enrollRos } from "../../device/ros.ts"
 import { dispatchDevice } from "../../device/dispatch.ts"
 import { lifecycleAction } from "../../device/lifecycle.ts"
 import { isCommandAction } from "../../device/interface.ts"
@@ -11,7 +12,7 @@ import { failure, type Failure } from "../errors.ts"
 
 export const DeviceCallSchema = z.strictObject({
   deviceID: z.string().min(1),
-  action: z.string().default("read"),
+  action: z.string().min(1),
   args: z.record(z.string(), z.unknown()).default({}),
 })
 export const DeviceCallsSchema = z.strictObject({ calls: z.array(DeviceCallSchema).min(1) })
@@ -40,23 +41,20 @@ export async function callDevices(calls: Call[], ctx: Context, options: Options 
     try {
       const device = await ProfileStore.readDevice(ctx.directory, call.deviceID)
       if (!device) throw new DeviceCallError(`no device "${call.deviceID}" in this workspace`)
-      if (device.runtime && !["load", "unload", "status", "stop"].includes(call.action) && !device.operations[call.action])
+      if (!["load", "unload", "status", "stop"].includes(call.action) && !device.operations[call.action])
         throw new DeviceCallError(`unknown operation "${device.name}.${call.action}"; available: ${Object.keys(device.operations).join(", ")}; inspect runtime.describe() inside exec`)
-      const camera = (device.type === "rgb" || device.type === "rgbd") && call.action === "read"
-      if (!options.python && camera && !device.runtime)
-        call = { ...call, args: { output: "base64", ...call.args } }
       const lifecycle = call.action === "load" || call.action === "unload"
       if (options.python && lifecycle) throw new DeviceCallError("load/unload are unavailable inside Python tools; use the device tool")
       if (!lifecycle && call.action !== "status" && !device.loaded) throw new DeviceCallError(`device "${device.name}" is unloaded`)
       if (lifecycle && Object.keys(call.args).length) throw new DeviceCallError("load/unload accept no arguments")
       const command = lifecycle || isCommandAction(device, call.action)
-      return { call, device, command, camera }
+      return { call, device, command }
     } catch (error) { return { call, failure: failure(error) } }
   }))
   for (const item of prepared) {
     ctx.abort.throwIfAborted()
     if (!item.device || options.authorize === false) continue
-    if (item.command || item.device.runtime || item.device.access?.driver) await ctx.ask({
+    await ctx.ask({
       permission: item.command ? "device_act" : "device_read",
       description: `${item.call.action} on ${item.device.name} ${JSON.stringify(item.call.args)}`,
     })
@@ -67,20 +65,18 @@ export async function callDevices(calls: Call[], ctx: Context, options: Options 
     if (!item.device) return { deviceID, action, ok: false, ...item.failure }
     try {
       ctx.abort.throwIfAborted()
+      const operation = item.device.operations[action]
+      if (options.owner && (operation?.motion || operation?.cancellation))
+        await enrollRos(ctx.directory, options.owner, deviceID)
       const reading = action === "load" || action === "unload"
         ? await lifecycleAction(ctx.directory, item.device, action, ctx.abort)
         : await dispatchDevice(ctx.directory, item.device, action, args, options.owner, ctx.abort)
       ctx.abort.throwIfAborted()
-      if ((item.camera || (item.device.runtime && reading.filePath)) && !options.python) {
-        const data = reading.data?.color !== undefined
-          ? z.string().base64().parse(reading.data.color)
-          : (await readFile(z.string().parse(reading.filePath))).toString("base64")
-        if (imageMimeBytes(Buffer.from(data.slice(0, 32), "base64")) !== "image/png")
-          throw new DeviceCallError("Camera read did not return a PNG image")
-        return { deviceID, action, ok: true,
-          data: reading.filePath ? reading.data : { timestamp: reading.data?.timestamp },
-          ...(reading.filePath ? { file: reading.filePath } : {}),
-          attachments: [{ mime: "image/png", data }] }
+      if (reading.filePath && !options.python) {
+        const data = (await readFile(reading.filePath)).toString("base64")
+        if (imageMimeBytes(Buffer.from(data.slice(0, 32), "base64")) === "image/png")
+          return { deviceID, action, ok: true, data: reading.data, file: reading.filePath,
+            attachments: [{ mime: "image/png", data }] }
       }
       return { deviceID, action, ok: true, ...(reading.data ? { data: reading.data } : {}), ...(reading.filePath ? { file: reading.filePath } : {}) }
     } catch (error) {

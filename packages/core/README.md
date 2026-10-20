@@ -1,330 +1,68 @@
-# ROS operations
-
-Core now owns ROS node supervision, operation declarations, async Python communication,
-world timing and tf2 integration. See [the ROS communication contract](../../docs/communication.md)
-for profiles and the Python API. `runtime.devices.operations()` exposes the catalog;
-`Assets.ros()` exposes packaged interface sources for colcon builds. Runtime discovery
-remains inert. Setup consumes these resources through core exports.
-
 # @kinex/core
 
-Kinex's robotics runtime for Node >=22.19. The standalone Kinex agent
-uses this package directly; external host adapters can consume the same API.
-It contains no model provider, agent loop, session store, terminal UI or MCP server.
-Core provisions, registers, removes and operates devices independently of
-`@kinex/setup`. It includes device guides, driver templates, setup-device, lifecycle,
-control, perception, kinematics, recording and runtime Python.
-Onboarding and calibration procedures live in
-[`@kinex/setup`](../setup/README.md). The ROS LIBERO example is in the sibling `workspace_libero` directory.
-The direct hardware-driver examples below also describe retained adapters.
-
-```ts
-import { createKinexRuntime } from "@kinex/core"
-
-const runtime = createKinexRuntime({
-  directory: process.cwd(),
-  host: {
-    ask: async (request) => { /* await the host's permission decision; throw on denial */ },
-    questions: async (questions) => { /* use the host's question UI */ return {} },
-  },
-})
-try {
-  // Python is created lazily when an internal operation needs it.
-  const activations = await runtime.devices.warmLoaded()
-  // Observe each activation.ready for background loading failures.
-  const { tools, problems } = await runtime.tools.list()
-  // Register schemas with the host and route each invocation to tools.call.
-  const context = await runtime.context()
-  const result = await runtime.tools.call("device", { deviceID: "head_camera" }, {
-    sessionID: "host-session", callID: "host-call", signal: new AbortController().signal,
-  })
-  // result includes text, error status, metadata and optional image attachments.
-} finally {
-  await runtime.dispose()
-}
-```
-
-The permission callback is the authorization boundary. It must resolve only when
-allowed and throw `PermissionDeniedError` when denied. With no host callbacks,
-permission requests other than stop are denied and questionnaires are declined. Model tools keep
-the existing device permissions. The device tool supports load/unload through
-`device_act`; Python tools cannot change lifecycle. The `devices` lifecycle
-methods and `profiles` methods are trusted host operations: expose them through
-user commands, not unrestricted model tools. `enableRecording: true` exposes the
-model's recording tool; the host can use `recording` methods independently.
+Host-independent device management, ROS operations, Python execution and recording.
+Setup procedures live in `@kinex/setup`; host/UI policy belongs to integrations.
+See [ROS communication](../../docs/communication.md) for node factories, world
+time, tf2, interface provisioning and invocation ownership.
 
 ## Shared user commands
 
-The root exports `roboticsCommands`, `isRoboticsCommand()` and
-`executeRoboticsCommand(runtime, name, arguments, context)`. The catalog provides
-names, argument hints and descriptions for devices, load, unload, ping,
-stop, record, register and unregister. Operations return
-`{kind: "output", text, isError?}`. Register returns `{kind: "workflow", prompt}`
-for the host to submit to its model; it prepares an unloaded device using core's
-setup-device skill and profile_write tool. Hosts provide a session ID, command
-context and optional progress notifications, and own display and cancellation
-for stop. Unregister uses the CommandContext confirmation callback before deleting
-a device. This executor is a trusted user-command API. There is no reload command;
-use unload followed by load to restart a device. The runtime's `devices.reload()`
-API remains available to programmatic consumers.
+`/register`, `/unregister`, `/load`, `/unload`, `/ping`, `/stop` and `/record` use
+trusted host APIs. Model calls use permission-checked tools. Python cannot change
+device lifecycle or enable recording. New profiles remain unloaded until explicit
+activation; load waits for readiness and unload releases only owned resources.
 
 ## Feature contributions
 
-`@kinex/core/integration` exports `KinexContribution`, `KinexCapabilities`,
-`ContributionCommand`, `Invocation`, `ToolSchema`, `coreContribution(runtime)` and
-`composeContributions(contributions)`. This is a host-independent capability
-interface, not a second runtime or a dynamic extension loader.
-
-```ts
-import { coreContribution, composeContributions } from "@kinex/core/integration"
-const capabilities = composeContributions([coreContribution(runtime)])
-// Add setup explicitly when onboarding/calibration is needed; see @kinex/setup.
-const catalog = await capabilities.tools.list()
-const state = await capabilities.context() // stable instructions + source.section keys
-```
-
-A contribution can provide tools (`list`/`call`), skills (`list`/`load`), commands
-and context. Tools receive `Invocation` with session/call identity, abort signal,
-permission and question callbacks. Image attachments use `{mime, path}` for a saved
-file or `{mime, data}` for an in-memory base64 payload; hosts forward the latter
-as image content rather than text. Commands receive a distinct trusted
-`CommandContext`, including an optional abort signal. Each feature must preserve
-authorization/cancellation internally.
-Duplicate identifiers are errors; tool directories are re-read when calling.
-A contribution borrows resources; the product that created the runtime disposes it.
-The existing root APIs remain available without adopting contributions.
+`coreContribution(runtime)` exports tools, commands, skills and stable instructions.
+`composeContributions` combines independently owned packages and rejects duplicate
+capabilities. Hosts own permissions, sessions, cancellation and compaction.
 
 ## Device calls and control
 
-`device` calls one device; `devices` accepts `calls: [{deviceID, action?, args?}]`.
-Batch permissions are checked before dispatch. Calls run concurrently under each
-device's scheduler; results stay in input order and report individual errors.
-The direct `devices` tool sets its top-level error flag only when all calls fail;
-partial failures retain successful image attachments and per-entry errors.
-Direct camera reads default to `output="base64"` and attach RGB images with camera
-identity and timestamp in every mode; no file-opening call is needed. Python
-camera reads default to NumPy arrays. Both accept `output="file"`, `"base64"`, or
-`"array"`.
-Sampling is not simultaneous and effects
-are not atomic. Python tools may compose these tools without gaining lifecycle
-or controller capabilities.
+Each `.kinex/devices/<name>/profile.yaml` requires `type` and `description`.
+The description gives general identity, capabilities and limitations. Typed
+intrinsics/extrinsics retain their existing schema checks. Type does not imply
+an operation name or payload.
 
-Python uses the same request fields and result layouts:
+`operations.<name>` requires its own `description`, transport, direction, endpoint
+and ROS type. Describe only that operation: units, frames, timing, input/output
+conventions, errors and effects. Both descriptions are required strings and may
+be empty. Runtime clients read them on demand, including while unloaded:
 
 ```python
-from kinex import device, devices
-
-request = {"deviceID": "head_camera", "action": "read", "args": {"output": "file"}}
-frame = device(**request)         # data fields directly, plus optional file
-batch = devices(calls=[request])  # {"results": [{deviceID, action, ok, data/file or error}]}
+from kinex import runtime, finish
+names = runtime.devices()             # small identity/readiness list
+info = runtime.device("sensor")       # general description
+ops = runtime.operations("sensor")    # operation metadata
+spec = runtime.describe("sensor.sample")  # description and recursive ROS schemas
+finish({"device": info, "sample": spec})
 ```
 
-`device(deviceID, action="read", args=None)` accepts positional or keyword arguments.
-`call("device", ...)` and `call("devices", ...)` use the same inputs and results;
-`Device` handles expose `read(args=None)` and `act(action, args=None)`.
-Single failures raise `RPCError`; batches return per-entry errors. Inspect each
-batch entry: an `ok: false` entry does not itself fail a Python script or trigger
-its controller cleanup.
-`compact` and `verbose` are tool-only presentation options.
+These calls never load a device or advance time. `device` and `operations` do not
+import ROS; `describe` resolves installed interface definitions without ROS init.
+Catalogs and descriptions stay in Python until selected for output.
 
-When updating older Python scripts, put driver arguments in `args` instead of
-passing them as extra keywords. Read single-call fields directly, without a
-`data` wrapper. Rename batch `commands` to `calls` and entry `device` to
-`deviceID`, then read the returned `results` array. Request `output="file"`
-explicitly when a consumer needs paths instead of camera arrays.
+The model `device` tool accepts `{deviceID, action, args}`. Action is explicit.
+`devices` accepts `{calls: [...]}` and preauthorizes all valid calls before
+concurrent dispatch; results preserve order and per-entry failures. The Python
+`kinex.device(deviceID, action, args)` and `kinex.devices(calls)` APIs return the
+same data and optional file paths. Image results may attach PNGs for the model.
+There is no implicit type-based read/write or camera conversion.
 
-Actuator writes submit validated buffers with `duration_s` and return immediately
-with `{execution_id, state}`. State is measured at submission, not completion.
-Devices consume them at their fixed cadence. Position devices retain the last
-reference; velocity devices expire to zero velocity while retaining posture.
-`legged_base` uses `mode` as its single state/mode selector, with shared
-motion parameters: named-axis `velocity`,
-optional `posture`, and `duration_s` with velocity expiry to zero. Drivers adapt
-these to the SDK. `intrinsics.control.write`
-declares its write argument schema, `control.skills` describes the minimal exposed
-SDK skills, and optional `control.device_modes` maps writable states to
-`{description, transitions}`. State-only writes and discrete skills need no
-artificial motion fields; additional parameters extend the shared conventions.
-The same `mode` field selects transitions and motion. For example, motion can use
-`{mode: "drive", velocity: {vx: 0.05, vy: 0, wz: 0}, duration_s: 0.5}`
-when those axes are supported and the measured state permits driving.
-Drivers validate live state prerequisites and submit SDK operations, returning
-`{execution_id, state}` with observed `timestamp`, `faults`, and `mode`
-when a state machine is declared. Unknown state is null; transient/fault states
-may be observed without being writable. Normal actuation permissions, stop,
-cancellation and ownership still apply. Custom per-device `DEVICE.md` files are
-allowed only for type `legged_base`; provision that type's guide with supported
-Kinex read/write examples and SDK mappings using the legged template. Do not
-create or customize per-device guides for other types.
-
-`world.read` returns `time_s`; `world.wait(duration_s)` waits on the driver's clock.
-Reads may also include `budget: {used_s, max_s}`: episode time consumed and
-allowed, in seconds. `used_s` is finite and nonnegative; `max_s` is finite and
-positive, or `null` for no cap. Omission means the driver supplies no budget.
-The information is reported as supplied, even if elapsed time exceeds the allowance;
-Kinex does not infer it from `time_s`, enforce it, or change control behavior.
-Wait results remain `{time_s, waited_s}`, with elapsed time for that wait only.
-Drivers must convert native counts to seconds before reporting a budget. Legacy
-`used`, `max` and `unit` members are rejected, as are malformed budget objects.
-
-- FK/IK accept device-local `frame` and `reference_frame`, defaulting to the modeled
-  endpoint and device base. Fixed endpoint descendants and base references are
-  supported. See [device frames](../../docs/devices.md#frames-and-poses) for spatial
-  conventions and [motion and stop](../../docs/devices.md#motion-and-stop) for
-  buffering, cancellation and ownership contracts.
-- `servo` reads measured joints once, then plans and submits a full joint trajectory.
-  It accepts joints or a pose, with no duration input. `block` defaults to `true`.
-  It checks the loaded `world` device before submission and waits the computed duration.
-  Optional `world` selects a different world clock.
-  Set `block: false` to return immediately without requiring a clock.
-  Results report `device`, the driver's `execution_id`, requested/IK-resolved
-  target `joints`, computed `duration_s` and `actions_submitted`. The execution ID
-  identifies the submission, not completion. Driver feedback is validated before
-  success; blocking allows execution time but does not check arrival. Verify arrival
-  using fresh feedback. Cancellation or wait failure stops only motion still owned
-  by the invocation, preserving replacements from other calls.
-  Planning defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for linear joints,
-  capped by known limits. Lower `speedFraction` lengthens the computed duration.
-  Pose targets require declared endpoint IK, including for hands; joint targets
-  need no geometry.
-  Servo solves poses through the device, then generates a local joint trajectory.
-  Only the IK seed is projected into bounds; measured planning starts remain
-  unchanged. Planning uses shortest continuous-joint travel and never wraps
-  explicit bounded targets.
-  Native-limited devices retain their existing limit handling. Planning failure
-  submits nothing and leaves existing motion unchanged. Planning does not
-  certify collision avoidance.
-- Numerical device IK uses bounded DLS restarts for servo, direct IK and Cartesian
-  policy actions. The seed is tried first, then deterministic nearby seeds.
-  Each retry stays within 0.35 rad per rotary joint or 5% of the declared range
-  per prismatic joint around the original seed, clamped to bounds. Increasing
-  the attempt count never enables global seeds or expands this radius.
-  Verified candidates compete by joint-range-normalized seed displacement;
-  only zero displacement ends search early. Numerical and native IK normalize
-  rotary solutions to the nearest equivalent angles within limits before
-  independent FK verification. Native IK retains its solver. Nearest preference
-  is not a hard waypoint-step limit or a guarantee of a particular IK branch;
-  neither it nor readiness certifies collision-free motion.
-  Optional `intrinsics.kinematics.ik.budget` accepts `max_attempts` (default 5,
-  including the original seed), `attempt_time_s` (0.02) and `max_time_s` (0.1).
-  Profile budget fields override defaults. Counts must be positive integers
-  and times positive finite seconds. `max_iterations` remains a
-  per-attempt limit. Deadlines and cancellation are checked between iterations;
-  the current iteration or final verification can overrun a deadline. Exhaustion
-  reports attempts, iterations, elapsed time and best residuals without claiming
-  unreachability. Pose tolerances remain strict.
-  Direct device `ik` accepts `pose`, optional `seed`, `frame`, `reference_frame`.
-  Both numerical and native IK accept a seed; omission reads measured joints
-  projected into limits. There are no per-call budget or selection-reference
-  overrides. Legacy profile `ik.search` is rejected; rename it to `ik.budget`.
-- `run_policy` infers once, applies optional `max_actions` before validation/IK,
-  splits the selected chunk across devices, and submits buffers concurrently.
-  Cartesian `pose` and `pose_delta` actions use frozen reference frames and seeded
-  IK; `target_frame` must be rigidly attached to the
-  IK frame. Initial IK seeds are projected to joint limits; subsequent waypoints
-  use preceding solutions. Measured positions used for FK remain unchanged.
-  Results are `actions_submitted`, `duration_s`, `execution_ids` (device to
-  execution ID) and `ik_failure`, without waiting.
-  `execution_ids` replaces the former `writes` response map and is empty when
-  nothing was submitted. Read devices separately for measured state.
-  Gripper/suction writes use flat `actions: [value, ...]`; joint and dexterous-hand
-  writes use sequences of joint vectors. Both require `duration_s`.
-  Each Cartesian waypoint has its own IK search budget, so planning time can
-  accumulate across a chunk. IK failure returns a shared valid prefix at the
-  original cadence, leaving existing buffers intact for an empty prefix.
-- `relative_pose` accepts `child` and `parent`, each `{frame, pose?}`. A local pose
-  is `[x,y,z,qx,qy,qz,qw]` in metres with a unit quaternion, defaulting to identity.
-  Both local transforms participate. The result expresses child in parent and
-  contains `pose` and the transform's world `timestamp`. Frame IDs use ROS names
-  such as `arm/flange`. Optional `timestamp` selects a historical lookup; omission
-  selects the latest available transform. tf2 resolves the graph and local pose
-  offsets. Missing or disconnected relationships are errors; Kinex does not infer
-  identity transforms or construct a second profile-based frame graph.
-  Pose inputs normalize xyzw quaternions with norms in `[0.999, 1.001]`; values
-  outside that range are rejected. Persisted calibration retains strict validation.
+For workflows use `communication()` async pub/sub and request/response helpers.
+Managed commands carry invocation ownership and generation; acceptance is not
+arrival. Measure feedback to verify results. Use the world for time and tf2 for
+stamped transforms. Helper-specific operation requirements are explicit helper
+contracts, never requirements of the device type.
 
 ### Feedback control with `exec`
 
-Use `exec` for bounded feedback loops and return observations with control results.
-The `closed_loop` and `settled` built-ins are no longer provided. Replace their
-stage mappings and persistent loop state with Python variables, explicit device
-or tool calls, and task-specific feedback checks.
-For RoboTwin's `left_arm`, pass a six-element target `joints` vector and a positive
-`tolerance_rad` in the exec arguments. Targets are absolute radians in profile
-order; choose them for the observed scene. The example returns the head and left
-wrist images:
-
-```python
-from kinex import args, call, device, finish, stop_owned
-
-params = args()
-try:
-    initial = device("left_arm")
-    if initial["faults"]:
-        raise RuntimeError(str(initial["faults"]))
-    previous_stamp = initial["timestamp"]
-    motion = call("servo", device="left_arm", joints=params["joints"])
-    # Blocking servo already waited its planned duration. Check fresh feedback.
-    for _ in range(20):
-        feedback = device("left_arm")
-        if feedback["faults"]:
-            raise RuntimeError(str(feedback["faults"]))
-        if feedback["timestamp"] < previous_stamp:
-            raise RuntimeError("device clock moved backwards")
-        fresh = feedback["timestamp"] > previous_stamp
-        previous_stamp = feedback["timestamp"]
-        error = max(abs(q - goal) for q, goal in
-                    zip(feedback["positions"], motion["joints"], strict=True))
-        if fresh and error <= params["tolerance_rad"]:
-            break
-        device("world", "wait", {"duration_s": 0.1})
-    else:
-        raise TimeoutError("joint target not confirmed")
-finally:
-    stop_owned()
-
-feedback = device("left_arm")
-head = device("head_camera", args={"output": "file"})
-wrist = device("left_camera", args={"output": "file"})
-finish({"feedback": feedback, "cameras": [
-    {"deviceID": "head_camera", "timestamp": head["timestamp"]},
-    {"deviceID": "left_camera", "timestamp": wrist["timestamp"]},
-]},
-       file=[head["file"], wrist["file"]])
-```
-
-Use the workspace's actual camera names, joint units and tolerances; continuous
-joints need angular error modulo a full turn. Position agreement alone does not
-establish stability, grasp success or task completion;
-check the feedback appropriate to the task. Bound loops, reject faults and missing
-feedback, and stop owned motion when the loop ends. When the next action needs
-visual interpretation, return selected images to the model rather than continuing
-without that decision. Printing camera paths does not attach images.
-
-Python tools can also use `inline(source, values, kind="perception")` for a lambda
-or source defining `main(**kwargs)`. It returns JSON data and runs in a fresh
-subprocess with Kinex Python and the caller's directory, deadline and permissions.
-Only controller callers may request `kind="controller"`. Cleanup checks motion
-ownership before stopping; the driver's declared physical stop scope still applies.
-Uncertain writes are never retried.
-Device failures preserve optional `code` and `details` through direct tools,
-batches, nested Python calls and inline stages. Structured tool errors are JSON
-with `error`, `code` and/or `details`; plain errors retain readable text. Python
-raises `kinex.RPCError`, a `RuntimeError` subclass exposing `.code` and `.details`.
-`run_policy` propagates `stop_failed` instead of reporting a normal IK rejection.
-For replanning during motion, call servo with `block=False` in Python and wait
-explicitly with `device("world", "wait", {"duration_s": interval_s})` between
-observations. A new control call can replace the remaining references of a full
-servo plan before it completes.
-
-Migration: remove `duration_s` from servo arguments; obsolete input is rejected.
-Servo results expose `execution_id` directly and omit `write` and `end_joints`;
-device write responses retain their existing feedback contract.
-Remove servo `ik` and `max_joint_delta` arguments; unsupported arguments are
-rejected before device operations. The Python `kinex.trajectory.trajectory(...)`
-helper returns a `Trajectory` dataclass. Use `plan.actions` and `plan.duration_s`
-together when submitting a device write.
-Device writes and `run_policy` retain their existing duration contracts.
+Use bounded Python loops and return only selected results. On failure, timeout,
+cancellation or disposal, cleanup stops motion still owned by that invocation and
+cancels its pending requests. Successful completion may leave accepted motion
+running. `stop_owned()` explicitly stops owned motion. A failed old invocation
+cannot stop a newer replacement. Borrowed node processes are never terminated.
 
 ## Public runtime
 
@@ -332,7 +70,7 @@ Device writes and `run_policy` retain their existing duration contracts.
   arguments remain optional for host validation. `tools.call()`
   rescans, validates arguments, checks permissions and returns normalized results.
 - `skills.list()/load()` and `context()` provide discovered skills and live robotics
-  context (shared instructions, type conventions, guide roots, readiness and Python environment)
+  context (shared instructions, guide roots, readiness and Python environment)
   for the host's prompt. Python context includes `library` and `workspaceLibrary`
   paths for shells that need an explicit `PYTHONPATH`. Core does not edit the
   host's system prompt.
@@ -348,7 +86,7 @@ Device writes and `run_policy` retain their existing duration contracts.
   Preparation returns the interpreter and child-process environment.
 - `devices.list()/load()/reload()/unload()/ping()` provide device lifecycle APIs.
   Load/reload returns `{device, activating, ready}`; await
-  `ready` for background initialization. `devices.dispatch()` is a trusted driver API.
+  `ready` for background initialization. `devices.dispatch()` is a trusted operation API.
 - `devices.templates()` discovers provisioning instances and type templates.
   `devices.unregister(name, signal?)` holds the device lifecycle fence through
   capture shutdown, deactivation and deletion, including legacy calibration
@@ -371,7 +109,7 @@ Device writes and `run_policy` retain their existing duration contracts.
   workspace switch/shutdown. Custom tools must honor their abort signal.
 
 Construction/import does not connect to hardware, write files, or install process
-handlers. Each runtime owns its driver connections, dispatch lanes, mock state,
+handlers. Each runtime owns its ROS hosts, invocation ownership,
 observers, model cache and recorder. Separate runtime instances isolate in-memory
 state even when device names match. Disk profiles remain shared when the directory
 is shared; use separate workspaces for independent persistent state.
@@ -412,41 +150,22 @@ other tool traffic retains its tool name.
 
 ## Assets and discovery
 
-`assets/` owns device provisioning bundles (including FastWAM, SAM3 and
-GroundingDINO), template drivers, complete Setup/Profile/Use guides, setup-device,
-operational Python tools and runtime helpers. Assets resolve relative to the
-package. Only the selected loaded-device guides' Use sections enter normal runtime
-context; Setup/Profile is read when needed. Setup ships calibration skills separately.
-Copy drivers and their runtime support files into device workspaces when provisioning.
+Builtin typed device templates contain Setup and Profile guidance. They explain
+how to author descriptions, physical facts, operations and nodes. They do not
+provide usage text for the system prompt. No DEVICE.md Use section is selected
+or injected, including instance files. The stable prompt only directs agents to
+runtime discovery. Context refresh and compaction do not inject catalogs.
 
-Custom Python tools live in `.kinex/tools/<name>/{tool.yaml,tool.py}`, JS/TS tools
-in `.kinex/tools/`, and skills in `.kinex/skills/<name>/SKILL.md` (searched recursively).
-Global configuration uses the same `tools/` and `skills/` subdirectories. Move
-custom content from old singular `tool/` and `skill/` directories; those are no
-longer custom discovery roots. Packaged `assets/builtin/tool/` and
-`assets/builtin/skill/` paths are unchanged.
-Discovery preserves workspace/project → parent projects → global → built-in
-precedence. `RuntimeOptions.builtinSkillRoots` appends feature-package skill roots
-to the builtin tier; discovery scans local/global roots only once.
-`RuntimeOptions.reservedToolNames` keeps feature builtin names ahead of discovered
-custom tools, reporting conflicts. TypeScript and JavaScript custom tools reload on discovery through
-Jiti. Tools can retain Zod schemas; Python tools keep raw JSON Schema parameters. Workspaces supply any dependencies imported by custom
-tools. This code is trusted executable workspace content, like standalone Kinex.
+Guide discovery preserves nearest-workspace/user/builtin precedence and searches
+named bundles before type templates. Python discovery is inert; `.kinex/python`
+is prepared lazily on approved execution or by explicit preparation. Nodes use
+Kinex Python unless a device SDK needs a separate `runtime.interpreter`.
 
-Core owns the lazy `.kinex/python` environment independently of world/device
-load state. Exec, Python helpers, ROS clients, tf2 and recording always use it.
-Only device processes may specify an alternative SDK interpreter. Non-ROS
-workspaces use uv (Python >=3.11); ROS workspaces select `python.provider:
-"ros-jazzy"` in `.kinex/kinex.json` and use independent Pixi/RoboStack Jazzy
-Python 3.12. `python.interfaces` lists source package directories relative to
-`.kinex`; preparation builds those and core interfaces in the same environment.
-See [ROS environment setup](../../docs/communication.md#kinex-python).
-
-`runtime.python.status()` is inert. `runtime.python.prepare()` explicitly
-synchronizes dependencies/interfaces. First approved execution prepares a missing
-environment. Host projects, shells and simulator environments remain independent.
-For uv dependencies use `uv add --project <python.project> PACKAGE`; for ROS
-change the Kinex environment, never patch sys.path or borrow a device interpreter.
+Legacy `access.driver`, JSONL drivers and production in-memory mocks are unsupported.
+Old shipped provisioning/driver assets remain historical references; they are not
+executable device contracts. Bind actual ROS endpoints or implement factories in
+`runtime.nodes`. Existing workspaces need explicit migration; no adapter fallback
+is installed. Only workspace_libero was migrated in this refactor.
 
 ## Python scripting
 
@@ -457,8 +176,8 @@ Optional `description` supplies a short lowercase TUI label, such as `inspect ar
 
 ```json
 {
-  "description": "inspect arm and camera",
-  "python": "from kinex import device, finish\nstate = device('left_arm')\nframe = device('head_camera', args={'output': 'file'})\nfinish({'arm': state, 'camera': 'head_camera', 'timestamp': frame['timestamp']}, file=frame['file'])"
+  "description": "inspect device contract",
+  "python": "from kinex import runtime, finish\nfinish(runtime.device('sensor'))"
 }
 ```
 
@@ -492,7 +211,7 @@ be interpreted as runtime messages. Invalid arguments use the standard tool
 validation error result; permission denial propagates to the host.
 
 One `python_tool` approval covers script execution and composed runtime
-calls. Scripts can use `device`, `devices`, `call`, `profile`, `robot` and `Device`
+calls. Scripts can use `device`, `devices`, `call`, `profile`, `robot` and `runtime`
 from `kinex`. Composed tools share the execution approval. Python cannot
 load/unload devices or call the recording tool through its runtime API. Failure,
 timeout and cancellation trigger an attempt to stop motion still owned by the
@@ -507,69 +226,18 @@ use keyword arguments, not a positional dictionary. In contrast,
 `call` composes Python tools or `device`/`devices`, not host tools such as shell
 or file editing. `exec`, manifest tools and inline Python share the execution runner.
 
+Python startup uses a separate host RPC channel; ordinary script stdout/stderr
+remain diagnostics. Importing the library outside a tool dialog is inert.
+`runtime.devices`, `runtime.device`, `runtime.operations`, and `runtime.describe`
+provide discovery. `finish(result, file=...)` selects results and images for the
+agent. Device operation payloads follow declared ROS interfaces.
+
 ## Development
 
-Python tools receive one startup JSON line on stdin: `{"args": {...}}`, with
-`"source": "..."` added for inline Python. The client consumes it before any RPC;
-tool code continues to use `kinex.args()`. One-shot drivers receive
-`{"action": "read", "args": {...}}` followed by EOF; `kinex.driver_protocol.run`
-handles this and the existing persistent protocol. Custom scripts parsing payloads
-from `sys.argv` must migrate to these helpers. Executable paths and `--serve` stay
-in argv; payload size no longer selects a transport.
-
-Internal camera reads default to NumPy arrays. For file-based consumers, use
-`frame = device("head_camera", args={"output": "file"})` and pass `frame["file"]`
-directly in the next tool or model-device call's arguments. Python variables
-carry intermediate observations between computation and control steps.
-Internal reads do not automatically display images; return selected files through
-`finish(result, file=...)` in the same execution or call a camera directly through
-the agent-facing device tools. Use `output="base64"` for encoded PNG/PGM strings
-without array decoding. See [Python scripting](#python-scripting) for result and
-attachment handling.
-
-From the repository root:
-
-```sh
-npm ci
-npm run build:core    # Node ESM + declarations, including text modules
-npm run test:core     # real Node tests and npm tarball installed outside the repo
-npm run typecheck
-npm test             # standalone regression suite
-npm run build        # core, setup and standalone
-```
-
-Node loads `dist/`. Build the core before
-packing it. No package is published by these commands. The standalone CLI and Pi
-TUI also support Node 22.19 without OpenTUI FFI. This first delivery provides npm
-tarballs; self-contained Node releases are deferred.
-
-`@kinex/core/permission/index` exports rule validation and `kinexPermissionPolicy`
-(defaults and always-allow stop) plus `kinexPermissionAction` for host adapters.
-`loadTools(directory, {additionalTools, enableRecording})` composes the single core
-catalog with host tools; recording is omitted unless explicitly enabled. Host tools
-and core builtins precede discovered custom tools, with conflicts reported.
-
-Device observations and recording can run during bounded writes. Writes are ordered
-per device; independent devices can write concurrently through `devices.dispatch`
-and Python `devices()`. Stop interrupts its declared device scope and rejects older
-queued writes. Load/unload/reload fence connections and capture ownership.
-Persistent drivers must echo request IDs and permit out-of-order replies; migrate
-custom loops using the shipped `kinex.driver_protocol.run` and reload devices.
-
-Joint `kinematics.frame` and hand geometry declare computed frames relative to the
-device base. Keep only additional references in `intrinsics.frames`; frame queries
-resolve FK on demand from measured joints.
-
-Velocity writes use named axes, for example
-`{mode: "drive", velocity: {vx: 0.05, vy: 0, wz: 0}, duration_s: 0.5}`.
-Consult the profile for units and input bounds. Velocity reads expose measured
-velocities, faults and timestamp, plus available body/local-frame measurements;
-they omit global pose. World-relative transforms require explicit frame estimates.
-Existing velocity profiles must remove `feedback.pose_frame`; drivers must omit
-`pose` from both reads and write-result states.
-Refresh copied RoboEnv profiles and drivers together, restart the simulation service,
-and reload the base after upgrading an existing workspace.
+Run `npm run build`, `npm run test:core`, or the complete `npm run check` from the
+repository root. Tests use explicit protocol-host fixtures; native ROS integration
+checks verify actual topics, services, world timing, recording and tf2 separately.
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).

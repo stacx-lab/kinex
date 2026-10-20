@@ -18,7 +18,7 @@ export async function warmLoadedDevices(cwd: string, signal?: AbortSignal): Prom
   return Promise.all(devices.filter(device => device.loaded).map(device => activation(cwd, device, signal)))
 }
 // Serialize profile changes and full lifecycle completion, independently of
-// the driver lane (recorder shutdown may itself use that lane).
+// the node lifecycle (recorder shutdown may itself use that lane).
 const transitions = scoped(() => new Map<string, Promise<void>>())
 const locating = scoped(() => new Map<string, Promise<string>>())
 export async function deviceTransition<T>(cwd: string, name: string, run: () => Promise<T>, ready?: (value: T) => Promise<unknown>): Promise<T> {

@@ -16,8 +16,8 @@ import { HandGeometry, refineHand } from "./hand.ts"
 import { deviceFrames, modelFrames } from "./frames.ts"
 import { CameraCalibration, CameraColor, CameraConnection, CameraDepth } from "./camera.ts"
 
-import { MISSING, may, known, Source, section, measured, OtherConnection, DriverSpec, driverWith, observationActions, streamActions, actuatedActions } from "./common.ts"
-export { MISSING, known, Source, DriverSpec } from "./common.ts"
+import { MISSING, may, known, Source, section, measured, OtherConnection } from "./common.ts"
+export { MISSING, known, Source } from "./common.ts"
 
 // Device profiles own access, intrinsic facts and parent-relative SI mounts.
 // Explicit calibration requests persist until cleared by a validated write.
@@ -57,7 +57,7 @@ export const DeviceAction = z.object({
 })
 export type DeviceAction = z.infer<typeof DeviceAction>
 
-const AccessSection = z.strictObject({ ...section, connection: may(OtherConnection).default(MISSING), driver: DriverSpec.optional() })
+const AccessSection = z.strictObject({ ...section, connection: may(OtherConnection).default(MISSING) })
 const SpatialShape = {
   ...measured,
   method: z.enum(["unknown", "factory", "introspection", "manual", "survey", "joint_range", "tcp_pivot", "bias"]).default("unknown"),
@@ -82,7 +82,6 @@ const HandIntrinsics = z.strictObject({ ...jointState, ...localFrames, ...jointS
   .superRefine(refineJoint).superRefine(refineHand).prefault({})
 const JointDeviceAccess = z.strictObject({
   ...jointState, connection: may(ControlConnection).default(MISSING),
-  driver: driverWith([...actuatedActions, "ik", "fk"]),
 })
 
 const forceTorqueState = {
@@ -92,7 +91,6 @@ const forceTorqueState = {
 const ForceTorqueIntrinsics = z.strictObject({ ...forceTorqueState, ...localFrames, ...forceTorqueShape }).prefault({})
 const ForceTorqueAccess = z.strictObject({
   ...forceTorqueState, connection: may(ForceTorqueConnection).default(MISSING),
-  driver: driverWith(observationActions),
 })
 
 const imuState = {
@@ -102,7 +100,6 @@ const imuState = {
 const ImuIntrinsics = z.strictObject({ ...imuState, ...localFrames, ...imuShape }).prefault({})
 const ImuAccess = z.strictObject({
   ...imuState, connection: may(SensorConnection).default(MISSING),
-  driver: driverWith(observationActions),
 })
 
 const endEffectorState = {
@@ -120,17 +117,15 @@ const LeggedIntrinsics = z.strictObject({
 }).prefault({})
 const VelocityAccess = z.strictObject({
   ...velocityState, connection: may(ControlConnection).default(MISSING),
-  driver: driverWith(actuatedActions),
 })
 const GripperIntrinsics = z.strictObject({ ...endEffectorState, ...localFrames, ...gripperShape }).prefault({})
 const SuctionIntrinsics = z.strictObject({ ...endEffectorState, ...localFrames, ...suctionShape }).prefault({})
 const EndEffectorAccess = z.strictObject({
   ...endEffectorState,
   connection: may(ControlConnection).default(MISSING),
-  driver: driverWith([...actuatedActions, "introspect"]),
 })
 
-// World geometry and clock share a driver, without a parent transform.
+// World geometry and clock share a device, without a parent transform.
 const WorldIntrinsics = z.strictObject({
   source: Source.default("unknown"),
   ...worldShape,
@@ -141,7 +136,6 @@ const cameraState = { source: Source.default("unknown"), ...CameraCalibration }
 const CameraAccess = z.strictObject({
   ...cameraState,
   connection: may(CameraConnection).default(MISSING),
-  driver: driverWith([...observationActions, "introspect", ...streamActions]),
 })
 const RgbdExtrinsics = z.strictObject({ ...SpatialShape, depth_to_color: may(Transform).optional() }).prefault({})
 const CameraIntrinsicsSection = z.strictObject({
@@ -160,7 +154,6 @@ const modelState = section
 const ModelAccess = z.strictObject({
   ...modelState,
   connection: may(ModelConnection).default(MISSING),
-  driver: DriverSpec.optional(),
 })
 const ModelIntrinsics = z.strictObject({ ...modelState, ...modelShape }).prefault({})
 const DetectionIntrinsics = z.strictObject({ ...modelState, ...modelShape, operations: perceptionOperations("detection") }).prefault({})
@@ -176,6 +169,7 @@ const MiscIntrinsics = z
 
 const deviceBase = {
   name: z.string(),
+  description: z.string().describe("General device identity, capabilities and limitations; may be empty"),
   runtime: RosRuntime.optional(),
   operations: z.record(z.string().regex(/^[a-zA-Z_]\w*$/), Operation).default({}),
   // Whether the agent may read from / calibrate this device. /load and /unload
@@ -235,7 +229,6 @@ export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...deviceBase, type: z.literal("segmentation"), access: ModelAccess.optional(), extrinsics: z.never().optional(), intrinsics: SegmentationIntrinsics }),
   z.strictObject({ ...deviceBase, type: z.literal("world"),
     access: z.strictObject({ ...jointState, connection: may(OtherConnection).default(MISSING),
-      driver: driverWith(["read", "wait", "load", "unload", "status"]),
     }).optional(), extrinsics: z.never().optional(), intrinsics: WorldIntrinsics,
   }),
   z.strictObject({ ...deviceBase, type: z.literal("other"), intrinsics: MiscIntrinsics }),

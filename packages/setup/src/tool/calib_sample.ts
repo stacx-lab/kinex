@@ -19,7 +19,7 @@ export const CalibSampleTool = define("calib_sample", {
   parameters: z.strictObject({
     deviceID: z.string().describe("device to sample, e.g. arm"),
     ...AttemptInput.shape,
-    args: z.record(z.string(), z.unknown()).optional().describe("arguments for the driver action"),
+    args: z.record(z.string(), z.unknown()).optional().describe("arguments for the observation operation"),
     frame: z.string().min(1).optional().describe("joint-device frame to compute through FK from this sample"),
     settle: z
       .object({
@@ -38,7 +38,7 @@ export const CalibSampleTool = define("calib_sample", {
     if (!device) return unknownDevice(args.deviceID)
     if (!device.loaded) return unloadedDevice(device)
     if (args.frame !== undefined && device.type !== "joint" && device.type !== "dexterous_hand") fail("frame requires a joint device")
-    if (device.runtime || device.access?.driver)
+    if (device.runtime)
       await ctx.ask({ permission: "device_read", description: `sample read from ${device.name} (${args.run ?? args.procedure ?? args.node})` })
 
     const run = await attempt(ctx.directory, args)
@@ -79,7 +79,7 @@ export const CalibSampleTool = define("calib_sample", {
     ctx.abort.throwIfAborted()
     const { reading, settled } = state
     const kinematics = args.frame === undefined ? undefined : (await dispatchDevice(ctx.directory, device, "fk", {
-      joints: reading.data?.positions, frame: args.frame, reference_frame: null,
+      joints: reading.data?.positions, frame: args.frame, reference_frame: "",
     }, undefined, ctx.abort)).data
 
     const dir = await saveAttempt(ctx.directory, run)

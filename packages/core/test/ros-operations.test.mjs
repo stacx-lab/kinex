@@ -27,17 +27,17 @@ test("operation discovery is inert and loaded runtime edits require unload", asy
   const runtime = createKinexRuntime({ directory })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   await runtime.profiles.writeManifest({ identity: { id: "test", name: "test", kind: "other" } })
-  await runtime.profiles.writeDevice({
+  await runtime.profiles.writeDevice({ description: '',
     name: "service", type: "other", loaded: true,
     runtime: { interpreter: "/explicit/python" }, operations: { output },
   })
   const catalog = await runtime.devices.operations()
   assert.equal(catalog[0].operations.output.type, "std_msgs/msg/Float64")
   await assert.rejects(access(path.join(directory, ".kinex/python")))
-  await assert.rejects(runtime.profiles.writeDevice({
+  await assert.rejects(runtime.profiles.writeDevice({ description: '',
     name: "service", runtime: { interpreter: "/changed/python" },
   }), /unload/)
-  await assert.rejects(runtime.profiles.writeDevice({
+  await assert.rejects(runtime.profiles.writeDevice({ description: '',
     name: "bad", type: "other", loaded: false, runtime: { interpreter: "/python" },
     operations: { load: { ...output, transport: "service", direction: "input", type: "std_srvs/srv/Trigger" } },
   }), /reserved host/)

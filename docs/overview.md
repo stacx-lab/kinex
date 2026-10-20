@@ -65,7 +65,7 @@ User commands and permission-checked model tools control lifecycle; Python tools
 cannot. `loaded` is intent, not readiness; ordinary calls never restart failed
 services. Lifecycle transitions fence resource users before releasing connections.
 Unregister holds that fence through deactivation and deletion, works on unloaded
-devices without starting drivers, and preserves files on required cleanup failure.
+devices without starting nodes, and preserves files on required cleanup failure.
 Shared URDF parsing allows caller-local cancellation; disposal cancels the parser.
 
 See the [core runtime API](../packages/core/README.md#public-runtime) and

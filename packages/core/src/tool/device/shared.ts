@@ -1,5 +1,5 @@
 import type { Device } from "../../device/profile/schema.ts"
-import type { DeviceReading } from "../../device/driver.ts"
+import type { DeviceReading } from "../../device/reading.ts"
 import type { Result } from "../tool.ts"
 import { formatJSON, omitEmptyOptional } from "../../util/json.ts"
 

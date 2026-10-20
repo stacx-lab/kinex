@@ -6,18 +6,26 @@ description: Image object detector with a standard text-prompt interface and opt
 
 ## Setup
 
-Use setup-device to provision a local runtime or remote service. Follow the
-model type's provisioning conventions: record identity, implementation, local
-artifacts, connection and driver interpreter; keep loaded: false. Match a
-concrete instance guide first. The model driver skeleton supplies lifecycle;
-implement its SDK hooks for detect using the Use contract below.
+Follow setup-device for registration, Python provisioning and node lifecycle. This
+template validates physical facts; it does not prescribe operation names.
 
-Core supplies detect in intrinsics.operations; do not redefine it. Add only
-additional operations there and declare them in access.driver.actions.
-Weights must exist locally before activation; runtime must not download them.
-Undo model resizing/cropping in returned boxes and masks; preserve original-image
-coordinates and scores in [0,1]. Process only the supplied image, never a fresh
-camera capture.
+Declare model identity and detection input/output facts. Describe label conventions, confidence, bounding-box coordinates and input image requirements on the inference operation.
+
+Every profile requires a top-level `description` giving general device identity,
+capabilities and limitations. Every `operations.<name>.description` explains only
+that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
+Both descriptions are required strings; use an empty string when no text is known.
+Agents retrieve them through `runtime.device(name)` and `runtime.describe("device.operation")`.
+
+Start from the profile below, select the typed facts and fill unknowns from
+documentation or calibration. Use `???` for unresolved facts and `null` only where
+allowed. Add actual topic/service operations and their descriptions; an empty
+operations mapping is an unfinished setup, not an implicit type interface.
+Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
+For externally managed nodes use `runtime.nodes: []` and their real endpoints.
+Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
+The old sibling driver scaffolds are unsupported by the runtime; implement ROS
+node factories or bind to existing ROS nodes.
 
 ### Profile
 
@@ -26,25 +34,14 @@ name: detection
 type: detection
 loaded: false
 access:
-  connection: {kind: process, compute: "???"}
-  driver:
-    entry: driver.py
-    persistent: true
-    actions: [read, load, unload, status, detect]
-    timeout_s: 300
+  connection:
+    kind: process
+    compute: ???
 intrinsics:
-  family: "???"
-  artifacts: "???"
+  family: ???
+  artifacts: ???
+description: ""
+runtime:
+  nodes: []
+operations: {}
 ```
-
-## Use
-
-Inference service with no physical frame; read/status report readiness.
-`detect({image, prompt, min_score?, max_results?})` uses the supplied image;
-defaults are 0.25 and 10. Results are sorted by score and contain pixel box
-[x1,y1,x2,y2], score and label. Optional masks are single-channel PNGs aligned to
-the original image, with nonzero foreground; `file` may contain an overlay.
-No detections returns `results: []`.
-
-`locate_object_3d` uses a supplied mask, otherwise the box center region, to
-estimate a camera-relative point. Use `relative_pose` for frame conversion.

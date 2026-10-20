@@ -1,133 +1,10 @@
 import { deviceFrames } from "../device/profile/frames.ts"
-import { cameraMissing } from "../device/profile/camera.ts"
 import { ProfileStore, type ProfileSnapshot } from "../device/profile/store.ts"
 import { readinessPlan, type ReadinessPlan } from "../device/profile/readiness.ts"
-import { isModel, devicePoseFeedback, deviceMount, known, deviceJoints, deviceActions, renderWorkspaceBounds, type Device } from "../device/profile/schema.ts"
-
-// "arm:link7" — the parent and, when named, the frame the pose is expressed in.
-function mountFrame(mount: { parent: string; parent_frame?: string }): string {
-  return mount.parent_frame && mount.parent_frame !== mount.parent ? `${mount.parent}:${mount.parent_frame}` : mount.parent
-}
-
-function accessBit(device: Device): string {
-  const access = device.access
-  if (!access) return ""
-  const connection = access.connection
-  const driver = access.driver ? `, driver ${access.driver.entry}` : ""
-  return known(connection) ? `, ${connection.kind}${driver}` : driver
-}
+import { isModel, devicePoseFeedback, deviceMount, known, type Device } from "../device/profile/schema.ts"
 
 function deviceLine(device: Device): string {
-  // Unloaded devices stay listed — the model must know they exist and that the
-  // user can bring them back with /load (spelled out once, below the list).
-  const bits: string[] = [
-    `${device.name} (${device.type}${accessBit(device)})${device.loaded ? "" : " [UNLOADED]"}`,
-  ]
-  switch (device.type) {
-    case "legged_base": {
-      const { control } = device.intrinsics
-      if (known(control)) {
-        if (control.device_modes) bits.push(`, device states: ${Object.keys(control.device_modes).join(", ")}`)
-        if (Object.keys(control.skills).length) bits.push(`, SDK skills: ${Object.keys(control.skills).join(", ")}`)
-      }
-      bits.push(", profile-defined read/write; prefer shared velocity conventions; unlocalized root")
-      break
-    }
-    case "rgb":
-    case "rgbd": {
-      bits.push(!cameraMissing(device.intrinsics.color) ? ` intrinsics: known (${device.intrinsics.source})` : " intrinsics: ???")
-      if (device.type === "rgbd") {
-        const depth = device.intrinsics.depth
-        bits.push(known(depth) ? ` depth: ${depth.scale_m_per_unit} m/unit ${depth.registration}` : " depth: ???")
-      }
-      const mount = deviceMount(device)
-      bits.push(mount !== undefined && known(mount) ? ` mounted on ${mountFrame(mount)}${mount.dynamic ? " (dynamic)" : ""}` : " extrinsics: ???")
-      bits.push(
-        device.type === "rgbd"
-          ? "; read returns file (RGB PNG) and depth_file (16-bit PGM); inspect RGB with the host file-reading tool"
-          : "; read returns file (RGB PNG); inspect it with the host file-reading tool",
-      )
-      break
-    }
-    case "dexterous_hand":
-    case "joint": {
-      bits.push(device.type === "joint" ? " absolute joint targets; verify arrival with measured feedback in exec" : " finger joint targets")
-      const joints = deviceJoints(device)
-      bits.push(joints.length ? ` ${joints.length} dof; model resolved` : " model: ???")
-      if (device.type === "dexterous_hand") {
-        const geometry = device.intrinsics.geometry
-        if (geometry?.description) bits.push(`; ${geometry.description}`)
-        if (!geometry?.fingers) bits.push("; fingertip geometry unavailable")
-        if (geometry?.fingers) bits.push(`; local fingertip prediction: ${Object.values(geometry.fingers).map((finger) => `${device.name}:${finger.tip_frame}`).join(", ")}`)
-        if (geometry?.center) bits.push(`; predicted center ${device.name}:${geometry.center.frame}`)
-      }
-      break
-    }
-    case "suction":
-    case "gripper": {
-      const { control, stop } = device.intrinsics
-      if (known(control)) bits.push(`, control ${control.mode}`)
-      if (known(stop)) bits.push(`, stop ${stop.behavior} [${stop.affected_devices.join(", ")}]`)
-      if (device.type === "gripper") {
-        const { geometry, aperture_m } = device.intrinsics
-        if (aperture_m) bits.push(`, opening ${aperture_m.min}–${aperture_m.max} m`)
-        if (!geometry) bits.push(", geometry unknown; do not infer jaw axes from the mount")
-        if (geometry) bits.push(`, approach ${JSON.stringify(geometry.approach_axis)}, fixed closing axis ${JSON.stringify(geometry.closing_axis)}${geometry.description ? `; ${geometry.description}` : ""}`)
-      }
-      break
-    }
-    case "velocity": {
-      const { control, stop } = device.intrinsics
-      if (known(control)) bits.push(`, motion modes: ${Object.keys(control.modes).join(", ")}`)
-      if (known(stop)) bits.push(`, stop ${stop.behavior}`)
-      bits.push(", unlocalized root")
-      break
-    }
-    case "detection":
-    case "segmentation":
-    case "model": {
-      const family = device.intrinsics.family
-      if (known(family)) {
-        bits.push(` ${family}${device.intrinsics.variant ? ` (${device.intrinsics.variant})` : ""}`)
-        if (device.intrinsics.operations.length > 0)
-          bits.push(`: ${device.intrinsics.operations.map((operation) => operation.name).join(", ")} (via the device tool)`)
-      } else bits.push(" family: ???")
-      break
-    }
-    case "imu": {
-      const measurement = device.intrinsics.measurement
-      if (!known(measurement)) { bits.push(" measurement: ???"); break }
-      for (const key of ["angular_velocity", "linear_acceleration", "magnetic_field"] as const) {
-        const channel = measurement[key]
-        bits.push(`; ${key}: ${channel === null ? "unsupported" : known(channel) ? channel.axes.join(",") : "???"}`)
-      }
-      const acceleration = measurement.linear_acceleration
-      if (acceleration && known(acceleration)) bits.push(` (${acceleration.quantity})`)
-      const orientation = measurement.orientation
-      bits.push(`; orientation: ${orientation === null ? "unsupported" : known(orientation) && known(orientation.reference) ? orientation.reference.kind : "???"}`)
-      break
-    }
-    case "force_torque": {
-      const measurement = device.intrinsics.measurement
-      if (!known(measurement)) { bits.push(" measurement: ???"); break }
-      bits.push(` ${measurement.quantity}`)
-      for (const key of ["force", "torque"] as const) {
-        const channel = measurement[key]
-        bits.push(`; ${key}: ${channel === null ? "unsupported" : known(channel) ? channel.axes.join(",") : "???"}`)
-      }
-      if (known(measurement.target)) bits.push(` on ${measurement.target.device}:${measurement.target.frame}`)
-      break
-    }
-    case "world": {
-      const bounds = device.intrinsics.bounds
-      bits.push(bounds === null ? " no bounds declared" : known(bounds) ? ` workspace ${renderWorkspaceBounds(bounds)} m (informational)` : " bounds: ???")
-      for (const surface of device.intrinsics.surfaces) bits.push(`; ${surface.name} surface (${known(surface.extent) ? surface.extent.shape : "extent unknown"})`)
-      break
-    }
-    default:
-      break
-  }
-  return "    " + bits.join("")
+  return `    ${device.name} (${device.type})${device.loaded ? "" : " [UNLOADED]"}`
 }
 
 // Mounts use explicit device frames; moving frames resolve from observations.
@@ -178,18 +55,6 @@ function mountTreeLines(devices: Device[]): string[] {
   return lines
 }
 
-// Each actuated device's OWN ordered action space, rendered beneath its line.
-function deviceActionLines(device: Device): string[] {
-  const actions = deviceActions(device)
-  if (actions.length === 0) return []
-  const dims = actions.map((action, index) => {
-    const what = action.component ?? action.joint ?? "?"
-    const units = action.units ? ` (${action.units})` : ""
-    return `      [${index}] ${what}${units}${action.meaning ? ` — ${action.meaning}` : ""}`
-  })
-  return [`      actions (${actions.length} dims, device-local):`, ...dims]
-}
-
 function statusLines(plan: ReadinessPlan): string[] {
   const lines: string[] = []
   const ready = plan.items.find((item) => item.id === "task-ready")
@@ -230,12 +95,9 @@ export async function renderRobotSummary(cwd: string, snapshot?: ProfileSnapshot
   const devices = state.devices
   if (devices.length > 0) {
     lines.push(`  profiles: ${await ProfileStore.workspaceDir(cwd)}/devices/<name>/profile.yaml`)
-    lines.push("  devices (each commanded in its OWN action space — see the device tool):")
+    lines.push("  devices (inspect descriptions with runtime.device and runtime.describe):")
     for (const device of devices) {
       lines.push(deviceLine(device))
-      for (const [name, op] of Object.entries(device.operations))
-        lines.push(`      ${device.name}.${name}: ${op.transport} ${op.direction} ${op.type} — ${op.description}`)
-      lines.push(...deviceActionLines(device))
     }
     lines.push(...mountTreeLines(devices))
     const unloaded = devices.filter((device) => !device.loaded)

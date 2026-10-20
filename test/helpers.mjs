@@ -1,3 +1,4 @@
+import { protocolDevice } from '../packages/core/test/fixtures/protocol.mjs'
 import { execFileSync } from "node:child_process"
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -69,5 +70,5 @@ export async function seed(core, name = 'sensor', { preparePython = true } = {})
   await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {encoding:'utf8'}).trim(), python.executable).catch(e=>{if(e.code !== 'EEXIST') throw e})
   }
   await core.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm', platform: 'real' } })
-  await core.profiles.writeDevice({ name, type: 'other', loaded: false, access: { connection: { kind: 'mock' } } })
+  await protocolDevice(core, path.dirname(path.dirname((await core.python.status()).project)), name)
 }

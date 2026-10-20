@@ -34,10 +34,9 @@ before replacing runtime definitions, validate, then explicitly reload. Existing
 external stacks are borrowed; Kinex unload releases only its owned nodes.
 Interface checks return observations to the caller instead of writing setup reports.
 
-Core also owns the `kinex_ros` hardware inspection utilities and remaining direct
-hardware adapters. These can read device-local `profile_ros.yaml`. They are
-independent of setup and use topics/services. New workflows use the async protocol
-helpers and the world's clock. ROS activation is confined to explicitly configured
+Core owns async protocol helpers and the world-clock client. Legacy direct
+hardware adapters and profile_ros.yaml execution are unsupported. Declare native
+ROS operations and node factories instead. ROS activation stays within owned
 subprocesses; shared host packages and overlays are never rolled back on unload.
 
 Dependency installation uses the host's permission-checked shell;

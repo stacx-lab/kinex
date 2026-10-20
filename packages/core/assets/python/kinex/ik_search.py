@@ -7,7 +7,7 @@ import random
 from dataclasses import dataclass
 from time import monotonic
 
-from kinex.driver_protocol import check_cancelled
+from kinex.cancellation import check_cancelled
 from kinex.motion import joint_target
 from kinex.validation import number
 

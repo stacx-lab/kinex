@@ -44,11 +44,11 @@ For core alone use `{ contributions: runtime => [coreContribution(runtime)] }`.
 Custom setup composition explicitly supplies `setupSkillRoots`, `setupToolNames`
 and its setup contribution. Omitted values do not inherit standalone's defaults.
 
-The `onboard-ros2` skill owns onboarding policy. Core owns the `kinex_ros` library
+The `onboard-ros2` skill owns onboarding policy. Core owns the `kinex.communication` library
 and operational ROS resources. Match the
 ROS interpreter to the selected distribution as described by the skill. Configure
 runtime files directly in the device directory and register their paths through
-`profile_write`. Drivers can carry their runtime helpers to remain operational
+`profile_write`. Nodes consume core runtime helpers to remain operational
 without setup. See [device definitions](assets/builtin/skill/onboard-ros2/SKILL.md#device-definitions).
 
 Setup also bundles `pi-web-search` 1.7.0 and `pi-btw` 0.7.1 as npm dependencies.
@@ -77,15 +77,15 @@ returns encoded image data. File-mode RGBD evidence copies both color and depth
 into attempt artifacts before appending the sample.
 
 `/onboarding [objective]` prepares the embodiment and follows only the requested
-objective's prerequisite subgraph. Without a task it prepares profiles/drivers and
+objective's prerequisite subgraph. Without a task it prepares profiles/nodes and
 reports possible next steps, leaving measurements deferred. `/calibrate [scope]`
 resumes selected measurement work; it never exhausts an unrelated backlog.
 
 For ROS devices, `/onboarding [objective]` and `/register` select `onboard-ros2`
 through their existing workflows. No dedicated ROS command or alias is needed.
 
-Core owns `profile_write`, `setup-device`, registration, device configuration and driver operation,
-load/unload, read/write, motion and stop. Prepare profiles/drivers incrementally
+Core owns `profile_write`, `setup-device`, registration, device configuration and operation execution,
+load/unload, topic/service operations, motion and stop. Prepare profiles/nodes incrementally
 before measurement. Apply accepted results through `profile_write`; clear requests
 explicitly only when their whole section is resolved. Translation-only TCP evidence
 may satisfy a task while its orientation request remains open.
@@ -148,7 +148,7 @@ For example, establish an existing camera connection without calibrating geometr
     "nodes": [{
       "id": "camera-access", "title": "Prepare camera access", "kind": "prepare",
       "skill": "setup-device", "bindings": {"device": "camera"},
-      "outputs": [{"kind": "profile", "device": "camera", "pointer": "/access/driver"}]
+      "outputs": [{"kind": "profile", "device": "camera", "pointer": "/runtime/nodes"}]
     }],
     "task": {"objective": "View camera images", "targets": ["camera-access"]}
   }

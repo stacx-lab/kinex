@@ -11,7 +11,6 @@ import path from "node:path"
 import { formatJSON } from "../util/json.ts"
 import { ProfileStore } from "../device/profile/store.ts"
 import { matchesDeviceType } from "../device/profile/schema.ts"
-import { stopOwnedMotions } from "../device/dispatch.ts"
 import { callDevices, DeviceCallSchema, DeviceCallsSchema } from "./device/calls.ts"
 import { pythonLaunch } from "../python/launch.ts"
 import { imageMime } from "../util/media.ts"
@@ -115,8 +114,15 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
     const devices = await ProfileStore.listDevices(cwd)
     return { ok: true, result: await Promise.all(devices.map(async device => ({
       name: device.name, type: device.type, loaded: device.loaded,
-      ready: device.runtime ? await rosReady(cwd, device) : null,
+      ready: await rosReady(cwd, device),
     }))) }
+  }
+  if (call === "runtime_device") {
+    const name = z.string().parse(request["device"])
+    const device = await ProfileStore.readDevice(cwd, name)
+    if (!device) return { ok: false, error: `unknown device "${name}"` }
+    return { ok: true, result: { name: device.name, type: device.type, description: device.description,
+      loaded: device.loaded, ready: await rosReady(cwd, device) } }
   }
   if (call === "runtime_operations") {
     const name = z.string().parse(request["device"])
@@ -131,7 +137,6 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
   if (call === "stop_owned") {
     try {
       await cleanupRos(cwd, ctx.motionOwner, true)
-      await stopOwnedMotions(cwd, ctx.motionOwner)
       return { ok: true }
     } catch (error) {
       return { ok: false, ...failure(error) }
@@ -269,7 +274,6 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
   }).catch(async (error: unknown) => {
     // Stop before returning a failed controller to its caller, including a parent tool.
     await cleanupRos(cwd, motionOwner, true).catch(failure => { log.warn(String(failure)) })
-    await stopOwnedMotions(cwd, motionOwner).catch(failure => { log.warn(String(failure)) })
     throw error
   })
   if (depth === 0) await cleanupRos(cwd, motionOwner, false)

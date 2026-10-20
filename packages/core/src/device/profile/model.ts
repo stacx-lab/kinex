@@ -1,8 +1,8 @@
-import { field, observationActions } from "./common.ts"
+import { field, lifecycle } from "./common.ts"
 import { z } from "zod"
 
 const identifier = z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_-]*$/)
-export const modelLifecycle = observationActions
+export const modelLifecycle = ["read", ...lifecycle] as const
 
 // A closed, recursive subset of JSON Schema. Property names are identifiers;
 // schemas contain no descriptions, prompts, code, or arbitrary extension keys.
