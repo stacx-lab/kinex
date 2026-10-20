@@ -6,11 +6,26 @@ description: suction control and observation contract.
 
 ## Setup
 
-Follow setup-device for registration and lifecycle ownership. Load waits for
-readiness; status only observes; unload stops motion and releases owned resources.
-Use `???` for unresolved facts and `null` only where the schema permits it.
+Follow setup-device for registration, Python provisioning and node lifecycle. This
+template validates physical facts; it does not prescribe operation names.
 
-control declares mode:binary, distinct on_target/off_target. feedback declares positions (possibly empty), velocities, sensors and aperture_model:null. stop declares behavior and affected_devices. Mount locates the suction TCP.
+Declare control ranges, pressure/contact feedback support and stop scope. Describe vacuum polarity, units and release/hold behavior on their operations. Unsupported measurements remain unavailable.
+
+Every profile requires a top-level `description` giving general device identity,
+capabilities and limitations. Every `operations.<name>.description` explains only
+that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
+Both descriptions are required strings; use an empty string when no text is known.
+Agents retrieve them through `runtime.device(name)` and `runtime.describe("device.operation")`.
+
+Start from the profile below, select the typed facts and fill unknowns from
+documentation or calibration. Use `???` for unresolved facts and `null` only where
+allowed. Add actual topic/service operations and their descriptions; an empty
+operations mapping is an unfinished setup, not an implicit type interface.
+Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
+For externally managed nodes use `runtime.nodes: []` and their real endpoints.
+Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
+The old sibling driver scaffolds are unsupported by the runtime; implement ROS
+node factories or bind to existing ROS nodes.
 
 ### Profile
 
@@ -23,17 +38,6 @@ access:
   method: unknown
   calibrated_at: null
   connection: ???
-  driver:
-    entry: driver.py
-    actions:
-    - read
-    - write
-    - stop
-    - load
-    - unload
-    - status
-    persistent: true
-    timeout_s: 30
 intrinsics:
   frames: {}
   source: unknown
@@ -45,14 +49,8 @@ intrinsics:
 extrinsics:
   source: unknown
   mount: ???
+description: ""
+runtime:
+  nodes: []
+operations: {}
 ```
-
-## Use
-
-`write({actions: [value, ...], duration_s})` takes a flat sequence of the
-profile's `on_target` or `off_target`; the final reference remains active.
-
-Reads and write states contain positions, velocities, sensor values, faults and
-timestamp in profile feedback order. Unsupported velocity channels are empty
-arrays; unsupported sensor values are null. Mount places the suction TCP in its
-parent attachment frame.

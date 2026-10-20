@@ -9,7 +9,7 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 
-from kinex import driver_protocol, ik_search, kinematics
+from kinex import cancellation, ik_search, kinematics
 from kinex.joints import JointDevice
 from kinex.motion import pose_error
 from joint_frames import profile as simple_profile
@@ -50,34 +50,6 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(options, before)
         with self.assertRaisesRegex(ValueError, "renamed to budget"):
             ik_search.budget_options({"search": {}, "budget": {}})
-
-    def test_driver_request_defaults_and_wire_validation(self):
-        from kinex.joint_driver import Driver
-
-        class TestDriver(Driver):
-            def model(driver):
-                return self.model
-
-            def execute(driver, action, args):
-                if action == "read":
-                    return {"positions": read()}
-                return super().execute(action, args)
-
-        driver = TestDriver.__new__(TestDriver)
-        read = Mock(return_value=[1.01])
-        target = self.model.fk([.3])["pose"]
-        result = driver.execute("ik", {"pose": target, "seed": [0]})
-        self.assertAlmostEqual(result["joints"][0], .3, places=5)
-        read.assert_not_called()
-        with patch.object(self.model, "ik", wraps=self.model.ik) as solve:
-            driver.execute("ik", {"pose": target})
-            self.assertEqual(solve.call_args.args[1], [1])
-        read.assert_called_once()
-        read.reset_mock()
-        for extra in ({"budget": {}}, {"search": {}}, {"reference_joints": [0]}):
-            with self.subTest(extra=extra), self.assertRaises(ValueError):
-                driver.execute("ik", {"pose": target, **extra})
-        read.assert_not_called()
 
     def test_python_profile_rejects_legacy_search(self):
         profile = simple_profile()
@@ -228,7 +200,7 @@ class SearchTests(unittest.TestCase):
             return forward(q)
 
         goal = self.model.fk([.9])["pose"]
-        with patch.object(driver_protocol._operation, "cancel", event, create=True), patch.object(
+        with patch.object(cancellation._operation, "cancel", event, create=True), patch.object(
                 self.model.solver, "forward", side_effect=sample) as calls:
             with self.assertRaises(InterruptedError):
                 self.model.ik(goal, [0])
@@ -239,7 +211,7 @@ class SearchTests(unittest.TestCase):
             event.set()
             return [.2]
 
-        with patch.object(driver_protocol._operation, "cancel", event, create=True):
+        with patch.object(cancellation._operation, "cancel", event, create=True):
             with self.assertRaises(InterruptedError):
                 ik_search.search(self.joints, self.options, [], [0], attempt, lambda q: True)
         event.clear()
@@ -248,7 +220,7 @@ class SearchTests(unittest.TestCase):
             event.set()
             return True
 
-        with patch.object(driver_protocol._operation, "cancel", event, create=True):
+        with patch.object(cancellation._operation, "cancel", event, create=True):
             with self.assertRaises(InterruptedError):
                 ik_search.search(self.joints, self.options, [], [0], lambda *_: [.2], verify)
 

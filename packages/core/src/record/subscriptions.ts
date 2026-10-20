@@ -102,7 +102,7 @@ export function createStreams(input: { cwd: string; dir: string }): Streams {
           if (!op || op.transport !== "topic") throw new CaptureError(`${name} is not a loaded topic`)
           return [name, op] as const
         }), ...clocks])
-        const launch = await pythonLaunch(input.cwd, "driver")
+        const launch = await pythonLaunch(input.cwd, "node")
         entry.proc = spawnProcess([...launch.command, "-u", "-m", "kinex.ros_recording"], {
           cwd: input.cwd, env: { ...launch.env, ROS_DOMAIN_ID: String(ros.domain_id) }, group: true,
         })

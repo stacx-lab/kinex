@@ -24,7 +24,7 @@ session and resource commands; Kinex adds `/mode` for permissions and interactio
 | Command                                        | Purpose                                                                               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `/register <type-or-template>`                 | Prepare an unloaded device profile.                                                   |
-| `/unregister <device>`                         | Confirm removal, then unload and delete the device's profile, driver and local files. |
+| `/unregister <device>`                         | Confirm removal, then unload and delete the device's profile, node and local files. |
 | `/devices`                                     | List devices and their loaded/unloaded state.                                         |
 | `/ping <device\|all>`                          | Inspect live device status.                                                           |
 | `/load <device\|all>`, `/unload <device\|all>` | Connect or release devices.                                                           |

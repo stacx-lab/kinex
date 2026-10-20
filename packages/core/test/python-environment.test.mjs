@@ -222,30 +222,6 @@ test('tool interpreter overrides are rejected without preparing another environm
   assert.deepEqual(await f.calls(), [])
 })
 
-test('default persistent and one-shot drivers use the prepared interpreter without syncing', async t => {
-  const f = await fixture(t)
-  await f.existing()
-  await f.runtime.profiles.writeManifest({ identity: { id: 'python', name: 'Python', kind: 'arm', platform: 'real' } })
-  for (const persistent of [true, false]) {
-    const name = persistent ? 'persistent' : 'oneshot'
-    await f.runtime.profiles.writeDevice({ name, type: 'other', loaded: false,
-      access: { connection: { kind: 'process' }, driver: {
-        entry: 'driver.py', persistent, actions: ['load', 'unload', 'status', 'read'], timeout_s: 5,
-      } },
-    })
-    await writeFile(path.join(f.directory, '.kinex/devices', name, 'driver.py'),
-      'import os, sys\nfrom kinex.driver_protocol import run\nrun(lambda action, args: {"ok": True, "python": sys.executable, "pid": os.getpid()}, lambda: None)\n')
-    await (await f.runtime.devices.load(name)).ready
-    const first = await f.runtime.devices.dispatch(name, 'read')
-    const second = await f.runtime.devices.dispatch(name, 'read')
-    assert.equal(first.data.python, f.status.executable)
-    assert.equal(second.data.python, f.status.executable)
-    if (persistent) assert.equal(first.data.pid, second.data.pid)
-    await f.runtime.devices.unload(name)
-  }
-  assert.deepEqual(await f.calls(), [])
-})
-
 test('ROS environment selection is inert, workspace-configured and independent of devices', async t => {
   const f = await fixture(t)
   const before = {...process.env}

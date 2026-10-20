@@ -1,8 +1,8 @@
 """Kinex invocation helpers.
 
 Use communication() for async pub/sub and request/response. The host dialog
-carries invocation metadata, profiles and selected results. Driver scripts also
-use the synchronous dialog helpers below. One execution approval covers the
+carries invocation metadata, profiles and selected results. The synchronous dialog helpers below
+call explicitly declared operations. One execution approval covers the
 invocation; Python calls cannot change device lifecycle.
 """
 
@@ -83,48 +83,25 @@ def args():
     return json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
 
 
-def _camera_data(values, data):
-    if values.get("action", "read") != "read" or values.get("args", {}).get("output", "array") != "array" or "color" not in data:
-        return data
-    camera = profile(values["deviceID"])
-    if camera["type"] in ("rgb", "rgbd"):
-        from kinex.capture import arrays
-        return arrays(camera, data)
-    return data
-
-
-def _device_result(tool, values, result):
-    if tool == "device":
-        return _camera_data(values, result)
-    if tool == "devices":
-        for value, item in zip(values["calls"], result["results"]):
-            if "data" in item:
-                item["data"] = _camera_data(value, item["data"])
-    return result
-
-
-def device(deviceID, action="read", args=None):
-    """Return device data fields plus optional file; failures raise RPCError.
-
-    Camera reads default to NumPy arrays; args.output also accepts base64 or file.
-    """
+def device(deviceID, action, args=None):
+    """Call an explicitly declared operation; return fields and optional file."""
     values = {"deviceID": deviceID, "action": action, "args": {} if args is None else args}
-    return _device_result("device", values, _rpc({"call": "device", **values})["result"])
+    return _rpc({"call": "device", **values})["result"]
 
 
 def devices(calls):
-    """Run {deviceID, action?, args?} calls concurrently; return {"results": [...]}.
+    """Run {deviceID, action, args?} calls concurrently; return {"results": [...]}.
 
     Entries preserve input order and contain deviceID, action, ok and data/file or error.
     """
     values = {"calls": calls}
-    return _device_result("devices", values, _rpc({"call": "devices", **values})["result"])
+    return _rpc({"call": "devices", **values})["result"]
 
 
 def call(tool, **kwargs):
     """Compose a Python tool or device/devices: call("servo", **params), not call("servo", params)."""
     result = _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
-    return _device_result(tool, kwargs, result)
+    return result
 
 
 def inline(source, values):
@@ -160,34 +137,3 @@ def fail(message):
     """End the tool with an error the agent will see."""
     _emit({"error": str(message)})
     sys.exit(0)
-
-
-class Device:
-    """Per-device client handle: the device's profile plus its driver interface.
-
-    Direct hardware adapter access. ROS workflows use communication();
-    frame relationships are queried through tf2 in kinex.ros_tools.
-    """
-
-    def __init__(self, name):
-        self.name = name
-        self._profile = None
-
-    @property
-    def profile(self):
-        """The parsed profile.yaml, fetched once and cached."""
-        if self._profile is None:
-            self._profile = profile(self.name)
-        return self._profile
-
-    @property
-    def type(self):
-        return self.profile.get("type")
-
-    def read(self, args=None):
-        """One sample of what the device knows (driver "read")."""
-        return device(self.name, "read", args)
-
-    def act(self, action, args=None):
-        """Dispatch any driver action."""
-        return device(self.name, action, args)

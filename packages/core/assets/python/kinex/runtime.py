@@ -8,6 +8,12 @@ def devices():
     return _rpc({"call": "runtime_devices"})["result"]
 
 
+def device(name):
+    """One device's general description and host-known state, even when unloaded."""
+    from kinex import _rpc
+    return _rpc({"call": "runtime_device", "device": name})["result"]
+
+
 def operations(device):
     """Declared operation metadata, including on unloaded devices."""
     from kinex import _rpc

@@ -11,8 +11,12 @@ Persistent model services are devices alongside sensors and actuators.
 
 ## Device definitions
 
-Keep physical facts and calibration in `profile.yaml`. Add `runtime` with an
-a domain and optional node factories. Default nodes inherit Kinex Python and its
+Keep physical facts and calibration in `profile.yaml`. Select the builtin type
+and validate its schema. Add a required device `description` for general identity,
+capabilities and limitations. Each operation also requires its own `description`
+for units, frames, timing, inputs/outputs and behavior; either may be empty.
+Retrieve descriptions through `runtime.device` and `runtime.describe` inside exec. Add `runtime` with an
+domain and optional node factories. Default nodes inherit Kinex Python and its
 overlays. Declare an interpreter and overlays only for a separate device SDK.
 Each factory exports `create(profile, context)` and returns an owned rclpy node.
 Core starts these nodes on load and closes them on unload.

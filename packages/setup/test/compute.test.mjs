@@ -20,8 +20,8 @@ async function fixture(t) {
 
 test('survey computes a known rigid mount, archives sources and never writes profiles', async t => {
   const { directory, runtime, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint' })
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint' })
+  await runtime.profiles.writeDevice({ description: '', name: 'base', type: 'velocity' })
   const profile = path.join(directory, '.kinex/devices/arm/profile.yaml')
   const before = await readFile(profile, 'utf8')
   const points = [[0, 0, 0], [.1, 0, 0], [0, .1, 0], [0, 0, .1], [.2, .1, .3]]
@@ -45,8 +45,8 @@ test('survey computes a known rigid mount, archives sources and never writes pro
 
 test('degenerate survey cannot propose a profile patch or complete a node', async t => {
   const { runtime, setup, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint' })
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint' })
+  await runtime.profiles.writeDevice({ description: '', name: 'base', type: 'velocity' })
   await setup.plan.save({ version: 1, task: { objective: 'Mount', targets: ['mount'] }, nodes: [{ id: 'mount',
     title: 'Arm mount', kind: 'calibrate', skill: 'calibrate-fixed-arm-mount', bindings: { target: 'arm', parent: 'base' } }] }, 0)
   const points = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0]]
@@ -63,7 +63,7 @@ test('degenerate survey cannot propose a profile patch or complete a node', asyn
 
 test('base checks require explicit tolerances, units, reference evidence and fresh timestamps', async t => {
   const { runtime, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '', name: 'base', type: 'velocity' })
   const input = { operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' } }
   const check = { name: 'vx', expected: .1, measured: .105, tolerance: .01, units: 'm/s', reference: 'tracked displacement / measured elapsed time', timestamps: [1, 2] }
   const file = await json('measurements.json', { required_checks: ['vx'], checks: [check] })
@@ -81,7 +81,7 @@ test('base checks require explicit tolerances, units, reference evidence and fre
 
 test('attempts reject changed participants and inputs and keep repeated computations', async t => {
   const { runtime, compute, json, directory } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '', name: 'base', type: 'velocity' })
   const file = await json('measurements.json', { required_checks: ['units'], checks: [{ name: 'units', expected: 'normalized',
     measured: 'normalized', reference: 'SDK metadata' }] })
   const first = JSON.parse((await compute({ operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' },
@@ -107,10 +107,10 @@ test('quality gates distinguish partial coverage and warnings without weakening 
 
 test('TCP solver produces translation only and preserves unresolved rotation', async t => {
   const { runtime, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', intrinsics: { model: { format: 'joints', joints: [
+  await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint', intrinsics: { model: { format: 'joints', joints: [
     { name: 'j', type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: null, max_effort: null },
   ] } } })
-  await runtime.profiles.writeDevice({ name: 'tool', type: 'gripper', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: null, rotation_xyzw: [0, 0, 0, 1] } } }, extrinsics: { mount: { parent: 'arm', parent_frame: 'flange', translation_m: [0, 0, .02], rotation_xyzw: [0, 0, 1, 0] } } })
+  await runtime.profiles.writeDevice({ description: '', name: 'tool', type: 'gripper', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: null, rotation_xyzw: [0, 0, 0, 1] } } }, extrinsics: { mount: { parent: 'arm', parent_frame: 'flange', translation_m: [0, 0, .02], rotation_xyzw: [0, 0, 1, 0] } } })
   const s = Math.sqrt(.5)
   const quaternions = [[0, 0, 0, 1], [s, 0, 0, s], [0, s, 0, s], [0, 0, s, s], [-s, 0, 0, s], [0, -s, 0, s]]
   const samples = quaternions.map(([x, y, z, w]) => {
@@ -132,7 +132,7 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
 
 test('cancelling an owned computation never publishes a result', async t => {
   const { runtime, setup, directory, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '', name: 'base', type: 'velocity' })
   const interpreter = path.join(directory, 'slow-python')
   const marker = path.join(directory, 'started')
   await writeFile(interpreter, `#!/usr/bin/env python3\nimport time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('started')\ntime.sleep(30)\n`, { mode: 0o755 })

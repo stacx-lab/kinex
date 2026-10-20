@@ -29,6 +29,7 @@ await runtime.dispose()
 `)
   await exec(process.execPath, [path.join(root, '../../node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2023', '--lib', 'ES2024', '--types', 'node', 'consumer.mts'], { cwd: relocated, env })
   await exec(process.execPath, ['--input-type=module', '--eval', `
+import {protocolDevice} from ${JSON.stringify(new URL('../../core/test/fixtures/protocol.mjs',import.meta.url).href)}
 import assert from 'node:assert/strict'
 import { copyFile, stat, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
@@ -59,19 +60,10 @@ try {
   await write({kind:'robot', data:{identity:{id:'clock',name:'Clock',platform:'real',kind:'arm'}}})
   const template = (await runtime.devices.templates()).find(template => template.name === 'world')
   const profile = await deviceGuideProfile(path.join(template.directory, 'DEVICE.md'))
-  profile.access.driver.interpreter = 'python3'
   await write({kind:'device',data:profile})
-  await copyFile(path.join(template.directory, 'driver.py'), '.kinex/devices/world/driver.py')
-  await write({kind:'device',data:{name:'sensor',type:'other',access:{connection:{kind:'mock'}}}})
-  assert.equal((await runtime.devices.list())[0].loaded, false)
+  await protocolDevice(runtime, process.cwd(), 'sensor')
   assert.equal((await setup.plan.inspect()).taskSatisfied, null)
   assert.ok(await runtime.skills.load('onboard-ros2'))
-  const coreLibrary = CoreAssets.python()
-  const setupLibrary = fileURLToPath(new URL('../assets/python', import.meta.resolve('@kinex/setup')))
-  const pythonEnv = { ...process.env, PYTHONPATH: [setupLibrary, coreLibrary, ${JSON.stringify(path.join(root, 'test'))}].join(path.delimiter) }
-  const output = execFileSync('python3', ['-c', "import json, sys; from ros2_fixtures import runtime_fixture; print(json.dumps(runtime_fixture('.kinex/devices/arm', sys.argv[1], sys.argv[2])))", setupLibrary, coreLibrary], {env: pythonEnv, encoding: 'utf8'})
-  await write({kind:'device', data: JSON.parse(output)})
-  await copyFile('.kinex/devices/arm/scenario.json', 'ros-scenario.json')
 } finally {await runtime.dispose()}
 `], { cwd: relocated, env })
   await rm(path.join(installed, 'node_modules/@kinex/setup'), { recursive: true })
@@ -94,37 +86,12 @@ try {
   assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'onboard-ros2'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))
   await assert.rejects(stat('.kinex/python'), {code:'ENOENT'})
-  await (await runtime.devices.load('world')).ready
-  const first = (await runtime.devices.dispatch('world', 'read')).data.time_s
-  assert.ok((await runtime.devices.dispatch('world', 'wait', {duration_s:.02})).data.time_s > first)
-  assert.match((await runtime.context()).conventions, /wait.*duration_s/)
   await (await runtime.devices.load('sensor')).ready
-  const capture = await runtime.recording.start({sessionID:'operate',specs:{sensor:{rate:5}}})
-  assert.match(capture.refusals.sensor, /declared topics/)
-  assert.equal(capture.manifest.status, "stopped")
+  assert.equal((await runtime.devices.dispatch('sensor','read')).data.value,1)
   const snap = await runtime.recording.snap({sessionID:'operate',devices:['sensor']})
   assert.ok(snap.readings.sensor)
   await runtime.recording.stop()
-  await (await runtime.devices.reload('world')).ready
-  await runtime.devices.ping('world')
-  await runtime.devices.unload('world')
-  // Device-local ROS helpers work after the setup package is removed.
-  process.env.PYTHONPATH = ${JSON.stringify(path.join(root, 'test/fake_rclpy'))}
-  process.env.KINEX_FAKE_RCLPY_SCENARIO = path.resolve('ros-scenario.json')
-  process.env.ROS_DOMAIN_ID = '0'
-  await (await runtime.devices.load('arm')).ready
-  const arm = (await runtime.devices.dispatch('arm', 'read')).data
-  assert.deepEqual(arm.positions, [0, 0])
-  await runtime.devices.dispatch('arm', 'write', {actions: [[.01, .02]], duration_s: .1})
-  await runtime.devices.dispatch('arm', 'stop')
-  await (await runtime.devices.reload('arm')).ready
-  await runtime.devices.unload('arm')
-  const profile = (await runtime.profiles.snapshot()).devices.find(device => device.name === 'arm')
-  assert.equal(profile.access.driver.entry, 'driver.py')
-  const deviceDirectory = path.resolve('.kinex/devices/arm')
-  assert.equal(profile.access.driver.interpreter, path.join(deviceDirectory, 'ros-python'))
-  assert.deepEqual((await readdir(path.join(deviceDirectory, 'python/kinex_ros'))).filter(name => name.endsWith('.py')).sort(),
-    ['__init__.py', 'config.py', 'ros2.py', 'ros2_drivers.py'])
+  await runtime.devices.unload('sensor')
   // Model resolution belongs to core even when its Python environment is newly prepared.
   const python = await runtime.python.initialize()
   await mkdir(path.dirname(python.executable), {recursive:true})

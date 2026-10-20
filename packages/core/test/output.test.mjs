@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { formatJSON, omitEmptyOptional } from '../dist/util/json.js'
 import { renderReading } from '../dist/tool/device/shared.js'
 import { Device } from '../dist/device/profile/schema.js'
-import { validateReading } from '../dist/device/dispatch.js'
 import { recordingOutput } from '../dist/record/output.js'
 
 test('JSON indents only two levels and retains JSON serialization semantics', () => {
@@ -49,12 +48,4 @@ test('recording output cleans only optional empty annotations and bookkeeping', 
   assert.deepEqual(JSON.parse(recordingOutput({ running: null, recent: [manifest], refusals: { arm: 'unloaded' } }, false)), {
     running: null, recent: [{ id: 'recording', devices: {}, bytes: 0, quotaHit: false, error: '' }], refusals: { arm: 'unloaded' },
   })
-})
-
-test('camera observations require a finite timestamp and preserve it', () => {
-  const device = Device.parse({ name: 'camera', type: 'rgbd', meta: { created_at: '2026-10-01', updated_at: '2026-10-01' } })
-  const reading = timestamp => ({ deviceID: 'camera', kind: 'rgbd', data: { timestamp } })
-  assert.deepEqual(validateReading(device, reading(0)).data, { timestamp: 0 })
-  for (const timestamp of [undefined, null, true, NaN, Infinity])
-    assert.throws(() => validateReading(device, reading(timestamp)))
 })

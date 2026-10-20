@@ -4,10 +4,9 @@
 
 Tools declare input schemas; Python manifests also declare capability kind and
 timeout. Composition preserves permissions and recording attribution. Device
-guides own Setup, Profile and Use sections; only
-Use enters loaded-device context. Custom instance `DEVICE.md` guides are allowed
-only for `legged_base`, require nonempty Use text and override shared guides with
-normal discovery precedence. Other types use shared guides and profile parameters.
+templates own setup/profile guidance only. Device and operation descriptions live
+in profile.yaml and are retrieved through runtime.device and runtime.describe in
+Python. Neither type usage nor instance DEVICE.md usage enters agent context.
 Workspace safety limits and keep-out zones remain manifest data, outside robot
 context; `safety.notes` is not a schema field.
 
@@ -45,7 +44,7 @@ failure, timeout or cancellation, the runner attempts to stop motion they still
 own and terminates owned subprocesses. Cleanup failures are logged while the
 original failure is returned. Normal script completion does not imply a stop:
 scripts use `stop_owned()` when their stopping condition requires one. Ownership
-checks preserve replacements, subject to the driver's physical stop scope.
+checks preserve replacements, subject to the node's physical stop scope.
 These behaviors use the shared Python runner; hosts should route `exec` through
 core's tool API. Per-entry errors
 in a Python `devices()` result do not by themselves fail the script; scripts must
@@ -64,8 +63,7 @@ world waits or advances simulation. Paused time produces no repeated frames.
 `recording.start({specs: {arm: {rate: 10, operations: ["joint_state", "joint_target"]}},
 sessionID})` selects operations; omitting `operations` captures all declared
 topics. Service-only devices can be captured with explicit snapshots using their
-configured observation. Old direct drivers support snapshots and passive host
-events; continuous capture requires topic operations.
+configured observation; continuous capture requires topic operations.
 
 `devices/<name>/stream/bag/` holds the bag, `operations.json` its catalog, and
 `samples.jsonl` the operation, acquisition stamp, world time, reset epoch and
@@ -102,6 +100,6 @@ sessions, loading extensions or initializing robotics. Project declarations live
 under `.kinex/agent`, resources under `.pi`; version/ref pins survive updates.
 
 See [project overview](overview.md) for contribution ownership and
-[device contracts](devices.md) for driver lifecycle and capture interfaces.
+[device contracts](devices.md) for node lifecycle and capture interfaces.
 
 [Design index](README.md)

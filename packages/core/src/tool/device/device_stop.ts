@@ -3,7 +3,7 @@ import { z } from "zod"
 import { define } from "../tool.ts"
 import { noRobot } from "./shared.ts"
 import { ProfileStore } from "../../device/profile/store.ts"
-import { known, isActuated } from "../../device/profile/schema.ts"
+import { known } from "../../device/profile/schema.ts"
 import DESCRIPTION from "./device_stop.txt"
 
 // Deliberately never permission-gated: a stop must not wait on a prompt.
@@ -21,7 +21,7 @@ export const DeviceStopTool = define("device_stop", {
     const targets = devices.filter((device) =>
       args.deviceID
         ? device.name === args.deviceID
-        : device.loaded && (isActuated(device) || Object.values(device.operations).some(op => op.motion)),
+        : device.loaded && (device.operations.stop || Object.values(device.operations).some(op => op.motion)),
     )
     if (targets.length === 0)
       return {

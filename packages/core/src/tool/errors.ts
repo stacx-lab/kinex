@@ -7,7 +7,7 @@ export interface Failure {
   details?: unknown
 }
 
-// Preserve the driver's public failure fields, without forwarding stderr or internals.
+// Preserve the operation's public failure fields, without forwarding stderr or internals.
 export function failureMetadata(data: Record<string, unknown>): Omit<Failure, "error"> {
   return {
     ...(typeof data.code === "string" ? { code: data.code } : {}),

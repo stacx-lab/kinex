@@ -46,14 +46,3 @@ export const OtherConnection = z.discriminatedUnion("kind", [Tcp, Url, Serial, S
 export const segmentFields = { duration_s: z.number().positive() }
 
 export const lifecycle = ["load", "unload", "status"] as const
-export const observationActions = ["read", ...lifecycle] as const
-export const streamActions = ["record_start", "record_stop"] as const
-export const actuatedActions = [...observationActions, "write", "stop", ...streamActions] as const
-export const DriverSpec = z.strictObject({
-  entry: z.string().default("driver.py"), interpreter: z.string().optional(),
-  actions: z.array(z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_-]*$/)).default(["read"]),
-  persistent: z.boolean().default(true), timeout_s: z.number().positive().optional(),
-})
-export type DriverSpec = z.infer<typeof DriverSpec>
-export const driverWith = (actions: readonly [string, ...string[]]) =>
-  DriverSpec.extend({ actions: z.array(z.enum(actions)).default(["read"]) }).optional()

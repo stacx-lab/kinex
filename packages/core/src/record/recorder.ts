@@ -4,7 +4,7 @@ import fs from "node:fs"
 import fsp from "node:fs/promises"
 import path from "node:path"
 import { ProfileStore } from "../device/profile/store.ts"
-import { isCameraType, type Device } from "../device/profile/schema.ts"
+import type { Device } from "../device/profile/schema.ts"
 import { loadConfig, recordConfig, type RecordConfig } from "../config/config.ts"
 import { observeDevices, type DeviceEvent } from "../device/observe.ts"
 import { NamedError } from "../util/error.ts"
@@ -12,7 +12,7 @@ import { writeJson } from "../util/filesystem.ts"
 import { Identifier } from "../util/id.ts"
 import { create } from "../util/log.ts"
 import { eventsFile, frameFile, listRecordings, manifestFile, recordingsDir, snapshotProfiles, timelineFile, traceFile, writeManifest } from "./layout.ts"
-import type { DeviceReading } from "../device/driver.ts"
+import type { DeviceReading } from "../device/reading.ts"
 import { createStreams, sizeOf, type Streams } from "./subscriptions.ts"
 import type { DeviceEventRow, DeviceSampling, DeviceStats, RecordingManifest, TimelineRow } from "./schema.ts"
 import { createWriter, stageFile, type Writer } from "./writer.ts"
@@ -142,15 +142,12 @@ function boundedData(data: Record<string, unknown> | undefined): Record<string, 
   return { truncated: true, chars: text.length, keys: Object.keys(data) }
 }
 
-function stage(active: Active, device: Device, seq: number, source: string | Buffer, suffix: string, passive: boolean): { rel: string; bytes: number } | undefined {
+function stage(active: Active, device: Device, seq: number, source: string, suffix: string, passive: boolean): { rel: string; bytes: number } | undefined {
   const rel = frameFile(device.name, seq, suffix, passive)
   const bytes = (() => {
     try {
       const target = path.join(active.dir, rel)
-      if (typeof source === "string") return stageFile(source, target)
-      fs.mkdirSync(path.dirname(target), { recursive: true })
-      fs.writeFileSync(target, source)
-      return source.length
+      return stageFile(source, target)
     }
     catch (error) {
       active.manifest.error = `${rel}: ${error instanceof Error ? error.message : String(error)}`
@@ -186,20 +183,18 @@ function onDeviceEvent(event: DeviceEvent) {
   }
   const reading = event.reading
   if (reading) {
-    const camera = event.device.type === "rgb" || event.device.type === "rgbd"
-    const { color, depth: depthContent, ...metadata } = reading.data ?? {}
-    row.data = boundedData(camera ? metadata : reading.data)
-    const image = reading.filePath ?? (camera && typeof color === "string" ? Buffer.from(color, "base64") : undefined)
+    row.data = boundedData(reading.data)
+    const image = reading.filePath
     if (image) {
-      const staged = stage(active, event.device, seq, image, reading.filePath ? path.extname(reading.filePath) || ".bin" : ".png", passive)
+      const staged = stage(active, event.device, seq, image, path.extname(image) || ".bin", passive)
       if (staged) {
         row.file = staged.rel
         stats.frames += 1
         stats.bytes += staged.bytes
       }
     }
-    const depth = reading.data?.["depth_file"] ?? (camera && typeof depthContent === "string" ? Buffer.from(depthContent, "base64") : undefined)
-    if (typeof depth === "string" || Buffer.isBuffer(depth)) {
+    const depth = reading.data?.["depth_file"]
+    if (typeof depth === "string") {
       const staged = stage(active, event.device, seq, depth, ".depth.pgm", passive)
       if (staged) {
         row.depthFile = staged.rel
@@ -487,7 +482,7 @@ async function captureReads(active: Active, devices: string[], refusals: Record<
         return
       }
       active.designated.add(name)
-      const reading: DeviceReading | string = await sampleDevice(active.cwd, resolved, isCameraType(resolved.type) ? { output: "file" } : {}, "snap").catch(
+      const reading: DeviceReading | string = await sampleDevice(active.cwd, resolved, {}, "snap").catch(
         (error: unknown) => (error instanceof Error ? error.message : String(error)),
       )
       if (typeof reading === "string") {
@@ -509,7 +504,7 @@ function readAll(active: Active, devices: string[], refusals: Record<string, str
   return pending.finally(() => { active.reads.delete(pending) })
 }
 
-// Reserve the singleton before any filesystem or driver await (including snaps).
+// Reserve the singleton before any filesystem or node await (including snaps).
 async function initialize<T>(cwd: string, kind: RecordingManifest["kind"], sessionID: string, instruction: string | undefined, setup: (active: Active) => Promise<T>) {
   if (state().active || state().startup) throw new RecordError("already recording — record stop first")
   const operation = (async () => {

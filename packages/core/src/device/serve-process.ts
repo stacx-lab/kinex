@@ -9,7 +9,7 @@ export interface ServeProcess {
   stopping?: Promise<void>
 }
 
-// Drain continuously: an unread stderr pipe can block the driver's SDK calls.
+// Drain continuously: an unread stderr pipe can block the node's SDK calls.
 // Keep only a bounded tail, including logs without newlines.
 export function serveProcess(proc: ServeProcess["proc"], onOutput?: (text: string) => void): ServeProcess {
   const stderr = { tail: "" }
@@ -30,7 +30,7 @@ export function serveProcess(proc: ServeProcess["proc"], onOutput?: (text: strin
   return { proc, source: lineSource(proc.stdout), stderr, drained }
 }
 
-// EOF lets the driver release its connection and recorder. Bound cleanup time,
+// EOF lets the node release its connection and recorder. Bound cleanup time,
 // then force termination; replacement must await actual exit.
 export function terminate(entry: ServeProcess, graceful = false): Promise<void> {
   entry.stopping ??= (async () => {

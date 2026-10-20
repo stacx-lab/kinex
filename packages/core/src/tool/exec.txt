@@ -2,6 +2,7 @@ Run Python source or a script in the workspace's Kinex Python. Device environmen
 Discover interfaces on demand, without starting devices:
   from kinex import runtime, finish
   devices = runtime.devices()
+  # runtime.device(device_name) returns the general device description.
   # runtime.operations(device_name) lists declared operations, even if unloaded.
   # runtime.describe(operation) returns payload fields and protocol contracts.
   finish({"devices": [{"name": d["name"], "loaded": d["loaded"]} for d in devices]})

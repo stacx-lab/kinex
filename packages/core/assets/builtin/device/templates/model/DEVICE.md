@@ -6,85 +6,47 @@ description: General ML inference service — local model process or remote clie
 
 ## Setup
 
-Use setup-device to provision a local runtime or an existing remote service's
-thin client. Determine model identity, implementation revision, artifacts and
-operation contracts from the actual SDK/API. Download artifacts to their declared
-paths before activation; runtime must not silently fetch a different checkpoint.
-Implement open_service, infer and close_service in driver.py; read settings from
-the actual profile.yaml. Add every operation name to access.driver.actions.
-The unimplemented skeleton fails honestly until these hooks are supplied.
+Follow setup-device for registration, Python provisioning and node lifecycle. This
+template validates physical facts; it does not prescribe operation names.
 
-### Fields
+Declare model identity and typed input/output facts when available. Expose inference as ROS services with explicit cancellation when applicable; describe request inputs, coordinate systems, outputs and limitations on each operation.
 
-- `access.connection`: `{kind: process, compute: {kind: cpu|mps}}` or
-  `{kind: process, compute: {kind: cuda, index: <nonnegative integer>}}`;
-  alternatively `{kind: url, url: <endpoint>, auth_env: <env-name|null>}`.
-  Credentials are read from the named environment variable by the remote client.
-- `access.driver`: entry, optional interpreter, actions, persistent, timeout_s.
-  Include read/load/unload/status and all declared operation names.
-- `intrinsics.family`: identifier; `variant`: identifier or null;
-  `implementation`: `{repository: <URL>, revision: <revision>}` or null.
-- `intrinsics.artifacts`: array of `{name, path, source}`. Paths are relative to
-  the device directory or absolute. Source is `{kind: local}`,
-  `{kind: huggingface, repo, revision, filename}`, or `{kind: url, url, sha256}`.
-  These are provisioning facts. Runtime reads provisioned paths; it does not
-  silently download a different checkpoint. `[]` means no client-side artifacts;
-  `"???"` means not yet established.
-- `intrinsics.operations`: array of `{name, input, output}`. Names are unique
-  and cannot use reserved driver actions. Input and output are non-null objects.
-  Profiles use a closed JSON Schema subset: `type` is string, number, integer,
-  boolean, array or object. All can specify `nullable`. Strings may specify enum
-  or format (path/uri), minLength/maxLength; numbers minimum/maximum/default; arrays items and
-  minItems/maxItems; objects properties and required. Each property name is an
-  identifier. Object keys not declared in properties are rejected. Nested
-  structures describe tensors, observations and results without an opaque
-  config dictionary. There are no description, instructions or extension keys.
-- Section provenance is `source`; unresolved work uses the enum
-  `needs_calibration` reason, cleared explicitly with null when the item is resolved.
+Every profile requires a top-level `description` giving general device identity,
+capabilities and limitations. Every `operations.<name>.description` explains only
+that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
+Both descriptions are required strings; use an empty string when no text is known.
+Agents retrieve them through `runtime.device(name)` and `runtime.describe("device.operation")`.
 
-`???` marks unresolved required facts during registration. It does not authorize
-an SDK default or an arbitrary substitute. Profiles must describe at least one
-operation before intrinsics are complete.
-
-### Verify
-
-Validate imports, the profile and driver syntax before registration completes.
-Use a timeout covering initialization and the longest inference. After /load,
-check readiness and an inference with a real input. Closing a remote client must
-not stop a shared server. A policy returns predictions; controller tools own
-movement and termination.
+Start from the profile below, select the typed facts and fill unknowns from
+documentation or calibration. Use `???` for unresolved facts and `null` only where
+allowed. Add actual topic/service operations and their descriptions; an empty
+operations mapping is an unfinished setup, not an implicit type interface.
+Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
+For externally managed nodes use `runtime.nodes: []` and their real endpoints.
+Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
+The old sibling driver scaffolds are unsupported by the runtime; implement ROS
+node factories or bind to existing ROS nodes.
 
 ### Profile
 
 ```yaml
-name: "???"
+name: ???
 type: model
 loaded: false
 access:
   source: unknown
   connection:
     kind: process
-    compute: "???"
-  driver:
-    entry: driver.py
-    actions: [read, load, unload, status]
-    persistent: true
-    timeout_s: 300
+    compute: ???
 intrinsics:
   source: unknown
-  family: "???"
+  family: ???
   variant: null
   implementation: null
-  artifacts: "???"
+  artifacts: ???
   operations: []
+description: ""
+runtime:
+  nodes: []
+operations: {}
 ```
-
-## Use
-
-Inference only; no physical frame or robot commands. `read()`/`status()` report
-readiness without loading weights or running inference.
-
-Use operation names and typed inputs/outputs from `intrinsics.operations`.
-Undeclared operations and extra fields are rejected. Task text is an inference
-argument; large inputs/outputs use files. Controller tools interpret predictions
-and command actuators separately.

@@ -9,6 +9,7 @@ discovery or activate Python in ordinary shells.
 
 ```yaml
 name: camera
+description: Fixed scene camera with calibrated optical frame
 type: rgb
 loaded: false
 runtime:
@@ -65,12 +66,17 @@ Unload before changing definitions. Core fingerprints runtime fields, profile
 facts and node entrypoint source; changed definitions require explicit reload.
 Discovery remains read-only. Inside exec, use `from kinex import runtime`, then
 `runtime.devices()` for configured devices and host-known readiness,
+`runtime.device(name)` for the general device description,
 `runtime.operations(device)` for declared operations (including unloaded devices),
 and `runtime.describe("device.operation")` for protocol metadata and recursive
 ROS payload definitions. These queries never load devices or advance time.
 Catalogs stay in Python unless explicitly selected for `finish()`; they are not
 injected into the system prompt or exported as per-operation model tools.
 The host TypeScript API retains `runtime.devices.operations()`.
+
+Device and operation descriptions are required strings and may be empty. Typed
+templates guide setup; they do not prescribe operation names or inject usage text.
+Legacy JSONL drivers and in-memory mock execution are unsupported.
 
 ## Kinex Python
 

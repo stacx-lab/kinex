@@ -1,3 +1,4 @@
+import {protocolCamera} from '../packages/core/test/fixtures/protocol.mjs'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
@@ -78,15 +79,13 @@ async function wireProvider(t, api, { compat, steps = [] } = {}) {
 test('Anthropic receives partial camera batches with images and per-device errors as normal results', async t => {
   const cwd = await workspace(t)
   const requests = await wireProvider(t, 'anthropic-messages', { steps: [
-    { tool: 'devices', args: { calls: [{ deviceID: 'camera' }, { deviceID: 'missing' }] } },
+    { tool: 'devices', args: { calls: [{ deviceID: 'camera', action: 'read' }, { deviceID: 'missing', action: 'read' }] } },
     { text: 'batch inspected' },
   ] })
   const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
   t.after(() => app.dispose())
   await seed(app.owner.runtime)
-  await app.owner.runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true,
-    access: { connection: { kind: 'mock' } },
-    intrinsics: { color: { width: 2, height: 2, pixel_format: 'rgb8', image_format: 'png' } } })
+  await protocolCamera(app.owner.runtime, cwd)
   await bind(app)
   await app.host.session.prompt('read the camera and missing device')
   assert.equal(requests.length, 2)
@@ -356,13 +355,16 @@ test('device load state never changes model prefixes or injects operation catalo
   const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(()=>app.dispose())
   await seed(app.owner.runtime)
-  await app.owner.runtime.profiles.writeDevice({name:'clock',type:'world',loaded:false,runtime:{nodes:[]},operations:{
+  await app.owner.runtime.profiles.writeDevice({ description: 'GENERAL_DESCRIPTION_MARKER',name:'clock',type:'world',loaded:false,runtime:{nodes:[]},operations:{
     secret_clock:{description:'CATALOG_ONLY_MARKER',transport:'topic',direction:'output',type:'rosgraph_msgs/msg/Clock',endpoint:'/clock'},
   }})
   await bind(app)
   for (const prompt of ['before load','after load','after unload','unchanged']) {
     if (prompt==='after load') await (await app.owner.runtime.devices.load('sensor')).ready
-    if (prompt==='after unload') await app.owner.runtime.devices.unload('sensor')
+    if (prompt==='after unload') {
+      await app.owner.runtime.devices.unload('sensor')
+      await app.owner.runtime.profiles.writeDevice({name:'clock',description:'UPDATED_DESCRIPTION_MARKER'})
+    }
     fake.steps.push({text:'observed'})
     await app.host.session.prompt(prompt)
   }
@@ -371,7 +373,7 @@ test('device load state never changes model prefixes or injects operation catalo
   for(const request of fake.requests) {
     assert.deepEqual(prefix(request),prefix(first))
     assert.deepEqual(request.tools,first.tools)
-    assert.doesNotMatch(JSON.stringify(request),/CATALOG_ONLY_MARKER|secret_clock/)
+    assert.doesNotMatch(JSON.stringify(request),/CATALOG_ONLY_MARKER|GENERAL_DESCRIPTION_MARKER|UPDATED_DESCRIPTION_MARKER|secret_clock/)
   }
   const entries=app.host.session.sessionManager.getBranch().filter(e=>e.type==='custom_message'&&e.customType==='kinex-context')
   assert.equal(entries.length,1)

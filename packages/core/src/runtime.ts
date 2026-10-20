@@ -7,7 +7,6 @@ import type { CoreSettings } from "./config/config.ts"
 import { ProfileStore } from "./device/profile/store.ts"
 import { readinessPlan } from "./device/profile/readiness.ts"
 import { roboticsContext } from "./context/index.ts"
-import { closeDrivers } from "./device/driver.ts"
 import { dispatchDevice, deactivateDevice } from "./device/dispatch.ts"
 import { listDeviceTemplates } from "./device/templates.ts"
 import { removeDevice } from "./device/remove.ts"
@@ -38,7 +37,7 @@ export interface ToolInvocation {
   questions?: Context["questions"]
 }
 
-// Construction is inert: no discovery, drivers, signal handlers or filesystem writes.
+// Construction is inert: no discovery, nodes, signal handlers or filesystem writes.
 export function createKinexRuntime(options: RuntimeOptions) {
   const directory = path.resolve(options.directory)
   const scope = createScope(options)
@@ -184,7 +183,6 @@ export function createKinexRuntime(options: RuntimeOptions) {
           listeners.clear()
           scope.closed = true
           try {
-            await closeDrivers()
             await closeRos()
           } finally {
             const processes = [...scope.processes]

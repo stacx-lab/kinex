@@ -85,8 +85,8 @@ for the underlying interfaces.
 ## Built-in skill
 
 Core ships [setup-device](../packages/core/assets/builtin/skill/setup-device/SKILL.md).
-It guides the agent through selecting a device guide, provisioning a driver,
-writing a profile and verifying the interface. It also supports driver repair.
+It guides the agent through selecting a device guide, provisioning a node,
+writing a profile and verifying the interface. It also supports node repair.
 The agent performs these steps through tools; loading the skill does not run them
 automatically.
 

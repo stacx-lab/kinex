@@ -2,8 +2,6 @@ import { hasMissing } from "./common.ts"
 import { jointModel, jointModelErrors } from "./joint.ts"
 import { cameraMissing } from "./camera.ts"
 import { ProfileStore, type ProfileSnapshot, type NeededEntry } from "./store.ts"
-import { driverExists } from "../driver.ts"
-import { missingActions, requiredActions } from "../interface.ts"
 import {
   deviceMount,
   devicePoseFeedback,
@@ -47,9 +45,6 @@ interface PlanContext {
   robot?: RobotManifest
   devices: Device[]
   needed: NeededEntry[]
-  // Device names whose access.driver file exists on disk. Precomputed so the
-  // node checks stay synchronous.
-  drivers: Set<string>
 }
 
 interface Check {
@@ -162,26 +157,9 @@ function extrinsicsCheck(device: Device): Check {
   return { done: true, detail: `on ${mount.parent}${mount.parent_frame ? ` (${mount.parent_frame})` : ""} at (${at}) m` }
 }
 
-function accessCheck(device: Device, ctx: PlanContext): Check {
+function accessCheck(device: Device): Check {
   if (device.runtime) return { done: true, detail: `${Object.keys(device.operations).length} declared ROS operations; load checks live readiness` }
-  const access = device.access
-  if (!access || !known(access.connection) || hasMissing(access.connection))
-    return { done: false, detail: "access.connection is incomplete" }
-  const kind = access.connection.kind
-  if (kind === "mock" && !access.driver) return { done: true, detail: "mock (in-memory synthetic device)" }
-  if (!access.driver) return { done: false, detail: `${kind}: no access.driver` }
-  if (!ctx.drivers.has(device.name))
-    return { done: false, detail: `${kind}, access.driver is ${access.driver.entry} but that file does not exist` }
-  const missing = missingActions(device, access.driver.actions)
-  if (missing.length > 0)
-    return {
-      done: false,
-      detail: `${kind} via ${access.driver.entry}, but the driver is missing ${missing.map((action) => `"${action}"`).join(", ")} — the ${device.type} driver interface requires ${requiredActions(device).join("/")}`,
-    }
-  return {
-    done: true,
-    detail: `${kind} via ${access.driver.entry}`,
-  }
+  return { done: false, detail: "configure runtime.nodes and operations; legacy drivers and in-memory mocks are unsupported" }
 }
 
 function deviceNodes(device: Device): Node[] {
@@ -195,7 +173,7 @@ function deviceNodes(device: Device): Node[] {
       {
         id: `access:${device.name}`, title: `Clock access (${device.name})`,
         dependsOn: ["devices-declared"], optional: !device.loaded, device: ref,
-        check: (ctx) => accessCheck(device, ctx),
+        check: () => accessCheck(device),
       },
       {
         id: `intrinsics:${device.name}`,
@@ -212,7 +190,7 @@ function deviceNodes(device: Device): Node[] {
     dependsOn: ["devices-declared"],
     optional,
     device: ref,
-    check: (ctx) => accessCheck(device, ctx),
+    check: () => accessCheck(device),
   }]
   nodes.push({
     id: `intrinsics:${device.name}`,
@@ -321,21 +299,20 @@ function topoSort(nodes: Node[]): Node[] {
   return order
 }
 
-async function planContext(cwd: string, snapshot: ProfileSnapshot): Promise<PlanContext> {
-  const drivers = await Promise.all(snapshot.devices.map(async (device) => await driverExists(cwd, device) ? device.name : undefined))
-  return { ...snapshot, needed: ProfileStore.needed(snapshot), drivers: new Set(drivers.filter((name) => name !== undefined)) }
+function planContext(snapshot: ProfileSnapshot): PlanContext {
+  return { ...snapshot, needed: ProfileStore.needed(snapshot) }
 }
 
 // Raw completeness check used before an explicit marker clear is committed.
 export async function checkReadinessItem(cwd: string, snapshot: ProfileSnapshot, item: string): Promise<Check> {
-  const ctx = await planContext(cwd, snapshot)
+  const ctx = planContext(snapshot)
   const node = buildNodes(ctx).find((node) => node.id === item && node.id !== "task-ready")
   if (!node) throw new Error(`unknown calibration item "${item}"`)
   return node.check(ctx)
 }
 
 export async function readinessPlan(cwd: string, snapshot?: ProfileSnapshot): Promise<ReadinessPlan> {
-  const ctx = await planContext(cwd, snapshot ?? await ProfileStore.snapshot(cwd))
+  const ctx = planContext(snapshot ?? await ProfileStore.snapshot(cwd))
   const robot = ctx.robot
   const robotID = robot?.identity.id
   const neededByItem = new Map(ctx.needed.map((entry) => [entry.item, entry]))

@@ -1,4 +1,5 @@
 import { parse as parseYaml } from "yaml"
+import { NamedError } from "../../util/error.ts"
 import { z } from "zod"
 import { resolveDeviceModel } from "../device-model.ts"
 import path from "node:path"
@@ -44,7 +45,7 @@ async function validateClears(cwd: string, patch: Record<string, unknown>, snaps
 
 
 // One robot configuration per workspace, under .kinex/:
-//   workspace.yaml, devices/<name>/{profile.yaml,driver.py}, lib/, skill/,
+//   workspace.yaml, devices/<name>/{profile.yaml,node.py}, lib/, skill/,
 //   docs/, calib/<routine>[-<device>].json, recordings/<id>/.
 
 // A derived view of the needs-calibration queue (markers live IN the profile
@@ -189,8 +190,7 @@ export const ProfileStore = {
     if (!raw) return undefined
     const parsed = Device.safeParse(raw)
     if (!parsed.success) {
-      log.warn(`invalid device profile ${name}`, { issues: parsed.error.issues.length })
-      return undefined
+      throw new NamedError("DeviceProfileError", `${name}: invalid profile; add device and operation descriptions (empty strings are allowed) and replace legacy access.driver with runtime.nodes and operations. ${parsed.error.message}`)
     }
     return resolveDeviceModel(parsed.data, await ProfileStore.deviceDir(cwd, name))
   },
@@ -201,8 +201,8 @@ export const ProfileStore = {
     const devices: Device[] = []
     for (const entry of (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       if (!entry.isDirectory()) continue
-      const parsed = Device.safeParse(await readYaml(path.join(dir, entry.name, "profile.yaml")))
-      if (parsed.success) devices.push(await resolveDeviceModel(parsed.data, path.join(dir, entry.name)))
+      const device = await ProfileStore.readDevice(cwd, entry.name)
+      if (device) devices.push(device)
     }
     return devices
   },

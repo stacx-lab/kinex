@@ -1,6 +1,6 @@
 import { scoped } from "../scope.ts"
 import type { Device } from "./profile/schema.ts"
-import type { DeviceReading } from "./driver.ts"
+import type { DeviceReading } from "./reading.ts"
 
 // Observation of device traffic: every dispatchDevice settle (success or
 // failure) is reported to the listeners, plus the synthetic "deactivate" event

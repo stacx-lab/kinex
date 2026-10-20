@@ -6,8 +6,26 @@ description: velocity control and observation contract.
 
 ## Setup
 
-Follow setup-device for provisioning, registration, lifecycle and shared checks.
-The base is an unlocalized root: omit `extrinsics.mount` and `pose_frame`.
+Follow setup-device for registration, Python provisioning and node lifecycle. This
+template validates physical facts; it does not prescribe operation names.
+
+Declare supported control modes, command limits, measured response and stop scope. Keep the base unlocalized unless measured localization is available. Explain coordinate frames, units, command expiry and stopping in operation descriptions.
+
+Every profile requires a top-level `description` giving general device identity,
+capabilities and limitations. Every `operations.<name>.description` explains only
+that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
+Both descriptions are required strings; use an empty string when no text is known.
+Agents retrieve them through `runtime.device(name)` and `runtime.describe("device.operation")`.
+
+Start from the profile below, select the typed facts and fill unknowns from
+documentation or calibration. Use `???` for unresolved facts and `null` only where
+allowed. Add actual topic/service operations and their descriptions; an empty
+operations mapping is an unfinished setup, not an implicit type interface.
+Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
+For externally managed nodes use `runtime.nodes: []` and their real endpoints.
+Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
+The old sibling driver scaffolds are unsupported by the runtime; implement ROS
+node factories or bind to existing ROS nodes.
 
 ### Profile fields
 
@@ -63,17 +81,6 @@ access:
   method: unknown
   calibrated_at: null
   connection: ???
-  driver:
-    entry: driver.py
-    actions:
-    - read
-    - write
-    - stop
-    - load
-    - unload
-    - status
-    persistent: true
-    timeout_s: 30
 intrinsics:
   frames: {}
   source: unknown
@@ -84,32 +91,8 @@ intrinsics:
   stop: ???
 extrinsics:
   source: unknown
+description: ""
+runtime:
+  nodes: []
+operations: {}
 ```
-
-## Use
-
-`mode` selects a named profile entry, such as `locomotion` or `drive`.
-Velocity and posture are fields within that mode, not separate modes: velocity
-sets travel rates, while posture sets height/orientation targets.
-`write({mode, velocity?, posture?, duration_s})` requires positive `duration_s`
-and every channel and axis declared by the selected mode. Use named-axis
-dictionaries; omit unsupported channels. Posture defaults do not fill omitted
-arguments. Follow `control.modes` units and frames; normalized inputs are not m/s.
-For a locomotion mode declaring `vx/vy/wz` and `height/roll/pitch` in metric units:
-`{mode:"locomotion", velocity:{vx:0.05, vy:0, wz:0}, posture:{height:0.3, roll:0, pitch:0}, duration_s:0.5}`.
-Zero velocity requests stationary posture control in the same mode.
-
-Velocity expires to zero; posture remains active. Stop interrupts early or
-responds to faults; immediately stopping after write cuts motion short.
-Displacement may differ from velocity × duration; short commands may not visibly move.
-Use the selected mode's `response`, when present, to choose effective speed and
-duration; verify motion through feedback. Its thresholds do not enforce limits.
-
-Reads and write states return `velocities` in `feedback.velocity_components`
-order and `feedback.velocity_frame`, in m/s and rad/s; use `[]` when no axes are measured.
-They also return `faults: [{code: string}]` (`[]` when clear) and numeric
-`timestamp` in seconds, without global `pose`. Optional `height_m` is metres.
-Optional `frame_poses` maps declared dynamic frame names to parent-relative
-`[x,y,z,qx,qy,qz,qw]`, with metre translations and unit xyzw quaternions. Declare them in
-`intrinsics.frames` with unknown translation or rotation (`null`). Use frame
-queries and explicit estimates for base-to-world relationships.

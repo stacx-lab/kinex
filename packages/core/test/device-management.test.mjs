@@ -1,3 +1,4 @@
+import { protocolDevice, inputOperation } from './fixtures/protocol.mjs'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm } from 'node:fs/promises'
@@ -19,18 +20,23 @@ async function fixture(t) {
 }
 async function seed(runtime) {
   await runtime.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm', platform: 'real' } })
-  await runtime.profiles.writeDevice({ name: 'sensor', type: 'other', loaded: false, access: { connection: { kind: 'mock' } } })
+  await protocolDevice(runtime, path.dirname(path.dirname((await runtime.python.status()).project)))
 }
 const call = { sessionID: 'core' }
 
 async function pythonSensor(runtime, directory, { fail = false, slowRead = false } = {}) {
   await seed(runtime)
-  await runtime.profiles.writeDevice({ name: 'sensor', access: { connection: { kind: 'process' }, driver: {
-    interpreter: 'python3', actions: ['load', 'unload', 'status', 'read'], timeout_s: 5,
-  } } })
   const marker = path.join(directory, 'unloading')
-  await writeFile(path.join(directory, '.kinex/devices/sensor/driver.py'), `import time\nfrom kinex.driver_protocol import run\ndef dispatch(action, args):\n    if action == 'unload':\n        open(${JSON.stringify(marker)}, 'w').close()\n        time.sleep(.15)\n        return {'ok': ${fail ? 'False' : 'True'}, 'error': 'failed release'}\n    if action == 'read': time.sleep(${slowRead ? 2 : 0})\n    return {'ok': True, 'value': 1}\nrun(dispatch, lambda: None)\n`)
-  await (await runtime.devices.load('sensor')).ready
+  await protocolDevice(runtime, directory, 'sensor', { loaded: true, handler: `import time
+from pathlib import Path
+def dispatch(action, args, owner, cancelled):
+    if action == 'unload':
+        Path(${JSON.stringify(marker)}).touch()
+        time.sleep(.15)
+        if ${fail ? 'True' : 'False'}: raise RuntimeError('failed release')
+    if action in ('read', '$sample') and cancelled.wait(${slowRead ? 2 : 0}): raise InterruptedError('cancelled')
+    return {'value': 1, 'ready': True}
+` })
   return marker
 }
 
@@ -49,8 +55,8 @@ test('core profile writes preserve validation, loaded intent and explicit calibr
   assert.equal((await write({ kind: 'device', data: { name: 'sensor', loaded: true } })).isError, true)
   assert.ok(!(await write({ kind: 'needed', data: { item: 'access:sensor', note: 'verify connection' } })).isError)
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'access:sensor').status, 'needs-calibration')
-  await assert.rejects(runtime.profiles.writeDevice({ name: 'sensor', access: { connection: '???', needs_calibration: null } }), /cannot clear/)
-  await runtime.profiles.writeDevice({ name: 'sensor', access: { needs_calibration: null } })
+  await assert.rejects(runtime.profiles.writeDevice({ description: '', name: 'sensor', runtime: null, access: { needs_calibration: null } }), /runtime/)
+  await runtime.profiles.writeDevice({ description: '', name: 'sensor', access: { needs_calibration: null } })
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'access:sensor').status, 'done')
   const before = await readFile(path.join(directory, '.kinex/devices/sensor/profile.yaml'), 'utf8')
   const invalid = await write({ kind: 'device', data: { name: 'sensor', access: { connection: { kind: 'invalid' } } } })
@@ -108,7 +114,6 @@ test('unregister confirms, finalizes capture and fences queued load until deleti
   const command = coreContribution(runtime).commands.find(command => command.name === 'unregister')
   assert.match((await command.execute('sensor', { ...call, confirm: async () => false })).text, /Cancelled/)
   assert.equal((await runtime.devices.list()).length, 1)
-  await runtime.recording.start({ sessionID: 'setup', specs: { sensor: { rate: 10 } } })
   const removed = command.execute('sensor', { ...call, confirm: async () => true })
   await waitFor(marker)
   const load = assert.rejects(runtime.devices.load('sensor'), /unknown device/)
@@ -118,32 +123,21 @@ test('unregister confirms, finalizes capture and fences queued load until deleti
   await runtime.recording.stop()
 })
 
-test('unregister removes unloaded drivers without starting them', async t => {
-  for (const persistent of [true, false]) {
-    const { runtime, directory, capabilities } = await fixture(t)
-    await seed(runtime)
-    await runtime.profiles.writeDevice({ name: 'sensor', access: {
-      connection: { kind: 'process' },
-      driver: { persistent, interpreter: 'missing-interpreter', actions: ['load', 'unload', 'status', 'stop'] },
-    } })
-    const command = capabilities.commands.find(command => command.name === 'unregister')
-    assert.equal((await command.execute('sensor', { ...call, confirm: async () => true })).text, 'sensor unregistered')
-    assert.deepEqual(await runtime.devices.list(), [])
-    await assert.rejects(stat(path.join(directory, '.kinex/devices/sensor')), { code: 'ENOENT' })
-    await assert.rejects(stat(path.join(directory, '.kinex/python')), { code: 'ENOENT' })
-  }
+test('unregister removes unloaded nodes without starting an interpreter', async t => {
+  const { runtime, directory } = await fixture(t)
+  await seed(runtime)
+  await runtime.profiles.writeDevice({name:'sensor', runtime:{interpreter:'/missing/python'}})
+  await runtime.devices.unregister('sensor')
+  assert.deepEqual(await runtime.devices.list(), [])
+  await assert.rejects(stat(path.join(directory, '.kinex/python')), {code:'ENOENT'})
 })
 
-test('unregister succeeds after unloading a persistent driver with stop', async t => {
-  const { runtime, directory } = await fixture(t)
+test('unregister succeeds after unloading owned nodes', async t => {
+  const {runtime, directory} = await fixture(t)
   await pythonSensor(runtime, directory)
-  await runtime.profiles.writeDevice({ name: 'sensor', access: { driver: {
-    actions: ['load', 'unload', 'status', 'read', 'stop'],
-  } } })
   await runtime.devices.unload('sensor')
   await runtime.devices.unregister('sensor')
   assert.deepEqual(await runtime.devices.list(), [])
-  await assert.rejects(stat(path.join(directory, '.kinex/devices/sensor')), { code: 'ENOENT' })
 })
 
 test('failed deactivation keeps the registered profile and driver', async t => {
@@ -151,105 +145,34 @@ test('failed deactivation keeps the registered profile and driver', async t => {
   await pythonSensor(runtime, directory, { fail: true })
   await assert.rejects(runtime.devices.unregister('sensor'), /unload failed/)
   assert.equal((await runtime.devices.list()).length, 1)
-  await stat(path.join(directory, '.kinex/devices/sensor/driver.py'))
+  await stat(path.join(directory, '.kinex/devices/sensor/handler.py'))
 })
 
 
-test('device guide discovery is inert, preserves overrides and injects only Use', async t => {
-  const { runtime, directory } = await fixture(t)
-  const { readDeviceGuide } = await import('../dist/device/guide.js')
-  const { resolveDeviceTemplate } = await import('../dist/device/templates.js')
-  const { deviceConventions } = await import('../dist/device/conventions.js')
-  const templates = await runtime.devices.templates()
-  for (const template of templates.filter(entry => entry.kind === 'template')) {
-    const guide = await readDeviceGuide(path.join(template.directory, 'DEVICE.md'))
-    assert.ok(guide.setup && guide.profile && guide.use, template.name)
-    assert.doesNotMatch(guide.setup, /calib_write|calib_plan|Device setup guide roots/)
+test('setup guides preserve discovery precedence and never inject usage', async t => {
+  const {runtime, directory} = await fixture(t)
+  const {readDeviceGuide, deviceGuideProfile} = await import('../dist/device/guide.js')
+  const {resolveDeviceTemplate} = await import('../dist/device/templates.js')
+  for (const entry of (await runtime.devices.templates()).filter(e => e.kind === 'template')) {
+    const file = path.join(entry.directory,'DEVICE.md')
+    const guide = await readDeviceGuide(file)
+    assert.ok(guide.setup && guide.profile, entry.name)
+    assert.equal(guide.use, undefined)
+    const value = await deviceGuideProfile(file)
+    assert.equal(typeof value.description, 'string')
+    await runtime.profiles.writeDevice(value)
   }
-  assert.ok(await runtime.skills.load('setup-device'))
-  await runtime.context()
-  assert.deepEqual(await readdir(directory), [])
-  const override = path.join(directory, '.kinex/device/templates/model')
-  await mkdir(override, { recursive: true })
-  await writeFile(path.join(override, 'DEVICE.md'), '---\nname: model\ntype: model\n---\n## Setup\nprivate provisioning\n### Profile\n```yaml\nname: custom\n```\n## Use\ncustom runtime convention\n')
-  const child = path.join(directory, 'child')
-  await mkdir(child)
-  const nested = createKinexRuntime({ directory: child })
-  t.after(() => nested.dispose())
-  assert.equal((await nested.devices.templates()).find(entry => entry.name === 'model').directory, override)
-  const instance = await nested.operation(() => resolveDeviceTemplate(child, 'fastwam', 'model'))
-  assert.equal(instance.kind, 'instance')
-  assert.equal(instance.name, 'fastwam')
-  const legged = await nested.operation(() => resolveDeviceTemplate(child, 'legged_base'))
-  assert.equal(legged.kind, 'template')
-  assert.equal(legged.name, 'legged_base')
-  assert.equal(legged.type, 'legged_base')
-  const { deviceGuideProfile } = await import('../dist/device/guide.js')
-  const profile = await deviceGuideProfile(path.join(legged.directory, 'DEVICE.md'))
-  assert.equal((await runtime.profiles.writeDevice(profile)).loaded, false)
-  const conventions = await nested.operation(() => deviceConventions(child, [{ name: 'first', type: 'model' }, { name: 'second', type: 'model' }]))
-  assert.equal(conventions.match(/custom runtime convention/g).length, 1)
-  assert.doesNotMatch(conventions, /private provisioning|name: custom/)
-  await nested.context()
-  assert.deepEqual(await readdir(child), [])
-})
-
-test('allowed device guides scope shared fallbacks and refresh edits', async t => {
-  const { runtime, directory } = await fixture(t)
-  await seed(runtime)
-  for (const name of ['first', 'second', 'third'])
-    await mkdir(path.join(directory, '.kinex/devices', name), { recursive: true })
-  const specific = path.join(directory, '.kinex/devices/first/DEVICE.md')
-  await writeFile(specific, '## Setup\nprivate instance setup\n## Use\nfirst device convention\n')
-  await writeFile(path.join(directory, '.kinex/devices/sensor/DEVICE.md'), '## Use\nunloaded convention\n')
-  const child = path.join(directory, 'child')
-  await mkdir(child)
-  const nested = createKinexRuntime({ directory: child })
-  t.after(() => nested.dispose())
-  const { deviceConventions } = await import('../dist/device/conventions.js')
-  const devices = ['first', 'second', 'third'].map(name => ({ name, type: 'legged_base' }))
-  const conventions = () => nested.operation(() => deviceConventions(child, devices))
-  const initial = await conventions()
-  assert.match(initial, /devices="first">\nfirst device convention/)
-  assert.equal(initial.match(/<device_conventions /g).length, 2)
-  assert.doesNotMatch(initial, /private instance setup|unloaded convention/)
-  const override = path.join(directory, '.kinex/device/templates/legged_base')
-  await mkdir(override, { recursive: true })
-  await writeFile(path.join(override, 'DEVICE.md'), '## Use\nworkspace type convention\n')
-  await writeFile(specific, '## Use\nupdated first convention\n')
-  const updated = await conventions()
-  assert.match(updated, /devices="first">\nupdated first convention/)
-  assert.match(updated, /devices="second, third">\nworkspace type convention/)
-  await writeFile(specific, '## Setup\nmissing runtime guidance\n')
-  await assert.rejects(conventions(), /first\/DEVICE.md: missing ## Use section/)
-  await rm(specific)
-  const fallback = await conventions()
-  assert.match(fallback, /devices="first, second, third">\nworkspace type convention/)
-  assert.equal(fallback.match(/<device_conventions /g).length, 1)
-  assert.deepEqual(await readdir(child), [])
-  await assert.rejects(stat(path.join(directory, '.kinex/python')), { code: 'ENOENT' })
-})
-
-test('context rejects custom guides for unlisted types and recovers after removal', async t => {
-  const { runtime, directory } = await fixture(t)
-  await seed(runtime)
-  await runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true })
-  const file = path.join(directory, '.kinex/devices/camera/DEVICE.md')
-  await writeFile(file, '## Use\ncustom camera convention\n')
-  await assert.rejects(runtime.context(), {
-    name: 'CustomDeviceGuideError',
-    message: /camera\/DEVICE.md: custom DEVICE.md is not allowed for device type "rgb"; allowed types: legged_base/,
-  })
-  const { deviceConventions } = await import('../dist/device/conventions.js')
-  const { DeviceType } = await import('../dist/device/profile/schema.js')
-  for (const type of [...DeviceType.options, 'unknown_type']) {
-    if (type === 'legged_base') continue
-    await assert.rejects(runtime.operation(() => deviceConventions(directory, [{ name: 'camera', type }])), {
-      name: 'CustomDeviceGuideError',
-    })
-  }
-  await rm(file)
-  assert.match((await runtime.context()).conventions, /type="rgb" devices="camera"/)
+  const override = path.join(directory,'.kinex/device/templates/model')
+  await mkdir(override,{recursive:true})
+  await writeFile(path.join(override,'DEVICE.md'),'---\nname: model\ntype: model\n---\n## Setup\nprivate provisioning\n## Use\nNEVER_INJECT_USAGE\n')
+  const child=path.join(directory,'child'); await mkdir(child)
+  const nested=createKinexRuntime({directory:child});t.after(()=>nested.dispose())
+  assert.equal((await nested.devices.templates()).find(e=>e.name==='model').directory,override)
+  assert.equal((await nested.operation(()=>resolveDeviceTemplate(child,'fastwam','model'))).kind,'instance')
+  assert.doesNotMatch(JSON.stringify(await nested.context()), /NEVER_INJECT_USAGE|private provisioning/)
+  assert.equal('conventions' in await nested.context(),false)
+  assert.deepEqual(await readdir(child),[])
+  await assert.rejects(stat(path.join(directory,'.kinex/python')),{code:'ENOENT'})
 })
 
 test('register validates arguments and cancelled unregister preserves files', async t => {

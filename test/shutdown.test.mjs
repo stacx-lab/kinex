@@ -1,3 +1,4 @@
+import { protocolDevice } from '../packages/core/test/fixtures/protocol.mjs'
 import { recordingDevices } from "../packages/core/test/fixtures/recording.mjs"
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -23,21 +24,13 @@ for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]]) {
     t.after(() => release())
     const core = createKinexRuntime({ directory: cwd })
     await seed(core)
-    await core.profiles.writeDevice({ name: 'sensor', loaded: true, access: {
-      connection: { kind: 'process' }, driver: {
-        interpreter: 'python3', persistent: true, actions: ['load', 'unload', 'read', 'status'], timeout_s: 2,
-      },
-    } })
-    const device = path.join(cwd, '.kinex/devices/sensor')
-    await writeFile(path.join(device, 'driver.py'), `import os
-from kinex.driver_protocol import run
-def dispatch(action, args):
-    with open("pid", "w") as output: output.write(str(os.getpid()))
-    return {"ok": True, "value": 1}
-def close():
-    with open("closed", "w") as output: output.write(str(os.getpid()))
-run(dispatch, close)
-`)
+    const device = await protocolDevice(core, cwd, 'sensor', {handler: `import os
+from pathlib import Path
+def dispatch(action, args, owner, cancelled):
+    Path('pid').write_text(str(os.getpid()))
+    return {'value':1}
+`})
+    await core.profiles.writeDevice({name:'sensor',loaded:true})
     await recordingDevices(core, cwd)
     await core.dispose()
     const child = spawn(process.execPath, [entry, '-p', '--auto', '--model', 'fake/test', '--record', 'telemetry=2', 'Wait for shutdown'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -68,7 +61,7 @@ for (const [specs, json] of [['telemetry=2', false], ['telemetry=2 camera=2', tr
     const fake = await fakeProvider(t, isolation.root)
     const core = createKinexRuntime({ directory: cwd })
     await seed(core)
-    await core.profiles.writeDevice({ name: 'sensor', loaded: true })
+    await core.profiles.writeDevice({ description: '', name: 'sensor', loaded: true })
     await recordingDevices(core, cwd)
     await core.dispose()
 

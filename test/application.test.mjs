@@ -1,3 +1,4 @@
+import {protocolCamera} from '../packages/core/test/fixtures/protocol.mjs'
 import { recordingDevices } from "../packages/core/test/fixtures/recording.mjs"
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -107,12 +108,9 @@ for (const source of ['file', 'camera', 'exec']) test(`${source} images are stor
     } })
   } else {
     await seed(app.owner.runtime)
-    await app.owner.runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true,
-      access: { connection: { kind: 'mock' } }, intrinsics: {
-        color: { width: 2, height: 2, pixel_format: 'rgb8', image_format: 'png' },
-      } })
-    png = Buffer.from((await app.owner.runtime.devices.dispatch('camera', 'read')).data.color, 'base64')
-    fake.steps.push({ tool: 'device', args: { deviceID: 'camera' } })
+  await protocolCamera(app.owner.runtime, cwd)
+    png = await readFile((await app.owner.runtime.devices.dispatch('camera', 'read')).filePath)
+    fake.steps.push({ tool: 'device', args: { deviceID: 'camera', action: 'read' } })
   }
   fake.steps.push({ text: 'seen' })
   await bind(app)

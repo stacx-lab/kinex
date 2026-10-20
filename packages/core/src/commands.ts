@@ -40,7 +40,7 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
   if (name === "unregister") {
     const device = tokens[0]
     if (!device || device === "all" || tokens.length !== 1) throw new Error("Usage: /unregister <device>")
-    if (!await context.confirm(`Unregister ${device}?`, "Unload and delete its profile, driver and local files?")) return output("Cancelled")
+    if (!await context.confirm(`Unregister ${device}?`, "Unload and delete its profile, node and local files?")) return output("Cancelled")
     await runtime.devices.unregister(device, context.signal)
     return output(`${device} unregistered`)
   }

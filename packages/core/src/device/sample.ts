@@ -3,5 +3,5 @@ import { dispatchDevice } from "./dispatch.ts"
 
 // Typed consumers select an observation without constraining device operations.
 export function sampleDevice(cwd: string, device: Device, args: Record<string, unknown> = {}, origin?: string, signal?: AbortSignal) {
-  return dispatchDevice(cwd, device, device.runtime ? "sample" : "read", args, origin, signal)
+  return dispatchDevice(cwd, device, "$sample", args, origin, signal)
 }

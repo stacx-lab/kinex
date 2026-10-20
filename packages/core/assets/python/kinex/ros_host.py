@@ -101,7 +101,7 @@ class DeviceHost:
         if action == "status":
             await self.ready()
             return {"ready": True}
-        if action == "cleanup":
+        if action == "$cleanup":
             # Use a separate client scope: never change an owner's identity on
             # a shared connection while other calls are in flight.
             async with communication(self.io.catalog, owner=owner, domain_id=self.io.domain_id) as io:
@@ -115,7 +115,7 @@ class DeviceHost:
             return {"cleaned": True}
         if action == "stop":
             return await self.stop(owner or "")
-        if action == "sample":
+        if action == "$sample":
             configured = self.profile["runtime"].get("observation")
             candidates = [(name, op) for name, op in self.profile["operations"].items()
                           if op["direction"] == "output" and op["type"] in
@@ -124,7 +124,6 @@ class DeviceHost:
                                     candidates[0][0] if candidates else None)
             if not action:
                 raise ValueError("declare runtime.observation for this device")
-            args = {}
         reference = f"{self.profile['name']}.{action}"
         op = self.io.operation(reference)
         async with communication(self.io.catalog, owner=owner, domain_id=self.io.domain_id) as io:

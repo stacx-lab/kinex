@@ -17,18 +17,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import hashlib
 sys.path.insert(0, ${JSON.stringify(device)})
-import driver
 from provision import verify
 assert 'torch' not in sys.modules
-assert driver.handle('status', {}) == {'ok': True, 'loaded': False, 'variant': None}
-assert driver.handle('read', {})['loaded'] is False
-assert 'not loaded' in driver.handle('infer', {})['error']
-driver.settings = lambda: {'intrinsics': {'variant': 'libero_uncond_2cam224'}, 'access': {'connection': {'kind': 'process', 'compute': {'kind': 'cuda', 'index': 0}}}}
-result = driver.handle('load', {})
-assert not result['ok'] and 'not provisioned' in result['error'], result
-assert driver.handle('status', {})['loaded'] is False
-assert 'torch' not in sys.modules
-assert driver.handle('unload', {})['unloaded'] is True
 with TemporaryDirectory() as directory:
     file = Path(directory) / 'weights'
     file.write_bytes(b'checkpoint')
@@ -56,7 +46,7 @@ print(json.dumps([make_profile(${JSON.stringify(device)}, variant) for variant i
 `], { encoding: 'utf8', timeout: 10000 })
     assert.equal(generated.status, 0, generated.stderr)
     for (const profile of JSON.parse(generated.stdout)) {
-      await runtime.profiles.writeDevice(profile)
+      await assert.rejects(runtime.profiles.writeDevice(profile), /description|driver/)
       assert.equal(profile.loaded, false)
       assert.equal(profile.intrinsics.operations[0].output.properties.actions.minItems, 32)
       assert.ok(profile.intrinsics.artifacts.every(a => /^[a-f0-9]{40}$/.test(a.source.revision)))

@@ -7,7 +7,6 @@ import { createKinexRuntime } from '../dist/index.js'
 import { ProfileStore } from '../dist/device/profile/store.js'
 import { Device } from '../dist/device/profile/schema.js'
 import { deviceFrames } from '../dist/device/profile/frames.js'
-import { requiredActions } from '../dist/device/interface.js'
 import { handJointErrors } from '../dist/device/profile/hand.js'
 
 const identity = [0, 0, 0, 0, 0, 0, 1]
@@ -15,7 +14,7 @@ const joint = name => ({ name, type: 'revolute', limits: { min: -1, max: 1 }, ma
 const link = name => ({ joint: name, origin: identity, axis: [0, 0, 1], anchor: [0, 0, 0], reference: 0 })
 const finger = (tip_frame = 'tip') => ({ chain: [link('j')], tip_frame, tip_offset: identity })
 const center = { frame: 'center', weights: { index: 1 }, rotation_xyzw: [0, 0, 0, 1] }
-const profile = geometry => ({ name: 'hand', type: 'dexterous_hand', meta: { created_at: '', updated_at: '' }, intrinsics: {
+const profile = geometry => ({ description: '', name: 'hand', type: 'dexterous_hand', meta: { created_at: '', updated_at: '' }, intrinsics: {
   model: { format: 'joints', joints: [joint('j'), joint('k')] }, ...(geometry === undefined ? {} : { geometry }),
 } })
 
@@ -23,16 +22,13 @@ test('hand descriptions and executable geometry advertise only available frames 
   for (const geometry of [undefined, { description: 'Three fingers.' }]) {
     const device = Device.parse(profile(geometry))
     assert.deepEqual(deviceFrames(device), {})
-    assert.equal(requiredActions(device).includes('fk'), false)
   }
   for (const extra of [{}, { center }]) {
     const device = Device.parse(profile({ fingers: { index: finger(), thumb: finger('thumb_tip') }, ...extra }))
     assert.deepEqual(Object.keys(deviceFrames(device)), ['tip', 'thumb_tip', ...(extra.center ? ['center'] : [])])
-    assert.ok(requiredActions(device).includes('fk'))
   }
   const value = profile({ description: 'No finger geometry.' })
   value.intrinsics.kinematics = { frame: 'endpoint', fk: 'driver', ik: null, frame_to_reported: identity }
-  assert.ok(requiredActions(Device.parse(value)).includes('fk'))
 })
 
 test('named finger chains validate references and reject obsolete or ambiguous profiles', () => {
@@ -75,13 +71,8 @@ test('runtime context describes hands without inventing prediction capabilities'
   for (const geometry of [{ description: 'Three opposed fingers.' }, { fingers: { index: finger() } }, { fingers: { index: finger() }, center }]) {
     await runtime.operation(() => ProfileStore.writeDevice(directory, profile(geometry), ['intrinsics']))
     const context = (await runtime.context()).robotics
-    if (geometry.description) {
-      assert.match(context, /Three opposed fingers/)
-      assert.doesNotMatch(context, /local fingertip prediction|predicted center/)
-    } else {
-      assert.match(context, /local fingertip prediction: hand:tip/)
-      assert.equal(context.includes('predicted center hand:center'), !!geometry.center)
-    }
+    assert.match(context, /hand \(dexterous_hand\)/)
+    assert.doesNotMatch(context, /Three opposed fingers|local fingertip prediction|predicted center/)
     assert.doesNotMatch(context, /fixed grasp reference/)
   }
 })
