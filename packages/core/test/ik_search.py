@@ -1,10 +1,8 @@
-"""Numerical recovery, deadlines and controller composition without device I/O."""
+"""Numerical recovery, deadlines and cancellation without device I/O."""
 
 import copy
-import importlib.util
 import json
 import math
-from contextlib import ExitStack
 from pathlib import Path
 import random
 import threading
@@ -13,7 +11,6 @@ from unittest.mock import Mock, patch
 
 from kinex import driver_protocol, ik_search, kinematics
 from kinex.joints import JointDevice
-from kinex.geometry import apply_rt, xyzq_to_rt
 from kinex.motion import pose_error
 from joint_frames import profile as simple_profile
 
@@ -287,153 +284,6 @@ class SearchTests(unittest.TestCase):
             search.assert_not_called()
         model.native_ik.assert_called_once()
 
-
-class ControllerTests(unittest.TestCase):
-    def setUp(self):
-        self.profile = copy.deepcopy(PANDA)
-        self.profile["resolved_model"] = {key: self.profile["intrinsics"]["model"][key] for key in ("joints", "chain")}
-        self.model = JointDevice(self.profile)
-        self.positions = list(RECOVERY["seed"])
-        self.actions = []
-        self.writes, self.ik_calls = [], []
-        self.pending = {"existing": True}
-        self.stack = ExitStack()
-        self.addCleanup(self.stack.close)
-        self.stack.enter_context(patch.object(ik_search, "monotonic", return_value=0))
-        for module in ("kinex", "kinex.control", "kinex.frames", "kinex.policy"):
-            self.stack.enter_context(patch(f"{module}.device", self.device))
-        for module in ("kinex", "kinex.frames"):
-            self.stack.enter_context(patch(f"{module}.profile", self.facts))
-        self.stack.enter_context(patch("kinex.devices", self.devices))
-
-    def facts(self, name, **_):
-        if name == "policy":
-            return {"type": "model", "intrinsics": {"operations": [{"name": "infer"}]}}
-        return {**self.profile, "name": name}
-
-    def device(self, deviceID, action="read", args=None):
-        args = {} if args is None else args
-        if action == "infer":
-            return {"actions": self.actions}
-        if action == "read":
-            return {"positions": self.positions, "faults": [], "timestamp": 0}
-        if action == "ik":
-            seed = args.get("seed", self.model.project(self.positions))
-            result = self.model.ik(args["pose"], seed)
-            self.ik_calls.append((list(seed), result["joints"]))
-            return result
-        if action == "write":
-            self.model.command(args)
-            self.writes.append((deviceID, args))
-            self.pending = args
-            return {"execution_id": "recovered"}
-        raise AssertionError(f"unexpected device action {action}")
-
-    def devices(self, calls):
-        return {"results": [{"deviceID": c["deviceID"], "action": c["action"], "ok": True,
-                             "data": self.device(**c)} for c in calls]}
-
-    def tool(self, name):
-        path = Path(__file__).parent.parent / "assets" / "builtin" / "tool" / name / "tool.py"
-        spec = importlib.util.spec_from_file_location(name, path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module.control
-
-    def test_servo_recovers_through_shared_numerical_ik_before_writing(self):
-        result = self.tool("servo")({"device": "arm", "block": False, "pose": RECOVERY["goal"]})
-        self.assertEqual(result["execution_id"], "recovered")
-        self.assertEqual(len(self.writes), 1)
-        self.assertEqual(result["joints"], self.ik_calls[0][1])
-        self.assertEqual(result["actions_submitted"], len(self.pending["actions"]))
-        self.assertEqual(self.pending["actions"][-1], result["joints"])
-
-    def test_removed_servo_controls_fail_without_replacing_motion(self):
-        servo = self.tool("servo")
-        for extra in ({"max_joint_delta": 1}, {"max_joint_delta": None}, {"ik": {}}, {"duration_s": 1}):
-            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "unsupported servo arguments"):
-                servo({"device": "arm", "block": False, "joints": self.positions, **extra})
-        self.assertEqual(self.writes, [])
-        self.assertEqual(self.pending, {"existing": True})
-
-    def test_cancelled_servo_ik_preserves_existing_motion(self):
-        with patch.object(kinematics, "solve_attempt", side_effect=InterruptedError("cancelled")):
-            with self.assertRaises(InterruptedError):
-                self.tool("servo")({"device": "arm", "block": False, "pose": RECOVERY["goal"]})
-        self.assertEqual(self.writes, [])
-        self.assertEqual(self.pending, {"existing": True})
-
-    def test_local_servo_rejects_or_avoids_global_branch_detours(self):
-        corpus = json.loads((FIXTURES / "servo-local.json").read_text())
-        servo = self.tool("servo")
-        for case in corpus["cases"]:
-            entry = corpus["models"][case["robot"]]
-            model = entry["model"]
-            for step in (0, .0002, .0003):
-                with self.subTest(case=case["id"], clock_step=step):
-                    now = 0.0
-
-                    def clock():
-                        nonlocal now
-                        now += step
-                        return now
-
-                    self.profile = {"type": "joint", "resolved_model": model, "intrinsics": {
-                        "model": model, "home": None, "frames": {},
-                        "control": {"mode": "position", "limit_handling": "native"},
-                        "kinematics": {"frame": "tip", "fk": "numerical",
-                                       "frame_to_reported": [0, 0, 0, 0, 0, 0, 1], "ik": entry["options"]}}}
-                    self.model = JointDevice(self.profile)
-                    self.positions = case["start"]
-                    self.writes = []
-                    self.pending = {"existing": True}
-                    with patch.object(ik_search, "monotonic", side_effect=clock):
-                        try:
-                            result = servo({"device": "arm", "block": False, "pose": case["goal"]})
-                        except ValueError as error:
-                            self.assertIn("IK search exhausted", str(error))
-                            self.assertEqual(self.writes, [])
-                            self.assertEqual(self.pending, {"existing": True})
-                            continue
-                    self.assertEqual(len(self.writes), 1)
-                    actions = self.pending["actions"]
-                    poses = [self.model.solver.forward(q)[0] for q in [self.positions] + actions]
-                    points = [apply_rt(xyzq_to_rt(p), entry["tcp"]) for p in poses]
-                    travel = sum(math.dist(a, b) for a, b in zip(points, points[1:]))
-                    # ARX deliberately requests a half-turn; Piper/ALOHA preserve orientation.
-                    self.assertLess(travel, .25 if case["robot"] == "arx" else .05)
-                    if case["robot"] != "arx":
-                        self.assertLess(max(pose_error(poses[0], p)["rotation_rad"] for p in poses), .15)
-                    error = pose_error(case["goal"], self.model.fk(result["joints"])["pose"])
-                    self.assertLessEqual(error["position_m"], entry["options"]["position_tolerance_m"])
-                    self.assertLessEqual(error["rotation_rad"], entry["options"]["rotation_tolerance_rad"])
-
-    def test_policy_recovers_seeds_from_predecessor_and_truncates_all_buffers(self):
-        goal = RECOVERY["goal"]
-        bad = [10, *goal[1:]]
-        self.actions = [{"arm": p, "other": self.positions} for p in (goal, goal, bad)]
-        result = self.tool("run-policy")({"model": "policy", "observation": {}, "action_hz": 20,
-            "command": [{"device": "arm", "space": "pose"}, {"device": "other"}]})
-        self.assertEqual(result["actions_submitted"], 2)
-        self.assertEqual(result["duration_s"], .1)
-        self.assertEqual(result["ik_failure"]["action_index"], 2)
-        self.assertIn("IK search exhausted", result["ik_failure"]["error"])
-        self.assertEqual(self.ik_calls[0][0], self.positions)
-        self.assertEqual(self.ik_calls[1][0], self.ik_calls[0][1])
-        self.assertEqual(len(self.writes), 2)
-        self.assertTrue(all(len(args["actions"]) == 2 for _, args in self.writes))
-
-    def test_empty_prefix_preserves_existing_motion_and_servo_failure_does_not_write(self):
-        bad = [10, *RECOVERY["goal"][1:]]
-        self.actions = [bad]
-        result = self.tool("run-policy")({"model": "policy", "observation": {},
-                                         "command": [{"device": "arm", "space": "pose"}]})
-        self.assertEqual(result["actions_submitted"], 0)
-        self.assertEqual(result["execution_ids"], {})
-        with self.assertRaisesRegex(ValueError, "IK search exhausted"):
-            self.tool("servo")({"device": "arm", "block": False, "pose": bad})
-        self.assertEqual(self.writes, [])
-        self.assertEqual(self.pending, {"existing": True})
 
 
 if __name__ == "__main__":

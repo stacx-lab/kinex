@@ -34,9 +34,9 @@ resetting grants and ending recordings; workspace replacement/quit disposes them
 Robotics/question batches execute sequentially; denial/cancellation stops later
 calls without rolling back completed work. Pure coding batches remain parallel.
 
-`exec` requests `python_tool_controller` approval once for the script and its
+`exec` requests `python_tool` approval once for the script and its
 composed runtime calls. Device reads and actions share that approval; composed
-perception tools retain their capability restrictions. Python's runtime API cannot
+Python tools share the same execution scope. Python's runtime API cannot
 change device lifecycle or call the recording tool. Existing manifest tools keep
 their permission behavior when invoked outside `exec`.
 
@@ -53,19 +53,40 @@ inspect them and decide whether to stop or raise an error.
 
 ## Recording
 
-Manual recording is available; model recording is opt-in. Native capture or dispatch
-sampling produces manifests, timelines, profile snapshots and per-device products;
-incidental traffic is separate. Acquisition timestamps, cadence and playback FPS
-are distinct. Losses are counted, failures are per-device, finalization is bounded
-and quotas permit limited overshoot. Hosts supply transcript references; outcome
-labels are annotations, not verification.
+Manual recording is available; model recording is opt-in. Continuous capture
+observes declared topic operations in a separate owned process. It saves rosbag2
+SQLite/CDR bags with full typed payloads, including image/depth streams, plus
+manifests, timelines, profile snapshots and a per-sample index. The world clock
+and TF topics accompany each device bag. Output rates are capped in world time;
+input commands and frame/clock data are not rate-filtered. Recording never calls
+world waits or advances simulation. Paused time produces no repeated frames.
+
+`recording.start({specs: {arm: {rate: 10, operations: ["joint_state", "joint_target"]}},
+sessionID})` selects operations; omitting `operations` captures all declared
+topics. Service-only devices can be captured with explicit snapshots using their
+configured observation. Old direct drivers support snapshots and passive host
+events; continuous capture requires topic operations.
+
+`devices/<name>/stream/bag/` holds the bag, `operations.json` its catalog, and
+`samples.jsonl` the operation, acquisition stamp, world time, reset epoch and
+receipt time for each recorded message. Full payloads stay in the bag rather than
+crossing the host JSON channel. Bags use monotonic receipt order across world
+resets; message stamps are unchanged. Ordinary host-observed requests/responses
+retain invocation attribution separately. No automatic video transcoding occurs.
+
+Queue losses and errors are counted. Rate-filtered output samples are counted
+separately from losses. Unload/disposal finalize owned capture processes;
+borrowed publishers remain running. Quotas permit limited overshoot. Hosts supply
+transcript references; outcome labels are annotations, not verification.
 
 ## Context and compaction
 
 Tools/skills refresh within tasks. Stable prompt prefixes exclude dynamic state;
-changes append to the active branch. Compaction preserves robotics facts and
-restores a full current snapshot before the next request, stopping if recovery
-fails. Images enter history as bytes; recording traces omit image bytes and opaque
+only changed minimal context sections append to the active history tail. Device
+catalogs, readiness summaries and ROS payload schemas are queried inside exec
+through `kinex.runtime`, never injected into the stable prefix or model tool list.
+Exec instructions and examples are workspace-independent. Compaction restores
+the same minimal sections before the next request, stopping if recovery fails. Images enter history as bytes; recording traces omit image bytes and opaque
 reasoning. Active time uses a monotonic clock, excludes idle/input dialogs and
 persists outside model context; shutdown clears footer timers/subscriptions.
 

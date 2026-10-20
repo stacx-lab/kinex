@@ -1,47 +1,41 @@
 name: relative_pose
-kind: perception
-description: >-
-  Express a frame-attached child pose in a frame-attached parent pose.
-  Input and returned poses are [x,y,z,qx,qy,qz,qw], metres and unit quaternion xyzw;
-  omitted input poses are identity. Returns only pose, path and
-  estimated_links. Resolves calibrated/live frames and optional call-local
-  estimates; never invents missing connections or persists estimates.
+description: Transform a frame-attached pose through tf2. Use ROS frame IDs and an
+  optional world timestamp. Missing frame relationships and unavailable timestamps
+  are errors.
 parameters:
   type: object
   additionalProperties: false
   properties:
-    child: &endpoint
+    child: &id001
       type: object
       additionalProperties: false
       properties:
-        frame: {type: string, description: "Device or device:frame."}
+        frame:
+          type: string
+          description: ROS frame ID, such as arm or arm/flange.
         pose:
           type: array
-          items: {type: number}
+          items:
+            type: number
           minItems: 7
           maxItems: 7
-          default: [0, 0, 0, 0, 0, 0, 1]
-      required: [frame]
-    parent: *endpoint
-    estimates:
-      type: array
-      description: Temporary frame relations; paths prefer fewer estimated edges, then fewer total edges.
-      items:
-        type: object
-        additionalProperties: false
-        properties:
-          child: {type: string, minLength: 1}
-          parent: {type: string, minLength: 1}
-          translation_m: {type: array, items: {type: number}, minItems: 3, maxItems: 3}
-          rotation_xyzw: {type: array, items: {type: number}, minItems: 4, maxItems: 4}
-        required: [child, parent, translation_m, rotation_xyzw]
-  required: [child, parent]
+          default:
+          - 0
+          - 0
+          - 0
+          - 0
+          - 0
+          - 0
+          - 1
+      required:
+      - frame
+    parent: *id001
+    timestamp:
+      type: number
+      minimum: 0
+  required:
+  - child
+  - parent
 timeout_s: 60
 devices: []
-device_inputs:
-  child.frame: &frame
-    frame: true
-    types: [velocity, joint, gripper, dexterous_hand, suction, rgb, rgbd, force_torque, imu, world, other]
-  parent.frame: *frame
-  estimates[].child: *frame
-  estimates[].parent: *frame
+async: true

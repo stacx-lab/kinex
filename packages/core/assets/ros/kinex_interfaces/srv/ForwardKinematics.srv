@@ -1,0 +1,11 @@
+# Joint positions in model order. Empty frame selects the modeled endpoint;
+# empty reference_frame selects the device base. Frame names are device-local.
+float64[] joints
+string frame
+string reference_frame
+---
+bool success
+string message
+geometry_msgs/Pose pose
+string frame
+string reference_frame

@@ -14,10 +14,13 @@ export const RecordTool = define("record", {
     action: z.enum(["snap", "start", "stop", "status"]),
     verbose: z.boolean().default(true).describe("keep all result fields; false omits empty optional annotations and bookkeeping"),
     devices: z
-      .union([z.array(z.string()), z.record(z.string(), z.number().positive())])
+      .union([z.array(z.string()), z.record(z.string(), z.union([
+        z.number().positive(),
+        z.strictObject({ rate: z.number().positive(), operations: z.array(z.string().min(1)).min(1).optional() }),
+      ]))])
       .optional()
       .describe(
-        'snap: device names ["arm", "wrist_cam"]; start: device → sampling rate in Hz {"arm": 10, "scene_cam": 2}',
+        'snap: device names; start: device → maximum Hz, or {rate, operations?}. Defaults to all declared topics.',
       ),
     instruction: z.string().optional().describe("snap: label for the moment; start: the task being attempted"),
     outcome: z.enum(["success", "failure", "partial"]).optional().describe("stop: how the task ended"),
@@ -38,7 +41,7 @@ export const RecordTool = define("record", {
         return { title: "start needs rates", output: 'give each device a rate in Hz, e.g. {"arm": 10, "wrist_cam": 2}', isError: true }
       const specs: Record<string, DeviceSpec> = {}
       for (const [name, raw] of Object.entries(requested)) {
-        const spec = parseSpec(raw)
+        const spec = typeof raw === "number" ? parseSpec(raw) : raw
         if (typeof spec === "string") return { title: "bad device spec", output: `${name}: ${spec}`, isError: true }
         specs[name] = spec
       }

@@ -1,6 +1,7 @@
+import { execFileSync } from 'node:child_process'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -13,6 +14,9 @@ const { createKinexRuntime } = await import('../dist/index.js')
 
 async function fixture(t, behavior = {}, timeout_s = .4) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-wait-'))
+  const bin = path.join(directory, '.kinex/python/.venv/bin')
+  await mkdir(bin, {recursive:true})
+  await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {encoding:'utf8'}).trim(), path.join(bin, 'python3'))
   const runtime = createKinexRuntime({ directory, host: { ask: async () => {} } })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   await runtime.profiles.writeManifest({ identity: { id: 'wait-test', name: 'Wait test', platform: 'real', kind: 'arm' } })
@@ -67,7 +71,7 @@ test('wait_timeout survives direct tools and Python RPC without elapsed time', a
   const { runtime, directory, status, pid } = await fixture(t)
   const tool = path.join(directory, '.kinex/tools/wait_probe')
   await mkdir(tool, { recursive: true })
-  await writeFile(path.join(tool, 'tool.yaml'), 'name: wait_probe\nkind: controller\ndescription: Wait timeout probe\ninterpreter: python3\ntimeout_s: 10\nparameters: {type: object}\n')
+  await writeFile(path.join(tool, 'tool.yaml'), 'name: wait_probe\nkind: controller\ndescription: Wait timeout probe\ntimeout_s: 10\nparameters: {type: object}\n')
   await writeFile(path.join(tool, 'tool.py'), 'from kinex import device\ndevice("world", "wait", {"duration_s": 30})\n')
   for (const [name, args] of [['device', { deviceID: 'world', action: 'wait', args: { duration_s: 30 } }], ['wait_probe', {}]]) {
     const result = await runtime.tools.call(name, args, { sessionID: 'timeout-test' })
@@ -100,7 +104,7 @@ test('caller abort and deadline share one world wait cancellation', async t => {
   }
 })
 
-test('blocking servo cancellation and wait timeout stop only its owned motion', async t => {
+test('blocking controller cancellation and wait timeout stop only its owned motion', async t => {
   for (const mode of ['cancel', 'replacement', 'timeout']) await t.test(mode, async t => {
     const { runtime, directory, status } = await fixture(t, {}, mode === 'timeout' ? .4 : 5)
     await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', loaded: true,
@@ -111,9 +115,13 @@ test('blocking servo cancellation and wait timeout stop only its owned motion', 
       } })
     const tool = path.join(directory, '.kinex/tools/servo')
     await mkdir(tool, { recursive: true })
-    await copyFile(new URL('../assets/builtin/tool/servo/tool.py', import.meta.url), path.join(tool, 'tool.py'))
+    await writeFile(path.join(tool, 'tool.py'), `from kinex import args, device, finish
+values = args()
+device(values['device'], 'write', {'actions': [values['joints']], 'duration_s': 2})
+finish(device('world', 'wait', {'duration_s': 2}))
+`)
     const manifest = await readFile(new URL('../assets/builtin/tool/servo/tool.yaml', import.meta.url), 'utf8')
-    await writeFile(path.join(tool, 'tool.yaml'), manifest + '\ninterpreter: python3\n')
+    await writeFile(path.join(tool, 'tool.yaml'), manifest.replace('async: true', 'async: false') + '\n')
     const abort = new AbortController(), stops = []
     t.after(() => abort.abort())
     t.after(runtime.subscribe(({ type, event }) => {

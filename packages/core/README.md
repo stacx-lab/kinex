@@ -1,3 +1,11 @@
+# ROS operations
+
+Core now owns ROS node supervision, operation declarations, async Python communication,
+world timing and tf2 integration. See [the ROS communication contract](../../docs/communication.md)
+for profiles and the Python API. `runtime.devices.operations()` exposes the catalog;
+`Assets.ros()` exposes packaged interface sources for colcon builds. Runtime discovery
+remains inert. Setup consumes these resources through core exports.
+
 # @kinex/core
 
 Kinex's robotics runtime for Node >=22.19. The standalone Kinex agent
@@ -7,8 +15,8 @@ Core provisions, registers, removes and operates devices independently of
 `@kinex/setup`. It includes device guides, driver templates, setup-device, lifecycle,
 control, perception, kinematics, recording and runtime Python.
 Onboarding and calibration procedures live in
-[`@kinex/setup`](../setup/README.md). Arm and camera examples below use the RoboTwin
-Aloha AgileX workspace from the [simulator walkthrough](../../README.md#use-kinex-with-simulators).
+[`@kinex/setup`](../setup/README.md). The ROS LIBERO example is in the sibling `workspace_libero` directory.
+The direct hardware-driver examples below also describe retained adapters.
 
 ```ts
 import { createKinexRuntime } from "@kinex/core"
@@ -227,16 +235,13 @@ Drivers must convert native counts to seconds before reporting a budget. Legacy
 - `relative_pose` accepts `child` and `parent`, each `{frame, pose?}`. A local pose
   is `[x,y,z,qx,qy,qz,qw]` in metres with a unit quaternion, defaulting to identity.
   Both local transforms participate. The result expresses child in parent and
-  contains only `pose` in the same format, `path` and `estimated_links`.
-  Resolution composes declared, live and call-local estimated edges, preferring
-  fewer estimates and caching only within a call.
-  The duplicate `translation` and `rotation` result fields have been removed;
-  use `pose[:3]` and `pose[3:]` in Python. The underlying Python `frames.pose()`
-  API retains its separate translation/rotation representation.
-  Shipped joint IK, `servo`, `run_policy` and `relative_pose` normalize xyzw
-  quaternions with norms in `[0.999, 1.001]`, including frame estimates. Values
-  outside that range are rejected with the received norm. Persisted profiles
-  and velocity readings retain their stricter validation.
+  contains `pose` and the transform's world `timestamp`. Frame IDs use ROS names
+  such as `arm/flange`. Optional `timestamp` selects a historical lookup; omission
+  selects the latest available transform. tf2 resolves the graph and local pose
+  offsets. Missing or disconnected relationships are errors; Kinex does not infer
+  identity transforms or construct a second profile-based frame graph.
+  Pose inputs normalize xyzw quaternions with norms in `[0.999, 1.001]`; values
+  outside that range are rejected. Persisted calibration retains strict validation.
 
 ### Feedback control with `exec`
 
@@ -298,7 +303,7 @@ without that decision. Printing camera paths does not attach images.
 
 Python tools can also use `inline(source, values, kind="perception")` for a lambda
 or source defining `main(**kwargs)`. It returns JSON data and runs in a fresh
-subprocess with the caller's interpreter, directory, deadline and permissions.
+subprocess with Kinex Python and the caller's directory, deadline and permissions.
 Only controller callers may request `kind="controller"`. Cleanup checks motion
 ownership before stopping; the driver's declared physical stop scope still applies.
 Uncertain writes are never retried.
@@ -337,8 +342,8 @@ Device writes and `run_policy` retain their existing duration contracts.
 - `python.status()/initialize()/prepare({signal})` inspect, seed and synchronize the
   separate `.kinex/python` project. Status is read-only; initialize installs nothing.
   The project may be absent. Default Python execution prepares it only when the
-  interpreter is missing; otherwise it runs directly, even if dependency declarations
-  have changed. Explicit `prepare()` always synchronizes. Concurrent first use within
+  environment is missing or its ROS interface receipt is incomplete; otherwise it
+  runs directly, even if dependency declarations have changed. Explicit `prepare()` always synchronizes. Concurrent first use within
   a process waits for preparation; failed bootstraps can retry without accepting a partial environment.
   Preparation returns the interpreter and child-process environment.
 - `devices.list()/load()/reload()/unload()/ping()` provide device lifecycle APIs.
@@ -352,7 +357,10 @@ Device writes and `run_policy` retain their existing duration contracts.
   does not prompt; the `/unregister` command confirms through its host.
 - `profiles.snapshot()/writeManifest()/writeDevice()` and `readiness()` expose
   workspace state. Profile writes validate using the existing schemas.
-- `recording.start()/snap()/stop()/status()/recent()` manage recording products.
+- `recording.start()/snap()/stop()/status()/recent()` manage topic bags and explicit
+  snapshots. Start specs accept `{rate, operations?}` per device; the default is all
+  declared topics. Rates cap outputs in world time, while commands, clock and TF
+  remain unfiltered. See [recording](../../docs/agent-integration.md#recording).
 - `subscribe()` observes device, tool execution and recording events and returns an
   unsubscribe function. Listeners run synchronously and must not throw or block.
 - `observe()` accepts host message boundaries for recording attribution. Optional
@@ -425,17 +433,20 @@ custom tools, reporting conflicts. TypeScript and JavaScript custom tools reload
 Jiti. Tools can retain Zod schemas; Python tools keep raw JSON Schema parameters. Workspaces supply any dependencies imported by custom
 tools. This code is trusted executable workspace content, like standalone Kinex.
 
-Python and uv remain external. The managed project requires Python >=3.11.
-Core owns `.kinex/python/{pyproject.toml,uv.lock,.venv}`
-per workspace; it never adopts the ordinary Python project. Default drivers/tools,
-URDF inspection and camera encoders use it; explicit interpreters are supported.
-Use `uv add --project <python.project> PACKAGE` for driver dependencies, substituting
-the discovered project path from context (including when working below the workspace
-root). Host shells remain generic; core context supplies guidance for selecting its
-Python explicitly. Existing root environments are left untouched. Video encoding requires ffmpeg.
-uv is not needed to execute an already prepared environment. Import/discovery needs
-neither Python nor uv. Missing packages report errors without automatic installation
-or replay of the failed tool.
+Core owns the lazy `.kinex/python` environment independently of world/device
+load state. Exec, Python helpers, ROS clients, tf2 and recording always use it.
+Only device processes may specify an alternative SDK interpreter. Non-ROS
+workspaces use uv (Python >=3.11); ROS workspaces select `python.provider:
+"ros-jazzy"` in `.kinex/kinex.json` and use independent Pixi/RoboStack Jazzy
+Python 3.12. `python.interfaces` lists source package directories relative to
+`.kinex`; preparation builds those and core interfaces in the same environment.
+See [ROS environment setup](../../docs/communication.md#kinex-python).
+
+`runtime.python.status()` is inert. `runtime.python.prepare()` explicitly
+synchronizes dependencies/interfaces. First approved execution prepares a missing
+environment. Host projects, shells and simulator environments remain independent.
+For uv dependencies use `uv add --project <python.project> PACKAGE`; for ROS
+change the Kinex environment, never patch sys.path or borrow a device interpreter.
 
 ## Python scripting
 
@@ -460,8 +471,8 @@ directory. For example:
 ```
 
 `args` defaults to `{}` and is available through `kinex.args()`; `argv` defaults to
-`[]` and populates `sys.argv[1:]`. `interpreter` optionally selects a Python
-executable; otherwise execution lazily prepares and reuses Kinex's managed Python.
+`[]` and populates `sys.argv[1:]`. Execution lazily prepares and reuses Kinex's
+managed Python. Interpreter overrides on exec and Python tool manifests are rejected.
 `timeout_s` defaults to 120 wall-clock seconds. Composed tools also enforce their
 own timeouts within the parent's remaining time. Each invocation uses a fresh
 process; script stdin receives EOF. Owned subprocesses are terminated when the
@@ -480,9 +491,9 @@ Output truncation is reported explicitly. Raw prints and subprocess output canno
 be interpreted as runtime messages. Invalid arguments use the standard tool
 validation error result; permission denial propagates to the host.
 
-One `python_tool_controller` approval covers script execution and composed runtime
+One `python_tool` approval covers script execution and composed runtime
 calls. Scripts can use `device`, `devices`, `call`, `profile`, `robot` and `Device`
-from `kinex`. Composed perception tools retain their restrictions. Python cannot
+from `kinex`. Composed tools share the execution approval. Python cannot
 load/unload devices or call the recording tool through its runtime API. Failure,
 timeout and cancellation trigger an attempt to stop motion still owned by the
 invocation and terminate owned subprocesses. Cleanup failures are logged while

@@ -43,7 +43,7 @@ export const ProfileWriteTool = define("profile_write", {
         const manifest = await ProfileStore.writeManifest(ctx.directory, patch, args.replace)
         const identity = manifest.identity
         return {
-          ok: `robot manifest ${identity.id} written (${identity.platform}, ${identity.kind}${manifest.sim ? `, sim ${manifest.sim.simulator}` : ""})`,
+          ok: `robot manifest ${identity.id} written (${identity.kind})`,
         }
       }
       const name = patch.name as string

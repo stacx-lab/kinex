@@ -29,7 +29,7 @@ export async function roboticsContext(directory: string, enableRecording = false
     // Execution environments include inherited credentials; only paths/readiness
     // belong in model context. python.prepare()/status() retain the process env.
     python: {
-      project: python.project, venv: python.venv, executable: python.executable, present: python.present,
+      provider: python.provider, project: python.project, venv: python.venv, executable: python.executable, present: python.present,
       library: Assets.python(), workspaceLibrary: path.join(await ProfileStore.workspaceDir(directory), "lib"),
     },
     robotics,

@@ -1,0 +1,5 @@
+string owner
+---
+bool success
+string message
+uint64 generation

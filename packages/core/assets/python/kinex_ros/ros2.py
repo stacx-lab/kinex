@@ -205,65 +205,6 @@ class Service:
         return _future(self.client.call_async(request or self.type.Request()), deadline - time.monotonic())
 
 
-class Action:
-    def __init__(self, session, name, action_type):
-        from rclpy.action import ActionClient
-        from rosidl_runtime_py.utilities import get_action
-        self.type = get_action(action_type) if isinstance(action_type, str) else action_type
-        self.client = ActionClient(session.node, self.type, name)
-        self.handles, self.pending, self.lock = [], [], threading.Lock()
-
-    def _accepted(self, future):
-        try:
-            handle = future.result()
-        except Exception:
-            # send() reports the transport error; cancellation still tracks the
-            # future until its outcome is available.
-            return
-        with self.lock:
-            if future in self.pending:
-                self.pending.remove(future)
-            if handle.accepted:
-                self.handles.append(handle)
-        if handle.accepted:
-            def finished(_):
-                with self.lock:
-                    if handle in self.handles:
-                        self.handles.remove(handle)
-            handle.get_result_async().add_done_callback(finished)
-
-    def send(self, goal, timeout_s=1):
-        deadline = time.monotonic() + timeout_s
-        if not self.client.wait_for_server(timeout_sec=timeout_s):
-            raise ROSError("ROS action server is unavailable", "action_unavailable")
-        future = self.client.send_goal_async(goal)
-        with self.lock:
-            self.pending.append(future)
-        future.add_done_callback(self._accepted)
-        handle = _future(future, deadline - time.monotonic())
-        if not handle.accepted:
-            raise ROSError("ROS action goal was rejected", "goal_rejected")
-        return handle
-
-    def cancel_all(self, timeout_s=1):
-        # Only cancel goals submitted by this client, never another operator's.
-        deadline = time.monotonic() + timeout_s
-        with self.lock:
-            pending = list(self.pending)
-            handles = list(self.handles)
-        for future in pending:
-            handle = _future(future, deadline - time.monotonic())
-            if handle.accepted and handle not in handles:
-                handles.append(handle)
-        for handle in handles:
-            response = _future(handle.cancel_goal_async(), deadline - time.monotonic())
-            if response.return_code not in (0, 3):  # accepted or already terminated
-                raise ROSError("ROS action cancellation was rejected", "stop_failed")
-            with self.lock:
-                if handle in self.handles:
-                    self.handles.remove(handle)
-
-
 @dataclass
 class ExpectResult:
     ok: bool
@@ -279,7 +220,7 @@ class Session:
         self.namespace, self.max_skew_s = namespace, max_skew_s
         self.node = self.context = self.executor = self.thread = None
         self.closing, self.failure = False, None
-        self.caches, self.services, self.actions = {}, {}, {}
+        self.caches, self.services = {}, {}
         self._tf = None
 
     def open(self):
@@ -324,11 +265,9 @@ class Session:
         import rclpy
         self.closing = True
         executor, node, context, thread = self.executor, self.node, self.context, self.thread
-        actions = list(self.actions.values())
         self.executor = self.node = self.context = self.thread = None
         self.caches.clear()
         self.services.clear()
-        self.actions.clear()
         self._tf = None
         deadline = time.monotonic() + max(0, timeout_s)
         def stage(action, remaining):
@@ -336,7 +275,6 @@ class Session:
         # Executor cleanup may block beyond its timeout. Bound each
         # stage externally; the owning driver process handles unreleased threads.
         release(lambda: stage(lambda: executor.shutdown(timeout_sec=max(0, deadline - time.monotonic())), 5) if executor else None,
-                lambda: stage(lambda: release(*(action.client.destroy for action in actions)), 4),
                 lambda: stage(node.destroy_node, 3) if node else None,
                 lambda: stage(lambda: rclpy.try_shutdown(context=context), 2),
                 lambda: stage(lambda: thread.join(max(0, deadline - time.monotonic())), 1) if thread else None)
@@ -382,13 +320,6 @@ class Session:
         if key not in self.services:
             self.services[key] = Service(self, name, service_type)
         return self.services[key]
-
-    def action(self, name, action_type="control_msgs/action/FollowJointTrajectory"):
-        self.check()
-        key = (name, action_type)
-        if key not in self.actions:
-            self.actions[key] = Action(self, name, action_type)
-        return self.actions[key]
 
     def param(self, node, name, timeout_s=1):
         service = self.service(node.rstrip("/") + "/get_parameters", "rcl_interfaces/srv/GetParameters")

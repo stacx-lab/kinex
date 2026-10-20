@@ -3,7 +3,7 @@
 VideoRecorder: grab() -> RGB bytes/array/PIL image, optionally paired with depth.
 StateRecorder: read_state() -> a timestamped state row. Both expose latest and
 wait_latest(), so read() can reuse capture without accessing hardware twice.
-VideoWriter is also used by the harness's stdlib-only record_encode.py bridge.
+These helpers serve direct hardware adapters; Kinex recording subscribes to ROS topics.
 """
 
 import json

@@ -225,20 +225,16 @@ export async function renderRobotSummary(cwd: string, snapshot?: ProfileSnapshot
   const identity = robot.identity
   const lines: string[] = []
   lines.push(
-    `<robot id="${robotID}" platform="${identity.platform}" kind="${identity.kind}"${known(identity.model) ? ` model="${identity.model}"` : ""}>`,
+    `<robot id="${robotID}" kind="${identity.kind}"${known(identity.model) ? ` model="${identity.model}"` : ""}>`,
   )
-  const sim = robot.sim
-  if (sim)
-    lines.push(
-      `  simulator: ${sim.simulator}${sim.notes ? ` — ${sim.notes}` : ""}`,
-    )
-
   const devices = state.devices
   if (devices.length > 0) {
     lines.push(`  profiles: ${await ProfileStore.workspaceDir(cwd)}/devices/<name>/profile.yaml`)
     lines.push("  devices (each commanded in its OWN action space — see the device tool):")
     for (const device of devices) {
       lines.push(deviceLine(device))
+      for (const [name, op] of Object.entries(device.operations))
+        lines.push(`      ${device.name}.${name}: ${op.transport} ${op.direction} ${op.type} — ${op.description}`)
       lines.push(...deviceActionLines(device))
     }
     lines.push(...mountTreeLines(devices))

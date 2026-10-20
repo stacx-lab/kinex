@@ -1,21 +1,17 @@
-#!/usr/bin/env python3
-"""Express one frame-attached pose in another."""
-
-from kinex import args, finish, frames
-from kinex.geometry import compose_rt, invert_rt, pose_to_rt, rt_to_pose, xyzq_to_rt
+"""Express stamped frame-attached poses through tf2."""
 from kinex.motion import pose
 
 
-def relative(a):
+async def main(a, io):
+    from kinex.ros_tools import lookup, relative_pose
     child, parent = a["child"], a["parent"]
-    identity = [0, 0, 0, 0, 0, 0, 1]
-    local_child = xyzq_to_rt(pose(child.get("pose", identity), "child.pose"))
-    local_parent = xyzq_to_rt(pose(parent.get("pose", identity), "parent.pose"))
-    relation = frames.pose(child["frame"], parent["frame"], estimates=a.get("estimates"))
-    result = rt_to_pose(compose_rt(invert_rt(local_parent), compose_rt(pose_to_rt(relation), local_child)))
-    return {"pose": result["translation"] + result["rotation"],
-            "path": relation["path"], "estimated_links": relation["estimated_links"]}
-
-
-if __name__ == "__main__":
-    finish(relative(args()))
+    stamp = None
+    if "timestamp" in a:
+        from builtin_interfaces.msg import Time
+        from kinex.ros_tools import duration
+        stamp = Time(**duration(a["timestamp"]))
+    transform = await lookup(io, parent["frame"], child["frame"], stamp)
+    local_child = pose(child.get("pose", [0, 0, 0, 0, 0, 0, 1]))
+    local_parent = pose(parent.get("pose", [0, 0, 0, 0, 0, 0, 1]))
+    return {"pose": relative_pose(transform, local_child, local_parent),
+            "timestamp": transform.header.stamp.sec + transform.header.stamp.nanosec / 1e9}

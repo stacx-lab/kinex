@@ -7,7 +7,8 @@ import { z } from "zod"
 // Capture configuration is fixed at start; every source records continuously.
 export const DeviceSampling = z.object({
   rate: z.number().positive(),
-  source: z.enum(["driver", "harness"]),
+  source: z.literal("topics"),
+  operations: z.array(z.string()).min(1),
 })
 export type DeviceSampling = z.infer<typeof DeviceSampling>
 
@@ -17,25 +18,18 @@ export type Sampling = z.infer<typeof Sampling>
 export const StreamStats = z.object({
   status: z.enum(["starting", "recording", "stopped", "error"]),
   bytes: z.number().default(0),
-  video: z.string().optional(),
-  depth: z.string().optional(),
-  state: z.string().optional(),
+  bag: z.string().optional(),
+  operations: z.record(z.string(), z.number().nonnegative()).default({}),
+  filtered: z.number().default(0),
   timestamps: z.string().optional(),
   started_ns: z.number().optional(),
   ended_ns: z.number().optional(),
-  fps: z.number().optional(),
   frames: z.number().default(0),
   samples: z.number().default(0),
-  repeated: z.number().default(0),
   transport_dropped: z.number().default(0),
   capture_samples: z.number().default(0),
   capture_missed: z.number().default(0),
   capture_errors: z.number().default(0),
-  capture_error: z.string().optional(),
-  capture_hz: z.number().optional(),
-  rows: z.number().default(0),
-  dropped: z.number().default(0),
-  depth_scale: z.number().optional(),
   error: z.string().optional(),
 })
 export type StreamStats = z.infer<typeof StreamStats>
@@ -96,8 +90,6 @@ export const DeviceEventRow = z.object({
   data: z.record(z.string(), z.unknown()).optional(),
   file: z.string().optional(),
   depthFile: z.string().optional(),
-  // The read went into the device's harness-source stream.
-  stream: z.boolean().optional(),
   latencyMs: z.number(),
   error: z.string().optional(),
 })

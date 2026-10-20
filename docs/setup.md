@@ -21,24 +21,24 @@ the sampler's own settling and evidence checks remain part of setup.
 
 ## ROS integration
 
-Setup owns ROS configuration and the `kinex_ros` adapters. Match the interpreter
-to the selected ROS distribution. Core's `kind: ros` is inert metadata. Onboarding
-and registration route through `onboard-ros2`, preferring installed packages, then
-apt binaries; source builds/direct SDKs need an evidenced reason or user choice.
-Preserve working integrations unless replacement is requested. Domain/namespace
-and CameraInfo configuration live in the device-root `profile_ros.yaml`, outside the core schema.
+Core owns ROS node supervision, communication helpers and interfaces. Setup owns
+onboarding and calibration procedures. New integrations declare explicit
+`runtime` and `operations` fields in device profiles; see
+[ROS communication](communication.md). Registration uses `onboard-ros2`, preferring
+compatible installed packages and binaries before source builds.
 
-Device drivers and optional ROS configuration files live directly in the device
-directory. Use `profile_write` to register their actual entry/interpreter paths.
-Unload through core before replacing a device's runtime files, then validate and
-reload through the normal lifecycle. ROS drivers do not create auxiliary setup-state
-files. Profile fields are passed directly to the profile tool; interface observations are returned to the caller rather than saved as reports.
+Device nodes and optional local sources live directly in the device directory.
+Use `profile_write` to register node factories; default nodes inherit Kinex
+Python. Declare interpreter/overlay overrides only for separate device SDKs. Unload
+before replacing runtime definitions, validate, then explicitly reload. Existing
+external stacks are borrowed; Kinex unload releases only its owned nodes.
+Interface checks return observations to the caller instead of writing setup reports.
 
-ROS configuration loading and adapters remain independent library functions.
-The agent installs dependencies and writes startup scripts directly. Wrappers source
-the selected ROS installation and overlay in a separate process. Drivers may carry the ROS helpers they require so
-that removing setup does not break operation. Shared host packages/overlays are not
-rolled back.
+Core also owns the `kinex_ros` hardware inspection utilities and remaining direct
+hardware adapters. These can read device-local `profile_ros.yaml`. They are
+independent of setup and use topics/services. New workflows use the async protocol
+helpers and the world's clock. ROS activation is confined to explicitly configured
+subprocesses; shared host packages and overlays are never rolled back on unload.
 
 Dependency installation uses the host's permission-checked shell;
 sudo-required commands go to the user with the target host. See the

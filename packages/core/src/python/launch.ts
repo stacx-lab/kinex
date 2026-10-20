@@ -1,6 +1,7 @@
 import path from "node:path"
 import { ProfileStore } from "../device/profile/store.ts"
 import { Assets } from "../installation/assets.ts"
+import { overlayCommand } from "./ros-environment.ts"
 import { pythonRuntime } from "./environment.ts"
 
 // Drivers can share workspace SDK helpers. Tools prefer the shipped client that
@@ -9,9 +10,10 @@ export async function pythonLaunch(cwd: string, kind: "driver" | "tool", interpr
   const runtime = await pythonRuntime(cwd, interpreter, signal)
   const lib = path.join(await ProfileStore.workspaceDir(cwd), "lib")
   const paths = kind === "driver" ? [lib, Assets.python()] : [Assets.python(), lib]
-  if (process.env.PYTHONPATH) paths.push(process.env.PYTHONPATH)
+  if (runtime.env.PYTHONPATH) paths.push(runtime.env.PYTHONPATH)
   return {
     ...runtime,
+    command: overlayCommand(runtime.executable, runtime.overlays),
     env: {
       ...runtime.env,
       PYTHONPATH: paths.join(path.delimiter),

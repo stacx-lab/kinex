@@ -1,31 +1,19 @@
-"""Client library for kinex python tools (perception / controller).
+"""Kinex invocation helpers.
 
-A python tool is spawned as <interpreter> tool.py and receives {"args": {...}}
-on its first stdin line. It then holds a JSON-lines dialog with the harness:
-one request object per stdout line, one response object per stdin line, strictly
-sequential. This module owns that
-protocol so tool code stays plain python:
-
-    from kinex import args, device, call, profile, robot, finish, fail
-
-    a = args()
-    cam = profile(a["camera"])                      # parsed profile.yaml (white-box)
-    frame = device(a["camera"], args={"output": "file"})
-    seg = device(a["model"], "detect", {"image": frame["file"], "prompt": a["prompt"]})
-    finish({"point": [0.1, 0.2, 0.3]}, file=seg.get("file"))
-
-On import, real stdout is captured for the protocol and sys.stdout is pointed
-at stderr — stray print() calls become logging instead of protocol corruption.
-
-Capability rules are enforced harness-side: perception tools may read devices /
-profile / robot / call other perception tools; controller tools additionally
-may command devices (write/stop/custom verbs on an actuated device) and call
-any tool. A refused call raises RuntimeError.
+Use communication() for async pub/sub and request/response. The host dialog
+carries invocation metadata, profiles and selected results. Driver scripts also
+use the synchronous dialog helpers below. One execution approval covers the
+invocation; Python calls cannot change device lifecycle.
 """
 
 import json
 import os
 import sys
+import threading
+from kinex.communication import communication
+from kinex.errors import RPCError, OperationError
+
+_rpc_lock = threading.Lock()
 
 # Protocol channel: the real stdout, captured only INSIDE a tool dialog (the
 # harness marks its spawns with KINEX_TOOL_DIALOG=1). Everything print()ed
@@ -56,17 +44,6 @@ def _emit(payload):
     _out.flush()
 
 
-class RPCError(RuntimeError):
-    """A device or composed-tool failure retaining its public protocol metadata."""
-
-    def __init__(self, message, *, code=None, details=None):
-        super().__init__(message)
-        self.code, self.details = code, details
-
-    def payload(self):
-        return {"error": str(self),
-                **({"code": self.code} if self.code is not None else {}),
-                **({"details": self.details} if self.details is not None else {})}
 
 
 if _out is not None:
@@ -81,7 +58,7 @@ if _out is not None:
     sys.excepthook = _excepthook
 
 
-def _rpc(payload):
+def _rpc_unlocked(payload):
     _emit(payload)
     line = _in.readline()
     if not line:
@@ -92,6 +69,11 @@ def _rpc(payload):
                        code=response.get("code"), details=response.get("details"))
     response.pop("ok", None)
     return response
+
+
+def _rpc(payload):
+    with _rpc_lock:
+        return _rpc_unlocked(payload)
 
 
 def args():
@@ -145,13 +127,13 @@ def call(tool, **kwargs):
     return _device_result(tool, kwargs, result)
 
 
-def inline(source, values, *, kind="perception"):
+def inline(source, values):
     """Call an inline lambda or main function with keyword arguments in values."""
-    return _rpc({"call": "inline", "python": source, "kind": kind, "args": values})["result"]
+    return _rpc({"call": "inline", "python": source, "args": values})["result"]
 
 
 def stop_owned():
-    """Stop motion owned by this invocation and its composed tools (controllers only)."""
+    """Stop motion owned by this invocation and its composed tools."""
     _rpc({"call": "stop_owned"})
 
 
@@ -163,7 +145,7 @@ def profile(device, *, optional=False):
 
 
 def robot():
-    """The workspace robot's workspace manifest (identity, sim block, safety)."""
+    """The workspace robot's workspace manifest (identity and safety)."""
     return _rpc({"call": "robot"})["robot"]
 
 
@@ -183,9 +165,8 @@ def fail(message):
 class Device:
     """Per-device client handle: the device's profile plus its driver interface.
 
-    Access only, no logic — cross-device computation lives in graph-level
-    modules (kinex.frames for poses) that consume these handles. Future
-    interaction kinds get their own modules, never methods here.
+    Direct hardware adapter access. ROS workflows use communication();
+    frame relationships are queried through tf2 in kinex.ros_tools.
     """
 
     def __init__(self, name):
@@ -208,13 +189,5 @@ class Device:
         return device(self.name, "read", args)
 
     def act(self, action, args=None):
-        """Dispatch any driver action (commands are controller-tool-only)."""
+        """Dispatch any driver action."""
         return device(self.name, action, args)
-
-    def pose_in(self, other, frame=None):
-        """This device's pose expressed in `other`'s frame (see frames.pose)."""
-        from kinex import frames
-
-        parent = other.name if isinstance(other, Device) else other
-        child = self.name if frame is None else f"{self.name}:{frame}"
-        return frames.pose(child, parent)

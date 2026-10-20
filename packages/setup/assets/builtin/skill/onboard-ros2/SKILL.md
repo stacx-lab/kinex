@@ -1,94 +1,85 @@
 ---
 name: onboard-ros2
-description: Register or repair ROS 2 hardware integrations using reusable packages, device-local drivers and measured interface checks.
+description: Register ROS 2 devices with typed topic/service operations, explicit environments and measured interface checks.
 ---
 
-# Onboard ROS 2 hardware
+# Onboard ROS 2 devices
 
-For ROS hardware, follow `/onboarding` and core's `setup-device` skill.
+Follow `/onboarding` and core's `setup-device` skill. Core owns communication,
+node supervision and runtime Python. Setup owns provisioning and calibration.
+Persistent model services are devices alongside sensors and actuators.
 
-Prefer compatible installed driver packages, then apt binaries.
-Use vendor source or a direct SDK only for a concrete unsupported capability/version
-or the user's explicit choice; record the reason.
+## Device definitions
 
-## Devices and shared ROS backend
+Keep physical facts and calibration in `profile.yaml`. Add `runtime` with an
+a domain and optional node factories. Default nodes inherit Kinex Python and its
+overlays. Declare an interpreter and overlays only for a separate device SDK.
+Each factory exports `create(profile, context)` and returns an owned rclpy node.
+Core starts these nodes on load and closes them on unload.
 
-Do not invent virtual devices that are not related to real hardware.
-Prefer a shared ROS backend in `.kinex/lib` to handle the ROS communication lifecycle
-and communication across multiple topics.
+Declare each operation's description, transport (`topic` or `service`), direction
+(`input` or `output`, from the device perspective), endpoint, ROS type and bounded
+QoS. Services are inputs. Use native message/service types and field mappings.
+Do not introduce ROS actions or fixed read/write adapters for new integrations.
 
-## Device files
+Reuse an existing external vendor stack by pointing operations at its endpoints
+with `runtime.nodes: []`, without taking ownership of its processes. A device
+can expose a subset of a shared node's endpoints or use multiple owned nodes.
+Stop and unload must never terminate a borrowed service. For owned implementations,
+keep node sources next to the profile and register each factory in `runtime.nodes`.
+If a relay is needed, implement it in those node sources; relay routes do not
+belong in the public operation catalog. A node may define `async def ready(self)`
+to check its dependencies within the host's readiness deadline.
 
-Create only the files needed by the driver. Devices sharing a ROS stack reuse its
-environment and existing nodes; `stack.sh` is unnecessary when nodes already run.
+`load`, `unload` and `status` are built-in lifecycle operations. Declare a stop
+service for actuators. Managed motion uses core's `Acquire`, `Stop` and
+`CommandStatus` interfaces and commands carrying owner, generation and command ID.
+Validate replacements before accepting ownership. Old generations and retired
+owners cannot regain control through delayed commands.
 
-```text
-.kinex/devices/<name>/
-├── profile.yaml       # Managed by profile_write
-├── driver.py          # Driver entry; filename may differ
-├── profile_ros.yaml   # Required for built-in adapters; optional for custom drivers
-├── ros-python         # Optional ROS environment wrapper
-├── stack.sh           # Optional vendor startup wrapper
-├── model.urdf         # Optional when installed assets are insufficient
-└── python/kinex_ros/   # Optional local copy of required runtime helpers
-```
+Use the world device for time and waits. Factories inherit its clock configuration
+through their ROS context. Do not add workflow timers or simulator switches to
+workspace.yaml. Execution mode belongs to the world implementation.
 
-Put ROS settings in `profile_ros.yaml`: `adapter`, `domain_id`, `namespace`, topics,
-CameraInfo settings and optional `expected` interfaces. The setup package's
-`assets/python/kinex_ros/` contains the helpers; inspect `config.py` and
-`ros2_drivers.py` for supported fields. Built-in adapters (`JointTrajectoryDriver`,
-`TwistDriver`, `ImuSource`, `CameraSource`) use this entry point:
+Unload before changing runtime definitions, validate the profile, then explicitly
+reload. Inspect the compact operation catalog and test services and streams before
+recording readiness. Return observations to the caller; do not create local
+setup-progress files.
 
-```python
-from pathlib import Path
-from kinex_ros.ros2_drivers import ros_driver
+## Frames and cameras
 
-ros_driver(Path(__file__).parent).main()
-```
+Kinex automatically publishes known fixed profile transforms on `/tf_static`.
+Register an arm kinematics node backed by its URDF or serial-chain model for
+FK/IK services and measured endpoint transforms on `/tf`. Register the world's
+Kinex frame-graph node for persistent tf2 lookup. Simulators supply measurements
+and state without publishing TF. Device base frames use the device name; local
+frames use `<device>/<frame>`. Match camera payload frame IDs to their calibrated
+frames. Use tf2 at observation timestamps; missing calibration must not produce
+identity transforms.
 
-Return interface observations to the caller; do not create device-local measurement
-reports or setup-progress files.
+Camera intrinsics use `sensor_msgs/CameraInfo`. Establish raw versus rectified
+image space and compare live projection/distortion with profile facts. Apply
+measured calibration updates through `profile_write`. One source capture should
+serve all subscribers, with bounded queues for slow consumers.
 
-For cameras, establish raw versus rectified image space from interface documentation
-and declare `color_image_space` (and `depth_image_space` for native
-depth with its own CameraInfo). Compare live CameraInfo with the declared
-intrinsics and apply observed corrections through `profile_write`.
+## Environment and verification
 
-## Dependencies and ROS Python
+Prefer compatible installed vendor packages, then packaged binaries. Inspect
+installed packages after sourcing the intended ROS distribution and overlays;
+an unsourced shell does not establish whether a dependency exists. Build vendor
+source only for an unsupported capability/version or an explicit user choice.
 
-Before downloading or building vendor source, source the selected ROS distribution
-and compatible workspace overlays on the driver host, then check installed driver
-packages, versions and resources using `ros2 pkg` and `dpkg-query`. Neither a missing
-command in an unsourced shell nor the presence of ROS base/message packages
-establishes whether the required vendor driver is installed.
+Configure `.kinex/kinex.json` with `python.provider: "ros-jazzy"` and
+`python.interfaces` containing required ROS interface source directories (relative
+to `.kinex`). Explicit `runtime.python.prepare()` prepares the independent Kinex
+Pixi/RoboStack environment and builds core and configured interfaces. Verify rclpy,
+tf2, generated type support and rosbag2 in that environment. Simulators keep their
+own dependency environment; exec, helpers and recording always use Kinex Python.
+Keep overlays local to owned subprocesses; do not activate ROS or `.kinex/python`
+in ordinary shells. Discover device/operation contracts through `kinex.runtime`
+inside exec, and return only the information needed for the current task.
 
-When installation is needed, configure the selected ROS distribution's apt repository
-following its official installation instructions.
-
-When sudo is required, give the user the exact command and target host to run
-independently.
-
-Match the driver interpreter to the selected ROS installation: Jazzy/Ubuntu 24.04 uses
-Python 3.12; Humble/Ubuntu 22.04 uses Python 3.10.
-
-For ROS interpreters older than Python 3.11, install `exceptiongroup` in the
-ROS driver's Python environment (`/absolute/path/to/ros/python -m pip install
-exceptiongroup`). Before importing `kinex`, use an environment-local startup shim
-to expose the package's `ExceptionGroup` and `BaseExceptionGroup` in `builtins`;
-installing the package alone does not provide these names. Keep this compatibility
-setup in the ROS environment; do not modify core to support the older interpreter.
-
-Run ROS drivers in a separate process with a command-local environment:
-
-```sh
-env -u PYTHONPATH -u PYTHONHOME bash --noprofile --norc -c '
-  source "/opt/ros/<distro>/setup.bash"
-  # Source a compatible workspace overlay here if needed.
-  exec /absolute/path/to/ros/python "$@"
-' ros-driver /absolute/path/to/driver.py
-```
-
-Set required driver paths and the core library path from context through
-`PYTHONPATH` inside this subprocess only; keep ROS out of the core environment.
-Match the running robot's ROS domain and middleware configuration. Create a separate ROS Python environment only when additional pip
-dependencies require it.
+Match the device's ROS domain and middleware configuration. Test bounded stream
+queues, service failures, explicit stopping and owned-node teardown. Exercise
+concurrent world waits and verify that a failed invocation cannot stop a newer
+replacement command. Keep hardware motion within the task's approved scope.

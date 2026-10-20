@@ -17,6 +17,8 @@ def load(directory):
     data = read_yaml(path)
     if not isinstance(data, dict):
         raise ROSError(f"{path}: expected a mapping", "invalid_ros_profile")
+    if "action" in data:
+        raise ROSError("ROS actions are unsupported; declare topic/service operations", "invalid_ros_profile")
     domain = data.get("domain_id", 0)
     if type(domain) is not int or not 0 <= domain <= 232:
         raise ROSError("domain_id must be an integer between 0 and 232", "invalid_ros_profile")

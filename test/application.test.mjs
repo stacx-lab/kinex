@@ -1,3 +1,4 @@
+import { recordingDevices } from "../packages/core/test/fixtures/recording.mjs"
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, readFile, writeFile, stat, rm } from 'node:fs/promises'
@@ -17,8 +18,8 @@ test('headless context includes one short Python instruction without onboarding 
   await app.host.session.prompt('Describe the available Python environment without running tools')
   const request = fake.requests[0]
   const system = JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
-  assert.equal(system.match(/Kinex core Python:/g)?.length, 1)
-  assert.match(system, /uv add\/uv sync/)
+  assert.equal(system.match(/Kinex Python owns exec/g)?.length, 1)
+  assert.match(system, /Discover devices and operation/)
   assert.doesNotMatch(system, /Default pyproject\.toml|\{\{PROJECT\}\}/)
   const context = await app.owner.runtime.context()
   assert.ok(JSON.stringify(request).includes(context.python.executable))
@@ -31,7 +32,7 @@ test('direct commands need no model and preserve the robotics workspace', async 
   const outputs = []
   const app = await createApplication({ cwd, report: text => outputs.push(text) })
   t.after(() => app.dispose())
-  await seed(app.owner.runtime)
+  await seed(app.owner.runtime, 'sensor', { preparePython: false })
   await bind(app)
   const commands = app.host.session.extensionRunner.getRegisteredCommands().map(command => command.name)
   assert.ok(!commands.some(name => name.startsWith('kinex-')), 'only short Kinex command names are exposed')
@@ -68,7 +69,8 @@ test('same-workspace replacement retains drivers and finalizes recording', async
   await bind(app)
   await app.host.session.prompt('/load sensor')
   await core.devices.dispatch('sensor', 'stop')
-  await app.host.session.prompt('/record start sensor=2')
+  await recordingDevices(app.owner.runtime, cwd)
+  await app.host.session.prompt('/record start telemetry=2')
   assert.ok(await core.recording.status())
   app.host.setRebindSession(() => bind(app))
   await app.host.newSession()
@@ -97,9 +99,10 @@ for (const source of ['file', 'camera', 'exec']) test(`${source} images are stor
     await writeFile(path.join(cwd, '.kinex/tools/capture.ts'), `export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:${JSON.stringify(image)}}]}) }`)
     fake.steps.push({ tool: 'capture' })
   } else if (source === 'exec') {
+    await seed(app.owner.runtime)
     await writeFile(image, png)
     await writeFile(second, secondPng)
-    fake.steps.push({ tool: 'exec', args: { interpreter: 'python3',
+    fake.steps.push({ tool: 'exec', args: {
       python: 'from kinex import finish\nfinish({"observed": True}, file=["second.png", "frame.png"])',
     } })
   } else {
@@ -143,7 +146,8 @@ test('guided workflows wait for the SDK response and recordings reference persis
   await seed(app.owner.runtime)
   await bind(app)
   await app.host.session.prompt('/load sensor')
-  await app.host.session.prompt('/record start sensor=2')
+  await recordingDevices(app.owner.runtime, cwd)
+  await app.host.session.prompt('/record start telemetry=2')
   for (const command of ['onboarding', 'register', 'calibrate']) {
     const requests = fake.requests.length
     const objective = `inspect the sensor via ${command}`

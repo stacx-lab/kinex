@@ -349,3 +349,30 @@ test('headless CLI discovers and executes a new tool with stdin closed', { timeo
   assert.ok(fake.requests[1].tools.some(tool => tool.function.name === 'headless'))
   assert.match(JSON.stringify(fake.requests[2].messages.at(-1)), /HEADLESS_TOOL_OK/)
 })
+
+test('device load state never changes model prefixes or injects operation catalogs', async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
+  t.after(()=>app.dispose())
+  await seed(app.owner.runtime)
+  await app.owner.runtime.profiles.writeDevice({name:'clock',type:'world',loaded:false,runtime:{nodes:[]},operations:{
+    secret_clock:{description:'CATALOG_ONLY_MARKER',transport:'topic',direction:'output',type:'rosgraph_msgs/msg/Clock',endpoint:'/clock'},
+  }})
+  await bind(app)
+  for (const prompt of ['before load','after load','after unload','unchanged']) {
+    if (prompt==='after load') await (await app.owner.runtime.devices.load('sensor')).ready
+    if (prompt==='after unload') await app.owner.runtime.devices.unload('sensor')
+    fake.steps.push({text:'observed'})
+    await app.host.session.prompt(prompt)
+  }
+  const first=fake.requests[0]
+  const prefix=request=>request.messages.filter(m=>['system','developer'].includes(m.role))
+  for(const request of fake.requests) {
+    assert.deepEqual(prefix(request),prefix(first))
+    assert.deepEqual(request.tools,first.tools)
+    assert.doesNotMatch(JSON.stringify(request),/CATALOG_ONLY_MARKER|secret_clock/)
+  }
+  const entries=app.host.session.sessionManager.getBranch().filter(e=>e.type==='custom_message'&&e.customType==='kinex-context')
+  assert.equal(entries.length,1)
+})

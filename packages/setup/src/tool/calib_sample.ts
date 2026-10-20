@@ -1,3 +1,4 @@
+import { sampleDevice } from "@kinex/core/device/sample"
 import { setTimeout as delay } from "node:timers/promises"
 import { deviceJoints, isJoint, known } from "@kinex/core/device/profile/schema"
 import path from "node:path"
@@ -37,7 +38,7 @@ export const CalibSampleTool = define("calib_sample", {
     if (!device) return unknownDevice(args.deviceID)
     if (!device.loaded) return unloadedDevice(device)
     if (args.frame !== undefined && device.type !== "joint" && device.type !== "dexterous_hand") fail("frame requires a joint device")
-    if (device.access?.driver)
+    if (device.runtime || device.access?.driver)
       await ctx.ask({ permission: "device_read", description: `sample read from ${device.name} (${args.run ?? args.procedure ?? args.node})` })
 
     const run = await attempt(ctx.directory, args)
@@ -52,7 +53,7 @@ export const CalibSampleTool = define("calib_sample", {
     if (settle && !count) throw new Error("settling requires declared measured velocities")
     const timer = settle ? AbortSignal.timeout(Math.ceil(settle.timeout_s * 1000)) : undefined
     const signal = timer ? AbortSignal.any([ctx.abort, timer]) : ctx.abort
-    const read = () => dispatchDevice(ctx.directory, device, "read", args.args ?? {}, undefined, signal)
+    const read = () => sampleDevice(ctx.directory, device, args.args ?? {}, undefined, signal)
     const state = { reading: await read(), settled: false, stable: 0, stamp: -Infinity }
     if (settle) for (;;) {
       ctx.abort.throwIfAborted()

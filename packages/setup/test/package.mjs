@@ -14,8 +14,6 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
   assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_base.py'))
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/kinex/') || file.path.endsWith('.pyc')))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/onboard-ros2/SKILL.md'))
-  for (const name of ['config', 'ros2', 'ros2_check', 'ros2_drivers'])
-    assert.ok(setup.files.some(file => file.path === `assets/python/kinex_ros/${name}.py`))
   await writeFile(path.join(relocated, 'consumer.mts'), `
 import { createKinexRuntime } from '@kinex/core'
 import { composeContributions, coreContribution } from '@kinex/core/integration'
@@ -102,7 +100,8 @@ try {
   assert.match((await runtime.context()).conventions, /wait.*duration_s/)
   await (await runtime.devices.load('sensor')).ready
   const capture = await runtime.recording.start({sessionID:'operate',specs:{sensor:{rate:5}}})
-  assert.deepEqual(capture.refusals, {})
+  assert.match(capture.refusals.sensor, /declared topics/)
+  assert.equal(capture.manifest.status, "stopped")
   const snap = await runtime.recording.snap({sessionID:'operate',devices:['sensor']})
   assert.ok(snap.readings.sensor)
   await runtime.recording.stop()

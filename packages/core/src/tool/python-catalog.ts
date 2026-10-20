@@ -10,25 +10,19 @@ import { exists } from "../util/filesystem.ts"
 import { deviceInputSchema } from "./device-input.ts"
 
 // Python-defined tools: pieces of function whose execution involves NO agent.
-// Two kinds, capability-enforced by the runner's dialog dispatcher:
-//   perception  — read device output and parse it into a specific format
-//                 (may read devices / profile / robot / call other perception tools)
-//   controller  — execute a loop of actions until a termination condition
-//                 (additionally may command devices and call any tool)
 // One DIRECTORY per tool: <root>/tools/<name>/{tool.yaml,tool.py}, discovered
 // like skills (contentRoots: robot → project → global → builtin/tool/),
 // first-seen-wins by manifest name. The agent sees each as a first-class tool; the yaml's
 // `parameters` (raw JSON Schema) is sent verbatim as the input schema.
 export const ToolManifest = z.object({
   name: z.string().regex(/^[a-z][a-z0-9_]*$/, "tool name: lowercase snake_case"),
-  kind: z.enum(["perception", "controller"]),
   description: z.string(),
   parameters: z
     .record(z.string(), z.unknown())
     .default({ type: "object", properties: {} })
     .describe("JSON Schema for the args object; validated by the harness"),
   entry: z.string().default("tool.py"),
-  interpreter: z.string().optional().describe("python executable; defaults to the uv-managed Kinex core Python (.kinex/python/.venv)"),
+  async: z.boolean().default(false).describe("entry exports async main(args, communication)"),
   timeout_s: z.number().positive().default(120).describe("outer wall-clock cap for one invocation"),
   devices: z
     .array(DeviceType)
@@ -36,7 +30,7 @@ export const ToolManifest = z.object({
     .describe("device TYPES that must have a loaded instance at execute time — the harness refuses the run otherwise"),
   device_inputs: z.record(z.string(), z.strictObject({ types: z.array(DeviceType).min(1), frame: z.literal(true).optional() })).default({}),
   requires: z.string().optional().describe("comma-separated calibration selectors, e.g. intrinsics:rgb,access:model"),
-}).superRefine((manifest, ctx) => {
+}).passthrough().refine(manifest => !("interpreter" in manifest), "Python tools use Kinex Python; declare separate interpreters on devices").superRefine((manifest, ctx) => {
   try {
     z.fromJSONSchema(manifest.parameters)
   } catch (error) {
