@@ -13,9 +13,9 @@ archive image files; RGBD archival copies both streams before appending. Profile
 writes are validated; unrelated calibration never gates all operations. See the
 [setup evidence contracts](../packages/setup/README.md#plan-and-evidence-contracts).
 
-For calibration motion, blocking `servo` already waits its planned duration on a
-loaded world clock. Check fresh measured feedback before sampling; if simulation
-needs more time, advance it explicitly before invoking the sampler. General
+For calibration motion, explicitly wait on the loaded world clock and check
+fresh measured feedback before sampling; if simulation needs more time, advance
+it explicitly before invoking the sampler. General
 feedback loops use [Python execution with `exec`](tools-and-skills.md#python-execution-with-exec);
 the sampler's own settling and evidence checks remain part of setup.
 

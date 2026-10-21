@@ -29,7 +29,7 @@ export function detectionOperation(type: PerceptionType) {
 // Additional operations remain available; detect cannot be redefined by a driver.
 export function perceptionOperations(type: PerceptionType) {
   const detect = detectionOperation(type)
-  return modelShape.operations.superRefine((operations, ctx) => {
+  return modelShape.inference_contracts.superRefine((operations, ctx) => {
     const index = operations.findIndex((operation) => operation.name === "detect")
     if (index >= 0 && !isDeepStrictEqual(operations[index], detect))
       ctx.addIssue({ code: "custom", path: [index], message: `${type} owns the detect contract; omit it or use the canonical definition` })

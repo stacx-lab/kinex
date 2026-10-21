@@ -89,7 +89,8 @@ class Recording:
                 # stamps and the explicit epoch/world-time index retain simulation time.
                 self.writer.write(op["endpoint"], serialize_message(message), received)
                 header = getattr(message, "header", None)
-                acquisition = (header.stamp.sec * 1_000_000_000 + header.stamp.nanosec) if header else None
+                acquisition_stamp = header.stamp if header else getattr(message, "stamp", None)
+                acquisition = (acquisition_stamp.sec * 1_000_000_000 + acquisition_stamp.nanosec) if acquisition_stamp is not None else None
                 self.index.write(json.dumps({
                     "operation": name, "topic": op["endpoint"], "type": op["type"],
                     "epoch": epoch, "world_ns": stamp, "received_ns": received,

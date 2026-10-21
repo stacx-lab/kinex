@@ -2,7 +2,7 @@ import { keyHint, type ToolDefinition } from "@earendil-works/pi-coding-agent"
 import { Container, Text, TruncatedText, stripTerminalSequences } from "@earendil-works/pi-tui"
 import { formatJSON } from "@kinex/core/util/json"
 
-const tools = new Set(["device", "devices", "record", "device_stop", "servo", "exec"])
+const tools = new Set(["device", "devices", "record", "device_stop", "exec"])
 const string = (value: unknown) => typeof value === "string" ? value : ""
 const singleLine = (value: string) => stripTerminalSequences(value).replace(/[\r\n\t]/g, " ")
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {}
@@ -18,8 +18,7 @@ function summary(name: string, args: Record<string, unknown>): string {
         ? Object.entries(args.devices).map(([device, rate]) => `${device}=${typeof rate === "number" ? rate : "?"}Hz`).join(" ") : ""
     return [string(args.action), devices, string(args.outcome)].filter(Boolean).join(" ")
   }
-  const goal = name === "servo" ? (args.joints ? "joints" : args.pose ? "pose" : args.observation ? "observation" : "") : string(args.mode)
-  return [string(args.device), goal].filter(Boolean).join(" ")
+  return ""
 }
 
 const timeFields = new Set(["time_s", "used_s", "waited_s", "max_s"])

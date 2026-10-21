@@ -83,7 +83,7 @@ def benchmark():
     profile = json.loads((FIXTURES / "panda.json").read_text())
     corpus = json.loads((FIXTURES / "corpus.json").read_text())
     baseline = copy.deepcopy(profile)
-    baseline["intrinsics"]["kinematics"]["ik"]["budget"] = {
+    baseline["kinematics"]["ik"]["budget"] = {
         "max_attempts": 1, "attempt_time_s": 1, "max_time_s": 1}
     models = {"single_seed": JointDevice(baseline), "bounded_restarts": JointDevice(profile)}
     rng = random.Random(44)

@@ -20,9 +20,8 @@ Panda–Omron can have base -> torso:top -> arm; Go2–D1 can have base -> arm a
 camera; G1 can attach arms to a moving torso frame and have independent hands.
 Dual-arm work needs concrete left/right bindings.
 
-A world device is required: tools such as blocking servo need a loaded world clock
-to wait for motion. Reuse an existing world device or set one up with setup-device
-and the world device guide. Use the supplied monotonic clock driver for real hardware
+A world device is required for motion timing. Reuse an existing world device or
+set one up with setup-device and the world device guide. Use the supplied monotonic clock driver for real hardware
 and the environment's clock driver for a simulator. Configure, load and verify the
 world device through core lifecycle tools with existing permissions before motion
 checks. World geometry (bounds, surfaces and surveyed frames) remains optional.

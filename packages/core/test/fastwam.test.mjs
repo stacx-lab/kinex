@@ -48,8 +48,8 @@ print(json.dumps([make_profile(${JSON.stringify(device)}, variant) for variant i
     for (const profile of JSON.parse(generated.stdout)) {
       await assert.rejects(runtime.profiles.writeDevice(profile), /description|driver/)
       assert.equal(profile.loaded, false)
-      assert.equal(profile.intrinsics.operations[0].output.properties.actions.minItems, 32)
-      assert.ok(profile.intrinsics.artifacts.every(a => /^[a-f0-9]{40}$/.test(a.source.revision)))
+      assert.equal(profile.inference_contracts[0].output.properties.actions.minItems, 32)
+      assert.ok(profile.artifacts.every(a => /^[a-f0-9]{40}$/.test(a.source.revision)))
     }
     const catalog = await runtime.devices.templates()
     assert.ok(catalog.some(entry => entry.name === 'fastwam'))

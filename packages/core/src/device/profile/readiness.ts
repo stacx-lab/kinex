@@ -1,10 +1,9 @@
+import { frameErrors, modelFrames } from "./frames.ts"
 import { hasMissing } from "./common.ts"
 import { jointModel, jointModelErrors } from "./joint.ts"
 import { cameraMissing } from "./camera.ts"
 import { ProfileStore, type ProfileSnapshot, type NeededEntry } from "./store.ts"
 import {
-  deviceMount,
-  devicePoseFeedback,
   known,
   deviceActions,
   isModel,
@@ -64,54 +63,54 @@ interface Node {
 // Loaded devices of these types gate task readiness; world geometry is optional.
 const GATING_TYPES: readonly DeviceType[] = ["velocity", "legged_base", "joint", "dexterous_hand", "gripper", "suction", "rgb", "rgbd"]
 
-function intrinsicsCheck(device: Device): Check {
+function factsCheck(device: Device): Check {
   switch (device.type) {
     case "legged_base": {
-      if (hasMissing(device.intrinsics)) return { done: false, detail: "legged control or stop is incomplete" }
+      if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "legged control or stop is incomplete" }
       return { done: true, detail: "SDK-defined legged control" }
     }
     case "rgb":
     case "rgbd": {
-      const color = device.intrinsics.color
-      if (!known(color) || cameraMissing(color)) return { done: false, detail: "intrinsics.color is incomplete" }
-      if (device.type === "rgb") return { done: true, detail: `color ${color.width}x${color.height} (${device.intrinsics.source})` }
-      const depth = device.intrinsics.depth
-      if (!known(depth) || cameraMissing(depth)) return { done: false, detail: "intrinsics.depth is incomplete" }
-      return { done: true, detail: `color ${color.width}x${color.height}, depth ${depth.scale_m_per_unit} m/unit ${depth.registration} (${device.intrinsics.source})` }
+      const color = device.color
+      if (!known(color) || cameraMissing(color)) return { done: false, detail: "color is incomplete" }
+      if (device.type === "rgb") return { done: true, detail: `color ${color.width}x${color.height} (${device.source})` }
+      const depth = device.depth
+      if (!known(depth) || cameraMissing(depth)) return { done: false, detail: "depth is incomplete" }
+      return { done: true, detail: `color ${color.width}x${color.height}, depth ${depth.scale_m_per_unit} m/unit ${depth.registration} (${device.source})` }
     }
     case "dexterous_hand":
     case "joint": {
-      if (hasMissing(device.intrinsics)) return { done: false, detail: "joint model, home, control, feedback or stop is incomplete" }
-      const model = jointModel(device.intrinsics)
-      if (!model) return { done: false, detail: jointModelErrors.get(device.intrinsics) ?? "joint model is unresolved" }
+      if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "joint model, home, control, feedback or stop is incomplete" }
+      const model = jointModel(device)
+      if (!model) return { done: false, detail: jointModelErrors.get(device) ?? "joint model is unresolved" }
       return { done: true, detail: `${model.joints.length} joints, model resolved` }
     }
     case "suction":
     case "gripper": {
       const type = device.type
-      if ([device.intrinsics.control, device.intrinsics.feedback, device.intrinsics.stop].some(hasMissing)) return { done: false, detail: "end-effector control, feedback or stop semantics are incomplete" }
+      if ([device.control, device.feedback, device.stop].some(hasMissing)) return { done: false, detail: "end-effector control, feedback or stop semantics are incomplete" }
       return { done: true, detail: `${type}, ${deviceActions(device).length} command dimensions` }
     }
     case "velocity": {
-      if (hasMissing(device.intrinsics)) return { done: false, detail: "velocity control, feedback or stop is incomplete" }
+      if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "velocity control, feedback or stop is incomplete" }
       return { done: true, detail: `velocity controller, ${deviceActions(device).length} command dimensions` }
     }
     case "imu": {
-      const measurement = device.intrinsics.measurement
+      const measurement = device.measurement
       if (!known(measurement) || hasMissing(measurement)) return { done: false, detail: "IMU measurement is incomplete" }
       const acceleration = measurement.linear_acceleration
       return { done: true, detail: `IMU channels: ${Object.entries(measurement).filter(([, value]) => value !== null).map(([key]) => key).join(", ")}${acceleration && known(acceleration) ? `; ${acceleration.quantity}` : ""}` }
     }
     case "force_torque": {
-      if (hasMissing(device.intrinsics)) return { done: false, detail: "force/torque measurement is incomplete" }
-      const measurement = device.intrinsics.measurement
+      if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "force/torque measurement is incomplete" }
+      const measurement = device.measurement
       if (!known(measurement)) return { done: false, detail: "measurement is ???" }
       return { done: true, detail: `${measurement.quantity}; force: ${measurement.force && known(measurement.force) ? measurement.force.axes.join(",") : "none"}; torque: ${measurement.torque && known(measurement.torque) ? measurement.torque.axes.join(",") : "none"}` }
     }
     case "world": {
-      const bounds = device.intrinsics.bounds
-      if (!known(bounds)) return { done: false, detail: "intrinsics.bounds is ???" }
-      const surfaces = device.intrinsics.surfaces
+      const bounds = device.bounds
+      if (!known(bounds)) return { done: false, detail: "bounds is ???" }
+      const surfaces = device.surfaces
       if (surfaces.some((surface) => !known(surface.pose) || !known(surface.extent)))
         return { done: false, detail: "surface geometry is incomplete (optional)" }
       const surfaceBit = surfaces.length > 0 ? `; surfaces: ${surfaces.map((surface) => surface.name).join(", ")}` : ""
@@ -120,14 +119,14 @@ function intrinsicsCheck(device: Device): Check {
     case "detection":
     case "segmentation":
     case "model": {
-      const family = device.intrinsics.family
-      if (!known(family)) return { done: false, detail: "intrinsics.family is ???" }
-      if (!known(device.intrinsics.artifacts)) return { done: false, detail: "intrinsics.artifacts is ???" }
-      if (device.intrinsics.operations.length === 0)
+      const family = device.family
+      if (!known(family)) return { done: false, detail: "family is ???" }
+      if (!known(device.artifacts)) return { done: false, detail: "artifacts is ???" }
+      if (Object.keys(device.operations).length === 0)
         return { done: false, detail: `${family} declared but no operations — record the inference input/output contracts` }
       return {
         done: true,
-        detail: `${family}${device.intrinsics.variant ? ` (${device.intrinsics.variant})` : ""}: ${device.intrinsics.operations.map((operation) => operation.name).join(", ")}`,
+        detail: `${family}${device.variant ? ` (${device.variant})` : ""}: ${Object.keys(device.operations).join(", ")}`,
       }
     }
     default:
@@ -135,26 +134,18 @@ function intrinsicsCheck(device: Device): Check {
   }
 }
 
-function extrinsicsCheck(device: Device): Check {
-  // Narrowing only — deviceNodes never emits extrinsics nodes for world/model.
-  if (device.type === "world") return { done: true, detail: "world is an optional reference frame" }
-  if (isModel(device)) return { done: true, detail: "a model has no physical pose" }
-  if (device.type === "rgbd" && known(device.intrinsics.depth) && device.intrinsics.depth.registration === "native"
-    && cameraMissing(device.extrinsics.depth_to_color))
-    return { done: false, detail: "extrinsics.depth_to_color is incomplete" }
-  if (device.type === "velocity" || device.type === "legged_base") return { done: true, detail: "unlocalized device root" }
-  const mount = deviceMount(device)
-  if ((device.type === "force_torque" || device.type === "imu") && hasMissing(device.extrinsics))
-    return { done: false, detail: "measurement frame is incomplete" }
-  const feedback = devicePoseFeedback(device)
-  if (feedback !== undefined) {
-    if (!known(feedback) || !known(feedback.pose_frame)) return { done: false, detail: "feedback.pose_frame is ???" }
-    return { done: true, detail: feedback.pose_frame === null ? "unlocalized device root" : `runtime pose in ${feedback.pose_frame}` }
+function profileCheck(device: Device, devices: Device[]): Check {
+  const facts = factsCheck(device)
+  if (!facts.done || isModel(device)) return facts
+  const errors = frameErrors(devices).filter(message => message.startsWith(`${device.name}:`))
+  if (errors.length) return { done: false, detail: errors.join("; ") }
+  const computed = new Set(modelFrames(device))
+  for (const [name, frame] of Object.entries(device.frames)) {
+    if (frame.parent === null || computed.has(name)) continue
+    if (frame.translation_m === null || frame.rotation_xyzw === null)
+      return { done: false, detail: `frames.${name} transform is unknown; calibrate or supply measured TF` }
   }
-  if (mount === undefined || !known(mount)) return { done: false, detail: "extrinsics.mount is ???" }
-  if (!known(mount.translation_m) || hasMissing(mount)) return { done: false, detail: "extrinsics.mount is incomplete" }
-  const at = mount.translation_m.map((n) => n.toFixed(3)).join(", ")
-  return { done: true, detail: `on ${mount.parent}${mount.parent_frame ? ` (${mount.parent_frame})` : ""} at (${at}) m` }
+  return facts
 }
 
 function accessCheck(device: Device): Check {
@@ -167,50 +158,15 @@ function deviceNodes(device: Device): Node[] {
   // Unloaded devices are off-limits to the tools, so nothing about them can
   // hold the robot back: their whole chain is optional.
   const optional = !GATING_TYPES.includes(device.type) || !device.loaded
-  // World geometry is optional; clock access is checked independently.
-  if (device.type === "world")
-    return [
-      {
-        id: `access:${device.name}`, title: `Clock access (${device.name})`,
-        dependsOn: ["devices-declared"], optional: !device.loaded, device: ref,
-        check: () => accessCheck(device),
-      },
-      {
-        id: `intrinsics:${device.name}`,
-        title: `Spatial information (${device.name})`,
-        dependsOn: ["devices-declared"],
-        optional,
-        device: ref,
-        check: () => intrinsicsCheck(device),
-      },
-    ]
-  const nodes: Node[] = [{
-    id: `access:${device.name}`,
-    title: `Access (${device.name})`,
-    dependsOn: ["devices-declared"],
-    optional,
-    device: ref,
-    check: () => accessCheck(device),
+  return [{
+    id: `access:${device.name}`, title: `Access (${device.name})`,
+    dependsOn: ["devices-declared"], optional: device.type === "world" ? !device.loaded : optional,
+    device: ref, check: () => accessCheck(device),
+  }, {
+    id: `profile:${device.name}`, title: `Profile (${device.name})`,
+    dependsOn: [`access:${device.name}`], optional, device: ref,
+    check: ctx => profileCheck(device, ctx.devices),
   }]
-  nodes.push({
-    id: `intrinsics:${device.name}`,
-    title: `Intrinsics (${device.name})`,
-    dependsOn: [`access:${device.name}`],
-    optional,
-    device: ref,
-    check: () => intrinsicsCheck(device),
-  })
-  // A model has no physical pose — its chain ends at intrinsics.
-  if (isModel(device)) return nodes
-  nodes.push({
-    id: `extrinsics:${device.name}`,
-    title: `Extrinsics (${device.name})`,
-    dependsOn: [`intrinsics:${device.name}`],
-    optional,
-    device: ref,
-    check: () => extrinsicsCheck(device),
-  })
-  return nodes
 }
 
 function buildNodes(ctx: PlanContext): Node[] {

@@ -48,11 +48,11 @@ export async function urdfModel(directory: string, file: string, base: string, t
 
 async function resolve(device: Device, directory: string): Promise<Device> {
   if (device.type !== "joint" && device.type !== "dexterous_hand") return device
-  const modelSpec = device.intrinsics.model
+  const modelSpec = device.model
   if (modelSpec === "???" || modelSpec.format !== "urdf" || hasMissing(modelSpec)) return device
   const model = await urdfModel(directory, path.resolve(directory, modelSpec.path), modelSpec.base_link, modelSpec.tip_link)
-  const errors = jointConfigurationErrors(device.intrinsics, model)
-  if (device.type === "dexterous_hand") errors.push(...handJointErrors(device.intrinsics.geometry, model))
+  const errors = jointConfigurationErrors(device, model)
+  if (device.type === "dexterous_hand") errors.push(...handJointErrors(device.geometry, model))
   if (errors.length) throw new NamedError("JointModelError", `${device.name}: ${errors.join("; ")}`)
   resolvedJointModels.set(modelSpec, model)
   return device
@@ -63,7 +63,7 @@ async function resolve(device: Device, directory: string): Promise<Device> {
 export function resolveJoint(device: Device, directory: string, strict = false): Promise<Device> {
   return resolve(device, directory).catch((error: unknown) => {
     if (strict) throw error
-    if (device.type === "joint" || device.type === "dexterous_hand") jointModelErrors.set(device.intrinsics, error instanceof Error ? error.message : String(error))
+    if (device.type === "joint" || device.type === "dexterous_hand") jointModelErrors.set(device, error instanceof Error ? error.message : String(error))
     return device
   })
 }

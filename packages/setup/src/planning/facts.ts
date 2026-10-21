@@ -42,6 +42,22 @@ export function known(value: unknown): boolean {
   if (value && typeof value === "object") return Object.values(value).every(known)
   return true
 }
+// Null frame components are unknown; null parents declare independent roots.
+function knownProfileFact(data: unknown, selector: string): boolean {
+  const value = pointer(data, selector)
+  if (!selector.startsWith("/frames")) return known(value)
+  const parts = selector.split("/")
+  const complete = (frame: unknown): boolean => {
+    if (!frame || typeof frame !== "object") return false
+    const parent = Reflect.get(frame, "parent")
+    return parent === null || (known(parent) && Reflect.get(frame, "translation_m") != null && Reflect.get(frame, "rotation_xyzw") != null && known(frame))
+  }
+  if (parts.length === 2) return !!value && typeof value === "object" && Object.values(value).every(complete)
+  if (parts.length === 3) return complete(value)
+  if (["translation_m", "rotation_xyzw"].includes(parts[3]!))
+    return value != null && pointer(data, `/frames/${parts[2]}/parent`) !== null && known(value)
+  return known(value)
+}
 /** Raw descriptions only: inspecting a plan must never resolve URDFs or prepare Python. */
 export async function profile(cwd: string, device?: string): Promise<unknown> {
   const file = await location(cwd, device ? `devices/${device}/profile.yaml` : "workspace.yaml")
@@ -57,8 +73,9 @@ export async function missingFacts(cwd: string, facts: Fact[]) {
         throw error
       })
     }
-    const value = pointer(await profile(cwd, fact.device), fact.pointer)
-    return known(value) && (!Object.hasOwn(fact, "value") || isDeepStrictEqual(value, fact.value))
+    const data = await profile(cwd, fact.device)
+    const value = pointer(data, fact.pointer)
+    return knownProfileFact(data, fact.pointer) && (!Object.hasOwn(fact, "value") || isDeepStrictEqual(value, fact.value))
   }))
   return facts.filter((_fact, index) => !available[index])
 }
@@ -72,8 +89,9 @@ export async function inspectFacts(cwd: string, facts: Fact[]) {
       })
       return { fact, value: bytes ? createHash("sha256").update(bytes).digest("hex") : undefined, available: bytes !== undefined }
     }
-    const value = pointer(await profile(cwd, fact.device), fact.pointer)
-    return { fact, value, available: known(value) && (!Object.hasOwn(fact, "value") || digest(value) === digest(fact.value)) }
+    const data = await profile(cwd, fact.device)
+    const value = pointer(data, fact.pointer)
+    return { fact, value, available: knownProfileFact(data, fact.pointer) && (!Object.hasOwn(fact, "value") || digest(value) === digest(fact.value)) }
   }))
   return { hash: digest(values), missing: values.filter(value => !value.available).map(value => value.fact), values }
 }

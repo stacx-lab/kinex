@@ -9,13 +9,13 @@ description: Register a RGBD camera with a fixed output profile and a source-spe
 Follow setup-device for registration, Python provisioning and node lifecycle. This
 template validates physical facts; it does not prescribe operation names.
 
-Declare color and depth calibration, depth scale and registration. Native depth requires the depth-to-color transform; color-registered depth must share the color grid. Describe units, invalid values and encoding on the depth operation. Preserve acquisition stamps.
+Declare color and depth calibration, depth scale and registration. Native depth requires named `frames.color` and `frames.depth`, with an explicit parent and calibrated transform between them; color-registered depth must share the color grid. Describe units, invalid values and encoding on the depth operation. Preserve acquisition stamps and set image/CameraInfo header.frame_id to the corresponding ROS frame ID. Use tf2 for depth-to-color lookup; keep camera projection parameters in color/depth.
 
 Every profile requires a top-level `description` giving general device identity,
 capabilities and limitations. Every `operations.<name>.description` explains only
 that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
 Both descriptions are required strings; use an empty string when no text is known.
-Agents retrieve them through `runtime.device(name)` and `runtime.describe("device.operation")`.
+Read device and operation descriptions directly from `profile.yaml`.
 
 Start from the profile below, select the typed facts and fill unknowns from
 documentation or calibration. Use `???` for unresolved facts and `null` only where
@@ -38,26 +38,25 @@ access:
   method: unknown
   calibrated_at: null
   connection: ???
-intrinsics:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  color:
-    width: ???
-    height: ???
-    fps: ???
-    pixel_format: rgb8
-    image_format: png
-    projection: ???
-    distortion: ???
-  depth: ???
-extrinsics:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  mount: ???
-description: ""
+description: ''
 runtime:
   nodes: []
 operations: {}
+source: unknown
+method: unknown
+calibrated_at: null
+color:
+  width: ???
+  height: ???
+  fps: ???
+  pixel_format: rgb8
+  image_format: png
+  projection: ???
+  distortion: ???
+depth: ???
+frames:
+  base:
+    parent: null
+    translation_m: null
+    rotation_xyzw: null
 ```

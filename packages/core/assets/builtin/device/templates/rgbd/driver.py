@@ -47,8 +47,8 @@ def close_stream(stream):
 
 
 def introspect(args):
-    """Return a profile patch: intrinsics.color and (RGBD) intrinsics.depth,
-    extrinsics.depth_to_color for native depth. Match the active output mode;
+    """Return a profile patch: top-level color and (RGBD) depth,
+    frames.color and frames.depth for native depth. Match the active output mode;
     report explicit projection/distortion models, scale and timestamp calibration.
     Unsupported vendor models must be rectified using the SDK."""
     raise NotImplementedError("SDK hook: introspect() — complete per DEVICE.md")
@@ -140,7 +140,7 @@ def record_stop(args):
     result = recorder.stop()
     RECORDER = None
     if latest is not None:
-        result["depth_scale"] = settings(HERE)["intrinsics"]["depth"]["scale_m_per_unit"]
+        result["depth_scale"] = settings(HERE)["depth"]["scale_m_per_unit"]
     return result
 
 

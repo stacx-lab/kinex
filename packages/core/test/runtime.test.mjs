@@ -18,13 +18,18 @@ async function fixture(t, { preparePython = true, ...options } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-node-'))
   if (preparePython) {
   const bin = path.join(directory, '.kinex/python/.venv/bin')
-  await mkdir(bin, {recursive:true})
+  await mkdir(bin, { recursive: true })
   await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {encoding:'utf8'}).trim(), path.join(bin,'python3'))
   }
   const runtime = createKinexRuntime({ directory, ...options })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   await runtime.profiles.writeManifest({ identity: { id: 'node-test', name: 'Node test', platform: 'real', kind: 'arm' } })
-  await runtime.profiles.writeDevice({ description: '', name: 'sensor', type: 'other', loaded: false, runtime: {nodes: []} })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'sensor',
+    type: 'other',
+    loaded: false,
+    runtime: {nodes: []},
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   return { runtime, directory }
 }
 async function pythonTool(directory, name, code, kind = 'perception', timeout = 10) {
@@ -39,7 +44,7 @@ const execScript = (runtime, input, invocation = {}) => runtime.tools.call('exec
   input, { sessionID: 'exec-test', ...invocation })
 
 test('exec runs ordinary source and files with normal globals, arguments and runtime access', async t => {
-  const { runtime, directory } = await fixture(t, { host })
+  const { runtime, directory } = await fixture(t, {host})
   const source = `import sys, os, __main__
 from kinex import args, robot
 assert __name__ == '__main__'
@@ -76,7 +81,7 @@ assert Path.cwd() == Path(__file__).parent.parent
 })
 
 test('exec isolates raw and subprocess output from RPC, bounds logs and carries large Unicode source', async t => {
-  const { runtime } = await fixture(t, { host })
+  const { runtime } = await fixture(t, {host})
   const python = `# ${'🦾画像'.repeat(100000)}
 import os, sys, subprocess
 from kinex import robot, finish
@@ -104,7 +109,7 @@ print('🦾 END')
 })
 
 test('exec preserves optional results and image attachments, and reports exit and RPC errors', async t => {
-  const { runtime, directory } = await fixture(t, { host })
+  const { runtime, directory } = await fixture(t, {host})
   const image = path.join(directory, 'frame.png')
   await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'))
   const response = await execScript(runtime, { python: 'from kinex import args, finish\nprint("before finish")\nfinish({"value": 0}, file=args()["image"])', args: { image: 'frame.png' } })
@@ -185,7 +190,7 @@ finish({'results': [inline(source, {'value': i}) for i in range(2)]})
 })
 
 test('exec reaps owned children even when they retain output pipes', { timeout: 20000 }, async t => {
-  const { runtime, directory } = await fixture(t, { host })
+  const { runtime, directory } = await fixture(t, {host})
   for (const python of [
     'print("parent done")',
     'from kinex import finish; finish({"done": True})',
@@ -207,7 +212,7 @@ ${python}
 })
 
 test('Python startup carries large Unicode arguments and inline source through nested calls', async t => {
-  const { runtime, directory } = await fixture(t, { host })
+  const { runtime, directory } = await fixture(t, {host})
   await pythonTool(directory, 'digest', `import hashlib, os, subprocess, sys
 from kinex import args, finish, robot
 robot()  # Must not consume the startup request as an RPC response.
@@ -236,7 +241,7 @@ finish(inline(a['source'], {'value': a['value']}))
 })
 
 test('large startup writes tolerate noisy tools and report early exit', async t => {
-  const { runtime, directory } = await fixture(t, { host })
+  const { runtime, directory } = await fixture(t, {host})
   await pythonTool(directory, 'noisy', `import os
 os.write(1, b'diagnostic\\n' * 100000)
 os.write(2, b'diagnostic\\n' * 100000)
@@ -256,7 +261,7 @@ finish(len(args()['value']))
 
 test('blocked startup writes respect cancellation and deadlines', { timeout: 20000 }, async t => {
   for (const mode of ['cancel', 'timeout']) await t.test(mode, async t => {
-    const { runtime, directory } = await fixture(t, { host })
+    const { runtime, directory } = await fixture(t, {host})
     const code = 'import time\ntime.sleep(30)\n'
     await pythonTool(directory, 'blocked', code, 'perception', 1)
     const args = { value: 'x'.repeat(3 * 1024 * 1024) }
@@ -360,10 +365,15 @@ test('core Python status is inert and initialization preserves the host Python p
 
 test('runtime discovery is read-only and exec does not borrow device interpreters', async t => {
   const {runtime, directory} = await fixture(t, {host})
-  await runtime.profiles.writeDevice({ description: '',name:'clock', type:'world', loaded:false,
-    runtime:{interpreter:'/must/not/run', nodes:[]}, operations:{
+  await runtime.profiles.writeDevice({ description: '',
+    name:'clock',
+    type:'world',
+    loaded:false,
+    runtime:{interpreter:'/must/not/run', nodes:[]},
+    operations:{
       time:{description:'Clock',transport:'topic',direction:'output',endpoint:'/time',type:'rosgraph_msgs/msg/Clock'},
-    }})
+    },
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const source = `import sys
 from kinex import runtime, finish
 finish({"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operations("clock")})`

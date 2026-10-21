@@ -36,7 +36,7 @@ for line in sys.stdin:
   await rm(python, {force:true})
   await writeFile(python, `#!${real}
 import os, sys
-executable = ${JSON.stringify(interpreter)} if sys.argv[-1] == 'kinex.ros_recording' else ${JSON.stringify(real)}
+executable = ${JSON.stringify(interpreter)} if sys.argv[-1] in ('kinex.ros_recording', 'kinex.ros_host') else ${JSON.stringify(real)}
 os.execv(executable, [executable, *sys.argv[1:]])
 `, {mode:0o755})
   for (const [name, type, operations] of [
@@ -46,7 +46,7 @@ os.execv(executable, [executable, *sys.argv[1:]])
   ]) {
     // status is a host verb; use a different public operation name.
     if (operations.status) { operations.health = operations.status; delete operations.status }
-    await runtime.profiles.writeDevice({ description: '', name, type, loaded: false, runtime: { interpreter },
+    await runtime.profiles.writeDevice({ description: '', name, type, frames: {base: {parent: null, translation_m: null, rotation_xyzw: null}}, loaded: false, runtime: { interpreter },
       operations: Object.fromEntries(Object.entries(operations).map(([key, op]) => [key,
         { ...op, description: key, transport: 'topic', direction: 'output' }])) })
     await (await runtime.devices.load(name)).ready

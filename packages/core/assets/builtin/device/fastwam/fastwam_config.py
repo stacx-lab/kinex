@@ -36,14 +36,14 @@ def make_profile(directory, variant, index=0):
         "access": {"source": "user", "connection": {"kind": "process", "compute": {"kind": "cuda", "index": index}},
                    "driver": {"entry": "driver.py", "interpreter": str(directory / "venv/bin/python"),
                               "actions": ["load", "unload", "status", "read", "infer"], "persistent": True, "timeout_s": 600}},
-        "intrinsics": {"source": "default", "family": "fastwam", "variant": variant,
+        "source": "default", "family": "fastwam", "variant": variant,
             "implementation": {"repository": "https://github.com/yuantianyuan01/FastWAM.git", "revision": REVISION},
             "artifacts": [{"name": f"artifact_{i}", "path": f"weights/{a['repo']}/{a['filename']}",
                            "source": {"kind": "huggingface", **{k: a[k] for k in ["repo", "revision", "filename"]}}}
                           for i, a in enumerate(artifacts)],
-            "operations": [{"name": "infer", "input": {"type": "object", "required": ["obs", "task"], "properties": fields},
+            "inference_contracts": [{"name": "infer", "input": {"type": "object", "required": ["obs", "task"], "properties": fields},
                             "output": {"type": "object", "required": ["actions"], "properties": {
                                 "actions": array(array({"type": "number"}, action), 32),
                                 "inference_s": {"type": "number", "minimum": 0},
-                            }}}]},
+                            }}}],
     }

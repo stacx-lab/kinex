@@ -29,7 +29,7 @@ export const ToolManifest = z.object({
     .default([])
     .describe("device TYPES that must have a loaded instance at execute time — the harness refuses the run otherwise"),
   device_inputs: z.record(z.string(), z.strictObject({ types: z.array(DeviceType).min(1), frame: z.literal(true).optional() })).default({}),
-  requires: z.string().optional().describe("comma-separated calibration selectors, e.g. intrinsics:rgb,access:model"),
+  requires: z.string().optional().describe("comma-separated calibration selectors, e.g. profile:rgb,access:model"),
 }).passthrough().refine(manifest => !("interpreter" in manifest), "Python tools use Kinex Python; declare separate interpreters on devices").superRefine((manifest, ctx) => {
   try {
     z.fromJSONSchema(manifest.parameters)

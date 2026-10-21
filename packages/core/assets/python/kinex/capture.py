@@ -11,14 +11,14 @@ from pathlib import Path
 def validate(profile, sample):
     import numpy as np
     color = np.asarray(sample["color"])
-    meta = profile["intrinsics"]["color"]
+    meta = profile["color"]
     if color.dtype != np.uint8 or color.shape != (meta["height"], meta["width"], 3):
         raise ValueError("color must be uint8 RGB at the profile resolution")
     number(sample.get("timestamp"), "timestamp")
     if profile["type"] != "rgbd":
         return sample
     depth = np.asarray(sample["depth"])
-    meta = profile["intrinsics"]["depth"]
+    meta = profile["depth"]
     if depth.dtype != np.uint16 or depth.shape != (meta["height"], meta["width"]):
         raise ValueError("depth must be uint16 at the profile resolution")
     valid = depth != meta["invalid_value"]
@@ -45,7 +45,7 @@ def save(profile, sample, directory, output="array"):
     Image.fromarray(sample["color"]).save(stream, format="PNG")
     images = {"color": stream.getvalue()}
     if profile["type"] == "rgbd":
-        meta = profile["intrinsics"]["depth"]
+        meta = profile["depth"]
         header = f'P5\n{meta["width"]} {meta["height"]}\n65535\n'.encode()
         images["depth"] = header + np.asarray(sample["depth"]).astype(">u2").tobytes()
     result = {"timestamp": sample["timestamp"]}
@@ -67,7 +67,7 @@ def arrays(profile, data):
     result = dict(data)
     for key in ("color", "depth") if profile["type"] == "rgbd" else ("color",):
         raw = base64.b64decode(data[key], validate=True)
-        meta = profile["intrinsics"][key]
+        meta = profile[key]
         with Image.open(io.BytesIO(raw)) as image:
             if image.size != (meta["width"], meta["height"]):
                 raise ValueError("camera dimensions differ from the profile")

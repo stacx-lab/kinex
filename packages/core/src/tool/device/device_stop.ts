@@ -33,7 +33,7 @@ export const DeviceStopTool = define("device_stop", {
     const lines = outcomes.map((outcome, index) => {
       if ("error" in outcome) return `${outcome.device}: ${outcome.error}`
       const device = targets[index]!
-      const stop = "stop" in device.intrinsics ? device.intrinsics.stop : undefined
+      const stop = "stop" in device ? device.stop : undefined
       const scope = stop && known(stop) ? ` (${stop.behavior}; affects ${stop.affected_devices.join(", ")})` : ""
       return `${device.name}: stopped${scope}`
     })

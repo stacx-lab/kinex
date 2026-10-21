@@ -22,7 +22,7 @@ class JointDeviceDriver(Driver):
         raise NotImplementedError("Set one absolute reference without waiting")
 
     def halt(self, handle):
-        raise NotImplementedError("Perform self.profile['intrinsics']['stop'] behavior")
+        raise NotImplementedError("Perform self.profile['stop'] behavior")
 
     def native_fk(self, handle, joints):
         raise NotImplementedError("Only for kinematics.fk:driver; return the solver tip pose in metres/xyzw")

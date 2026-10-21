@@ -1,8 +1,6 @@
 string owner
 string request_id
 float64 duration_s
-float64 until_s
-bool absolute
 ---
 bool success
 string message

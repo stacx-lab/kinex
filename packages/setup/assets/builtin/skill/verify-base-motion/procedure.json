@@ -10,19 +10,19 @@
   "requires": [
     {
       "role": "base",
-      "pointer": "/intrinsics/control/mode"
+      "pointer": "/control/mode"
     },
     {
       "role": "base",
-      "pointer": "/intrinsics/control/body_frame"
+      "pointer": "/control/body_frame"
     },
     {
       "role": "base",
-      "pointer": "/intrinsics/stop/behavior"
+      "pointer": "/stop/behavior"
     },
     {
       "role": "base",
-      "pointer": "/intrinsics/stop/affected_devices"
+      "pointer": "/stop/affected_devices"
     }
   ],
   "produces": [],

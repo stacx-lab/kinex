@@ -25,8 +25,7 @@ calib_compute runs bundled offline computations and archives their inputs. For c
 procedures use host tools and archive their output. Scripts use core Python and its
 library paths from context; missing dependencies require explicit environment repair.
 
-Servo waits its planned duration on a loaded world clock. Set block=false to return
-immediately. Direct device writes return immediately; use world.wait to allow execution.
+After submitting motion, wait on the loaded world's declared wait operation.
 Verify arrival with measured feedback. References do not prove arrival or contact.
 Respect the selected procedure's speed.
 calib_sample settling requires fresh measured velocities. With no such feedback, use

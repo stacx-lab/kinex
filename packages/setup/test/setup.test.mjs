@@ -24,7 +24,12 @@ async function fixture(t, host = allow) {
 }
 async function seed(runtime) {
   await runtime.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm', platform: 'real' } })
-  await runtime.profiles.writeDevice({ description: '', name: 'sensor', type: 'other', loaded: false, runtime: {nodes: []} })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'sensor',
+    type: 'other',
+    loaded: false,
+    runtime: {nodes: []},
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
 }
 const call = { sessionID: 'setup' }
 
@@ -102,10 +107,13 @@ test('URDF calibration borrows core model resolution and stores its result in se
   const arm = path.join(directory, '.kinex/devices/arm')
   await mkdir(arm, { recursive: true })
   await writeFile(path.join(arm, 'arm.urdf'), '<robot name="arm"><link name="base"/><link name="tip"/><joint name="j" type="revolute"><parent link="base"/><child link="tip"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="10" velocity="1"/></joint></robot>')
-  await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint', loaded: true,
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'arm',
+    type: 'joint',
+    loaded: true,
     runtime: {nodes: []},
-    intrinsics: { model: { format: 'urdf', path: 'arm.urdf', base_link: 'base', tip_link: 'tip' } },
-  })
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base', tip_link: 'tip' },
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const input = { operation: 'urdf-introspect', procedure: 'calibrate-joint-range', bindings: { arm: 'arm' } }
   await assert.rejects(setup.tools.call('calib_compute', input, { ...call,
     ask: async ({ permission }) => { throw new PermissionDeniedError(permission) },
@@ -144,14 +152,18 @@ test('onboarding and calibration share core profile writes and preserve planning
 test('calibration requests FK at the captured joint sample and stores poses separately', async t => {
   const { runtime, setup, directory } = await fixture(t)
   await seed(runtime)
-  await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint', loaded: false,
-    runtime: {nodes: []}, intrinsics: {
-      model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null }] },
-      frames: {},
-      kinematics: { frame: 'flange', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
-      home: null, control: { mode: 'position' }, feedback: { velocities: false, efforts: false },
-      stop: { behavior: 'hold', affected_devices: ['arm'] },
-    } })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'arm',
+    type: 'joint',
+    loaded: false,
+    runtime: {nodes: []},
+    model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null }] },
+    kinematics: { frame: 'flange', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
+    home: null,
+    control: { mode: 'position' },
+    feedback: { velocities: false, efforts: false },
+    stop: { behavior: 'hold', affected_devices: ['arm'] },
+    frames: {base: {parent: null, translation_m: null, rotation_xyzw: null}, flange: {parent: "arm:base", translation_m: null, rotation_xyzw: null}} })
   await protocolDevice(runtime, directory, 'arm', { ...(await runtime.devices.list()).find(d=>d.name==='arm'), operations: {fk: inputOperation('fk')}, handler: `
 def dispatch(action, args, owner, cancelled):
     if action == '$sample':
@@ -174,13 +186,18 @@ def dispatch(action, args, owner, cancelled):
 test('calibration settles hands on fresh feedback and computes FK after settle timeout', async t => {
   const { runtime, setup, directory } = await fixture(t)
   await seed(runtime)
-  await runtime.profiles.writeDevice({ description: '', name: 'hand', type: 'dexterous_hand', loaded: false,
-    runtime: {nodes: []}, intrinsics: {
-      model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null }] },
-      frames: {}, kinematics: { frame: 'tip', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
-      home: null, control: { mode: 'position' }, feedback: { velocities: true, efforts: false },
-      stop: { behavior: 'hold', affected_devices: ['hand'] },
-    } })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'hand',
+    type: 'dexterous_hand',
+    loaded: false,
+    runtime: {nodes: []},
+    model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null }] },
+    kinematics: { frame: 'tip', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
+    home: null,
+    control: { mode: 'position' },
+    feedback: { velocities: true, efforts: false },
+    stop: { behavior: 'hold', affected_devices: ['hand'] },
+    frames: {base: {parent: null, translation_m: null, rotation_xyzw: null}, tip: {parent: "hand:base", translation_m: null, rotation_xyzw: null}} })
   await protocolDevice(runtime, directory, 'hand', { ...(await runtime.devices.list()).find(d=>d.name==='hand'), operations: {fk: inputOperation('fk')}, handler: `stamp = 0
 def dispatch(action, args, owner, cancelled):
     global stamp
@@ -210,13 +227,16 @@ def dispatch(action, args, owner, cancelled):
 test('calibration archives both RGBD files and never appends an incomplete sample', async t => {
   const { runtime, setup, directory } = await fixture(t)
   await seed(runtime)
-  await runtime.profiles.writeDevice({ description: '', name: 'camera', type: 'rgbd', loaded: false,
-    runtime: {nodes: []}, intrinsics: {
-      color: { width: 1, height: 1, pixel_format: 'rgb8', image_format: 'png' },
-      depth: { width: 1, height: 1, pixel_format: 'uint16', image_format: 'pgm16_be',
-        registration: 'color', quantity: 'z', scale_m_per_unit: .001, invalid_value: 0,
-        valid_range_m: { min: .001, max: 65.535 } },
-    } })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'camera',
+    type: 'rgbd',
+    loaded: false,
+    runtime: {nodes: []},
+    color: { width: 1, height: 1, pixel_format: 'rgb8', image_format: 'png' },
+    depth: { width: 1, height: 1, pixel_format: 'uint16', image_format: 'pgm16_be',
+      registration: 'color', quantity: 'z', scale_m_per_unit: .001, invalid_value: 0,
+      valid_range_m: { min: .001, max: 65.535 } },
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const output = path.join(directory, '.kinex/devices/camera/out')
   await mkdir(output, { recursive: true })
   await writeFile(path.join(output, 'color.png'), 'color evidence')

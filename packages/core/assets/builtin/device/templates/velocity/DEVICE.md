@@ -15,7 +15,7 @@ Every profile requires a top-level `description` giving general device identity,
 capabilities and limitations. Every `operations.<name>.description` explains only
 that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
 Both descriptions are required strings; use an empty string when no text is known.
-Agents retrieve them through `runtime.device(name)` and `runtime.describe("device.operation")`.
+Read device and operation descriptions directly from `profile.yaml`.
 
 Start from the profile below, select the typed facts and fill unknowns from
 documentation or calibration. Use `???` for unresolved facts and `null` only where
@@ -56,7 +56,7 @@ the first write, with posture retained.
 
 Displacement may differ from velocity × duration; short commands may not visibly move.
 During authorized setup checks, measure response for each supported motion mode.
-Record observed thresholds in `intrinsics.control.modes.<mode>.response`:
+Record observed thresholds in `control.modes.<mode>.response`:
 
 - `min_abs_vel`: per-axis translational magnitudes, such as `{vx: 0.05}`.
 - `min_abs_w`: per-axis angular magnitudes, such as `{wz: 0.1}`.
@@ -81,18 +81,19 @@ access:
   method: unknown
   calibrated_at: null
   connection: ???
-intrinsics:
-  frames: {}
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  control: ???
-  feedback: ???
-  stop: ???
-extrinsics:
-  source: unknown
-description: ""
+description: ''
 runtime:
   nodes: []
 operations: {}
+source: unknown
+method: unknown
+calibrated_at: null
+control: ???
+feedback: ???
+stop: ???
+frames:
+  base:
+    parent: null
+    translation_m: null
+    rotation_xyzw: null
 ```

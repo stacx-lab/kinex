@@ -10,8 +10,12 @@ test('core alone validates calibration clears and reports readiness without proc
   const runtime = createKinexRuntime({ directory })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   await runtime.profiles.writeManifest({ identity: { id: 'existing', name: 'Existing', kind: 'arm', platform: 'real' } })
-  await runtime.profiles.writeDevice({ description: '', name: 'sensor', type: 'other', loaded: false,
-    access: { connection: '???', needs_calibration: 'verify connection' } })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'sensor',
+    type: 'other',
+    loaded: false,
+    access: { connection: '???', needs_calibration: 'verify connection' },
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const file = path.join(directory, '.kinex/devices/sensor/profile.yaml')
   const before = await readFile(file, 'utf8')
   const readiness = await runtime.readiness()

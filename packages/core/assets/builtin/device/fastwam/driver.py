@@ -76,7 +76,7 @@ def load(_args):
         if MODEL is not None:
             return status({})
         profile = settings()
-        variant = profile["intrinsics"]["variant"]
+        variant = profile["variant"]
         if variant not in VARIANTS:
             raise ValueError(f"Unsupported FastWAM variant: {variant}")
         connection = profile["access"]["connection"]

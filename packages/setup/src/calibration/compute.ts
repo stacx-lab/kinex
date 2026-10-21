@@ -78,9 +78,9 @@ async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSign
     if (args.operation === "fit-mount" || args.operation === "fit-dual") argv.push("--points", await archived(args.points))
     if (args.operation === "fit-tcp") {
       const target = await ProfileStore.readDevice(cwd, run.bindings.target ?? fail("Bind target"))
-      const mount = target?.extrinsics?.mount
-      if (!mount || mount === "???" || mount.parent !== run.bindings.arm || mount.parent_frame !== args.frame ||
-          mount.translation_m === "???" || mount.rotation_xyzw === "???") fail("TCP fitting requires a known mount in the sampled arm frame")
+      const mount = target && "frames" in target ? target.frames.base : undefined
+      if (!mount || mount.parent !== `${run.bindings.arm}:${args.frame}` ||
+          mount.translation_m === null || mount.rotation_xyzw === null) fail("TCP fitting requires a known mount in the sampled arm frame")
       argv.push("--samples", await archived(args.samples), "--frame", args.frame, "--mount", JSON.stringify(mount))
     }
     if (args.operation === "camera-extrinsics") argv.push("--samples", await archived(args.samples), "--mode", args.mode,
@@ -123,25 +123,25 @@ async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSign
     const measured = { source: "calibration", calibrated_at: new Date().toISOString() }
     if (args.operation === "camera-intrinsics") {
       const color = { width: data.width, height: data.height, projection: data.projection, distortion: data.distortion }
-      patches.push({ kind: "device", data: { name: target, intrinsics: { ...measured, method: args.board, color } } })
-      for (const [field, value] of Object.entries(color)) resolved.push({ device: target, pointer: `/intrinsics/color/${field}`, value })
+      patches.push({ kind: "device", data: { name: target, ...measured, method: args.board, color } })
+      for (const [field, value] of Object.entries(color)) resolved.push({ device: target, pointer: `/color/${field}`, value })
     } else if (args.operation === "fit-tcp") {
       const profile = await ProfileStore.readDevice(cwd, target)
-      const tcp = profile?.type === "gripper" ? profile.intrinsics.frames.tcp : undefined
-      const frame = { parent_frame: null, translation_m: data.tcp_translation_m,
+      const tcp = profile?.type === "gripper" ? profile.frames.tcp : undefined
+      const frame = { parent: `${target}:base`, translation_m: data.tcp_translation_m,
         rotation_xyzw: tcp?.rotation_xyzw ?? null }
-      if (tcp?.parent_frame) fail("TCP fitting requires tcp to be relative to the gripper base")
-      patches.push({ kind: "device", data: { name: target, intrinsics: { ...measured,
-        method: "tcp_pivot", frames: { tcp: frame } } } })
-      resolved.push({ device: target, pointer: "/intrinsics/frames/tcp/translation_m", value: frame.translation_m })
+      if (tcp && tcp.parent !== `${target}:base`) fail("TCP fitting requires tcp to be relative to the gripper base")
+      patches.push({ kind: "device", data: { name: target, ...measured,
+        method: "tcp_pivot", frames: { tcp: frame } } })
+      resolved.push({ device: target, pointer: "/frames/tcp/translation_m", value: frame.translation_m })
     } else if (["fit-mount", "fit-dual", "camera-extrinsics"].includes(args.operation)) {
       const parent = run.bindings.parent ?? run.bindings.anchor ?? run.bindings.arm ?? fail("Bind parent, anchor or arm")
-      const frame = args.operation === "fit-mount" ? args.parent_frame : args.operation === "fit-dual" ? parent :
-        args.operation === "camera-extrinsics" && args.mode === "eye_to_hand" ? parent : "frame" in args ? args.frame : parent
-      const mount = { parent, parent_frame: frame, translation_m: data.translation_m, rotation_xyzw: data.rotation_xyzw }
-      patches.push({ kind: "device", data: { name: target, extrinsics: { ...measured,
-        method: args.operation === "camera-extrinsics" ? "hand_eye" : "survey", mount } } })
-      for (const [field, value] of Object.entries(mount)) resolved.push({ device: target, pointer: `/extrinsics/mount/${field}`, value })
+      const frame = args.operation === "fit-mount" ? args.parent_frame : args.operation === "fit-dual" ? "base" :
+        args.operation === "camera-extrinsics" && args.mode === "eye_to_hand" ? "base" : "frame" in args ? args.frame : "base"
+      const mount = { parent: `${parent}:${frame}`, translation_m: data.translation_m, rotation_xyzw: data.rotation_xyzw }
+      patches.push({ kind: "device", data: { name: target, ...measured,
+        method: args.operation === "camera-extrinsics" ? "hand_eye" : "survey", frames: { base: mount } } })
+      for (const [field, value] of Object.entries(mount)) resolved.push({ device: target, pointer: `/frames/base/${field}`, value })
     }
   }
   const result = { version: 1, run: run.id, node: run.node, procedure: run.procedure, operation: args.operation,

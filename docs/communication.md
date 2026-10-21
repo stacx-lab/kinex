@@ -31,8 +31,8 @@ that needs a separate SDK environment declares `runtime.interpreter` and
 `runtime.overlays`; that environment never selects the Python used by exec,
 helpers or recording.
 
-The example shows runtime fields; a complete profile also includes intrinsics,
-extrinsics and metadata. Direction is from the device's perspective. A service
+The example shows runtime fields; a complete profile also includes top-level physical facts,
+explicit frames and calibration metadata. Direction is from the device's perspective. A service
 is an input. A topic can be an input or output. Operations describe the public
 communication interface; implementation details such as relay routes belong in
 node source files, not the operation catalog.
@@ -64,9 +64,9 @@ interface readiness; normal calls never restart failed nodes.
 
 Unload before changing definitions. Core fingerprints runtime fields, profile
 facts and node entrypoint source; changed definitions require explicit reload.
-Discovery remains read-only. Inside exec, use `from kinex import runtime`, then
+Read device and operation descriptions directly from profiles. Discovery remains
+read-only. Inside exec, use `from kinex import runtime`, then
 `runtime.devices()` for configured devices and host-known readiness,
-`runtime.device(name)` for the general device description,
 `runtime.operations(device)` for declared operations (including unloaded devices),
 and `runtime.describe("device.operation")` for protocol metadata and recursive
 ROS payload definitions. These queries never load devices or advance time.
@@ -132,16 +132,15 @@ are removed when the scope closes. Persistent services belong to device nodes.
 
 Async tools declare `async: true` in `tool.yaml` and export
 `async def main(args, io)`. Compose them using
-`from kinex.ros_tools import call` and `await call("servo", **arguments)`.
+`from kinex.ros_tools import call` and `await call(tool_name, **arguments)`.
 Composed tools share the invocation context. Standard script tools still use a
 script entrypoint. Neither form has a persistent lifecycle.
 
 ## World time
 
-The loaded world device provides `time`, `wait(duration_s)` and
-`wait_until(until_s)`. Realtime waits observe progress; stepped waits authorize
-shared world advancement. Concurrent waits do not sum their durations. Past
-absolute deadlines return immediately. A periodic loop must skip missed
+The recommended world interface provides `time`, relative `wait(duration_s)` and
+optional `reset`. Cancellation is protocol metadata, not a public operation. Realtime waits observe progress; stepped waits authorize
+shared world advancement. Concurrent waits do not sum their durations. A periodic loop must skip missed
 deadlines, and must not assume an expired wait produces a fresh observation.
 
 Subscriptions, TF lookup and calibration sampling never advance the world.
@@ -152,7 +151,8 @@ time-dependent observations.
 A service rejection raises `kinex.OperationError`. Its `operation`, `interface`,
 raw `response` and serializable `details` survive error reporting. Catch an
 expected terminal wait inside the same communication scope, inspect its response,
-and read official task status at or after the returned `time_s`. A rejected wait
+and inspect measurements at or after the returned `time_s`. Benchmark judging
+belongs to the environment operator, not device operations. A rejected wait
 alone does not establish success. Other failures must propagate. Create and
 validate all subscriptions before creating their `next()` coroutines so a missing
 operation cannot leave unawaited coroutines.
@@ -185,8 +185,12 @@ services.
 Kinex owns frame publication and composition. Device load automatically publishes
 known mounts and fixed internal frames from profiles on `/tf_static`; there is no
 profile switch for this. Unknown calibration never becomes an identity transform.
-The base frame is the device name, and local frames use `<device>/<frame>`, such
-as `arm/flange` and `gripper/tcp`.
+Profiles declare all frames in top-level `frames`, including `frames.base`.
+Every frame explicitly supplies `parent: device:frame`, or `parent: null` for an
+independent root whose transform values are ignored. Non-root null components
+mean unknown and publish no static edge. ROS frame IDs use `<device>/<frame>`,
+including `arm/base`, `arm/flange` and `gripper/tcp`. Kinex lookup accepts either
+qualified profile references (`arm:base`) or native ROS IDs (`arm/base`).
 
 An arm's explicit `kinematics.py` factory creates a persistent
 `kinex.ros_kinematics.KinematicsNode`. It reads the profile's URDF or serial-chain
@@ -203,8 +207,10 @@ in model order; IK takes a pose and seed. Both accept device-local `frame` and
 respectively. IK uses the model's bounded solver, enforces limits and verifies
 its result with FK. These services do not command motion.
 
-The world declares a `frames.py` factory for `kinex.ros_frame_graph.FrameGraphNode`.
-This Kinex-owned tf2 buffer serves `world.lookup_transform`. A world-clock rewind
+Kinex automatically owns a persistent tf2 service per runtime ROS domain.
+Import `helpers` from `kinex` and use `await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)`, which
+returns `TransformStamped`. Its internal endpoint is passed to exec outside the
+device catalog; no world operation or device factory registers it. A world-clock rewind
 invalidates dynamic history while retaining fixed calibration.
 
 The simulator supplies state and measurements, not TF or a transform-lookup
@@ -212,9 +218,9 @@ service. LIBERO camera nodes map image and `CameraInfo` frame IDs to the calibra
 device base frame, including on-demand captures. Camera projection/distortion
 uses `CameraInfo`; non-geometric properties remain in profiles.
 
-`relative_pose` uses tf2 and ROS frame IDs. Supply `timestamp` for a measurement
+`relative_pose` uses tf2 and accepts qualified frame references or ROS frame IDs. Supply `timestamp` for a measurement
 at a particular world time; omitting it explicitly requests the latest available
-transform. The world exposes a persistent tf2 lookup service, so a new
+transform. Kinex retains the tf2 service across exec calls, so a new
 invocation can query a paused world without waiting for another physics tick.
 Missing relationships and unavailable timestamps are errors.
 

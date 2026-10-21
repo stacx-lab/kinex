@@ -15,9 +15,10 @@ Keep physical facts and calibration in `profile.yaml`. Select the builtin type
 and validate its schema. Add a required device `description` for general identity,
 capabilities and limitations. Each operation also requires its own `description`
 for units, frames, timing, inputs/outputs and behavior; either may be empty.
-Retrieve descriptions through `runtime.device` and `runtime.describe` inside exec. Add `runtime` with an
-domain and optional node factories. Default nodes inherit Kinex Python and its
-overlays. Declare an interpreter and overlays only for a separate device SDK.
+Read descriptions directly from `profile.yaml`; use `runtime.describe` for ROS
+payload schemas when needed. Add `runtime` with a domain and optional node factories.
+Default nodes inherit Kinex Python and its overlays. Declare an interpreter and
+overlays only for a separate device SDK.
 Each factory exports `create(profile, context)` and returns an owned rclpy node.
 Core starts these nodes on load and closes them on unload.
 
@@ -56,8 +57,10 @@ Kinex automatically publishes known fixed profile transforms on `/tf_static`.
 Register an arm kinematics node backed by its URDF or serial-chain model for
 FK/IK services and measured endpoint transforms on `/tf`. Register the world's
 Kinex frame-graph node for persistent tf2 lookup. Simulators supply measurements
-and state without publishing TF. Device base frames use the device name; local
-frames use `<device>/<frame>`. Match camera payload frame IDs to their calibrated
+and state without publishing TF. Declare frames at the profile top level with explicit
+`parent: device:frame`, or `parent: null` for an independent root. Mounts are
+`frames.base`. ROS base IDs use `<device>/base`; all other local IDs use
+`<device>/<frame>`. Match camera payload frame IDs to their calibrated
 frames. Use tf2 at observation timestamps; missing calibration must not produce
 identity transforms.
 

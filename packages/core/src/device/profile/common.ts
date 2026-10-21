@@ -15,9 +15,8 @@ export const quaternion = z.tuple([z.number(), z.number(), z.number(), z.number(
 export const Pose = z.tuple([z.number(), z.number(), z.number(), z.number(), z.number(), z.number(), z.number()])
   .refine((v) => Math.abs(Math.hypot(...v.slice(3)) - 1) < 1e-6, "unit quaternion required")
 export const Transform = z.strictObject({ translation_m: field(xyz), rotation_xyzw: field(quaternion) })
-export const Mount = Transform.extend({ parent: z.string().min(1), parent_frame: z.string().min(1) })
 export const LocalFrame = z.strictObject({
-  parent_frame: z.string().min(1).nullable(),
+  parent: z.string().regex(/^[^:/]+:[^:/]+$/, "expected device:frame").nullable(),
   translation_m: xyz.nullable(),
   rotation_xyzw: quaternion.nullable(),
 })

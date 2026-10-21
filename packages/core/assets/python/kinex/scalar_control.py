@@ -11,7 +11,7 @@ def command(profile, args):
     actions = args.get("actions")
     if not isinstance(actions, list) or not actions:
         raise ValueError("actions must be a nonempty sequence of numbers")
-    control = profile["intrinsics"]["control"]
+    control = profile["control"]
     if not isinstance(control, dict):
         raise ValueError("This tool has no calibrated command interface")
     result = segment(args, {"actions": [target(control, value) for value in actions]})
@@ -56,7 +56,7 @@ def target(control, value):
 
 
 def reading(profile, sample):
-    feedback = profile["intrinsics"]["feedback"]
+    feedback = profile["feedback"]
     result = dict(sample)
     if profile["type"] == "gripper":
         for key in ("positions", "velocities", "frame_poses", "force_n", "pressure_pa", "object_detected"):
@@ -105,7 +105,7 @@ def reading(profile, sample):
 
 
 def stopped(profile):
-    stop = profile["intrinsics"]["stop"]
+    stop = profile["stop"]
     if not isinstance(stop, dict):
         raise ValueError("This tool has no calibrated stop interface")
     return {"stopped": True, "behavior": stop["behavior"], "affected_devices": stop["affected_devices"]}

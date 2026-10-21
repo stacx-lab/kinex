@@ -1,5 +1,5 @@
 """Locate a detected object in a stamped camera optical frame."""
-from kinex import profile
+from kinex import helpers, profile
 from kinex.object_location import detection_region, locate, select_detection
 
 
@@ -9,7 +9,7 @@ async def main(a, io):
     import os
     camera, model = a["camera"], a["model"]
     cam = profile(camera)
-    color = cam["intrinsics"]["color"]
+    color = cam["color"]
     capture = await io.request(f"{camera}.capture")
     image = capture.image
     if (image.width, image.height) != (color["width"], color["height"]):
@@ -24,7 +24,12 @@ async def main(a, io):
             raise ValueError("capture must include depth_image, or supply optical depth in metres")
         depth_path = save(capture.depth_image)
     try:
-        measured = locate(cam, region, depth_path=depth_path, depth=a.get("depth"))
+        relation = None
+        if depth_path and cam["depth"]["registration"] == "native":
+            tf = await helpers.lookup_transform(io, image.header.frame_id, capture.depth_image.header.frame_id, image.header.stamp)
+            t, q = tf.transform.translation, tf.transform.rotation
+            relation = {"translation_m": [t.x, t.y, t.z], "rotation_xyzw": [q.x, q.y, q.z, q.w]}
+        measured = locate(cam, region, depth_path=depth_path, depth=a.get("depth"), depth_to_color=relation)
     finally:
         if depth_path:
             os.unlink(depth_path)

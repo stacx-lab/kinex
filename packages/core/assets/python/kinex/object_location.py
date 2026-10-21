@@ -70,8 +70,8 @@ def _central(points):
     return np.argmin(np.sum((points - np.median(points, axis=0)) ** 2, axis=1))
 
 
-def locate(profile, region, *, depth_path=None, depth=None):
-    color = profile["intrinsics"]["color"]
+def locate(profile, region, *, depth_path=None, depth=None, depth_to_color=None):
+    color = profile["color"]
     if depth is not None:
         if number(depth, "depth") <= 0:
             raise ValueError("depth must be positive optical Z in metres")
@@ -79,7 +79,7 @@ def locate(profile, region, *, depth_path=None, depth=None):
         pixel = pixels[_central(pixels)]
         return {"point": (np.asarray(ray(color, *pixel)) * depth).tolist(), "pixel": pixel.tolist(), "depth_samples": 0}
 
-    meta = profile["intrinsics"]["depth"]
+    meta = profile["depth"]
     width, height, raw = read_depth(depth_path, meta)
     raw = np.asarray(raw).reshape(height, width)
     distances = raw.astype(float) * meta["scale_m_per_unit"]
@@ -97,7 +97,7 @@ def locate(profile, region, *, depth_path=None, depth=None):
     scale = distances / np.linalg.norm(rays, axis=1) if meta["quantity"] == "range" else distances
     points = rays * scale[:, None]
     if native:
-        transform = profile["extrinsics"].get("depth_to_color")
+        transform = depth_to_color
         if not isinstance(transform, dict) or any(transform.get(key) in (None, "???") for key in ("translation_m", "rotation_xyzw")):
             raise ValueError("native depth needs calibrated depth_to_color")
         rotation, translation = pose_to_rt({"translation": transform["translation_m"], "rotation": transform["rotation_xyzw"]})

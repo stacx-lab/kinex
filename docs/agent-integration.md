@@ -5,8 +5,8 @@
 Tools declare input schemas; Python manifests also declare capability kind and
 timeout. Composition preserves permissions and recording attribution. Device
 templates own setup/profile guidance only. Device and operation descriptions live
-in profile.yaml and are retrieved through runtime.device and runtime.describe in
-Python. Neither type usage nor instance DEVICE.md usage enters agent context.
+in profile.yaml, which agents read directly. Neither type usage nor instance
+DEVICE.md usage enters agent context.
 Workspace safety limits and keep-out zones remain manifest data, outside robot
 context; `safety.notes` is not a schema field.
 

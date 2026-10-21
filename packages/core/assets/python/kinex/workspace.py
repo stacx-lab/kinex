@@ -21,14 +21,14 @@ def _load(name="world"):
         return {}
     if world.get("type") != "world":
         fail(f'device "{name}" must have type world')
-    return world.get("intrinsics") or {}
+    return world
 
 
 def bounds():
     """Declared AABB, None when absent; null sides are open."""
     value = _load().get("bounds")
     if value == "???":
-        fail("intrinsics:world bounds are unknown")
+        fail("profile:world bounds are unknown")
     return value
 
 

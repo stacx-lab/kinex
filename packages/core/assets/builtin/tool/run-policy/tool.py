@@ -73,8 +73,8 @@ async def main(a, io):
             finally:
                 stream.close()
             seed = project_seed(measured_positions(state, entry["model"]["joints"]), entry["model"]["joints"])
-            base = name
-            ik_frame = f"{name}/{prof['intrinsics']['kinematics']['frame']}"
+            base = f"{name}/base"
+            ik_frame = f"{name}/{prof['kinematics']['frame']}"
             target_frame = spec.get("target_frame", ik_frame)
             reference = spec.get("frame", base)
             identity = [0, 0, 0, 0, 0, 0, 1]
@@ -107,7 +107,10 @@ async def main(a, io):
     if count == 0:
         return {"actions_submitted": 0, "duration_s": 0, "execution_ids": {}, "ik_failure": failure}
     seconds = count / a.get("action_hz", 10)
-    prepared = []
+    prepared, scalars = [], []
+    wait = f"{a.get('world', 'world')}.wait"
+    if any(entry["model"] is None for entry in plans) and wait not in io.catalog:
+        raise ValueError("scalar policy sequences require a loaded world wait operation")
     for entry in plans:
         name, prof = entry["name"], entry["profile"]
         samples = sequences[name][:count]
@@ -120,7 +123,8 @@ async def main(a, io):
             operation = f"{name}.joint_target"
         else:
             scalar_command(prof, command)
-            fields, operation = {"directions": command["actions"], "duration_s": seconds}, f"{name}.target"
+            fields, operation = {"target": command["actions"][0]}, f"{name}.target"
+            scalars.append((name, operation, command["actions"]))
         prepared.append((name, operation, fields))
     async def submit(name, operation, fields):
         identifier = await io.publish(operation, fields)
@@ -128,4 +132,12 @@ async def main(a, io):
             await io.accepted(operation, identifier)
         return name, identifier
     results = await asyncio.gather(*(submit(*entry) for entry in prepared))
+    # Scalar targets persist. Timing belongs to this workflow and the world,
+    # never a device-side duration or an unowned background worker.
+    if scalars:
+        for index in range(count):
+            if index:
+                results.extend(await asyncio.gather(*(submit(name, operation, {"target": values[index]})
+                                                     for name, operation, values in scalars)))
+            await io.request(wait, duration_s=seconds / count)
     return {"actions_submitted": count, "duration_s": seconds, "execution_ids": dict(results), "ik_failure": failure}

@@ -119,6 +119,7 @@ class Communication:
     def __init__(self, catalog=None, *, owner=None, domain_id=None):
         from kinex import _request
         startup = (_request or {}).get("ros", {})
+        self.frame_service = startup.get("frames") if catalog is None else None
         self.catalog = catalog if catalog is not None else startup.get("catalog", {})
         self.owner = owner or startup.get("owner") or uuid.uuid4().hex
         self.namespace = "/kinex/invocations/i_" + self.owner.encode().hex()
@@ -438,8 +439,9 @@ class Communication:
             raise ExceptionGroup("owned resource cleanup failed", failures)
 
     async def __aexit__(self, kind, error, traceback):
+        succeeded = error is None or isinstance(error, SystemExit) and error.code in (None, 0)
         try:
-            if error is None:
+            if succeeded:
                 for operation, (_, pending) in self.motion_pending.items():
                     for command_id in list(pending):
                         await self.accepted(operation, command_id)
@@ -452,7 +454,7 @@ class Communication:
                 except Exception as cleanup:
                     error.add_note(f"motion cleanup failed: {cleanup}")
         except BaseException:
-            if error is None:
+            if succeeded:
                 await self.cleanup_owned()
             raise
         finally:

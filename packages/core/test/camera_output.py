@@ -11,11 +11,10 @@ from kinex.capture import arrays, output_mode, save
 
 PROFILE = {
     "type": "rgbd",
-    "intrinsics": {
+
         "color": {"width": 2, "height": 2},
         "depth": {"width": 2, "height": 2, "invalid_value": 0,
                   "scale_m_per_unit": 0.001, "valid_range_m": {"min": 0.001, "max": 65.535}},
-    },
 }
 
 

@@ -38,7 +38,7 @@ def compute_placement():
 
 
 def checkpoint_path():
-    artifact = next(item for item in profile()["intrinsics"]["artifacts"] if item["name"] == "checkpoint")
+    artifact = next(item for item in profile()["artifacts"] if item["name"] == "checkpoint")
     checkpoint = (HERE / artifact["path"]).resolve()
     if not checkpoint.is_file():
         raise FileNotFoundError(f"checkpoint not provisioned: {checkpoint}")
@@ -70,7 +70,7 @@ def load():
 
 
 def operation_args(name, args):
-    operation = next(item for item in profile()["intrinsics"]["operations"] if item["name"] == name)
+    operation = next(item for item in profile()["inference_contracts"] if item["name"] == name)
     defaults = {key: value["default"] for key, value in operation["input"]["properties"].items() if "default" in value}
     return {**defaults, **args}
 

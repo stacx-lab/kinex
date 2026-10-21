@@ -82,7 +82,7 @@ test('Anthropic receives partial camera batches with images and per-device error
     { tool: 'devices', args: { calls: [{ deviceID: 'camera', action: 'read' }, { deviceID: 'missing', action: 'read' }] } },
     { text: 'batch inspected' },
   ] })
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await seed(app.owner.runtime)
   await protocolCamera(app.owner.runtime, cwd)
@@ -105,7 +105,7 @@ for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages
   test(`${api}: full request prefixes survive device/skill state changes and session reopen`, async t => {
     const cwd = await workspace(t)
     const requests = await wireProvider(t, api)
-    const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+    const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
     t.after(() => app.dispose())
     await seed(app.owner.runtime)
     await bind(app)
@@ -144,7 +144,7 @@ for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages
 test('same-task discovery: new tools and skill catalogs appear on the next request', async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await bind(app)
   const skill = '---\nname: instant-skill\ndescription: Instant new skill\n---\nSKILL_BODY_V1'
@@ -197,7 +197,7 @@ for (const profile of [
       { tool: 'late' },
       { text: 'done' },
     ] })
-    const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+    const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
     t.after(() => app.dispose())
     await bind(app)
     await app.host.session.prompt('create, use, remove and redefine a tool')
@@ -239,7 +239,7 @@ test('same-task tool implementation edits take effect without changing the tool 
   await mkdir(directory, { recursive: true })
   const source = version => `export default {description:'Stable description',execute:async()=>({title:'stable',output:'IMPLEMENTATION_${version}'})}`
   await writeFile(path.join(directory, 'stable_tool.ts'), source('V1'))
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await bind(app)
   fake.steps.push(
@@ -271,7 +271,7 @@ test('same-task tool interface edits, discovery errors, recovery and deletion re
     description:'Updated interface',parameters:z.object({value:z.string()}),
     execute:async(args)=>({title:'new',output:'UPDATED:'+args.value})
   }`
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await bind(app)
   fake.steps.push(
@@ -301,7 +301,7 @@ test('same-task tool interface edits, discovery errors, recovery and deletion re
 test('a batch refresh appends context after every tool result and does not duplicate unchanged snapshots', async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await bind(app)
   fake.steps.push(
@@ -355,9 +355,15 @@ test('device load state never changes model prefixes or injects operation catalo
   const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(()=>app.dispose())
   await seed(app.owner.runtime)
-  await app.owner.runtime.profiles.writeDevice({ description: 'GENERAL_DESCRIPTION_MARKER',name:'clock',type:'world',loaded:false,runtime:{nodes:[]},operations:{
-    secret_clock:{description:'CATALOG_ONLY_MARKER',transport:'topic',direction:'output',type:'rosgraph_msgs/msg/Clock',endpoint:'/clock'},
-  }})
+  await app.owner.runtime.profiles.writeDevice({ description: 'GENERAL_DESCRIPTION_MARKER',
+    name:'clock',
+    type:'world',
+    loaded:false,
+    runtime:{nodes:[]},
+    operations:{
+      secret_clock:{description:'CATALOG_ONLY_MARKER',transport:'topic',direction:'output',type:'rosgraph_msgs/msg/Clock',endpoint:'/clock'},
+  },
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await bind(app)
   for (const prompt of ['before load','after load','after unload','unchanged']) {
     if (prompt==='after load') await (await app.owner.runtime.devices.load('sensor')).ready
@@ -370,6 +376,9 @@ test('device load state never changes model prefixes or injects operation catalo
   }
   const first=fake.requests[0]
   const prefix=request=>request.messages.filter(m=>['system','developer'].includes(m.role))
+  assert.match(JSON.stringify(prefix(first)), /Read device and operation descriptions directly from each device's profile\.yaml/)
+  assert.doesNotMatch(JSON.stringify(prefix(first)), /lookup_transform/)
+  assert.match(first.tools.find(tool => tool.function.name === 'exec').function.description, /kinex\/helpers\.txt/)
   for(const request of fake.requests) {
     assert.deepEqual(prefix(request),prefix(first))
     assert.deepEqual(request.tools,first.tools)

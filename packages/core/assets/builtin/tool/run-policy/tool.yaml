@@ -1,5 +1,5 @@
 name: run_policy
-description: "Infer once and submit the shared valid action prefix concurrently. Returns actions_submitted, duration_s, execution_ids (device to submission ID) and ik_failure. Use max_actions to cap the execution horizon for receding horizon control. IK rejection returns normally, including an empty prefix, with diagnostic ik_failure (device, zero-based action_index, error), or null. Execution is asynchronous."
+description: "Infer once and submit the shared valid action prefix concurrently. Returns actions_submitted, duration_s, execution_ids (device to submission ID) and ik_failure. Use max_actions to cap the execution horizon for receding horizon control. IK rejection returns normally, including an empty prefix, with diagnostic ik_failure (device, zero-based action_index, error), or null. Joint-only submission is asynchronous. Chunks containing scalar devices publish persistent targets paced by world waits before returning; the final target remains active."
 parameters:
   type: object
   additionalProperties: false
@@ -37,6 +37,10 @@ parameters:
     task:
       type: string
       description: task or goal handed to the model, e.g. a language instruction
+    world:
+      type: string
+      default: world
+      description: World device providing relative wait for scalar action pacing.
     action_hz:
       type: number
       exclusiveMinimum: 0

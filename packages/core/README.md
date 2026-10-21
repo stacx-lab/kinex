@@ -22,24 +22,24 @@ capabilities. Hosts own permissions, sessions, cancellation and compaction.
 
 Each `.kinex/devices/<name>/profile.yaml` requires `type` and `description`.
 The description gives general identity, capabilities and limitations. Typed
-intrinsics/extrinsics retain their existing schema checks. Type does not imply
+Top-level physical facts and explicit frames retain typed schema checks. Type does not imply
 an operation name or payload.
 
 `operations.<name>` requires its own `description`, transport, direction, endpoint
 and ROS type. Describe only that operation: units, frames, timing, input/output
 conventions, errors and effects. Both descriptions are required strings and may
-be empty. Runtime clients read them on demand, including while unloaded:
+be empty. Read descriptions directly from `profile.yaml`. Query runtime metadata
+and ROS payload schemas when needed, including while unloaded:
 
 ```python
 from kinex import runtime, finish
 names = runtime.devices()             # small identity/readiness list
-info = runtime.device("sensor")       # general description
 ops = runtime.operations("sensor")    # operation metadata
-spec = runtime.describe("sensor.sample")  # description and recursive ROS schemas
-finish({"device": info, "sample": spec})
+spec = runtime.describe("sensor.sample")  # recursive ROS payload schemas
+finish({"sample": spec})
 ```
 
-These calls never load a device or advance time. `device` and `operations` do not
+These calls never load a device or advance time. `devices` and `operations` do not
 import ROS; `describe` resolves installed interface definitions without ROS init.
 Catalogs and descriptions stay in Python until selected for output.
 
@@ -176,8 +176,8 @@ Optional `description` supplies a short lowercase TUI label, such as `inspect ar
 
 ```json
 {
-  "description": "inspect device contract",
-  "python": "from kinex import runtime, finish\nfinish(runtime.device('sensor'))"
+  "description": "list devices",
+  "python": "from kinex import runtime, finish\nfinish(runtime.devices())"
 }
 ```
 
@@ -220,8 +220,8 @@ the original failure is returned; successful completion may leave submitted
 motion running. Use `kinex.stop_owned()` to request a stop and receive cleanup
 errors, including in a `finally` block around a control loop.
 
-`call("servo", device="left_arm", joints=target)` and `call("servo", **params)`
-use keyword arguments, not a positional dictionary. In contrast,
+`call(tool_name, **params)` uses keyword arguments, not a positional dictionary.
+In contrast,
 `device("world", "wait", {"duration_s": duration})` accepts an argument dictionary.
 `call` composes Python tools or `device`/`devices`, not host tools such as shell
 or file editing. `exec`, manifest tools and inline Python share the execution runner.
@@ -232,6 +232,21 @@ remain diagnostics. Importing the library outside a tool dialog is inert.
 provide discovery. `finish(result, file=...)` selects results and images for the
 agent. Device operation payloads follow declared ROS interfaces.
 
+For pure joint trajectory planning in exec:
+
+```python
+from kinex import helpers
+
+# joints: resolved joint definitions; start/target: positions in model order.
+plan = helpers.trajectory(joints, start, target, period_s=0.01, fraction=0.15)
+```
+
+`plan.actions` contains synchronized joint references and `plan.duration_s` their
+planned duration. The helper performs no device I/O. Scripts obtain measured
+positions, resolve IK if needed, encode and submit the plan through the declared
+command operation, wait on the world clock and verify arrival. For timestamped
+points, sample `i` (starting at 1) occurs at `i * plan.duration_s / len(plan.actions)`.
+
 ## Development
 
 Run `npm run build`, `npm run test:core`, or the complete `npm run check` from the
@@ -241,3 +256,14 @@ checks verify actual topics, services, world timing, recording and tf2 separatel
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+Device type guides recommend ROS patterns; the workspace descriptions define the
+actual interface. A gripper target can be a persistent scalar with no duration,
+with aperture measured on a separate state topic. `communication.publish` manages
+ownership and acknowledgements without exposing acquisition as a device operation.
+
+Within `async with communication() as io`, use
+`await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)` for Kinex-owned
+persistent tf2 history. Transform lookup is independent of world operations and
+never advances world time. See [the helper index](assets/python/kinex/helpers.txt)
+for available functions and their implementations.

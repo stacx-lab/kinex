@@ -55,7 +55,7 @@ class KinematicsNode(Node):
             # Measured positions are never clamped to commanded joint limits.
             pose = self.model.fk(joints)["pose"]
             self.broadcaster.sendTransform(transform(
-                self.base, frame_id(self.base, self.frame), pose, message.header.stamp))
+                frame_id(self.base), frame_id(self.base, self.frame), pose, message.header.stamp))
             self.observed, self.error = True, None
         except (ValueError, KeyError) as error:
             self.error = str(error)

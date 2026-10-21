@@ -1,7 +1,17 @@
 """Publish calibrated rigid transforms; tf2 owns live frame composition."""
 
 def frame_id(device, frame=None):
-    return f"{device}/{frame}" if frame and frame != device else device
+    return f"{device}/{frame or 'base'}"
+
+
+def ros_frame(reference):
+    """Translate a qualified Kinex reference; native ROS frame IDs pass through."""
+    if ":" not in reference:
+        return reference
+    parts = reference.split(":")
+    if len(parts) != 2 or not all(parts) or any("/" in part for part in parts):
+        raise ValueError("Kinex frame references must be device:frame")
+    return "/".join(parts)
 
 
 def dynamic_qos():
@@ -32,13 +42,11 @@ def publish_profile(node, profile):
             return  # Unknown calibration never becomes identity.
         transforms.append(transform(parent, child, [*translation, *rotation]))
     name = profile["name"]
-    mount = profile.get("extrinsics", {}).get("mount")
-    if isinstance(mount, dict):
-        parent = frame_id(mount["parent"], mount["parent_frame"])
-        add(parent, name, mount.get("translation_m"), mount.get("rotation_xyzw"))
-    for frame, value in profile.get("intrinsics", {}).get("frames", {}).items():
-        parent = frame_id(name, value.get("parent_frame"))
-        add(parent, frame_id(name, frame), value.get("translation_m"), value.get("rotation_xyzw"))
+    for frame, value in profile.get("frames", {}).items():
+        parent = value["parent"]
+        if parent is None:
+            continue  # Root transforms have no spatial meaning.
+        add(ros_frame(parent), frame_id(name, frame), value.get("translation_m"), value.get("rotation_xyzw"))
     if not transforms:
         return []
     broadcaster = StaticTransformBroadcaster(node)
