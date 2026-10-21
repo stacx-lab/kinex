@@ -44,7 +44,7 @@ def handle(action, args):
             close_service(service)
         return {"loaded": False}
     config = profile()
-    names = [operation["name"] for operation in config["intrinsics"].get("operations", [])]
+    names = [operation["name"] for operation in config.get("inference_contracts", [])]
     if config["type"] in {"detection", "segmentation"}:
         names.append("detect")
     if action != "load" and action not in names:

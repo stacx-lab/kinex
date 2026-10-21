@@ -1,12 +1,14 @@
 Persist profile facts in the workspace:
-- robot: partial manifest; identity requires id, name, platform and kind initially.
-- device: partial profile; name is required, type and description on first write. Use setup-device and the selected guide for new devices.
+- robot: partial manifest; identity requires id, name and kind initially.
+- device: partial profile; name is required, type and description on first write, plus frames.base for spatial devices. Use setup-device and the selected guide for new devices.
 - needed: {item,note?}; queue the reason without changing existing provenance.
 
-Patches deep-merge. To switch a strict variant, supply the complete top-level section and list it in replace (e.g. ["intrinsics"]). Arrays replace wholesale. null removes an optional section only when listed in replace. Changing device type replaces its profile. Invalid updates are not saved.
+Patches deep-merge. To switch a strict variant, supply the complete top-level section and list it in replace (e.g. ["model"]). Arrays replace wholesale. null removes an optional section only when listed in replace. Changing device type replaces its profile. Invalid updates are not saved.
 
-Outstanding requests persist across reads and replacements. Clear a resolved request with needs_calibration:null in its section; the store rejects clearing incomplete facts. Unknown required facts remain ???. Set source to the origin of the data; keep diagnostics in calibration evidence.
+Outstanding requests persist across reads and replacements. Clear a resolved request with top-level needs_calibration:null for profile:<device> (or in access for access:<device>); the store rejects clearing incomplete facts. Unknown required facts remain ???. Set source to the origin of the data; keep diagnostics in calibration evidence.
 
 New devices use loaded:false; activation uses the device tool (action="load") or /load, not profile edits. Profiles live at .kinex/devices/<name>/profile.yaml beside node sources, using the nearest .kinex/ in the current directory or its ancestors (the current directory's .kinex/ if none exists). Validation errors identify fields and the guide to consult.
 
 Device description gives general identity, capabilities and limitations. Each operation requires its own description for payload conventions and behavior; both descriptions are required strings and may be empty. Typed templates guide setup, while actual operation names are device-specific.
+
+Physical facts (model, control, color, frames, etc.) are top-level. Every frame requires parent: device:frame or null for an independent root; there is no implicit parent. Root transform components are ignored. Non-root null components mean unknown, never identity. Mounts are frames.base.

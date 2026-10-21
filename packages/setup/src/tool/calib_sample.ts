@@ -46,8 +46,8 @@ export const CalibSampleTool = define("calib_sample", {
     const settle = args.settle
     const count = (() => {
       if (!settle) return 0
-      if (isJoint(device) && known(device.intrinsics.feedback) && device.intrinsics.feedback.velocities) return deviceJoints(device).length
-      if (device.type === "velocity" && known(device.intrinsics.feedback) && known(device.intrinsics.feedback.velocity_components)) return device.intrinsics.feedback.velocity_components.length
+      if (isJoint(device) && known(device.feedback) && device.feedback.velocities) return deviceJoints(device).length
+      if (device.type === "velocity" && known(device.feedback) && known(device.feedback.velocity_components)) return device.feedback.velocity_components.length
       return 0
     })()
     if (settle && !count) throw new Error("settling requires declared measured velocities")

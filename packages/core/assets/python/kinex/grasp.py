@@ -5,7 +5,7 @@ from kinex.validation import number
 
 
 def target(profile, postures, name, closure=1.0):
-    control = profile["intrinsics"]["control"]
+    control = profile["control"]
     if profile.get("type") != "dexterous_hand" or control["mode"] != "position":
         raise ValueError("A joint-controlled dexterous hand is required")
     amount = number(closure)

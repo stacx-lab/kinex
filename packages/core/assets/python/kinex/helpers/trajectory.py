@@ -39,7 +39,20 @@ def planning_limits(joints, max_velocity=None, max_acceleration=None):
 
 
 def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, check_limits=True, start_tolerance=0):
-    """Plan a full synchronized quintic; return its references and duration."""
+    """Plan synchronized rest-to-rest quintic joint references without device I/O.
+
+    joints contains model-ordered joint definitions; start and target use that
+    order. Returns Trajectory(actions, duration_s), excluding the start sample
+    and including the target. Continuous joints take the shortest angular path.
+    period_s bounds sample spacing: sample i (starting at 1) occurs at
+    i * duration_s / len(actions). fraction (0..1] scales velocity/acceleration
+    limits. Overrides may be scalars or per-joint lists, capped by known limits.
+    Defaults are 1 rad/s and 3 rad/s², or 0.1 m/s and 0.3 m/s² for prismatic
+    joints. With check_limits, start_tolerance permits bounded recovery from
+    an out-of-limit start; the target must satisfy limits.
+
+    Example: helpers.trajectory(joints, start, target, period_s=0.01)
+    """
     start = joint_target(start, joints, check_limits=False)
     target = joint_target(target, joints, check_limits=check_limits)
     if check_limits:

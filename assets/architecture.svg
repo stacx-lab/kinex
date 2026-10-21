@@ -26,7 +26,7 @@
   <rect x="380" y="196" width="480" height="108" rx="12" fill="#dbeafe" stroke="#3b82f6"/>
   <text x="400" y="228" class="heading">Tools</text>
   <text x="400" y="258" class="body">Executable perception, computation and control</text>
-  <text x="400" y="284" class="example">Examples: locate_object_3d · servo · calib_sample</text>
+  <text x="400" y="284" class="example">Examples: locate_object_3d · calib_sample</text>
 
   <rect x="380" y="366" width="480" height="108" rx="12" fill="#dcfce7" stroke="#22c55e"/>
   <text x="400" y="398" class="heading">Devices</text>

@@ -1,7 +1,7 @@
 import { deviceFrames } from "../device/profile/frames.ts"
 import { ProfileStore, type ProfileSnapshot } from "../device/profile/store.ts"
 import { readinessPlan, type ReadinessPlan } from "../device/profile/readiness.ts"
-import { isModel, devicePoseFeedback, deviceMount, known, type Device } from "../device/profile/schema.ts"
+import { isModel, deviceMount, known, type Device } from "../device/profile/schema.ts"
 
 function deviceLine(device: Device): string {
   return `    ${device.name} (${device.type})${device.loaded ? "" : " [UNLOADED]"}`
@@ -16,8 +16,7 @@ function mountTreeLines(devices: Device[]): string[] {
     if (device.type === "world" || isModel(device)) continue
     const mount = deviceMount(device)
     if (mount === undefined || !known(mount)) {
-      const feedback = devicePoseFeedback(device)
-      if (device.type === "velocity" || device.type === "legged_base" || (feedback !== undefined && known(feedback) && feedback.pose_frame === null)) continue
+      if ("frames" in device && device.frames.base?.parent === null) continue
       unplaced.push(device.name)
       continue
     }
@@ -27,14 +26,13 @@ function mountTreeLines(devices: Device[]): string[] {
     const notes: string[] = []
     if (onNamedFrame) notes.push(`on ${mount.parent_frame}`)
     else if (mount.parent_frame && mount.parent_frame !== mount.parent) notes.push(`on ${mount.parent_frame}`)
-    if (mount.dynamic) notes.push("dynamic")
-    else if (!known(mount.translation_m) || !known(mount.rotation_xyzw)) notes.push("pose ???")
+    if (mount.translation_m === null || mount.rotation_xyzw === null) notes.push("pose unknown")
     const list = children.get(mount.parent) ?? []
     list.push({ name: device.name, note: notes.length > 0 ? ` (${notes.join(", ")})` : "" })
     children.set(mount.parent, list)
   }
   if (children.size === 0 && unplaced.length === 0) return []
-  const lines = ["  frame tree (mounts and measured roots; named frames belong to intrinsics, see relative_pose):"]
+  const lines = ["  frame tree (mounts and measured roots; named frames are declared in profiles):"]
   const visited = new Set<string>()
   const render = (parent: string, depth: number) => {
     for (const child of children.get(parent) ?? []) {
@@ -51,7 +49,7 @@ function mountTreeLines(devices: Device[]): string[] {
     lines.push(`    ${root} (itself not placed)`)
     render(root, 1)
   }
-  if (unplaced.length > 0) lines.push(`    unplaced (extrinsics ???): ${unplaced.sort().join(", ")}`)
+  if (unplaced.length > 0) lines.push(`    unplaced (base transform unknown): ${unplaced.sort().join(", ")}`)
   return lines
 }
 
@@ -95,7 +93,7 @@ export async function renderRobotSummary(cwd: string, snapshot?: ProfileSnapshot
   const devices = state.devices
   if (devices.length > 0) {
     lines.push(`  profiles: ${await ProfileStore.workspaceDir(cwd)}/devices/<name>/profile.yaml`)
-    lines.push("  devices (inspect descriptions with runtime.device and runtime.describe):")
+    lines.push("  devices:")
     for (const device of devices) {
       lines.push(deviceLine(device))
     }

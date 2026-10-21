@@ -7,6 +7,7 @@ import fs from "node:fs/promises"
 import { ConfigPaths } from "../../config/paths.ts"
 import { exists } from "../../util/filesystem.ts"
 import { toYaml } from "../../util/yaml.ts"
+import { frameErrors } from "./frames.ts"
 import { RobotManifest, Device } from "./schema.ts"
 import { create } from "../../util/log.ts"
 
@@ -15,12 +16,12 @@ const object = z.record(z.string(), z.unknown())
 export interface ProfileSnapshot { robot?: RobotManifest; devices: Device[] }
 
 // Explicit replacement applies only to supplied top-level sections.
-function mergeSections(existing: Record<string, unknown>, patch: Record<string, unknown>, replace: readonly string[], allowed: readonly string[]) {
+function mergeSections(existing: Record<string, unknown>, patch: Record<string, unknown>, replace: readonly string[], allowed: readonly string[], removable: readonly string[] = ["access"]) {
   const merged = deepMerge(existing, patch)
   for (const key of replace) {
     if (!allowed.includes(key) || !Object.hasOwn(patch, key)) throw new Error(`replace needs a supplied section: ${key}`)
     if (patch[key] === null) {
-      if (!["access", "extrinsics"].includes(key)) throw new Error(`cannot remove required section ${key}`)
+      if (!removable.includes(key)) throw new Error(`cannot remove required section ${key}`)
       delete merged[key]
       continue
     }
@@ -34,6 +35,10 @@ function mergeSections(existing: Record<string, unknown>, patch: Record<string, 
 
 async function validateClears(cwd: string, patch: Record<string, unknown>, snapshot: ProfileSnapshot, name?: string) {
   const { checkReadinessItem } = await import("./readiness.ts")
+  if (name && patch.needs_calibration === null) {
+    const check = await checkReadinessItem(cwd, snapshot, `profile:${name}`)
+    if (!check.done) throw new Error(`cannot clear profile:${name}: ${check.detail}`)
+  }
   for (const [key, value] of Object.entries(patch)) {
     if (object.safeParse(value).data?.needs_calibration !== null) continue
     const item = name ? `${key}:${name}` : Object.entries(ROBOT_ITEMS).find(([, section]) => section === key)?.[0]
@@ -62,7 +67,7 @@ const ROBOT_ITEMS = {
   "devices-declared": "devices",
   safety: "safety",
 } as const
-const DEVICE_SECTIONS = ["access", "intrinsics", "extrinsics"] as const
+const DEVICE_SECTIONS = ["access", "profile"] as const
 type DeviceSection = (typeof DEVICE_SECTIONS)[number]
 
 type ResolvedItem = { kind: "robot"; section: string } | { kind: "device"; section: DeviceSection; name: string }
@@ -74,7 +79,7 @@ function resolveItem(itemID: string): ResolvedItem {
     const name = itemID.slice(colon + 1)
     const section = DEVICE_SECTIONS.find((entry) => entry === head)
     if (!section)
-      throw new Error(`unknown calibration item "${itemID}" — device items are access:<device>, intrinsics:<device>, extrinsics:<device>`)
+      throw new Error(`unknown calibration item "${itemID}" — device items are access:<device>, profile:<device>`)
     if (!name) throw new Error(`device item "${itemID}" needs a device name suffix, e.g. ${head}:wrist_cam`)
     return { kind: "device", section, name }
   }
@@ -167,17 +172,15 @@ export const ProfileStore = {
     const existing = (await readYaml(file)) ?? {}
     if (existing.loaded && existing.runtime && ["runtime", "operations"].some(key => key in patch && JSON.stringify(patch[key]) !== JSON.stringify(existing[key])))
       throw new Error("unload before changing runtime definitions or operations")
-    // Merging across union variants would interleave two intrinsics shapes —
+    // Merging across union variants would interleave unrelated fact shapes —
     // a retype replaces the file wholesale instead.
     const retyped = typeof existing["type"] === "string" && typeof patch["type"] === "string" && existing["type"] !== patch["type"]
-    if (replace.includes("extrinsics") && patch.extrinsics === null && !["model", "detection", "segmentation", "world"].includes(String(patch.type ?? existing.type)))
-      throw new Error("cannot remove required section extrinsics")
-    const merged = mergeSections(retyped ? {} : existing, patch, replace, [...DEVICE_SECTIONS, "runtime", "operations"])
+    const merged = mergeSections(retyped ? {} : existing, patch, replace, Object.keys(patch), ["access", "runtime", "geometry"])
     const now = new Date().toISOString()
     const meta = (retyped ? undefined : (merged["meta"] as Record<string, unknown> | undefined)) ?? { created_at: now }
     merged["meta"] = { ...meta, updated_at: now }
-    const device = await resolveDeviceModel(Device.parse(merged), path.dirname(file), retyped || Object.keys(object.safeParse(patch.intrinsics).data ?? {}).some((key) => key !== "needs_calibration"))
-    if (Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null)) {
+    const device = await resolveDeviceModel(Device.parse(merged), path.dirname(file), retyped || ["model", "kinematics", "geometry", "home", "control", "feedback", "stop"].some(key => key in patch))
+    if (patch.needs_calibration === null || Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null)) {
       const snapshot = await ProfileStore.snapshot(cwd)
       await validateClears(cwd, patch, { ...snapshot, devices: [...snapshot.devices.filter((entry) => entry.name !== device.name), device] }, device.name)
     }
@@ -190,7 +193,7 @@ export const ProfileStore = {
     if (!raw) return undefined
     const parsed = Device.safeParse(raw)
     if (!parsed.success) {
-      throw new NamedError("DeviceProfileError", `${name}: invalid profile; add device and operation descriptions (empty strings are allowed) and replace legacy access.driver with runtime.nodes and operations. ${parsed.error.message}`)
+      throw new NamedError("DeviceProfileError", `${name}: invalid profile; use top-level facts and frames.base with explicit device:frame parents (null for roots); intrinsics/extrinsics wrappers are no longer supported. ${parsed.error.message}`)
     }
     return resolveDeviceModel(parsed.data, await ProfileStore.deviceDir(cwd, name))
   },
@@ -205,6 +208,19 @@ export const ProfileStore = {
       if (device) devices.push(device)
     }
     return devices
+  },
+
+  async validateFrames(cwd: string, name: string): Promise<void> {
+    const devices = await ProfileStore.listDevices(cwd)
+    const required = new Set([name])
+    for (const current of required) {
+      const device = devices.find(device => device.name === current)
+      if (!device || !("frames" in device)) continue
+      for (const frame of Object.values(device.frames))
+        if (frame.parent !== null) required.add(frame.parent.split(":")[0]!)
+    }
+    const errors = frameErrors(devices.filter(device => required.has(device.name)))
+    if (errors.length) throw new NamedError("DeviceFrameError", errors.join("; "))
   },
 
   // The /load and /unload switch: whether the agent may read from the device.
@@ -228,7 +244,7 @@ export const ProfileStore = {
       if (note) entries.push({ item, note })
     }
     for (const device of devices) for (const section of DEVICE_SECTIONS) {
-      const note = device[section]?.needs_calibration
+      const note = (section === "profile" ? device : device.access)?.needs_calibration
       if (note) entries.push({ item: `${section}:${device.name}`, note })
     }
     return entries
@@ -246,7 +262,7 @@ export const ProfileStore = {
       if (!device) throw new Error(`unknown device "${resolved.name}" — declare it first`)
       const { checkReadinessItem } = await import("./readiness.ts")
       await checkReadinessItem(cwd, await ProfileStore.snapshot(cwd), itemID)
-      await ProfileStore.writeDevice(cwd, { name: resolved.name, [resolved.section]: { needs_calibration: fix } })
+      await ProfileStore.writeDevice(cwd, { name: resolved.name, ...(resolved.section === "profile" ? { needs_calibration: fix } : { access: { needs_calibration: fix } }) })
       return
     }
     await ProfileStore.writeManifest(cwd, {
@@ -257,7 +273,7 @@ export const ProfileStore = {
   async clearNeeded(cwd: string, itemID: string): Promise<void> {
     const resolved = resolveItem(itemID)
     if (resolved.kind === "device") {
-      await ProfileStore.writeDevice(cwd, { name: resolved.name, [resolved.section]: { needs_calibration: null } })
+      await ProfileStore.writeDevice(cwd, { name: resolved.name, ...(resolved.section === "profile" ? { needs_calibration: null } : { access: { needs_calibration: null } }) })
       return
     }
     await ProfileStore.writeManifest(cwd, { [resolved.section]: { needs_calibration: null } })

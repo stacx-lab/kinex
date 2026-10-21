@@ -64,8 +64,6 @@ Reusable Python tools declare their schema in `tool.yaml`. Async entries export
 Perception and control share one execution approval. Tools and their temporary
 communication resources end with the invocation; model state persists in devices.
 
-For example, `servo` plans and publishes a trajectory, observes its acceptance,
-and waits on the world by default. Arrival still requires measured feedback.
 `relative_pose` queries tf2; camera intrinsics are carried in CameraInfo.
 
 Python tools and `exec` preserve permissions, cancellation and motion ownership;

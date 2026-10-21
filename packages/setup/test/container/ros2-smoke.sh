@@ -12,10 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 DOCKERFILE
 # Do not join the host's robot network or expose hardware devices.
-docker run --rm --network none -v "$root:/src:ro" "$tag" timeout -k 5 60 bash -c '
+docker run --rm --network none -v "$root:/src:ro" "$tag" timeout -k 5 120 bash -c '
   set -euo pipefail
   set +u
   source "/opt/ros/$ROS_DISTRO/setup.bash"
+  cd /tmp
+  colcon build --base-paths /src/packages/core/assets/ros/kinex_interfaces --executor sequential
+  source install/setup.bash
   set -u
   export ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=1 PYTHONDONTWRITEBYTECODE=1
   export PYTHONPATH="/src/packages/core/assets/python:/src/packages/setup/assets/python:/src/packages/setup/test${PYTHONPATH:+:$PYTHONPATH}"

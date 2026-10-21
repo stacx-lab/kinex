@@ -24,27 +24,51 @@ strings are allowed; absent descriptions are invalid. Do not invent unknown fact
 `runtime` declares domain, namespace, optional SDK interpreter/overlays, owned
 node factories and readiness timeout. `operations` declares topic/service
 transport, direction, endpoint, ROS type, QoS and any ownership/cancellation
-metadata. `intrinsics`, `extrinsics`, access provenance and calibration markers
-retain typed schema validation. `loaded` is lifecycle intent; status reports live
+metadata. Physical facts (`model`, `control`, `color`, `frames`, etc.) are top-level
+fields with typed validation. One device-level `source`, `method`, `calibrated_at`
+and `needs_calibration` record covers calibration. `loaded` is lifecycle intent; status reports live
 readiness. Unknown facts use `???`; null has only the schema-defined meaning.
 
 Builtin DEVICE.md files are setup templates, including profile examples. They
 help authors write device/operation descriptions and register nodes. Their Use
 sections are removed; no type or instance usage text enters runtime context.
-Agents query `runtime.devices()`, `runtime.device(name)`,
-`runtime.operations(name)` and `runtime.describe("device.operation")` inside exec.
-These work on unloaded profiles and never start nodes. Stable prompt prefixes do
-not change when descriptions, device catalogs or load state change.
+Agents read descriptions directly from profiles. Inside exec, `runtime.devices()`
+and `runtime.operations(name)` provide discovery; `runtime.describe("device.operation")`
+resolves ROS payload schemas when needed. These work on unloaded profiles and
+never start nodes. Stable prompt prefixes do not change when descriptions,
+device catalogs or load state change.
 
 ### Frames and poses
 
-Extrinsics place the device base in a parent frame. A device can declare several
-local frames in `intrinsics.frames`, with validated parent references and acyclic
-relationships. Null transform components mean unknown, never identity. Kinex
-publishes known fixed transforms to tf2. Kinematics nodes derive moving frames
-from measured joint state and the model. Query transforms at observation stamps.
-Simulators supply measurements and state; they do not own Kinex frame publication.
-Camera intrinsics use CameraInfo, not TF.
+Every spatial device declares `frames.base`. Each frame explicitly names its
+parent as `device:frame`; `parent: null` makes it an independent root and its
+transform values are ignored. Omitting `parent` is invalid, including when the
+parent would be the device's own base. For example:
+
+```yaml
+frames:
+  base:
+    parent: world:base
+    translation_m: [0, 0, 0]
+    rotation_xyzw: [0, 0, 0, 1]
+  flange:
+    parent: arm:base
+    translation_m: null
+    rotation_xyzw: null
+```
+
+Non-root null transform components mean unknown, never identity. Kinex publishes
+complete fixed edges to tf2. Model frames are explicitly declared with null
+components; kinematics nodes supply their transforms from measured joint state.
+References must exist and be acyclic. ROS IDs use `device/frame`; inherent
+`kinex.helpers.lookup_transform` accepts these IDs or qualified `device:frame` references.
+Query at observation stamps. Simulator nodes supply measurements and state;
+they do not own Kinex frame publication.
+
+Camera projection/distortion parameters use CameraInfo, not TF. Native RGB-D
+profiles declare `color` and `depth` frames and resolve depth-to-color geometry
+through tf2. A model service needs no spatial frames. Calibration procedures write
+top-level facts and `frames.<name>`, using `profile:<device>` readiness items.
 
 ## Nodes
 

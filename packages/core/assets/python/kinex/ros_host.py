@@ -84,6 +84,17 @@ class DeviceHost:
                     self.io.node.destroy_client(client)
 
     async def run(self, action, args, owner):
+        if action == "$frames":
+            from kinex.ros_frame_graph import FrameGraphNode
+            self.io = await communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).__aenter__()
+            self.io.frame_service = {"endpoint": args["endpoint"], "type": "kinex_interfaces/srv/LookupTransform"}
+            self.graph = FrameGraphNode(args["clock"], args["endpoint"], self.io.context)
+            self.io.extra_nodes.append(self.graph)
+            self.io.executor.add_node(self.graph)
+            return {"ready": True}
+        if action == "$frame_device":
+            self.graph.buffer.device(args["name"], args["active"])
+            return {"ready": True}
         if action == "load":
             return await self.load(args["profile"], args.get("clock"))
         if action == "unload":
@@ -92,7 +103,8 @@ class DeviceHost:
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
-                await self.stop()
+                if self.profile is not None:
+                    await self.stop()
                 await self.io.__aexit__(None, None, None)
                 self.io = None
             return {"unloaded": True}

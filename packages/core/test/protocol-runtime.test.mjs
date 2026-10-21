@@ -25,7 +25,10 @@ const exec = (runtime, python, extra={}) => runtime.tools.call('exec',{python},{
 const events = async dir => (await readFile(path.join(dir,'events.jsonl'),'utf8')).trim().split('\n').map(JSON.parse)
 
 test('device and operation descriptions are required strings and accept empty text',()=>{
- const base={name:'device',type:'other',meta:{created_at:'',updated_at:''}}
+ const base={ name:'device',
+   type:'other',
+   meta:{created_at:'',updated_at:''},
+   frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } }
  assert.throws(()=>Device.parse(base),/description/)
  assert.equal(Device.parse({...base,description:''}).description,'')
  for(const value of [null,42]) assert.throws(()=>Device.parse({...base,description:value}),/description/)
@@ -38,7 +41,13 @@ test('device and operation descriptions are required strings and accept empty te
 test('descriptions are discovered unloaded without ROS imports; type does not determine operations',async t=>{
  const {runtime,directory}=await fixture(t)
  for(const [name,operation] of [['one','temperature'],['two','distance']])
-   await runtime.profiles.writeDevice({name,type:'other',description:`General ${name}`,loaded:false,runtime:{interpreter:'/never/start'},operations:{[operation]:{...outputOperation(operation),description:`Operation ${name}`}}})
+   await runtime.profiles.writeDevice({ name,
+     type:'other',
+     description:`General ${name}`,
+     loaded:false,
+     runtime:{interpreter:'/never/start'},
+     operations:{[operation]:{...outputOperation(operation),description:`Operation ${name}`}},
+     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
  const result=await exec(runtime,`import sys
 from kinex import runtime, finish
 assert 'rclpy' not in sys.modules
@@ -60,11 +69,16 @@ finish({'device':one,'ops':runtime.operations('two'),'devices':runtime.devices()
 
 test('legacy profiles fail with actionable migration diagnostics',async t=>{
  const {runtime,directory}=await fixture(t)
- await runtime.profiles.writeDevice({name:'old',type:'other',description:'',loaded:true,access:{connection:{kind:'mock'}}})
+ await runtime.profiles.writeDevice({ name:'old',
+   type:'other',
+   description:'',
+   loaded:true,
+   access:{connection:{kind:'mock'}},
+   frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
  await assert.rejects(runtime.devices.dispatch('old','read'),/legacy.*no longer supported/)
  const file=path.join(directory,'.kinex/devices/old/profile.yaml')
  await writeFile(file,"name: old\ntype: other\naccess: {driver: {entry: driver.py}}\n")
- await assert.rejects(runtime.devices.list(),/add device and operation descriptions.*replace legacy access.driver/)
+ await assert.rejects(runtime.devices.list(),/top-level facts and frames.base/)
 })
 
 test('host startup, out-of-order results, cancellation and reload preserve operation identity',async t=>{
@@ -106,8 +120,8 @@ for(const mode of ['success','failure','cancel']) test(`managed calls enroll cle
  const approvals=[]
  const {runtime,directory}=await fixture(t,{host:{ask:async p=>approvals.push(p.permission)}})
  const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true,operations:{
-  move:{...outputOperation('move'),direction:'input',motion:{acquire:'/a',stop:'/s',status:'/c'}},
-  stop:{...inputOperation('stop'),type:'kinex_interfaces/srv/Stop'},
+   move:{...outputOperation('move'),direction:'input',motion:{acquire:'/a',stop:'/s',status:'/c'}},
+   stop:{...inputOperation('stop'),type:'kinex_interfaces/srv/Stop'},
  }})
  const tail=mode==='failure'?"raise RuntimeError('task failed')":mode==='cancel'?'import time;time.sleep(10)':"finish({'ok':True})"
  const result=await exec(runtime,`from kinex import device, finish\ndevice('sensor','move',{'value':1})\n${tail}`,mode==='cancel'?{signal:AbortSignal.timeout(500)}:{})
@@ -136,7 +150,7 @@ test('separate runtimes own separate node processes and disposal does not close 
 test('composed inline operations keep the parent owner and timeout cleans owned requests',async t=>{
  const {runtime,directory}=await fixture(t)
  const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true,operations:{
-  wait:{...inputOperation('wait'),cancellation:{endpoint:'/cancel',type:'kinex_interfaces/srv/CancelWait'}},
+   wait:{...inputOperation('wait'),cancellation:{endpoint:'/cancel',type:'kinex_interfaces/srv/CancelWait'}},
  }})
  const result=await runtime.tools.call('exec',{timeout_s:1,python:`from kinex import device, inline
 first=device('sensor','wait')

@@ -23,7 +23,7 @@ def load(config):
     if connection["kind"] != "process" or compute["kind"] not in ("cpu", "cuda"):
         raise ValueError("Grounding DINO requires a CPU or CUDA process connection")
     device = f"cuda:{compute['index']}" if compute["kind"] == "cuda" else "cpu"
-    artifact = next(item for item in config["intrinsics"]["artifacts"] if item["name"] == "checkpoint")
+    artifact = next(item for item in config["artifacts"] if item["name"] == "checkpoint")
     checkpoint = (HERE / artifact["path"]).resolve()
     if not (checkpoint / "model.safetensors").is_file():
         raise FileNotFoundError(f"checkpoint not provisioned: {checkpoint}")
@@ -88,7 +88,7 @@ def handle(action, args):
     load(config)
     if action == "load":
         return {"loaded": True}
-    operation = next(item for item in config["intrinsics"]["operations"] if item["name"] == "detect")
+    operation = next(item for item in config["inference_contracts"] if item["name"] == "detect")
     defaults = {key: value["default"] for key, value in operation["input"]["properties"].items() if "default" in value}
     return detect({**defaults, **args})
 

@@ -15,7 +15,7 @@ Every profile requires a top-level `description` giving general device identity,
 capabilities and limitations. Every `operations.<name>.description` explains only
 that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
 Both descriptions are required strings; use an empty string when no text is known.
-Agents retrieve them through `runtime.device(name)` and `runtime.describe("device.operation")`.
+Read device and operation descriptions directly from `profile.yaml`.
 
 Start from the profile below, select the typed facts and fill unknowns from
 documentation or calibration. Use `???` for unresolved facts and `null` only where
@@ -36,63 +36,64 @@ loaded: false
 access:
   source: unknown
   connection: ???
-intrinsics:
-  frames: {}
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  control:
-    device_modes:
-      crouched_down:
-        description: Crouched down; not driving.
-        transitions:
-          - drive
-      drive:
-        description: Locomotion control enabled; movement uses velocity commands.
-        transitions:
-          - crouched_down
-    skills: {}
-    write:
-      type: object
-      properties:
-        mode:
-          type: string
-          enum:
-            - drive
-            - crouched_down
-        velocity:
-          type: object
-          properties:
-            vx:
-              type: number
-            vy:
-              type: number
-            wz:
-              type: number
-          required:
-            - vx
-            - vy
-            - wz
-        posture:
-          type: object
-          properties:
-            pitch:
-              type: number
-            height:
-              type: number
-          required:
-            - pitch
-            - height
-        duration_s:
-          type: number
-          minimum: 0.1
-      required:
-        - mode
-  stop: ???
-extrinsics:
-  source: unknown
-description: ""
+description: ''
 runtime:
   nodes: []
 operations: {}
+source: unknown
+method: unknown
+calibrated_at: null
+control:
+  device_modes:
+    crouched_down:
+      description: Crouched down; not driving.
+      transitions:
+      - drive
+    drive:
+      description: Locomotion control enabled; movement uses velocity commands.
+      transitions:
+      - crouched_down
+  skills: {}
+  write:
+    type: object
+    properties:
+      mode:
+        type: string
+        enum:
+        - drive
+        - crouched_down
+      velocity:
+        type: object
+        properties:
+          vx:
+            type: number
+          vy:
+            type: number
+          wz:
+            type: number
+        required:
+        - vx
+        - vy
+        - wz
+      posture:
+        type: object
+        properties:
+          pitch:
+            type: number
+          height:
+            type: number
+        required:
+        - pitch
+        - height
+      duration_s:
+        type: number
+        minimum: 0.1
+    required:
+    - mode
+stop: ???
+frames:
+  base:
+    parent: null
+    translation_m: null
+    rotation_xyzw: null
 ```

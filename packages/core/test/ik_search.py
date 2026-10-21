@@ -53,7 +53,7 @@ class SearchTests(unittest.TestCase):
 
     def test_python_profile_rejects_legacy_search(self):
         profile = simple_profile()
-        profile["intrinsics"]["kinematics"]["ik"]["search"] = {}
+        profile["kinematics"]["ik"]["search"] = {}
         with self.assertRaisesRegex(ValueError, "renamed to budget"):
             JointDevice(profile)
 
@@ -69,7 +69,7 @@ class SearchTests(unittest.TestCase):
 
     def test_restarts_recover_a_reachable_panda_target(self):
         profile = copy.deepcopy(PANDA)
-        profile["intrinsics"]["kinematics"]["ik"]["budget"] = {"max_attempts": 1}
+        profile["kinematics"]["ik"]["budget"] = {"max_attempts": 1}
         with self.assertRaisesRegex(ValueError, "IK search exhausted"):
             JointDevice(profile).ik(RECOVERY["goal"], RECOVERY["seed"])
         model = JointDevice(PANDA)
@@ -137,8 +137,8 @@ class SearchTests(unittest.TestCase):
 
     def test_native_ik_normalizes_before_independent_fk_verification(self):
         profile = simple_profile()
-        profile["intrinsics"]["model"]["joints"][0]["limits"] = {"min": -10, "max": 10}
-        profile["intrinsics"]["kinematics"]["ik"].update(
+        profile["model"]["joints"][0]["limits"] = {"min": -10, "max": 10}
+        profile["kinematics"]["ik"].update(
             backend="driver", frame_to_solver=[0, 0, 0, 0, 0, 0, 1])
         model = JointDevice(profile, native_ik=Mock(return_value=[math.tau + .2]))
         target = model.fk([.2])["pose"]
@@ -240,7 +240,7 @@ class SearchTests(unittest.TestCase):
 
     def test_continuous_and_prismatic_ik_and_native_backend(self):
         profile = simple_profile()
-        joint = profile["intrinsics"]["model"]["joints"][0]
+        joint = profile["model"]["joints"][0]
         joint.update(type="continuous", limits=None)
         model = JointDevice(profile)
         result = model.ik(model.fk([.2])["pose"], [10*math.pi])

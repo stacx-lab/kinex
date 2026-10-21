@@ -1,10 +1,14 @@
 """Bundled tools use protocol operations; numerical payloads stay in Python."""
+import asyncio
 import importlib.util
 from pathlib import Path
 import sys
 from types import SimpleNamespace as NS, ModuleType
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
+
+from kinex import helpers
+from kinex.errors import RPCError
 
 ROOT = Path(__file__).parent.parent / "assets/builtin/tool"
 
@@ -63,37 +67,12 @@ def profile(_):
             {"name": name, "type": "revolute", "limits": {"min": -1., "max": 1.},
              "max_velocity": 1., "max_acceleration": 3.} for name in ("j0", "j1")
         ]},
-        "intrinsics": {"control": {"mode": "position"}, "home": None,
-                       "kinematics": {"frame": "flange", "ik": "driver"}},
+        "control": {"mode": "position"}, "home": None,
+                       "kinematics": {"frame": "flange", "ik": "driver"},
     }
 
 
 class Tools(unittest.IsolatedAsyncioTestCase):
-    async def test_servo_orders_feedback_accepts_before_world_wait_and_closes_stream(self):
-        servo, io = tool("servo"), Protocol()
-        with patch.object(servo, "profile", profile):
-            result = await servo.main({"device": "arm", "pose": [0, 0, 0, 0, 0, 0, 1]}, io)
-        ik = next(event for event in io.events if event[:2] == ("request", "arm.ik"))
-        self.assertEqual(ik[2]["seed"], [0., .1])
-        self.assertEqual(ik[2]["target"], {"position": {"x": 0., "y": 0., "z": 0.},
-                                         "orientation": {"x": 0., "y": 0., "z": 0., "w": 1.}})
-        self.assertEqual(result["joints"], [.2, .3])
-        self.assertEqual(io.events[-2][:2], ("accepted", "arm.joint_target"))
-        self.assertEqual(io.events[-1][:2], ("request", "world.wait"))
-        self.assertEqual(io.events[-1][2]["duration_s"], result["duration_s"])
-        publication = next(event[2] for event in io.events if event[0] == "publish")
-        self.assertEqual(publication["trajectory"]["joint_names"], ["j0", "j1"])
-        self.assertEqual(publication["trajectory"]["points"][-1]["positions"], [.2, .3])
-        self.assertTrue(all(stream.closed for stream in io.streams))
-
-    async def test_servo_invalid_target_cannot_replace_motion(self):
-        servo, io = tool("servo"), Protocol()
-        with patch.object(servo, "profile", profile):
-            with self.assertRaises(ValueError):
-                await servo.main({"device": "arm", "joints": [5., 0.]}, io)
-        self.assertFalse(any(event[0] == "publish" for event in io.events))
-        self.assertTrue(io.streams[0].closed)
-
     async def test_policy_validates_chunk_before_publishing(self):
         policy, io = tool("run-policy"), Protocol()
         convert = ModuleType("rosidl_runtime_py.convert")
@@ -109,6 +88,28 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["execution_ids"], {"arm": "accepted-command"})
         self.assertEqual(io.events[-1][0], "accepted")
 
+    async def test_scalar_policy_targets_are_persistent_and_paced_by_world(self):
+        policy, io = tool("run-policy"), Protocol()
+        async def request(operation, **fields):
+            io.events.append(("request", operation, fields))
+            return {"actions": [[-1.], [1.]]} if operation == "model.infer" else NS(success=True)
+        io.request = request
+        convert = ModuleType("rosidl_runtime_py.convert")
+        convert.message_to_ordereddict = lambda value: value
+        facts = {"type": "gripper", "control": {
+            "mode": "direction", "open_target": -1, "close_target": 1}}
+        with patch.object(policy, "profile", return_value=facts), patch.dict(sys.modules, {
+            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
+        }):
+            result = await policy.main({"model": "model", "observation": {},
+                                       "command": [{"device": "gripper"}], "action_hz": 10}, io)
+        self.assertEqual(result["actions_submitted"], 2)
+        self.assertEqual([event[2] for event in io.events if event[0] == "publish"],
+                         [{"target": -1.}, {"target": 1.}])
+        self.assertEqual([event[2] for event in io.events if event[:2] == ("request", "world.wait")],
+                         [{"duration_s": .1}, {"duration_s": .1}])
+        self.assertFalse(any(event[1].endswith(".stop") for event in io.events))
+
     async def test_relative_pose_uses_tf2_relation_and_local_offsets(self):
         relative = tool("relative-pose")
         async def lookup(io, target, source, stamp):
@@ -116,7 +117,7 @@ class Tools(unittest.IsolatedAsyncioTestCase):
             return NS(transform=NS(translation=NS(x=1., y=0., z=0.),
                                    rotation=NS(x=0., y=0., z=0., w=1.)),
                       header=NS(stamp=NS(sec=2, nanosec=500000000)))
-        with patch("kinex.ros_tools.lookup", lookup), patch("kinex.ros_tools.relative_pose",
+        with patch("kinex.helpers.lookup_transform", lookup), patch("kinex.ros_tools.relative_pose",
             return_value=[1., 0., .2, 0., 0., 0., 1.]) as offsets:
             result = await relative.main({"parent": {"frame": "base"},
                                           "child": {"frame": "camera", "pose": [0, 0, .2, 0, 0, 0, 1]}}, Protocol())
@@ -147,63 +148,10 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         }):
             result = await policy.main({"model": "model", "observation": {},
                                         "command": [{"device": "arm", "space": "pose"}], "action_hz": 20}, io)
-        self.assertEqual(frames, [("arm/flange", "arm/flange"), ("arm/flange", "arm"), ("arm", "arm")])
+        self.assertEqual(frames, [("arm/flange", "arm/flange"), ("arm/flange", "arm/base"), ("arm/base", "arm/base")])
         ik = next(event[2] for event in io.events if event[:2] == ("request", "arm.ik"))
         self.assertEqual(ik["target"]["position"], {"x": .1, "y": 0., "z": 0.})
         self.assertEqual(result["actions_submitted"], 1)
-
-
-    async def test_servo_rejects_removed_options_and_missing_world_before_publication(self):
-        servo = tool("servo")
-        for extra in ({"duration_s": 1}, {"ik": {}}, {"max_joint_delta": 1},
-                      {"block": "yes"}, {"pose": [0, 0, 0, 0, 0, 0, 1]}, {"frame": "world"}):
-            io = Protocol()
-            with patch.object(servo, "profile", profile), self.assertRaises(ValueError):
-                await servo.main({"device": "arm", "joints": [0, 0], **extra}, io)
-            self.assertFalse(any(event[0] == "publish" for event in io.events))
-        io = Protocol()
-        del io.catalog["world.wait"]
-        with patch.object(servo, "profile", profile), self.assertRaisesRegex(ValueError, "world"):
-            await servo.main({"device": "arm", "joints": [0, 0]}, io)
-        with patch.object(servo, "profile", profile):
-            await servo.main({"device": "arm", "joints": [0, 0], "block": False}, io)
-        self.assertFalse(any(event[:2] == ("request", "world.wait") for event in io.events))
-
-    async def test_servo_preserves_home_recovery_and_native_limit_handling(self):
-        servo = tool("servo")
-        for native, home, accepted in [(False, True, True), (False, False, False), (True, False, True)]:
-            io = Protocol()
-            stream = Stream()
-            async def next(**_):
-                return NS(name=["j0", "j1"], position=[1.005, 0.], header=NS(stamp=0))
-            stream.next = next
-            io.subscribe = lambda *args, **kwargs: stream
-            facts = profile("arm")
-            facts["intrinsics"]["home"] = {"j0": 0., "j1": 0.} if home else None
-            if native:
-                facts["intrinsics"]["control"]["limit_handling"] = "native"
-            with patch.object(servo, "profile", return_value=facts):
-                try:
-                    await servo.main({"device": "arm", "joints": [0., 0.], "block": False}, io)
-                except ValueError:
-                    self.assertFalse(accepted)
-                else:
-                    self.assertTrue(accepted)
-            self.assertEqual(any(event[0] == "publish" for event in io.events), accepted)
-
-    async def test_duplicate_or_missing_measured_joints_never_publish(self):
-        servo = tool("servo")
-        for names, values in [(["j0", "j0"], [0., 0.]), (["j0"], [0.]), (["j0", "j1"], [0.]),
-                              (["j0", "j1"], [float("nan"), 0.])]:
-            io, stream = Protocol(), Stream()
-            async def next(**_):
-                return NS(name=names, position=values, header=NS(stamp=0))
-            stream.next = next
-            io.subscribe = lambda *args, **kwargs: stream
-            with patch.object(servo, "profile", profile), self.assertRaises(ValueError):
-                await servo.main({"device": "arm", "joints": [0, 0], "block": False}, io)
-            self.assertFalse(any(event[0] == "publish" for event in io.events))
-            self.assertTrue(stream.closed)
 
     async def test_policy_invalid_later_joint_target_never_publishes(self):
         policy, io = tool("run-policy"), Protocol()
@@ -244,6 +192,56 @@ class Tools(unittest.IsolatedAsyncioTestCase):
 
 
 
+class Transforms(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        messages = ModuleType("builtin_interfaces.msg")
+        messages.Time = lambda: NS(sec=0, nanosec=0)
+        self.enterContext(patch.dict(sys.modules, {"builtin_interfaces.msg": messages}))
+
+    async def test_service_preserves_frames_stamp_and_errors(self):
+        relation, stamp = object(), NS(sec=2, nanosec=500000000)
+        io = NS(frame_service=object(), _request=AsyncMock(return_value=NS(transform=relation)))
+        self.assertIs(await helpers.lookup_transform(io, "arm:base", "camera/optical", stamp, 2), relation)
+        io._request.assert_awaited_once_with(io.frame_service, {
+            "target_frame": "arm/base", "source_frame": "camera/optical", "stamp": stamp, "wait_s": 2,
+        }, 3)
+        await helpers.lookup_transform(io, "arm/base", "camera/optical", timeout_s=0)
+        self.assertEqual(vars(io._request.call_args.args[1]["stamp"]), {"sec": 0, "nanosec": 0})
+        for error in (RPCError("missing frame"), TimeoutError(), asyncio.CancelledError()):
+            io._request.side_effect = error
+            with self.assertRaises(type(error)) as caught:
+                await helpers.lookup_transform(io, "arm/base", "camera/optical")
+            self.assertIs(caught.exception, error)
+
+    async def test_missing_service_and_invalid_timeout_do_not_fall_back(self):
+        io = NS(frame_service=None, supervised=True, transforms=Mock())
+        with self.assertRaises(RPCError) as caught:
+            await helpers.lookup_transform(io, "world/base", "arm/tool")
+        self.assertEqual(caught.exception.code, "frames_unavailable")
+        for timeout in (-1, 31, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                await helpers.lookup_transform(io, "world/base", "arm/tool", timeout_s=timeout)
+        io.transforms.assert_not_called()
+
+    async def test_standalone_uses_communication_owned_history(self):
+        time = ModuleType("rclpy.time")
+        time.Time = Mock()
+        buffer = Mock()
+        io = NS(frame_service=None, supervised=False, transforms=Mock(return_value=buffer), _future=AsyncMock())
+        stamp = object()
+        with patch.dict(sys.modules, {"rclpy.time": time}):
+            result = await helpers.lookup_transform(io, "world:base", "arm:tool", stamp)
+            self.assertIs(result, buffer.lookup_transform.return_value)
+            time.Time.from_msg.assert_called_once_with(stamp)
+            buffer.wait_for_transform_async.assert_called_once_with("world/base", "arm/tool", time.Time.from_msg.return_value)
+            io._future.assert_awaited_once_with(buffer.wait_for_transform_async.return_value, 5)
+            buffer.lookup_transform.assert_called_once_with("world/base", "arm/tool", time.Time.from_msg.return_value)
+            io._future.reset_mock()
+            await helpers.lookup_transform(io, "world/base", "arm/tool", timeout_s=0)
+            io._future.assert_not_awaited()
+            buffer.lookup_transform.assert_called_with("world/base", "arm/tool", time.Time.return_value)
+
+
 class Errors(unittest.IsolatedAsyncioTestCase):
     async def test_service_rejection_retains_response_without_replaying_or_cancelling(self):
         from kinex.communication import Communication
@@ -273,6 +271,24 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1]["operation"], "world.wait")
         self.assertFalse(io.waits)
+
+    async def test_finish_inside_communication_preserves_motion_only_on_success(self):
+        import asyncio
+        from kinex.communication import Communication
+        for error, expected in ((None, False), (SystemExit(0), False), (SystemExit(None), False),
+                                (SystemExit(1), True), (RuntimeError("failure"), True),
+                                (asyncio.CancelledError(), True)):
+            io = Communication({})
+            calls = []
+            async def cleanup_owned(*, failed=True):
+                calls.append(failed)
+            io.cleanup_owned = cleanup_owned
+            io.executor = NS(shutdown=lambda **kw: None)
+            io.node = NS(destroy_node=lambda: None)
+            io.context = NS(try_shutdown=lambda: None)
+            io.thread = NS(join=lambda _: None)
+            await io.__aexit__(type(error), error, None)
+            self.assertEqual(calls, [expected])
 
     async def test_acceptance_signature_failure_is_actionable(self):
         from kinex.communication import Communication

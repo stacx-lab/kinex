@@ -19,7 +19,7 @@
   "produces": [
     {
       "role": "target",
-      "pointer": "/extrinsics/mount"
+      "pointer": "/frames/base"
     }
   ],
   "computes": [

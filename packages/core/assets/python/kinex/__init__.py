@@ -99,7 +99,7 @@ def devices(calls):
 
 
 def call(tool, **kwargs):
-    """Compose a Python tool or device/devices: call("servo", **params), not call("servo", params)."""
+    """Compose a Python tool or device/devices using keyword arguments."""
     result = _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
     return result
 
@@ -116,7 +116,7 @@ def stop_owned():
 
 def profile(device, *, optional=False):
     """The device's parsed profile.yaml — the white-box read path for
-    calibrated intrinsics/extrinsics (color projection, SI mounts, kinematics models and typed controls).
+    top-level calibrated facts (color projection, explicit frames, kinematics models and typed controls).
     With optional=True, an absent profile returns None; other errors still raise."""
     return _rpc({"call": "profile", "device": device, "optional": optional})["profile"]
 

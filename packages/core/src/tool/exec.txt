@@ -2,9 +2,8 @@ Run Python source or a script in the workspace's Kinex Python. Device environmen
 Discover interfaces on demand, without starting devices:
   from kinex import runtime, finish
   devices = runtime.devices()
-  # runtime.device(device_name) returns the general device description.
   # runtime.operations(device_name) lists declared operations, even if unloaded.
-  # runtime.describe(operation) returns payload fields and protocol contracts.
+  # runtime.describe(operation) resolves ROS payload schemas when needed.
   finish({"devices": [{"name": d["name"], "loaded": d["loaded"]} for d in devices]})
 Use actual operation names from these queries, not names inferred from device types. Catalogs remain in Python until you explicitly return selected fields. Load required devices through the host before communication.
 For async protocol work, import communication, args, finish from kinex. For example, where args supplies a discovered managed-motion operation and its payload:
@@ -16,4 +15,5 @@ For async protocol work, import communication, args, finish from kinex. For exam
       finish({"accepted": True})
   # Execute with asyncio.run(main()). Acceptance is not measured arrival.
 Use io.subscribe(operation, depth=1) and await stream.next(timeout_s=...) for output topics; await io.request(operation, **fields) for services. World wait operations own scheduling. Observations and tf2 queries never advance world time. Bound work, inspect fresh measured feedback, and stop on terminal task status. Service rejections raise kinex.OperationError with operation, response and structured details; inspect the response and relevant feedback before deciding how to recover. Timeouts/cancellation retain owned cleanup.
-Compose helpers with from kinex.ros_tools import call; await call(tool_name, **arguments). They share ownership and communication. Failure stops only motion still owned by this invocation; success preserves accepted motion. finish(value, file=paths) returns selected summaries and images after leaving the communication scope. Do not print entire catalogs or raw streams unless requested.
+Import helpers with from kinex import helpers. Read kinex/helpers.txt under the Python library directory in runtime context for available functions and implementation paths.
+Compose tools with from kinex.ros_tools import call; await call(tool_name, **arguments). They share ownership and communication. Failure stops only motion still owned by this invocation; success preserves accepted motion. finish(value, file=paths) returns selected summaries and images after leaving the communication scope. Do not print entire catalogs or raw streams unless requested.

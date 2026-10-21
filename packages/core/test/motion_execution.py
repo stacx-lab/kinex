@@ -7,16 +7,16 @@ import random
 import unittest
 
 from kinex.motion import pose, quaternion
-from kinex.trajectory import trajectory, planning_limits
+from kinex.helpers import trajectory
+from kinex.helpers.trajectory import planning_limits
 
 
 PROFILE = {
-    "name": "arm", "type": "joint", "intrinsics": {
+    "name": "arm", "type": "joint",
         "model": {"format": "joints", "joints": [{"name": "j", "type": "revolute",
             "limits": {"min": -2, "max": 2}, "max_velocity": 0.5, "max_acceleration": 1.0}]},
-        "home": None, "frames": {}, "control": {"mode": "position"},
+        "home": None, "frames": {"tip": {"parent": "arm:base", "translation_m": None, "rotation_xyzw": None}}, "control": {"mode": "position"},
         "feedback": {"velocities": True, "efforts": False},
-    },
 }
 
 
@@ -77,16 +77,16 @@ class QuaternionTests(unittest.TestCase):
 
         joint = {"name": "j", "type": "revolute", "limits": {"min": -2, "max": 2},
                  "max_velocity": 1, "max_effort": None}
-        arm = JointDevice({"type": "joint", "intrinsics": {
+        arm = JointDevice({"name": "arm", "type": "joint",
             "model": {"format": "joints", "joints": [joint], "chain": [
                 {"origin": [0, 0, 0, 0, 0, 0, 1], "joint": 0, "axis": [0, 0, 1],
                  "anchor": [0, 0, 0], "reference": 0},
                 {"origin": [1, 0, 0, 0, 0, 0, 1]}]},
-            "home": None, "frames": {},
+            "home": None, "frames": {"tip": {"parent": "arm:base", "translation_m": None, "rotation_xyzw": None}},
             "kinematics": {"frame": "tip", "fk": "numerical",  "ik": {
                 "backend": "numerical", "max_iterations": 100, "damping": 1e-3,
                 "frame_to_solver": [0, 0, 0, 0, 0, 0, 1],
-                "position_tolerance_m": 1e-3, "rotation_tolerance_rad": 1e-3}}}})
+                "position_tolerance_m": 1e-3, "rotation_tolerance_rad": 1e-3}}})
         target = [.878, .479, 0, 0, 0, .247, .969]  # FK at 0.5 rad, rounded to 3 decimals.
         self.assertAlmostEqual(arm.ik(target, [0])["joints"][0], .5, delta=2e-3)
 
@@ -105,8 +105,8 @@ class QuaternionTests(unittest.TestCase):
     def test_velocity_body_and_frame_readings_without_global_pose(self):
         from kinex.velocity import reading
 
-        profile = {"type": "velocity", "intrinsics": {"frames": {"torso": {"parent_frame": None, "translation_m": None, "rotation_xyzw": None}}, "feedback": {
-            "velocity_components": [], "velocity_frame": None}}}
+        profile = {"type": "velocity", "frames": {"torso": {"parent_frame": None, "translation_m": None, "rotation_xyzw": None}}, "feedback": {
+            "velocity_components": [], "velocity_frame": None}}
         sample = {"velocities": [], "faults": [], "timestamp": 0, "height_m": .74,
                   "frame_poses": {"torso": [0, 0, .2, 0, 0, 0, 1]}}
         self.assertEqual(reading(profile, sample), sample)
@@ -126,11 +126,24 @@ class QuaternionTests(unittest.TestCase):
 
 
 class MotionTests(unittest.TestCase):
+    def test_measured_positions_require_unique_complete_finite_joints(self):
+        from types import SimpleNamespace
+        from kinex.joint_control import measured_positions
+
+        joints = [{"name": name, "type": "revolute", "limits": {"min": -1, "max": 1}}
+                  for name in ("j0", "j1")]
+        state = SimpleNamespace(name=["j1", "j0"], position=[.1, 0.])
+        self.assertEqual(measured_positions(state, joints), [0., .1])
+        for names, values in [(["j0", "j0"], [0., 0.]), (["j0"], [0.]),
+                              (["j0", "j1"], [0.]), (["j0", "j1"], [math.nan, 0.])]:
+            with self.subTest(names=names, values=values), self.assertRaises(ValueError):
+                measured_positions(SimpleNamespace(name=names, position=values), joints)
+
     def test_joint_home_recovery(self):
         from kinex.joint_control import command, home_start_tolerance
         profile = copy.deepcopy(PROFILE)
-        profile["intrinsics"].update(home={"j": 0})
-        joints = profile["intrinsics"]["model"]["joints"]
+        profile.update(home={"j": 0})
+        joints = profile["model"]["joints"]
         tolerance = home_start_tolerance(profile, joints, [0])
         self.assertEqual(tolerance, math.radians(1))
         for sign in (-1, 1):
@@ -140,11 +153,11 @@ class MotionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 command(profile, {"actions": [[q] for q in points], "duration_s": 1})
         for home in (None, "???"):
-            profile["intrinsics"]["home"] = home
+            profile["home"] = home
             self.assertEqual(home_start_tolerance(profile, joints, [0]), 0)
             with self.assertRaises(ValueError):
                 command(profile, {"actions": [[2.004], [0]], "duration_s": 1})
-        profile["intrinsics"].update(home={"j": 0})
+        profile.update(home={"j": 0})
         with self.assertRaises(ValueError):
             command(profile, {"actions": [[2 + math.radians(1.01)], [0]], "duration_s": 1})
         self.assertEqual(home_start_tolerance(profile, joints, [.1]), 0)
@@ -161,23 +174,23 @@ class MotionTests(unittest.TestCase):
         args = {"actions": [[100]], "duration_s": .1}
         with self.assertRaises(ValueError):
             command(profile, args)
-        profile["intrinsics"]["control"]["limit_handling"] = "native"
+        profile["control"]["limit_handling"] = "native"
         self.assertEqual(command(profile, args), args)
         for target in ([True], [math.nan], [math.inf], [], [1, 2]):
             with self.assertRaises(ValueError):
                 command(profile, {**args, "actions": [[0], target]})
-        joints = profile["intrinsics"]["model"]["joints"]
+        joints = profile["model"]["joints"]
         self.assertTrue(trajectory(joints, [2.001], [100], .01, check_limits=False).actions)
-        tool = {"intrinsics": {"control": {"mode": "position", "bounds": {"min": 0, "max": 1},
-            "resolution": None, "speed": None}}}
+        tool = {"control": {"mode": "position", "bounds": {"min": 0, "max": 1},
+            "resolution": None, "speed": None}}
         self.assertEqual(scalar(tool, {"actions": [0, 1], "duration_s": .1})["actions"], [0, 1])
         for value in (-.001, 1.001, True, math.nan, math.inf):
             with self.assertRaises(ValueError):
                 scalar(tool, {"actions": [0, value], "duration_s": .1})
         for bounds in ({"min": -1, "max": 1}, None):
-            base = {"type": "velocity", "intrinsics": {"control": {"mode": "motion", "limit_handling": "native",
+            base = {"type": "velocity", "control": {"mode": "motion", "limit_handling": "native",
                 "modes": {"drive": {"velocity": {"components": [
-                    {"axis": "vx", "units": "m/s", "bounds": bounds}]}, "posture": None}}}}}
+                    {"axis": "vx", "units": "m/s", "bounds": bounds}]}, "posture": None}}}}
             args = {"mode": "drive", "velocity": {"vx": 100}, "duration_s": .1}
             self.assertEqual(velocity(base, args), args)
             for value in (True, math.nan, math.inf):
@@ -225,7 +238,7 @@ class MotionTests(unittest.TestCase):
         self.assert_rates(plan, [0, 0], [v*.7 for v in velocities], [a*.7 for a in accelerations])
 
     def test_planner_obeys_limits_and_uses_shortest_continuous_joint_path(self):
-        joints = copy.deepcopy(PROFILE["intrinsics"]["model"]["joints"])
+        joints = copy.deepcopy(PROFILE["model"]["joints"])
         plan = trajectory(joints, [0], [1], .01)
         self.assert_rates(plan, [0], [.5], [1])
         self.assertEqual(plan.actions[-1], [1])

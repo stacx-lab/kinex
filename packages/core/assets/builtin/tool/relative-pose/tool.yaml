@@ -1,5 +1,5 @@
 name: relative_pose
-description: Transform a frame-attached pose through tf2. Use ROS frame IDs and an
+description: Transform a frame-attached pose through tf2. Use device:frame references or ROS frame IDs and an
   optional world timestamp. Missing frame relationships and unavailable timestamps
   are errors.
 parameters:
@@ -12,7 +12,7 @@ parameters:
       properties:
         frame:
           type: string
-          description: ROS frame ID, such as arm or arm/flange.
+          description: Qualified frame reference such as arm:base or arm:flange; ROS IDs such as arm/base also work.
         pose:
           type: array
           items:

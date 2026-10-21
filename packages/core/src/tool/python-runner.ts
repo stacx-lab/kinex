@@ -52,10 +52,8 @@ async function validateInputs(cwd: string, info: PyToolInfo, args: Record<string
   for (const [parameter, input] of Object.entries(info.manifest.device_inputs)) {
     for (const value of deviceInputValues(args, info.manifest.parameters, parameter)) {
       if (typeof value !== "string") throw new PyToolError(`device input "${parameter}" must name a device`)
-      const name = input.frame ? value.split(":")[0]! : value
+      const name = input.frame ? value.split(/[:/]/)[0]! : value
       const device = await ProfileStore.readDevice(cwd, name)
-      // The frame graph also recognizes the conventional world frame without a geometry profile.
-      if (!device && input.frame && value === "world" && input.types.includes("world")) continue
       if (!device) throw new PyToolError(`device input "${parameter}": unknown device "${name}"`)
       if (!input.types.some((type) => matchesDeviceType(device.type, type)))
         throw new PyToolError(`device input "${parameter}" accepts ${input.types.join(" | ")}; "${name}" is ${device.type}`)

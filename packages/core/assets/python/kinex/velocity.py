@@ -8,14 +8,14 @@ AXES = ("vx", "vy", "vz", "wx", "wy", "wz")
 POSTURE_AXES = ("height", "roll", "pitch", "yaw")
 
 
-def intrinsics(profile):
+def device_facts(profile):
     if profile.get("type") != "velocity":
         raise ValueError("Expected a velocity device")
-    return profile["intrinsics"]
+    return profile
 
 
 def command(profile, args):
-    control = intrinsics(profile)["control"]
+    control = device_facts(profile)["control"]
     if not isinstance(control, dict) or control.get("mode") != "motion":
         raise ValueError("Base control is unresolved")
     if not isinstance(args, dict) or set(args) - {"mode", "velocity", "posture", "duration_s"}:
@@ -61,7 +61,7 @@ def command(profile, args):
 
 
 def reading(profile, sample):
-    facts = intrinsics(profile)
+    facts = device_facts(profile)
     result = {**sample, **feedback_reading(facts["feedback"], sample)}
     frames = sample.get("frame_poses", {})
     dynamic = {name for name, frame in facts.get("frames", {}).items()

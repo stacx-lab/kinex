@@ -19,11 +19,11 @@ def settings(directory):
 
 class JointDevice:
     def __init__(self, profile, directory=None, native_fk=None, native_ik=None):
-        self.profile, self.intrinsics = profile, profile["intrinsics"]
+        self.profile = profile
         self.frames = frame_definitions(profile)
         self.model = joint_model(profile, directory)
         self.joints = self.model["joints"]
-        self.kinematics = self.intrinsics.get("kinematics")
+        self.kinematics = self.profile.get("kinematics")
         self.options = self.kinematics["ik"] if self.kinematics else None
         if self.options and "search" in self.options:
             raise ValueError("IK search configuration was renamed to budget")
@@ -32,7 +32,7 @@ class JointDevice:
         names = [j["name"] for j in self.joints]
         if not names or len(names) != len(set(names)):
             raise ValueError("Model requires unique joint names")
-        home = self.intrinsics["home"]
+        home = self.profile["home"]
         if home is not None:
             if not isinstance(home, dict) or set(home) != set(names):
                 raise ValueError("home must name every model joint exactly once")
@@ -64,7 +64,7 @@ class JointDevice:
             if anchor is None or anchor not in frames or anchor in seen:
                 raise ValueError("Frame is not a modeled endpoint or fixed descendant")
             seen.add(anchor)
-            anchor = frames[anchor]["parent_frame"]
+            anchor = frames[anchor]["parent"]
         offset = fixed_transform(frames, frame, anchor)
         if frames[anchor]["source"] == "hand":
             from kinex.hand import forward
@@ -107,7 +107,7 @@ class JointDevice:
         return {**result, "frame": frame, "reference_frame": reference_frame}
 
     def reading(self, state):
-        feedback = self.intrinsics["feedback"]
+        feedback = self.profile["feedback"]
         positions = vector(state.get("positions"), len(self.joints), "read.positions")
         result = {"positions": positions}
         if "pose" in state:

@@ -64,7 +64,7 @@ export const modelShape = {
   variant: z.string().regex(/^[\w./:@+-]+$/).nullable().default(null),
   implementation: z.strictObject({ repository: z.url(), revision: z.string().min(1) }).nullable().default(null),
   artifacts: field(z.array(Artifact).refine((items) => new Set(items.map((item) => item.name)).size === items.length, "artifact names must be unique")),
-  operations: z.array(z.strictObject({
+  inference_contracts: z.array(z.strictObject({
     name: identifier.refine((name) => ![...modelLifecycle, "write", "stop", "introspect", "record_start", "record_stop"].some((reserved) => reserved === name), "reserved driver action"),
     input: objectContract,
     output: objectContract,

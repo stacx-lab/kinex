@@ -25,41 +25,41 @@
   "requires": [
     {
       "role": "anchor_tcp",
-      "pointer": "/extrinsics/mount/translation_m"
+      "pointer": "/frames/base/translation_m"
     },
     {
       "role": "anchor_tcp",
-      "pointer": "/extrinsics/mount/rotation_xyzw"
+      "pointer": "/frames/base/rotation_xyzw"
     },
     {
       "role": "second_tcp",
-      "pointer": "/extrinsics/mount/translation_m"
+      "pointer": "/frames/base/translation_m"
     },
     {
       "role": "second_tcp",
-      "pointer": "/extrinsics/mount/rotation_xyzw"
+      "pointer": "/frames/base/rotation_xyzw"
     },
     {
       "role": "anchor_tcp",
-      "pointer": "/intrinsics/frames/tcp/translation_m"
+      "pointer": "/frames/tcp/translation_m"
     },
     {
       "role": "anchor_tcp",
-      "pointer": "/intrinsics/frames/tcp/rotation_xyzw"
+      "pointer": "/frames/tcp/rotation_xyzw"
     },
     {
       "role": "second_tcp",
-      "pointer": "/intrinsics/frames/tcp/translation_m"
+      "pointer": "/frames/tcp/translation_m"
     },
     {
       "role": "second_tcp",
-      "pointer": "/intrinsics/frames/tcp/rotation_xyzw"
+      "pointer": "/frames/tcp/rotation_xyzw"
     }
   ],
   "produces": [
     {
       "role": "second",
-      "pointer": "/extrinsics/mount"
+      "pointer": "/frames/base"
     }
   ],
   "computes": [

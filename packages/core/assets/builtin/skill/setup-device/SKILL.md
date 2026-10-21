@@ -1,7 +1,7 @@
 ---
 name: setup-device
 description: Add a device or repair its ROS nodes — choose an instance or type guide, provision its runtime, fill a profile and verify the interface.
-resolves: access:velocity,access:legged_base,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,intrinsics:model,access:detection,intrinsics:detection,access:segmentation,intrinsics:segmentation,access:other
+resolves: access:velocity,access:legged_base,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,profile:model,access:detection,profile:detection,access:segmentation,profile:segmentation,access:other
 ---
 
 # Set up a device
@@ -16,8 +16,8 @@ and owned node sources in `.kinex/devices/<name>/`; shared code may use `.kinex/
 Write a required `description` on the device for identity, capabilities and
 limitations. Write a required `operations.<name>.description` for each operation's
 inputs, outputs, units, frames, timing, errors and side effects. Empty strings are
-allowed; do not invent facts. Descriptions are retrieved through `runtime.device`
-and `runtime.describe` in Python, never injected from type guides. Do not create
+allowed; do not invent facts. Read descriptions directly from `profile.yaml`.
+Do not create
 instance DEVICE.md usage sections.
 
 Define each operation with transport, direction, endpoint, ROS type and bounded
@@ -45,9 +45,28 @@ environment. Prefer official vendor SDKs and inspect their documentation.
 Use `profile_write` to validate and preserve typed facts/provenance. Leave unknown
 facts as `???`, mark missing calibration and clear resolved requests with
 `needs_calibration: null`. New devices stay unloaded. Kinex publishes known static
-frames; kinematics nodes publish measured moving frames. Use world time and tf2.
+frames; kinematics nodes publish measured moving frames. Use world time and the `kinex.helpers.lookup_transform` helper; do not expose
+transform lookup as a device operation or register a world frame-graph factory.
+When a simulator has a robot catalog, export that catalog as the source of truth
+for its nodes and operation descriptions. Type guides recommend patterns; they
+do not reproduce a particular simulator or require operation names.
+Keep task metadata and benchmark judges outside the agent device graph.
 
 Validate schema, imports and syntax before activation. Load through the host only
 within the authorized task scope, inspect readiness and verify the declared
 operations. Test input rejection, ownership, cancellation and teardown. Unload
 before editing node/runtime definitions, then validate and explicitly reload.
+
+### Profile facts and frames
+
+Write physical facts directly at the top level: `model`, `kinematics`, `control`,
+`color`, `depth`, `frames`, etc. Do not write intrinsics/extrinsics wrappers.
+Use one top-level calibration record (`source`, `method`, `calibrated_at`,
+`needs_calibration`); readiness uses `profile:<device>` and `access:<device>`.
+Every spatial device declares `frames.base`. Every frame explicitly supplies
+`parent: device:frame` or `parent: null` for an independent root. There is no
+implicit base parent. Root transform values are ignored; write null components.
+For non-roots, translation_m and rotation_xyzw describe the parent-relative edge;
+null components mean unknown and publish no static TF. Declare modeled moving
+frames with explicit base parents and null components; measured kinematics owns
+their live transforms. Parent references must exist and be acyclic.

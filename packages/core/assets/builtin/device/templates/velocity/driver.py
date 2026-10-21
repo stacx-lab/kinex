@@ -22,7 +22,7 @@ class VelocityDeviceDriver(Driver):
         raise NotImplementedError("Set velocity/posture without waiting")
 
     def halt(self, handle, target):
-        raise NotImplementedError("Perform self.profile['intrinsics']['stop']; preserve posture/balance; target is the last command or None")
+        raise NotImplementedError("Perform self.profile['stop']; preserve posture/balance; target is the last command or None")
 
 
 if __name__ == "__main__":

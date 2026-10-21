@@ -1,4 +1,4 @@
-"""Kinex-owned tf2 history and the world's relative-transform service."""
+"""Kinex-owned persistent tf2 history; independent of device operations."""
 import math
 import threading
 
@@ -8,7 +8,7 @@ from rclpy.clock import Clock as RosClock, ClockType
 from rclpy.node import Node
 from rclpy.time import Time
 from rosgraph_msgs.msg import Clock
-from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_ros import Buffer, LookupException, TransformException, TransformListener
 
 from kinex.communication import qos
 from kinex.ros_frames import dynamic_qos
@@ -26,20 +26,65 @@ class FrameBuffer(Buffer):
         self.future = {}
         self.clock_stamp = None
         self.lock = threading.RLock()
+        self.blocked = set()
 
     def set_transform_static(self, value, authority):
         with self.lock:
+            if value.child_frame_id.split("/", 1)[0] in self.blocked:
+                return
             self.fixed[value.child_frame_id] = (value, authority)
             super().set_transform_static(value, authority)
 
     def set_transform(self, value, authority):
         with self.lock:
+            if value.child_frame_id.split("/", 1)[0] in self.blocked:
+                return
             if self.clock_stamp is not None and nanoseconds(value.header.stamp) > self.clock_stamp:
                 self.future[value.child_frame_id] = (value, authority)
                 return
             self.future.pop(value.child_frame_id, None)
             self.latest[value.child_frame_id] = (value, authority)
             super().set_transform(value, authority)
+
+    def device(self, name, active):
+        with self.lock:
+            if active:
+                self.blocked.discard(name)
+                return
+            self.blocked.add(name)
+            for mapping in (self.fixed, self.latest, self.future):
+                for child in list(mapping):
+                    if child.split("/", 1)[0] == name:
+                        del mapping[child]
+
+    def connected(self, target, source):
+        # tf2 retains static caches even after clear(). Track live topology so
+        # unloaded calibration cannot be resolved from that retained cache.
+        # All transform values and temporal interpolation still belong to tf2.
+        edges = {child: value.header.frame_id for mapping in (self.fixed, self.latest)
+                 for child, (value, _) in mapping.items()}
+        known = set(edges) | set(edges.values())
+        def ancestors(frame):
+            result = set()
+            while frame in known and frame not in result:
+                if frame.split("/", 1)[0] in self.blocked:
+                    break
+                result.add(frame)
+                frame = edges.get(frame)
+            return result
+        return bool(ancestors(target) & ancestors(source))
+
+    def can_transform_core(self, target, source, time):
+        with self.lock:
+            if not self.connected(target, source):
+                return False, "frame is unloaded or unavailable"
+            return super().can_transform_core(target, source, time)
+
+    def lookup_transform_core(self, target, source, time):
+        with self.lock:
+            if not self.connected(target, source):
+                raise LookupException("frame is unloaded or unavailable")
+            return super().lookup_transform_core(target, source, time)
 
     def observe_clock(self, stamp):
         with self.lock:
@@ -68,16 +113,16 @@ def listen(node):
 
 
 class FrameGraphNode(Node):
-    def __init__(self, profile, context):
-        super().__init__(profile["name"] + "_frames", context=context)
+    def __init__(self, clock, endpoint, context):
+        super().__init__("kinex_frames", context=context)
         self.buffer, self.listener = listen(self)
         self.stamp = None
         self.pending = set()
         self.calls = ReentrantCallbackGroup()
         self.watchdog_clock = RosClock(clock_type=ClockType.STEADY_TIME)
-        operation = profile["operations"]["time"]
+        operation = clock
         self.create_subscription(Clock, operation["endpoint"], self.clock, qos(operation))
-        self.create_service(LookupTransform, profile["operations"]["lookup_transform"]["endpoint"],
+        self.create_service(LookupTransform, endpoint,
                             self.lookup, callback_group=self.calls)
 
     def clock(self, message):

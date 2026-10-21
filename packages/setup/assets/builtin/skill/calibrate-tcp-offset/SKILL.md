@@ -6,7 +6,7 @@ description: Measure flange-to-tool-tip translation by pivot touches when a task
 # Calibrate tcp offset
 
 Bind `target` to the gripper and `arm` to its parent arm. Require a known
-mount in the sampled arm frame. The fit updates `intrinsics.frames.tcp`, relative
+mount in the sampled arm frame. The fit updates `frames.tcp`, relative
 to the gripper base, preserving TCP orientation and the existing mount.
 
 Prefer verified controller TCP settings or a matching tool datasheet. Archive the
@@ -31,6 +31,6 @@ Mean residual < 5 mm is good, 5–10 mm needs review against the task's accuracy
 > 10 mm fails. Archive exclusions and original readings rather than silently
 removing outliers. Persist accepted translation only. Pivoting does not measure
 orientation: preserve a verified rotation, or leave it unknown. A task requiring
-translation alone may proceed while a broader extrinsics request stays open.
+translation alone may proceed while a broader profile calibration request stays open.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.

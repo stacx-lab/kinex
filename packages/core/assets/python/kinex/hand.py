@@ -16,8 +16,8 @@ def forward(profile, positions):
     """Predict dynamic fingertip/center frame poses without device or simulator IO."""
     if profile.get("type") != "dexterous_hand":
         raise ValueError("Hand geometry requires a dexterous_hand profile")
-    intrinsics = profile["intrinsics"]
-    geometry = intrinsics.get("geometry")
+    facts = profile
+    geometry = facts.get("geometry")
     if not isinstance(geometry, dict) or not geometry.get("fingers"):
         raise ValueError("Hand geometry is unavailable")
     joints = joint_model(profile)["joints"]

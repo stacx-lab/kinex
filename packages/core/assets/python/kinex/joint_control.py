@@ -12,8 +12,8 @@ HOME_RECOVERY_TOLERANCE = math.radians(1)
 def home_start_tolerance(profile, joints, target):
     """Joint devices may recover toward declared home within an angular margin."""
     joint_target(target, joints, check_limits=False)
-    intrinsics = profile["intrinsics"]
-    home = intrinsics.get("home")
+    facts = profile
+    home = facts.get("home")
     if profile.get("type") != "joint" or not isinstance(home, dict):
         return 0.0
     positions = home
@@ -44,7 +44,7 @@ def recovery_targets(actions, joints, tolerance):
 def joint_model(profile, directory=None):
     if profile.get("resolved_model") is not None:
         return profile["resolved_model"]
-    model = profile["intrinsics"]["model"]
+    model = profile["model"]
     if not isinstance(model, dict):
         raise ValueError("Joint model must be resolved")
     if model["format"] == "urdf":
@@ -67,7 +67,7 @@ def command(profile, args, model=None):
         raise ValueError("actions must be a nonempty sequence")
     for target in actions:
         joint_target(target, joints, check_limits=False)
-    if profile["intrinsics"]["control"].get("limit_handling") != "native":
+    if profile["control"].get("limit_handling") != "native":
         recovery_targets(actions, joints, home_start_tolerance(profile, joints, actions[-1]))
     return segment(args, {"actions": actions})
 

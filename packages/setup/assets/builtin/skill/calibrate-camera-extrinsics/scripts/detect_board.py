@@ -43,7 +43,7 @@ def main() -> None:
     import yaml
     from kinex.camera import ray
     with open(args.profile) as handle:
-        color = yaml.safe_load(handle)["intrinsics"]["color"]
+        color = yaml.safe_load(handle)["color"]
     if (image.shape[1], image.shape[0]) != (color["width"], color["height"]):
         fail("image resolution differs from the camera profile")
     camera_matrix = np.eye(3, dtype=np.float64)

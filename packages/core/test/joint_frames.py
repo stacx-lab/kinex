@@ -12,24 +12,24 @@ IDENTITY = [0, 0, 0, 0, 0, 0, 1]
 
 
 def definition(value=None, parent=None):
-    return {"parent_frame": parent, "translation_m": value[:3] if value else None,
+    return {"parent": f"arm:{parent or 'base'}", "translation_m": value[:3] if value else None,
             "rotation_xyzw": value[3:] if value else None}
 
 
 def profile():
-    return {"name": "arm", "type": "joint", "intrinsics": {
+    return {"name": "arm", "type": "joint",
         "model": {"format": "serial_chain", "joints": [
             {"name": "j", "type": "revolute", "limits": {"min": -1, "max": 1}}],
             "chain": [{"origin": IDENTITY, "joint": 0, "axis": [0, 0, 1],
                        "anchor": [0, 0, 0], "reference": 0}, {"origin": [1, 0, 0, 0, 0, 0, 1]}]},
-        "frames": {"tool": definition([0, .2, 0, 0, 0, 0, 1], "flange"),
+        "frames": {"base": {"parent": None, "translation_m": None, "rotation_xyzw": None}, "flange": definition(), "tool": definition([0, .2, 0, 0, 0, 0, 1], "flange"),
                    "fixture": definition([.3, -.1, 0, 0, 0, math.sqrt(.5), math.sqrt(.5)]),
                    "unknown": definition()},
         "kinematics": {"frame": "flange", "fk": "numerical", "frame_to_reported": IDENTITY,
                        "ik": {"backend": "numerical", "method": "damped_least_squares",
                               "max_iterations": 200, "damping": .01,
                               "position_tolerance_m": 1e-6, "rotation_tolerance_rad": 1e-6}},
-        "home": None, "feedback": {"velocities": True, "efforts": False}}}
+        "home": None, "feedback": {"velocities": True, "efforts": False}}
 
 
 class FrameTests(unittest.TestCase):
@@ -73,7 +73,7 @@ class FrameTests(unittest.TestCase):
     def test_native_offsets_and_explicit_pair(self):
         facts = profile()
         expected = JointDevice(copy.deepcopy(facts)).fk([.4], "tool", "fixture")["pose"]
-        k = facts["intrinsics"]["kinematics"]
+        k = facts["kinematics"]
         k["fk"] = "driver"
         k["frame_to_reported"] = [0, 0, .1, 0, 0, 0, 1]
         k["ik"] = {"backend": "driver", "frame_to_solver": [0, 0, .2, 0, 0, 0, 1],
@@ -93,11 +93,11 @@ class FrameTests(unittest.TestCase):
     def test_hand_geometry_resolves_without_frame_feedback(self):
         facts = profile()
         facts["type"] = "dexterous_hand"
-        intrinsics = facts["intrinsics"]
+        intrinsics = facts
         chain = intrinsics["model"].pop("chain")
         intrinsics["model"]["format"] = "joints"
         intrinsics["kinematics"] = None
-        intrinsics["frames"] = {"palm": definition(IDENTITY), "reference": definition(IDENTITY)}
+        intrinsics["frames"] = {"tip": definition(), "center": definition(), "palm": definition(IDENTITY), "reference": definition(IDENTITY)}
         chain = [{**link, "joint": "j"} if "joint" in link else link for link in chain]
         intrinsics["geometry"] = {
             "fingers": {"finger": {"chain": chain, "tip_frame": "tip", "tip_offset": IDENTITY}},
@@ -110,7 +110,7 @@ class FrameTests(unittest.TestCase):
         from kinex.hand import forward
         facts = profile()
         facts["type"] = "dexterous_hand"
-        intrinsics = facts["intrinsics"]
+        intrinsics = facts
         old_model = JointDevice(profile())
         chain = intrinsics["model"].pop("chain")
         intrinsics["model"]["format"] = "joints"
@@ -126,6 +126,7 @@ class FrameTests(unittest.TestCase):
         intrinsics["geometry"]["fingers"] = {
             name: {"chain": chain, "tip_frame": name, "tip_offset": IDENTITY}
             for name in ("tip", "shared_tip")}
+        intrinsics["frames"].update({name: definition() for name in ("tip", "shared_tip")})
         intrinsics["frames"]["pad"] = definition([0, 0, .1, 0, 0, 0, 1], "tip")
         model = JointDevice(facts)
         for q in (0, -1, 1, 1.002, -.37, .83):
@@ -137,7 +138,7 @@ class FrameTests(unittest.TestCase):
                              flat(compose_rt(xyzq_to_rt(tips["tip"]), xyzq_to_rt([0, 0, .1, 0, 0, 0, 1]))))
         for invalid in ("missing", 0):
             bad = copy.deepcopy(facts)
-            bad["intrinsics"]["geometry"]["fingers"]["tip"]["chain"][0]["joint"] = invalid
+            bad["geometry"]["fingers"]["tip"]["chain"][0]["joint"] = invalid
             with self.assertRaisesRegex(ValueError, "known model joints"):
                 forward(bad, [.4])
 

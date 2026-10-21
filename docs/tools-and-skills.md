@@ -30,7 +30,6 @@ or unload devices, and both retain permissions and cancellation.
 | --- | --- | --- |
 | `relative_pose` | Perception | Express a frame or local pose relative to another frame. |
 | `locate_object_3d` | Perception | Combine a camera, detection/segmentation model and depth to estimate an object's position in the camera frame. |
-| `servo` | Controller | Plan a joint trajectory to joint or pose targets. Waits its duration on a loaded world clock. Set `block=false` to return immediately. Verify arrival with feedback. |
 | `run_policy` | Controller | Run policy inference once and submit the resulting valid action prefix across devices. |
 
 ### Python execution with `exec`
@@ -44,8 +43,7 @@ are available through `kinex.args()`, and `argv` supplies script arguments.
 Scripts use `device(deviceID, action="read", args=None)` for one call and
 `devices(calls=[...])` for concurrent calls. Batch entries use `deviceID`, `action`
 and `args`, and results preserve input order with per-call errors.
-`call("servo", device="left_arm", joints=target)` composes a Python tool using keyword
-arguments, using the [RoboTwin workspace](../README.md#use-kinex-with-simulators).
+`call(tool_name, **arguments)` composes a Python tool using keyword arguments.
 Host coding tools are outside this Python composition API.
 
 Use bounded Python loops for feedback control and settling checks. The former
@@ -53,9 +51,8 @@ Use bounded Python loops for feedback control and settling checks. The former
 state and stopping conditions belong in the script. A typical sequence is:
 
 1. Read measured state and compute or submit a control action.
-2. Wait on the device's world clock when needed. Blocking `servo` already waits
-   its planned duration; do not wait that duration again. For replanning during
-   motion, use `block=False` and choose an explicit world-wait interval.
+2. Wait on the device's world clock when needed; choose an explicit interval
+   for replanning during motion.
 3. Check fresh feedback, faults and the task's tolerances. Bound retries and
    elapsed time; position agreement alone does not establish stability or task
    success. Cached observations do not supply new evidence.

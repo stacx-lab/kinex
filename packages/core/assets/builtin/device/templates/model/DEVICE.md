@@ -15,7 +15,7 @@ Every profile requires a top-level `description` giving general device identity,
 capabilities and limitations. Every `operations.<name>.description` explains only
 that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
 Both descriptions are required strings; use an empty string when no text is known.
-Agents retrieve them through `runtime.device(name)` and `runtime.describe("device.operation")`.
+Read device and operation descriptions directly from `profile.yaml`.
 
 Start from the profile below, select the typed facts and fill unknowns from
 documentation or calibration. Use `???` for unresolved facts and `null` only where
@@ -38,15 +38,14 @@ access:
   connection:
     kind: process
     compute: ???
-intrinsics:
-  source: unknown
-  family: ???
-  variant: null
-  implementation: null
-  artifacts: ???
-  operations: []
-description: ""
+description: ''
 runtime:
   nodes: []
 operations: {}
+source: unknown
+family: ???
+variant: null
+implementation: null
+artifacts: ???
+inference_contracts: []
 ```

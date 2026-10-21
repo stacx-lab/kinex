@@ -115,7 +115,7 @@ class RecordingTests(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import patch
         async def lookup(*args):
             return relation
-        with patch('kinex.ros_tools.lookup', lookup):
+        with patch('kinex.helpers.lookup_transform', lookup):
             result = await transform_pose(None, child, 'camera', 'world')
         for actual, expected in zip(result[:3], [1, 1, 0]):
             self.assertAlmostEqual(actual, expected)

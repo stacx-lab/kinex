@@ -56,8 +56,8 @@ export async function requirements(cwd: string, node: PlanNode, catalog?: Awaite
   for (const link of descriptor.links) {
     const child = node.bindings[link.child], parent = node.bindings[link.parent]
     if (!child || !parent) continue
-    const actual = pointer(await profile(cwd, child), "/extrinsics/mount/parent")
-    if (actual !== undefined && actual !== "???" && actual !== parent) fail(`${node.id}: ${child} is attached to ${actual}, not ${parent}`)
+    const actual = pointer(await profile(cwd, child), "/frames/base/parent")
+    if (typeof actual === "string" && actual.split(":")[0] !== parent) fail(`${node.id}: ${child} is attached to ${actual}, not ${parent}`)
   }
   const inputs: Fact[] = [...node.inputs,
     ...Object.values(node.bindings).map(device => ({ kind: "profile" as const, device, pointer: "/type" })),
@@ -68,10 +68,10 @@ export async function requirements(cwd: string, node: PlanNode, catalog?: Awaite
   })]
   // A URDF reference alone is insufficient: changing its bytes changes geometry.
   for (const input of [...inputs]) {
-    if (input.kind !== "profile" || !input.device || !input.pointer.startsWith("/intrinsics/model")) continue
+    if (input.kind !== "profile" || !input.device || !input.pointer.startsWith("/model")) continue
     const data = await profile(cwd, input.device)
-    const modelPath = pointer(data, "/intrinsics/model/path")
-    if (pointer(data, "/intrinsics/model/format") === "urdf" && typeof modelPath === "string" && modelPath !== "???")
+    const modelPath = pointer(data, "/model/path")
+    if (pointer(data, "/model/format") === "urdf" && typeof modelPath === "string" && modelPath !== "???")
       inputs.push({ kind: "file", path: path.resolve(await location(cwd, `devices/${input.device}`), modelPath) })
   }
   return inputs

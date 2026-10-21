@@ -2,6 +2,7 @@
 import asyncio
 import os
 
+from kinex import helpers
 from kinex.communication import communication
 from kinex.ros_frames import publish_profile
 
@@ -28,12 +29,12 @@ async def main():
             return response
         source.create_service(Trigger, '/kinex_test/query', query)
         stream = io.subscribe('sensor.measurement', depth=2)
-        profile = {'name': 'arm', 'extrinsics': {'mount': {'parent': 'world', 'parent_frame': 'world',
-            'translation_m': [1, 0, 0], 'rotation_xyzw': [0, 0, 0, 1]}}, 'intrinsics': {'frames': {
-            'flange': {'parent_frame': None, 'translation_m': [0, 2, 0], 'rotation_xyzw': [0, 0, 0, 1]},
-            'tool': {'parent_frame': 'flange', 'translation_m': [0, 0, 3], 'rotation_xyzw': [0, 0, 0, 1]},
-            'unknown': {'parent_frame': None, 'translation_m': None, 'rotation_xyzw': None},
-        }}}
+        profile = {'name': 'arm', 'frames': {
+            'base': {'parent': 'world:base', 'translation_m': [1, 0, 0], 'rotation_xyzw': [0, 0, 0, 1]},
+            'flange': {'parent': 'arm:base', 'translation_m': [0, 2, 0], 'rotation_xyzw': [0, 0, 0, 1]},
+            'tool': {'parent': 'arm:flange', 'translation_m': [0, 0, 3], 'rotation_xyzw': [0, 0, 0, 1]},
+            'unknown': {'parent': 'arm:base', 'translation_m': None, 'rotation_xyzw': None},
+        }}
         broadcasters = publish_profile(source, profile)
         buffer = Buffer()
         listener = TransformListener(buffer, io.node)
@@ -45,12 +46,14 @@ async def main():
                 assert (await stream.next(timeout_s=5)).data == 7
                 response = await io.request('sensor.query')
                 assert response.success and response.message == 'native response'
-                while not buffer.can_transform('world', 'arm/tool', Time()):
+                while not buffer.can_transform('world/base', 'arm/tool', Time()):
                     await asyncio.sleep(.02)
-                transform = buffer.lookup_transform('world', 'arm/tool', Time())
+                transform = buffer.lookup_transform('world/base', 'arm/tool', Time())
                 v = transform.transform.translation
                 assert (v.x, v.y, v.z) == (1, 2, 3)
-                assert not buffer.can_transform('world', 'arm/unknown', Time())
+                relation = await helpers.lookup_transform(io, 'world:base', 'arm:tool')
+                assert relation.transform == transform.transform
+                assert not buffer.can_transform('world/base', 'arm/unknown', Time())
         finally:
             listener.unregister()
     print('native pub/sub, request/response and multiple static frames passed')

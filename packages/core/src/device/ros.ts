@@ -21,6 +21,7 @@ interface Host extends ServeProcess {
   ready: boolean
 }
 const hosts = scoped(() => new Map<string, Host>())
+const frameHosts = scoped(() => new Map<string, Host & { endpoint: string }>())
 const enrolled = scoped(() => new Map<string, Map<string, Device>>())
 const transitions = scoped(() => new Map<string, Promise<void>>())
 
@@ -49,12 +50,11 @@ export async function rosLaunch(cwd: string, device: Device, signal?: AbortSigna
 }
 
 async function definition(directory: string, device: Device) {
-  const hash = createHash("sha256").update(JSON.stringify({
-    runtime: device.runtime, operations: device.operations, intrinsics: device.intrinsics, extrinsics: device.extrinsics,
-  }))
+  const { meta, loaded, ...facts } = device
+  const hash = createHash("sha256").update(JSON.stringify(facts))
   for (const node of device.runtime?.nodes ?? []) hash.update(await readFile(path.resolve(directory, node.entry)))
   if (device.type === "joint" || device.type === "dexterous_hand") {
-    const model = device.intrinsics.model
+    const model = device.model
     if (model !== "???" && model.format === "urdf" && model.path !== "???")
       hash.update(await readFile(path.resolve(directory, model.path)))
   }
@@ -103,6 +103,55 @@ async function request(host: Host, action: string, args: Record<string, unknown>
   }
 }
 
+async function frames(cwd: string, device: Device, signal?: AbortSignal) {
+  const domain = device.runtime?.domain_id ?? 0
+  const workspace = await ProfileStore.workspaceDir(cwd)
+  const key = `${workspace}:frames:${domain}`
+  const result = (transitions().get(key) ?? Promise.resolve()).then(async () => {
+    const worlds = (await ProfileStore.listDevices(cwd)).filter(value => value.type === "world" && value.runtime?.domain_id === domain)
+    const clocks = worlds.flatMap(world => Object.values(resolvedOperations(world)).filter(op => op.type === "rosgraph_msgs/msg/Clock" && op.direction === "output"))
+    if (!clocks.length) return undefined
+    if (clocks.length !== 1) throw new NamedError("RosClockError", "one world clock is required per ROS domain")
+    const fingerprint = JSON.stringify(clocks[0])
+    let host = frameHosts().get(key)
+    if (host && (!host.ready || host.proc.exitCode !== null || host.definition !== fingerprint)) {
+      await terminate(host)
+      frameHosts().delete(key)
+      host = undefined
+    }
+    if (!host) {
+      const launch = await pythonLaunch(cwd, "node", undefined, signal)
+      const endpoint = `/kinex/internal/f_${shortID()}/lookup_transform`
+      host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.ros_host"], {
+        cwd, env: launch.env, group: true,
+      })), endpoint, definition: fingerprint, ready: false, pending: new Map() }
+      frameHosts().set(key, host)
+      void receive(host)
+      try {
+        await request(host, "$frames", { clock: clocks[0], domain_id: domain, endpoint }, undefined, signal)
+        host.ready = true
+      } catch (error) {
+        await terminate(host)
+        frameHosts().delete(key)
+        throw error
+      }
+    }
+    await request(host, "$frame_device", { name: device.name, active: true }, undefined, signal)
+    return host
+  })
+  const tail = result.then(() => {}, () => {})
+  transitions().set(key, tail)
+  void tail.then(() => { if (transitions().get(key) === tail) transitions().delete(key) })
+  return result
+}
+
+async function forgetFrames(cwd: string, device: Device) {
+  const key = `${await ProfileStore.workspaceDir(cwd)}:frames:${device.runtime?.domain_id ?? 0}`
+  const host = frameHosts().get(key)
+  if (host?.ready && host.proc.exitCode === null)
+    await request(host, "$frame_device", { name: device.name, active: false })
+}
+
 export async function rosReady(cwd: string, device: Device) {
   const directory = await ProfileStore.deviceDir(cwd, device.name)
   const host = hosts().get(directory)
@@ -122,6 +171,7 @@ export async function rosDispatch(cwd: string, device: Device, action: string, a
 }
 
 async function dispatch(cwd: string, device: Device, action: string, args: Record<string, unknown>, owner?: string, signal?: AbortSignal): Promise<DeviceReading> {
+  if (action === "load") await ProfileStore.validateFrames(cwd, device.name)
   const directory = await ProfileStore.deviceDir(cwd, device.name)
   let host = hosts().get(directory)
   if (action === "unload") {
@@ -129,6 +179,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       try { if (host.proc.exitCode === null) await request(host, "unload", {}) }
       finally { await terminate(host, true); hosts().delete(directory) }
     }
+    await forgetFrames(cwd, device)
     return { deviceID: device.name, kind: device.type, data: { unloaded: true } }
   }
   if (action === "status" && (!host || host.proc.exitCode !== null))
@@ -148,6 +199,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       void receive(host)
     }
     try {
+      await frames(cwd, device, signal)
       const world = (await ProfileStore.listDevices(cwd)).find(value => value.type === "world" && value.runtime)
       const clock = world && Object.values(resolvedOperations(world)).find(op => op.type === "rosgraph_msgs/msg/Clock" && op.direction === "output")
       await request(host, "load", { profile: { ...device, operations: resolvedOperations(device) }, clock }, undefined, signal, (device.runtime?.ready_timeout_s ?? 30) * 1000)
@@ -155,6 +207,8 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
     } catch (error) {
       await terminate(host)
       hosts().delete(directory)
+      try { await forgetFrames(cwd, device) }
+      catch (cleanup) { throw new AggregateError([error, cleanup], "Device load and frame cleanup failed") }
       throw error
     }
     return { deviceID: device.name, kind: device.type, data: { ready: true } }
@@ -174,7 +228,10 @@ export async function rosCatalog(cwd: string, owner?: string) {
   for (const device of devices) if (await rosReady(cwd, device)) ready.push(device)
   const domains = new Set(ready.map(device => device.runtime?.domain_id))
   if (domains.size > 1) throw new NamedError("RosDomainError", "one invocation requires a shared ROS domain")
-  return { owner, domain_id: ready[0]?.runtime?.domain_id ?? 0,
+  const domain = ready[0]?.runtime?.domain_id ?? 0
+  const frameHost = frameHosts().get(`${await ProfileStore.workspaceDir(cwd)}:frames:${domain}`)
+  return { owner, domain_id: domain,
+    ...(frameHost?.ready && frameHost.proc.exitCode === null ? { frames: { endpoint: frameHost.endpoint, type: "kinex_interfaces/srv/LookupTransform" } } : {}),
     catalog: Object.fromEntries(ready.flatMap(device => Object.entries(resolvedOperations(device)).map(([name, op]) => [`${device.name}.${name}`, op]))) }
 }
 
@@ -206,6 +263,12 @@ export async function closeRos() {
     finally { await terminate(host, true) }
   }))
   hosts().clear()
+  const frames = await Promise.allSettled([...frameHosts().values()].map(async host => {
+    try { if (host.proc.exitCode === null) await request(host, "unload", {}) }
+    finally { await terminate(host, true) }
+  }))
+  frameHosts().clear()
+  results.push(...frames)
   const errors = results.filter(result => result.status === "rejected").map(result => result.reason)
   if (errors.length) throw new AggregateError(errors, "ROS disposal failed")
 }

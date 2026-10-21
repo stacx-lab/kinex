@@ -19,7 +19,6 @@ test('important tools show action and target, including streamed arguments and a
     ['record', { action: 'start', devices: { arm: 10, camera: 2 } }, 'record start arm=10Hz camera=2Hz'],
     ['record', { action: 'snap', devices: ['arm', 'camera'] }, 'record snap arm, camera'],
     ['device_stop', {}, 'device_stop all'],
-    ['servo', { device: 'arm', joints: [1, 2] }, 'servo arm joints'],
     ['exec', { description: 'inspect arm state', python: 'from kinex import device' }, 'exec inspect arm state'],
     ['exec', { description: 'inspect arm state', file: 'scripts/inspect.py' }, 'exec inspect arm state'],
     ['exec', { file: 'scripts/inspect.py' }, 'exec scripts/inspect.py'],
