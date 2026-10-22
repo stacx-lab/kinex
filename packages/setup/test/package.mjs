@@ -73,7 +73,7 @@ import { mkdir, symlink, writeFile, stat, readFile, readdir } from 'node:fs/prom
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { createKinexRuntime } from '@kinex/core'
-import { urdfModel } from '@kinex/core/device/joint-model'
+import { urdfTree } from '@kinex/core/device/device-model'
 await assert.rejects(import('@kinex/setup'), {code:'ERR_MODULE_NOT_FOUND'})
 const runtime = createKinexRuntime({directory: process.cwd(), host:{ask: async () => {}}})
 try {
@@ -100,7 +100,7 @@ try {
   await symlink(executable, python.executable)
   const urdf = path.resolve('arm.urdf')
   await writeFile(urdf, '<robot name="arm"><link name="base"/><link name="tip"/><joint name="j" type="revolute"><parent link="base"/><child link="tip"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="10" velocity="1"/></joint></robot>')
-  const model = await runtime.operation(() => urdfModel(process.cwd(), urdf, 'base', 'tip'))
+  const model = await runtime.operation(() => urdfTree(process.cwd(), urdf, 'base'))
   assert.equal(model.joints[0].name, 'j')
 } finally {await runtime.dispose()}
 `], { cwd: relocated, env })

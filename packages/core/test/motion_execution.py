@@ -11,13 +11,8 @@ from kinex.helpers import trajectory
 from kinex.helpers.trajectory import planning_limits
 
 
-PROFILE = {
-    "name": "arm", "type": "joint",
-        "model": {"format": "joints", "joints": [{"name": "j", "type": "revolute",
-            "limits": {"min": -2, "max": 2}, "max_velocity": 0.5, "max_acceleration": 1.0}]},
-        "home": None, "frames": {"tip": {"parent": "arm:base", "translation_m": None, "rotation_xyzw": None}}, "control": {"mode": "position"},
-        "feedback": {"velocities": True, "efforts": False},
-}
+PROFILE = {"name": "arm", "type": "joint", "home": None, "limits": "strict"}
+JOINTS = [{"name": "j", "type": "revolute", "limits": {"min": -2, "max": 2}, "max_velocity": 0.5, "max_acceleration": 1.0}]
 
 
 class QuaternionTests(unittest.TestCase):
@@ -72,35 +67,13 @@ class QuaternionTests(unittest.TestCase):
             for actual, expected in zip(result[3:], rotation):
                 self.assertAlmostEqual(actual, expected, places=15)
 
-    def test_joint_ik_normalizes_goals_and_retains_fk_residual_verification(self):
-        from kinex.joints import JointDevice
+    def test_joint_ik_normalizes_rounded_goals(self):
+        from joint_model import model, simple
 
-        joint = {"name": "j", "type": "revolute", "limits": {"min": -2, "max": 2},
-                 "max_velocity": 1, "max_effort": None}
-        arm = JointDevice({"name": "arm", "type": "joint",
-            "model": {"format": "joints", "joints": [joint], "chain": [
-                {"origin": [0, 0, 0, 0, 0, 0, 1], "joint": 0, "axis": [0, 0, 1],
-                 "anchor": [0, 0, 0], "reference": 0},
-                {"origin": [1, 0, 0, 0, 0, 0, 1]}]},
-            "home": None, "frames": {"tip": {"parent": "arm:base", "translation_m": None, "rotation_xyzw": None}},
-            "kinematics": {"frame": "tip", "fk": "numerical",  "ik": {
-                "backend": "numerical", "max_iterations": 100, "damping": 1e-3,
-                "frame_to_solver": [0, 0, 0, 0, 0, 0, 1],
-                "position_tolerance_m": 1e-3, "rotation_tolerance_rad": 1e-3}}})
+        arm = model(simple(limits='lower="-2" upper="2"'), "flange")
         target = [.878, .479, 0, 0, 0, .247, .969]  # FK at 0.5 rad, rounded to 3 decimals.
-        self.assertAlmostEqual(arm.ik(target, [0])["joints"][0], .5, delta=2e-3)
-
-        def native_ik(goal, seed):
-            self.assertEqual(goal[:3], target[:3])
-            self.assertAlmostEqual(math.hypot(*goal[3:]), 1, places=15)
-            return [.5]
-
-        arm.options["backend"] = "driver"
-        arm.native_ik = native_ik
-        self.assertEqual(arm.ik(target, [0])["joints"], [.5])
-        arm.native_ik = lambda goal, seed: [0]
-        with self.assertRaisesRegex(ValueError, "IK result failed FK residual verification"):
-            arm.ik(target, [0])
+        solved = arm.ik(target, [0], position_tolerance_m=1e-3, rotation_tolerance_rad=1e-3)
+        self.assertAlmostEqual(solved[0], .5, delta=2e-3)
 
     def test_velocity_body_and_frame_readings_without_global_pose(self):
         from kinex.velocity import reading
@@ -128,7 +101,7 @@ class QuaternionTests(unittest.TestCase):
 class MotionTests(unittest.TestCase):
     def test_measured_positions_require_unique_complete_finite_joints(self):
         from types import SimpleNamespace
-        from kinex.joint_control import measured_positions
+        from kinex.joints import measured_positions
 
         joints = [{"name": name, "type": "revolute", "limits": {"min": -1, "max": 1}}
                   for name in ("j0", "j1")]
@@ -140,46 +113,45 @@ class MotionTests(unittest.TestCase):
                 measured_positions(SimpleNamespace(name=names, position=values), joints)
 
     def test_joint_home_recovery(self):
-        from kinex.joint_control import command, home_start_tolerance
+        from kinex.joints import command, home_start_tolerance
         profile = copy.deepcopy(PROFILE)
         profile.update(home={"j": 0})
-        joints = profile["model"]["joints"]
+        joints = copy.deepcopy(JOINTS)
         tolerance = home_start_tolerance(profile, joints, [0])
         self.assertEqual(tolerance, math.radians(1))
         for sign in (-1, 1):
             plan = trajectory(joints, [sign * (2 + tolerance)], [0], .01, start_tolerance=tolerance)
-            command(profile, {"actions": plan.actions, "duration_s": plan.duration_s})
+            command(profile, {"actions": plan.actions, "duration_s": plan.duration_s}, joints)
         for points in ([2.09, 0], [2.004, 2.005, 0], [2.004, 1.9, 2.001, 0], [2.004, .1], [2.004]):
             with self.assertRaises(ValueError):
-                command(profile, {"actions": [[q] for q in points], "duration_s": 1})
+                command(profile, {"actions": [[q] for q in points], "duration_s": 1}, joints)
         for home in (None, "???"):
             profile["home"] = home
             self.assertEqual(home_start_tolerance(profile, joints, [0]), 0)
             with self.assertRaises(ValueError):
-                command(profile, {"actions": [[2.004], [0]], "duration_s": 1})
+                command(profile, {"actions": [[2.004], [0]], "duration_s": 1}, joints)
         profile.update(home={"j": 0})
         with self.assertRaises(ValueError):
-            command(profile, {"actions": [[2 + math.radians(1.01)], [0]], "duration_s": 1})
+            command(profile, {"actions": [[2 + math.radians(1.01)], [0]], "duration_s": 1}, joints)
         self.assertEqual(home_start_tolerance(profile, joints, [.1]), 0)
         joints[0]["type"] = "prismatic"
         with self.assertRaises(ValueError):
             trajectory(joints, [2.001], [0], .01, start_tolerance=tolerance)
 
     def test_native_commands_pass_raw_targets_and_still_validate_structure(self):
-        from kinex.joint_control import command
+        from kinex.joints import command
         from kinex.scalar_control import command as scalar
         from kinex.velocity import command as velocity
 
-        profile = copy.deepcopy(PROFILE)
+        profile, joints = copy.deepcopy(PROFILE), copy.deepcopy(JOINTS)
         args = {"actions": [[100]], "duration_s": .1}
         with self.assertRaises(ValueError):
-            command(profile, args)
-        profile["control"]["limit_handling"] = "native"
-        self.assertEqual(command(profile, args), args)
+            command(profile, args, joints)
+        profile["limits"] = "native"
+        self.assertEqual(command(profile, args, joints), args)
         for target in ([True], [math.nan], [math.inf], [], [1, 2]):
             with self.assertRaises(ValueError):
-                command(profile, {**args, "actions": [[0], target]})
-        joints = profile["model"]["joints"]
+                command(profile, {**args, "actions": [[0], target]}, joints)
         self.assertTrue(trajectory(joints, [2.001], [100], .01, check_limits=False).actions)
         gripper = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0}}
         self.assertEqual(scalar(gripper, {"actions": [-1, 0, 1], "duration_s": .1})["actions"], [.04, .02, 0])
@@ -237,7 +209,7 @@ class MotionTests(unittest.TestCase):
         self.assert_rates(plan, [0, 0], [v*.7 for v in velocities], [a*.7 for a in accelerations])
 
     def test_planner_obeys_limits_and_uses_shortest_continuous_joint_path(self):
-        joints = copy.deepcopy(PROFILE["model"]["joints"])
+        joints = copy.deepcopy(JOINTS)
         plan = trajectory(joints, [0], [1], .01)
         self.assert_rates(plan, [0], [.5], [1])
         self.assertEqual(plan.actions[-1], [1])

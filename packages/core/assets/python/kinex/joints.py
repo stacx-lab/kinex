@@ -1,122 +1,114 @@
-"""Profile-owned models and common joint command/read/FK/IK semantics."""
+"""Joint devices: URDF command vector, limit policy and link kinematics in the device base."""
+
+import math
+from pathlib import Path
+
+from kinex import urdf
+from kinex.kinematics import DEFAULTS, Chain
+from kinex.motion import flat, joint_target, pose, vector
+from kinex.validation import segment
+
+HOME_RECOVERY_TOLERANCE = math.radians(1)
 
 
-from kinex.geometry import compose_rt, invert_rt, xyzq_to_rt
-from kinex.kinematics import Kinematics
-from kinex.local_frames import fixed_transform, frame_definitions
-from kinex.motion import flat, joint_target, pose, pose_error, vector
-from kinex.joint_control import joint_model, command, project_seed
-from kinex.ik_search import nearest_representation
+class JointModel:
+    """A joint device's commanded joints, in URDF document order, and its link FK/IK.
+
+    Poses are [x, y, z, qx, qy, qz, qw] of a URDF link in <device>/base; link
+    defaults to the model's tip_link.
+    """
+
+    def __init__(self, profile, directory=None):
+        if profile.get("type") != "joint":
+            raise ValueError("expected a joint device profile")
+        model, self.tree = profile["model"], profile.get("resolved_model")
+        if self.tree is None:
+            if directory is None or not isinstance(model, dict) or "???" in model.values():
+                raise ValueError(f"{profile.get('name', 'joint device')} has no resolved URDF model")
+            self.tree = urdf.read_tree(Path(directory) / model["path"], model["base_link"])
+        self.joints = urdf.commanded(self.tree)
+        self.names = [joint["name"] for joint in self.joints]
+        self.tip = model["tip_link"]
+
+    def chain(self, link):
+        link = link or self.tip
+        if not link:
+            raise ValueError("name a link; the model declares no tip_link")
+        return Chain(self.tree, link)
+
+    def fk(self, positions, link=None):
+        """Link pose at commanded joint positions; mimic joints follow their sources."""
+        q = joint_target(positions, self.joints, check_limits=False)
+        return flat(self.chain(link).forward(urdf.positions(self.tree, dict(zip(self.names, q))))[0])
+
+    def ik(self, target, seed, link=None, **options):
+        """Commanded positions placing link at target, nearest the seed projected into limits.
+
+        Joints off the link's path keep their seed values. options override the
+        solver tolerances, damping, max_iterations and search budget.
+        """
+        unknown = options.keys() - {*DEFAULTS, "budget"}
+        if unknown:
+            raise ValueError(f"unknown IK options: {', '.join(sorted(unknown))}")
+        values = dict(zip(self.names, project_seed(seed, self.joints)))
+        values.update(self.chain(link).ik(pose(target), values, {**DEFAULTS, **options}))
+        return [values[name] for name in self.names]
 
 
-def settings(directory):
-    from kinex.validation import settings as load_profile
-    profile = load_profile(directory)
-    if profile.get("type") not in {"joint", "dexterous_hand"}:
-        raise ValueError("Expected a joint or dexterous_hand profile")
-    return profile
+def home_start_tolerance(profile, joints, target):
+    """Strict devices may recover toward declared home within an angular margin."""
+    home = profile.get("home")
+    if not isinstance(home, dict) or any(j["name"] not in home or abs(q - home[j["name"]]) > 1e-9 for j, q in zip(joints, target)):
+        return 0.0
+    return HOME_RECOVERY_TOLERANCE
 
 
-class JointDevice:
-    def __init__(self, profile, directory=None, native_fk=None, native_ik=None):
-        self.profile = profile
-        self.frames = frame_definitions(profile)
-        self.model = joint_model(profile, directory)
-        self.joints = self.model["joints"]
-        self.kinematics = self.profile.get("kinematics")
-        self.options = self.kinematics["ik"] if self.kinematics else None
-        if self.options and "search" in self.options:
-            raise ValueError("IK search configuration was renamed to budget")
-        self.native_fk, self.native_ik = native_fk, native_ik
-        self.solver = Kinematics(self.model, self.options) if self.kinematics and self.model["chain"] is not None else None
-        names = [j["name"] for j in self.joints]
-        if not names or len(names) != len(set(names)):
-            raise ValueError("Model requires unique joint names")
-        home = self.profile["home"]
-        if home is not None:
-            if not isinstance(home, dict) or set(home) != set(names):
-                raise ValueError("home must name every model joint exactly once")
-            joint_target([home[name] for name in names], self.joints)
-        if self.options and self.options["backend"] == "numerical" and self.solver is None:
-            raise ValueError("Numerical IK requires model geometry")
+def recovery_targets(actions, joints, tolerance):
+    """Allow a bounded, inward-only prefix; the final target remains in limits."""
+    joint_target(actions[-1], joints)
+    previous = None
+    for target in actions:
+        joint_target(target, joints, check_limits=False)
+        for i, (q, joint) in enumerate(zip(target, joints)):
+            limits = joint["limits"]
+            if limits is None:
+                continue
+            margin = tolerance if joint["type"] == "revolute" else 0
+            low, high = limits["min"], limits["max"]
+            if not low - margin <= q <= high + margin:
+                raise ValueError("target outside joint limits recovery tolerance")
+            if previous is not None and ((q < low and not previous[i] <= q) or (q > high and not previous[i] >= q)):
+                raise ValueError("joint limits recovery must move inward")
+        previous = target
 
-    def project(self, value):
-        return project_seed(value, self.joints)
 
-    def command(self, args):
-        return command(self.profile, args, self.model)
+def command(profile, args, joints):
+    """Validate a timed joint buffer; strict limits reject targets outside the URDF limits."""
+    if not isinstance(args, dict) or set(args) != {"actions", "duration_s"}:
+        raise ValueError("joint command requires actions and duration_s")
+    actions = args["actions"]
+    if not isinstance(actions, list) or not actions:
+        raise ValueError("actions must be a nonempty sequence")
+    for target in actions:
+        joint_target(target, joints, check_limits=False)
+    if profile["limits"] == "strict":
+        recovery_targets(actions, joints, home_start_tolerance(profile, joints, actions[-1]))
+    return segment(args, {"actions": actions})
 
-    def frame_pair(self, frame, reference_frame):
-        if frame is None:
-            if not self.kinematics:
-                raise ValueError("Specify a modeled frame")
-            frame = self.kinematics["frame"]
-        if not isinstance(frame, str) or frame not in self.frames:
-            raise ValueError("Frame must name a declared device-local frame")
-        return frame, fixed_transform(self.frames, reference_frame)
 
-    def fk(self, joints, frame=None, reference_frame=None):
-        q = vector(joints, len(self.joints), "joints")
-        frame, reference = self.frame_pair(frame, reference_frame)
-        frames = self.frames
-        anchor, seen = frame, set()
-        while anchor not in frames or "source" not in frames[anchor]:
-            if anchor is None or anchor not in frames or anchor in seen:
-                raise ValueError("Frame is not a modeled endpoint or fixed descendant")
-            seen.add(anchor)
-            anchor = frames[anchor]["parent"]
-        offset = fixed_transform(frames, frame, anchor)
-        if frames[anchor]["source"] == "hand":
-            from kinex.hand import forward
-            poses = forward({**self.profile, "resolved_model": self.model}, q)
-            current = compose_rt(xyzq_to_rt(poses[anchor]), offset)
-        else:
-            if not self.kinematics or not self.kinematics["fk"]:
-                raise ValueError("FK is unsupported")
-            if self.kinematics["fk"] == "numerical":
-                endpoint = self.solver.forward(q)[0]
-            else:
-                if self.native_fk is None:
-                    raise ValueError("Driver FK hook is required")
-                reported = pose(self.native_fk(q))
-                endpoint = flat(compose_rt(xyzq_to_rt(reported), invert_rt(xyzq_to_rt(self.kinematics["frame_to_reported"]))))
-            current = compose_rt(xyzq_to_rt(endpoint), offset)
-        return {"pose": flat(compose_rt(invert_rt(reference), current)),
-                "frame": frame, "reference_frame": reference_frame}
+def project_seed(value, joints):
+    """Bound a solver seed without changing the measured configuration used for FK."""
+    values = vector(value, len(joints), "IK seed")
+    return [max(j["limits"]["min"], min(j["limits"]["max"], v)) if j["limits"] else v
+            for j, v in zip(joints, values)]
 
-    def ik(self, target, seed, frame=None, reference_frame=None):
-        if not self.options:
-            raise ValueError("IK is unsupported")
-        target = pose(target)
-        seed = joint_target(seed, self.joints)
-        frame, reference = self.frame_pair(frame, reference_frame)
-        offset = fixed_transform(self.frames, frame, self.kinematics["frame"])
-        endpoint = flat(compose_rt(compose_rt(reference, xyzq_to_rt(target)), invert_rt(offset)))
-        if self.options["backend"] == "numerical":
-            result = self.solver.ik(endpoint, seed)
-        else:
-            if self.native_ik is None:
-                raise ValueError("Driver IK hook is required")
-            native_target = flat(compose_rt(xyzq_to_rt(endpoint), xyzq_to_rt(self.options["frame_to_solver"])))
-            candidate = joint_target(self.native_ik(native_target, seed), self.joints)
-            result = {"joints": nearest_representation(self.joints, candidate, seed)}
-        joint_target(result["joints"], self.joints)
-        error = pose_error(target, self.fk(result["joints"], frame, reference_frame)["pose"])
-        if error["position_m"] > self.options["position_tolerance_m"] or error["rotation_rad"] > self.options["rotation_tolerance_rad"]:
-            raise ValueError("IK result failed FK residual verification")
-        return {**result, "frame": frame, "reference_frame": reference_frame}
 
-    def reading(self, state):
-        feedback = self.profile["feedback"]
-        positions = vector(state.get("positions"), len(self.joints), "read.positions")
-        result = {"positions": positions}
-        if "pose" in state:
-            result["pose"] = state["pose"]
-        for key in ("velocities", "efforts"):
-            result[key] = vector(state.get(key), len(self.joints), f"read.{key}") if feedback[key] else vector(state.get(key, []), 0, f"unsupported read.{key}")
-        faults = state.get("faults")
-        if not isinstance(faults, list) or any(not isinstance(f, dict) or set(f) != {"code"} or not isinstance(f["code"], str) for f in faults):
-            raise ValueError("read.faults must contain {code: string} entries")
-        result["faults"] = faults
-        result["timestamp"] = vector([state.get("timestamp")], 1, "timestamp")[0]
-        return result
+def measured_positions(message, joints):
+    """Order a JointState without clamping or silently accepting duplicate names."""
+    if len(message.name) != len(message.position) or len(set(message.name)) != len(message.name):
+        raise ValueError("joint state requires unique names and matching positions")
+    positions = dict(zip(message.name, message.position))
+    names = [joint["name"] for joint in joints]
+    if any(name not in positions for name in names):
+        raise ValueError("joint state is missing modeled joints")
+    return joint_target([positions[name] for name in names], joints, check_limits=False)

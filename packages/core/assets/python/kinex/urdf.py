@@ -1,4 +1,4 @@
-"""Read device-selected URDF chains and trees; no SDK, simulator or numerical dependencies."""
+"""Read device URDF trees; no SDK, simulator or numerical dependencies."""
 
 import math
 from pathlib import Path
@@ -69,72 +69,48 @@ def motion(joint):
     return {"axis": [v/norm for v in axis], "limits": bounds, **rates}
 
 
-def read_chain(path, base_link, tip_link, xml=None):
-    links, parents = parse(path, xml)
-    if base_link not in links or tip_link not in links or base_link == tip_link:
-        raise ValueError("URDF requires unique links and distinct existing base_link/tip_link")
-    selected, visited = [], set()
-    current = tip_link
-    while current != base_link:
-        if current in visited or current not in parents:
-            raise ValueError("tip_link is not a descendant of base_link in an acyclic chain")
-        visited.add(current)
-        joint = parents[current]
-        selected.append(joint)
-        current = joint.find("parent").attrib["link"]
-    joints, chain = [], []
-    for joint in reversed(selected):
-        link = {"origin": origin(joint)}
-        kind = joint.attrib["type"]
-        if kind == "fixed":
-            chain.append(link)
-            continue
-        if kind not in MOVABLE or joint.find("mimic") is not None:
-            raise ValueError("Selected chain must contain independent scalar joints; mimic/planar/floating joints are unsupported")
-        values = motion(joint)
-        link.update(joint=len(joints), axis=values["axis"], anchor=[0, 0, 0], reference=0)
-        joints.append({"name": joint.attrib["name"], "type": kind, "limits": values["limits"],
-                       "max_velocity": values["max_velocity"], "max_effort": values["max_effort"]})
-        chain.append(link)
-    if not joints:
-        raise ValueError("Selected chain has no movable joints")
-    return {"joints": joints, "chain": chain}
-
-
 def read_tree(path, base_link, xml=None):
-    """Every joint below base_link, with mimic relations, for publishing link frames."""
+    """Every joint below base_link in document order, with mimic relations."""
     links, parents = parse(path, xml)
     if base_link not in links:
         raise ValueError("base_link must name a URDF link")
-    children = {}
-    for joint in parents.values():
-        children.setdefault(joint.find("parent").attrib["link"], []).append(joint)
-    joints, pending, reached = [], [base_link], {base_link}
-    while pending:
-        for joint in children.get(pending.pop(), []):
-            child = joint.find("child").attrib["link"]
-            if child in reached:
-                raise ValueError("URDF links below base_link must form a tree")
-            reached.add(child)
-            pending.append(child)
-            kind = joint.attrib["type"]
-            if kind != "fixed" and kind not in MOVABLE:
-                raise ValueError(f"{joint.attrib['name']}: planar and floating joints are unsupported")
-            value = {"name": joint.attrib["name"], "type": kind, "parent": joint.find("parent").attrib["link"],
-                     "child": child, "origin": origin(joint)}
-            if kind in MOVABLE:
-                mimic = joint.find("mimic")
-                value.update(motion(joint), mimic=None if mimic is None else {
-                    "joint": mimic.attrib["joint"], "multiplier": float(mimic.get("multiplier", 1)),
-                    "offset": float(mimic.get("offset", 0))})
-            joints.append(value)
+
+    def below(link):
+        seen = set()
+        while link != base_link:
+            if link in seen or link not in parents:
+                return False
+            seen.add(link)
+            link = parents[link].find("parent").attrib["link"]
+        return True
+
+    joints = []
+    for child, joint in parents.items():
+        if child == base_link or not below(child):
+            continue
+        kind = joint.attrib["type"]
+        if kind != "fixed" and kind not in MOVABLE:
+            raise ValueError(f"{joint.attrib['name']}: planar and floating joints are unsupported")
+        value = {"name": joint.attrib["name"], "type": kind, "parent": joint.find("parent").attrib["link"],
+                 "child": child, "origin": origin(joint)}
+        if kind in MOVABLE:
+            mimic = joint.find("mimic")
+            value.update(motion(joint), mimic=None if mimic is None else {
+                "joint": mimic.attrib["joint"], "multiplier": float(mimic.get("multiplier", 1)),
+                "offset": float(mimic.get("offset", 0))})
+        joints.append(value)
     if not any(joint["type"] in MOVABLE for joint in joints):
         raise ValueError("base_link has no movable descendant joints")
     independent = {joint["name"] for joint in joints if joint["type"] in MOVABLE and joint["mimic"] is None}
     for joint in joints:
         if joint.get("mimic") and joint["mimic"]["joint"] not in independent:
             raise ValueError(f"{joint['name']} must mimic an independent movable joint below base_link")
-    return {"base_link": base_link, "links": sorted(reached), "joints": joints}
+    return {"base_link": base_link, "links": [base_link] + [joint["child"] for joint in joints], "joints": joints}
+
+
+def commanded(tree):
+    """Independent movable joints in document order: the device's command vector."""
+    return [joint for joint in tree["joints"] if joint["type"] != "fixed" and joint["mimic"] is None]
 
 
 def positions(tree, measured):
@@ -150,13 +126,16 @@ def positions(tree, measured):
     return values
 
 
+def displacement(joint, position):
+    """Child motion of a movable joint within its origin frame."""
+    axis = joint["axis"]
+    if joint["type"] == "prismatic":
+        return quat_to_mat([0, 0, 0, 1]), [v * position for v in axis]
+    s = math.sin(position / 2)
+    return quat_to_mat([*(v * s for v in axis), math.cos(position / 2)]), [0, 0, 0]
+
+
 def joint_transform(joint, position=0.0):
     """Parent-to-child rigid transform of one URDF joint at a scalar position."""
     base = xyzq_to_rt(joint["origin"])
-    if joint["type"] == "fixed":
-        return base
-    axis = joint["axis"]
-    if joint["type"] == "prismatic":
-        return compose_rt(base, (quat_to_mat([0, 0, 0, 1]), [v * position for v in axis]))
-    s = math.sin(position / 2)
-    return compose_rt(base, (quat_to_mat([*(v * s for v in axis), math.cos(position / 2)]), [0, 0, 0]))
+    return base if joint["type"] == "fixed" else compose_rt(base, displacement(joint, position))

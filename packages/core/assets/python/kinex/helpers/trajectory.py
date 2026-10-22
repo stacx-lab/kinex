@@ -3,6 +3,7 @@
 import math
 from dataclasses import dataclass
 
+from kinex.joints import recovery_targets
 from kinex.motion import joint_target, vector
 from kinex.validation import number
 
@@ -56,7 +57,6 @@ def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None,
     start = joint_target(start, joints, check_limits=False)
     target = joint_target(target, joints, check_limits=check_limits)
     if check_limits:
-        from kinex.joint_control import recovery_targets
         recovery_targets([start, target], joints, start_tolerance)
     if not math.isfinite(period_s) or period_s <= 0 or not 0 < fraction <= 1:
         raise ValueError("invalid trajectory period or speed fraction")

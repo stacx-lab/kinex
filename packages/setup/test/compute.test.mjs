@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, symlink } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -124,13 +125,16 @@ test('quality gates distinguish partial coverage and warnings without weakening 
 })
 
 test('TCP solver produces translation only and preserves unresolved rotation', async t => {
-  const { runtime, compute, json } = await fixture(t)
+  const { directory, runtime, compute, json } = await fixture(t)
+  const python = await runtime.python.initialize()
+  await mkdir(path.dirname(python.executable), { recursive: true })
+  await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim(), python.executable)
+  await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
+  await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-3" upper="3"/></joint></robot>')
   await runtime.profiles.writeDevice({ description: '',
     name: 'arm',
     type: 'joint',
-    model: { format: 'joints', joints: [
-    { name: 'j', type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: null, max_effort: null },
-  ] },
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await runtime.profiles.writeDevice({ description: '',
     name: 'tool',
@@ -143,7 +147,7 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
   const quaternions = [[0, 0, 0, 1], [s, 0, 0, s], [0, s, 0, s], [0, 0, s, s], [-s, 0, 0, s], [0, -s, 0, s]]
   const samples = quaternions.map(([x, y, z, w]) => {
     const rotated = [2 * (x * z + w * y) * .12, 2 * (y * z - w * x) * .12, (1 - 2 * (x * x + y * y)) * .12]
-    return { settled: true, kinematics: { frame: 'flange', reference_frame: null, pose: [.2 - rotated[0], .1 - rotated[1], .5 - rotated[2], x, y, z, w] } }
+    return { settled: true, kinematics: { frame: 'flange', pose: [.2 - rotated[0], .1 - rotated[1], .5 - rotated[2], x, y, z, w] } }
   })
   const result = await compute({ operation: 'fit-tcp', procedure: 'calibrate-tcp-offset', bindings: { arm: 'arm', target: 'tool' },
     samples: await json('samples.json', samples) })

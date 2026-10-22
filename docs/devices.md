@@ -7,8 +7,9 @@ contract and Python API.
 
 ## Types
 
-Builtin types remain: world, joint, dexterous_hand, gripper, suction, velocity,
-legged_base, rgb, rgbd, imu, force_torque, model and other.
+Builtin types remain: world, joint, gripper, suction, velocity, legged_base, rgb,
+rgbd, imu, force_torque, model and other. Arms, lifts and dexterous hands are joint
+devices.
 Their schemas validate physical facts, model structure, calibration and frames.
 Each type guide recommends operation names and semantics for onboarding; Kinex
 does not enforce them.
@@ -24,7 +25,7 @@ strings are allowed; absent descriptions are invalid. Do not invent unknown fact
 `runtime` declares domain, namespace, optional SDK interpreter/overlays, owned
 node factories and readiness timeout. `operations` declares topic/service
 transport, direction, endpoint, ROS type, QoS and any ownership/cancellation
-metadata. Physical facts (`model`, `control`, `color`, `frames`, etc.) are top-level
+metadata. Physical facts (`model`, `limits`, `color`, `frames`, etc.) are top-level
 fields with typed validation. One device-level `source`, `method`, `calibrated_at`
 and `needs_calibration` record covers calibration. `loaded` is lifecycle intent; status reports live
 readiness. Unknown facts use `???`; null has only the schema-defined meaning.
@@ -51,16 +52,17 @@ frames:
     parent: world:base
     translation_m: [0, 0, 0]
     rotation_xyzw: [0, 0, 0, 1]
-  flange:
-    parent: arm:base
-    translation_m: null
-    rotation_xyzw: null
+  tcp:
+    parent: arm:flange
+    translation_m: [0, 0, 0.1]
+    rotation_xyzw: [0, 0, 0, 1]
 ```
 
 Non-root null transform components mean unknown, never identity. Kinex publishes
-complete fixed edges to tf2. Model frames are explicitly declared with null
-components; kinematics nodes supply their transforms from measured joint state.
-References must exist and be acyclic. ROS IDs use `device/frame`; inherent
+complete fixed edges to tf2. Joint and gripper geometry is a URDF: each link below
+`model.base_link` is a device frame named by the link, published from measured
+joint state by the template `links.py` node, and profile frames may use it as a
+parent but must not reuse its name. References must exist and be acyclic. ROS IDs use `device/frame`; inherent
 `kinex.helpers.lookup_transform` accepts these IDs or qualified `device:frame` references.
 Query at observation stamps. Simulator nodes supply measurements and state;
 they do not own Kinex frame publication.
@@ -127,12 +129,14 @@ Declare cancellation for long-running owner-scoped services.
 
 ## Joints, grippers and hands
 
-Joint models validate limits, model order and local frames. FK/IK are operations
-provided by nodes when available. A gripper's geometry is a URDF: Kinex publishes
-its links on TF from measured joint states, mimic joints included, and `grip`
-names the actuated joint with its open and closed positions. `frames.tcp` is the
-grasp point with +z approach. Hand models validate finger references and optional
-center geometry.
+Joint and gripper geometry is a URDF; the template `links.py` node publishes its
+links on TF from measured joint states, mimic joints included. A joint device
+commands the URDF's independent movable joints in document order, with strict or
+native limit handling; `helpers.joint_model` computes FK and IK from the URDF, and
+`tip_link` is the default end-effector link. Arms, lifts and dexterous hands are
+joint devices; a hand has no tip link. A gripper's `grip` names the actuated joint
+with its open and closed positions, and `frames.tcp` is the grasp point with +z
+approach.
 No typed fact implies a mandatory operation or supplies a default payload.
 
 ## Mobile and legged bases

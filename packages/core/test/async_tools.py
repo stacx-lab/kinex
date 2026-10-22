@@ -33,7 +33,7 @@ class Stream:
 
 class Protocol:
     def __init__(self):
-        self.catalog = {"arm.ik": {}, "world.wait": {}}
+        self.catalog = {"world.wait": {}}
         self.events = []
         self.streams = []
 
@@ -45,8 +45,6 @@ class Protocol:
 
     async def request(self, operation, **fields):
         self.events.append(("request", operation, fields))
-        if operation == "arm.ik":
-            return NS(joints=[.2, .3])
         if operation == "model.infer":
             return {"actions": [[.2, .3], [.4, .5]]}
         return NS(success=True)
@@ -60,15 +58,18 @@ class Protocol:
 
 
 def profile(_):
+    from kinex.urdf import read_tree
     return {
-        "name": "arm", "type": "joint", "loaded": True,
-        "runtime": {},
-        "resolved_model": {"joints": [
-            {"name": name, "type": "revolute", "limits": {"min": -1., "max": 1.},
-             "max_velocity": 1., "max_acceleration": 3.} for name in ("j0", "j1")
-        ]},
-        "control": {"mode": "position"}, "home": None,
-                       "kinematics": {"frame": "flange", "ik": "driver"},
+        "name": "arm", "type": "joint", "loaded": True, "runtime": {}, "home": None, "limits": "strict",
+        "model": {"format": "urdf", "path": "arm.urdf", "base_link": "base_link", "tip_link": "flange"},
+        "resolved_model": read_tree(None, "base_link", """<robot name="arm">
+  <link name="base_link"/><link name="upper"/><link name="lower"/><link name="flange"/>
+  <joint name="j0" type="revolute"><parent link="base_link"/><child link="upper"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" velocity="1"/></joint>
+  <joint name="j1" type="revolute"><parent link="upper"/><child link="lower"/><origin xyz=".5 0 0"/>
+    <axis xyz="0 1 0"/><limit lower="-1" upper="1" velocity="1"/></joint>
+  <joint name="flange_joint" type="fixed"><parent link="lower"/><child link="flange"/><origin xyz=".5 0 0"/></joint>
+</robot>"""),
     }
 
 
@@ -144,12 +145,11 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         with patch.object(policy, "profile", profile), patch("kinex.ros_tools.transform_pose", transform), patch.dict(sys.modules, {
             "rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
             "rosidl_runtime_py.convert": convert,
-        }):
+        }), patch("kinex.joints.JointModel.ik", autospec=True, return_value=[.2, .3]) as ik:
             result = await policy.main({"model": "model", "observation": {},
                                         "command": [{"device": "arm", "space": "pose"}], "action_hz": 20}, io)
-        self.assertEqual(frames, [("arm/flange", "arm/flange"), ("arm/flange", "arm/base"), ("arm/base", "arm/base")])
-        ik = next(event[2] for event in io.events if event[:2] == ("request", "arm.ik"))
-        self.assertEqual(ik["target"]["position"], {"x": .1, "y": 0., "z": 0.})
+        self.assertEqual(frames, [("arm/flange", "arm/flange"), ("arm/base", "arm/base"), ("arm/base", "arm/base")])
+        self.assertEqual(ik.call_args.args[1:], ([.1, 0., 0., 0., 0., 0., 1.], [0., .1]))
         self.assertEqual(result["actions_submitted"], 1)
 
     async def test_policy_invalid_later_joint_target_never_publishes(self):
@@ -170,10 +170,12 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         for failure_at in (0, 1):
             io, seeds = Protocol(), []
             async def request(operation, **fields):
-                if operation == "model.infer":
-                    return {"actions": [{"arm": [0, 0, 0, 0, 0, 0, 1], "other": [0., 0.]}] * 3}
-                seeds.append(fields["seed"])
-                return NS(joints=[.2, .3] if len(seeds) <= failure_at else [5., 0.])
+                return {"actions": [{"arm": [0, 0, 0, 0, 0, 0, 1], "other": [0., 0.]}] * 3}
+            def solve(model, goal, seed):
+                seeds.append(seed)
+                if len(seeds) > failure_at:
+                    raise ValueError("IK search exhausted")
+                return [.2, .3]
             async def transform(io, pose, *args):
                 return pose
             io.request = request
@@ -181,7 +183,7 @@ class Tools(unittest.IsolatedAsyncioTestCase):
             convert.message_to_ordereddict = lambda value: value
             with patch.object(policy, "profile", profile), patch("kinex.ros_tools.transform_pose", transform), patch.dict(sys.modules, {
                 "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
-            }):
+            }), patch("kinex.joints.JointModel.ik", autospec=True, side_effect=solve):
                 result = await policy.main({"model": "model", "observation": {}, "action_hz": 20,
                     "command": [{"device": "arm", "space": "pose"}, {"device": "other"}]}, io)
             self.assertEqual(result["actions_submitted"], failure_at)

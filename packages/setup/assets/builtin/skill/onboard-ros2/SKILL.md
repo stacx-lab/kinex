@@ -55,9 +55,9 @@ setup-progress files.
 ## Frames and cameras
 
 Kinex automatically publishes known fixed profile transforms on `/tf_static`.
-Register an arm kinematics node backed by its URDF or serial-chain model for
-FK/IK services and measured endpoint transforms on `/tf`. Kinex supplies
-persistent tf2 lookup. Simulators supply measurements
+Joint devices and grippers register the template `links.py` node, which publishes
+their URDF links from measured joint states on `/tf`; FK and IK come from the URDF
+through `helpers.joint_model`. Kinex supplies persistent tf2 lookup. Simulators supply measurements
 and state without publishing TF. Declare frames at the profile top level with explicit
 `parent: device:frame`, or `parent: null` for an independent root. Mounts are
 `frames.base`. ROS base IDs use `<device>/base`; all other local IDs use

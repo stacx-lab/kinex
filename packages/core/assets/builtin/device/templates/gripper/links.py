@@ -1,7 +1,7 @@
-"""Publish the gripper's URDF links on TF from measured joint states."""
+"""Publish the device's URDF links on TF from measured joint states."""
 from pathlib import Path
 
-from kinex.ros_kinematics import LinkPublisher
+from kinex.ros_links import LinkPublisher
 
 
 def create(profile, context):

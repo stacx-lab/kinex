@@ -14,8 +14,8 @@ def cartesian_width(entry, prof):
         if "frame" in entry or "target_frame" in entry:
             raise ValueError("frame and target_frame require Cartesian policy actions")
         return None
-    if prof["type"] != "joint" or not (prof.get("kinematics") or {}).get("ik"):
-        raise ValueError("Cartesian policy actions require a joint device with declared IK")
+    if prof["type"] != "joint" or not prof["model"]["tip_link"]:
+        raise ValueError("Cartesian policy actions require a joint device with a model tip_link")
     return 7 if space == "pose" else 6
 
 

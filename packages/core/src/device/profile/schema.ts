@@ -10,10 +10,9 @@ export { WorkspaceBounds, Surface } from "./world.ts"
 import { VelocityControl, VelocityFeedback, VelocityStop } from "./velocity.ts"
 import { LeggedControl, LeggedStop } from "./legged.ts"
 import { gripperShape, suctionShape } from "./gripper.ts"
-import { resolvedTrees } from "./urdf.ts"
-import { jointShape, refineJoint, jointModel } from "./joint.ts"
-import { HandGeometry, refineHand } from "./hand.ts"
-import { modelFrames, frameErrors } from "./frames.ts"
+import { commandedJoints, deviceTree } from "./urdf.ts"
+import { jointShape } from "./joint.ts"
+import { frameErrors } from "./frames.ts"
 import { CameraColor, CameraConnection, CameraDepth } from "./camera.ts"
 
 import { MISSING, may, known, section, measured, OtherConnection } from "./common.ts"
@@ -30,7 +29,6 @@ const Aabb = z.object({
 export const DeviceType = z.enum([
   "legged_base",
   "velocity",
-  "dexterous_hand",
   "suction",
   "joint",
   "gripper",
@@ -81,8 +79,7 @@ const camera = { ...spatial, access: z.strictObject({ ...provenance, connection:
 export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...spatial, type: z.literal("legged_base"), control: may(LeggedControl).default(MISSING), stop: may(LeggedStop).default(MISSING) }),
   z.strictObject({ ...spatial, type: z.literal("velocity"), access: JointDeviceAccess.optional(), control: may(VelocityControl).default(MISSING), feedback: may(VelocityFeedback).default(MISSING), stop: may(VelocityStop).default(MISSING) }),
-  z.strictObject({ ...spatial, ...jointShape, type: z.literal("joint"), access: JointDeviceAccess.optional() }).superRefine(refineJoint),
-  z.strictObject({ ...spatial, ...jointShape, type: z.literal("dexterous_hand"), access: JointDeviceAccess.optional(), geometry: HandGeometry.optional() }).superRefine(refineJoint).superRefine(refineHand),
+  z.strictObject({ ...spatial, ...jointShape, type: z.literal("joint"), access: JointDeviceAccess.optional() }),
   z.strictObject({ ...spatial, ...gripperShape, type: z.literal("gripper"), access: JointDeviceAccess.optional() }),
   z.strictObject({ ...spatial, ...suctionShape, type: z.literal("suction"), access: JointDeviceAccess.optional() }),
   z.strictObject({ ...camera, type: z.literal("rgb") }),
@@ -113,14 +110,6 @@ export const Device = z.discriminatedUnion("type", [
     ctx.addIssue({ code: "custom", path: ["stop"], message: "stop scope must include this device" })
   if (!("frames" in device)) return
   if (!device.frames.base) ctx.addIssue({ code: "custom", path: ["frames", "base"], message: "spatial devices require an explicit base frame" })
-  const computed = modelFrames(device)
-  if (new Set(computed).size !== computed.length)
-    ctx.addIssue({ code: "custom", path: ["frames"], message: "model-defined frames must be unique" })
-  for (const name of computed) {
-    const frame = device.frames[name]
-    if (!frame || frame.parent !== `${device.name}:base` || frame.translation_m !== null || frame.rotation_xyzw !== null)
-      ctx.addIssue({ code: "custom", path: ["frames", name], message: "model frame must declare device:base parent and null static transform components" })
-  }
   for (const message of frameErrors([device], false))
     ctx.addIssue({ code: "custom", path: ["frames"], message })
 })
@@ -184,11 +173,11 @@ export function matchesDeviceType(actual: DeviceType, required: DeviceType): boo
 
 // Control contracts determine actuation.
 export function isActuated(device: Device): boolean {
-  return ["joint", "velocity", "legged_base", "gripper", "dexterous_hand", "suction"].includes(device.type)
+  return ["joint", "velocity", "legged_base", "gripper", "suction"].includes(device.type)
 }
 export function isVelocity(device: Device): device is Extract<Device, { type: "velocity" }> { return device.type === "velocity" }
-export function isJoint(device: Device): device is Extract<Device, { type: "joint" | "dexterous_hand" }> { return device.type === "joint" || device.type === "dexterous_hand" }
-export function deviceJoints(device: Device) { return isJoint(device) ? jointModel(device)?.joints ?? [] : [] }
+export function isJoint(device: Device): device is Extract<Device, { type: "joint" }> { return device.type === "joint" }
+export function deviceJoints(device: Device) { return isJoint(device) ? commandedJoints(deviceTree(device)) : [] }
 
 // The device's own ordered action space, for the actuated types.
 export function deviceActions(device: Device): DeviceAction[] {
@@ -205,9 +194,9 @@ export function deviceActions(device: Device): DeviceAction[] {
     ...(j.limits ? { bounds: j.limits } : {}),
   }))
   if (device.type === "gripper") {
-    const { model, grip } = device
-    if (!known(model) || !known(grip)) return []
-    const joint = resolvedTrees.get(model)?.joints.find((item) => item.name === grip.joint)
+    const grip = device.grip
+    if (!known(grip)) return []
+    const joint = deviceTree(device)?.joints.find((item) => item.name === grip.joint)
     return [{ joint: grip.joint, units: joint?.type === "prismatic" ? "m" : "rad",
       bounds: { min: Math.min(grip.open, grip.closed), max: Math.max(grip.open, grip.closed) } }]
   }

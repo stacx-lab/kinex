@@ -22,6 +22,11 @@ export const LocalFrame = z.strictObject({
 })
 export type LocalFrame = z.infer<typeof LocalFrame>
 
+export const ActuatorStop = z.strictObject({
+  behavior: z.enum(["hold", "halt", "controller_emergency_stop"]),
+  affected_devices: z.array(z.string().min(1)).min(1).refine((v) => new Set(v).size === v.length, "affected_devices must be unique"),
+})
+
 export function hasMissing(value: unknown): boolean {
   if (value === MISSING) return true
   if (!value || typeof value !== "object") return false

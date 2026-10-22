@@ -1,6 +1,6 @@
-import { field } from "./common.ts"
+import { ActuatorStop, field, known } from "./common.ts"
 import { z } from "zod"
-import type { UrdfTree } from "./urdf.ts"
+import { UrdfModel, commandedJoints, type UrdfTree } from "./urdf.ts"
 
 const name = z.string().min(1)
 const units = z.enum(["m", "rad", "controller_count", "normalized"])
@@ -18,38 +18,27 @@ const SuctionFeedback = z.strictObject({
     ctx.addIssue({ code: "custom", path: ["aperture_model"], message: "one coefficient is required per measured position" })
 })
 
-export const EndEffectorStop = z.strictObject({
-  behavior: z.enum(["hold", "halt", "controller_emergency_stop"]),
-  affected_devices: z.array(z.string().min(1)),
-}).refine((v) => new Set(v.affected_devices).size === v.affected_devices.length, "affected_devices must be unique")
-
-// Geometry lives in the URDF: every link below base_link is a TF frame of the device.
-export const GripperModel = z.strictObject({ format: z.literal("urdf"), path: field(name), base_link: field(name) })
 // The actuated URDF joint and its positions at full open and full close.
 export const Grip = z.strictObject({ joint: name, open: z.number(), closed: z.number() })
   .refine((v) => v.open !== v.closed, "open and closed must differ")
 
-// The grip drives an independent URDF joint within its limits; URDF links share
-// the device namespace with profile frames, so their names must not collide.
-export function gripErrors(device: { grip: z.infer<typeof Grip> | "???"; frames: Record<string, unknown> }, tree: UrdfTree) {
-  const errors = tree.links.filter((link) => link !== tree.base_link && Object.hasOwn(device.frames, link))
-    .map((link) => `URDF link ${link} collides with profile frame ${link}`)
-  if (device.grip === "???") return errors
+// The grip drives an independent URDF joint within its limits.
+export function gripErrors(device: { grip: z.infer<typeof Grip> | "???" }, tree: UrdfTree): string[] {
+  if (!known(device.grip)) return []
   const { joint: name, open, closed } = device.grip
-  const joint = tree.joints.find((item) => item.name === name)
-  if (!joint || joint.type === "fixed" || joint.mimic) return [...errors, `grip joint ${name} must be an independent movable URDF joint`]
+  const joint = commandedJoints(tree).find((item) => item.name === name)
+  if (!joint) return [`grip joint ${name} must be an independent movable URDF joint`]
   const limits = joint.limits
-  if (limits && [open, closed].some((value) => value < limits.min || value > limits.max))
-    errors.push(`grip open/closed must lie within ${name} limits [${limits.min}, ${limits.max}]`)
-  return errors
+  return limits && [open, closed].some((value) => value < limits.min || value > limits.max)
+    ? [`grip open/closed must lie within ${name} limits [${limits.min}, ${limits.max}]`] : []
 }
 
 export const gripperShape = {
-  model: field(GripperModel),
+  model: field(UrdfModel),
   grip: field(Grip),
-  stop: field(EndEffectorStop),
+  stop: field(ActuatorStop),
 }
 export const suctionShape = {
   control: field(z.strictObject({ mode: z.literal("binary"), off_target: z.number(), on_target: z.number() }).refine((v) => v.off_target !== v.on_target, "on/off targets must differ")),
-  feedback: field(SuctionFeedback), stop: field(EndEffectorStop),
+  feedback: field(SuctionFeedback), stop: field(ActuatorStop),
 }

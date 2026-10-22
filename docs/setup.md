@@ -6,8 +6,7 @@ Setup owns a persisted, task-scoped DAG; inspection is read-only. Completion che
 fact availability, explicit values, evidence and completed prerequisites, without
 receipt-hash invalidation on content/definition edits. Calibration attempts and
 solver results retain separate fingerprint checks. Calibration samplers' settling
-checks require fresh declared velocity feedback and never advance simulation
-time. A timeout after a read saves `settled:false`; FK and archival still honor
+checks require fresh measured velocities and never advance simulation time. A timeout after a read saves `settled:false`; FK and archival still honor
 caller cancellation. Camera sampling must request `args: {output: "file"}` to
 archive image files; RGBD archival copies both streams before appending. Profile
 writes are validated; unrelated calibration never gates all operations. See the

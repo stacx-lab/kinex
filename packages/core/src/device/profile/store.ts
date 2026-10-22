@@ -175,11 +175,11 @@ export const ProfileStore = {
     // Merging across union variants would interleave unrelated fact shapes —
     // a retype replaces the file wholesale instead.
     const retyped = typeof existing["type"] === "string" && typeof patch["type"] === "string" && existing["type"] !== patch["type"]
-    const merged = mergeSections(retyped ? {} : existing, patch, replace, Object.keys(patch), ["access", "runtime", "geometry"])
+    const merged = mergeSections(retyped ? {} : existing, patch, replace, Object.keys(patch), ["access", "runtime"])
     const now = new Date().toISOString()
     const meta = (retyped ? undefined : (merged["meta"] as Record<string, unknown> | undefined)) ?? { created_at: now }
     merged["meta"] = { ...meta, updated_at: now }
-    const device = await resolveDeviceModel(Device.parse(merged), path.dirname(file), retyped || ["model", "kinematics", "geometry", "grip", "home", "control", "feedback", "stop"].some(key => key in patch))
+    const device = await resolveDeviceModel(Device.parse(merged), path.dirname(file), retyped || ["model", "grip", "home", "frames"].some(key => key in patch))
     if (patch.needs_calibration === null || Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null)) {
       const snapshot = await ProfileStore.snapshot(cwd)
       await validateClears(cwd, patch, { ...snapshot, devices: [...snapshot.devices.filter((entry) => entry.name !== device.name), device] }, device.name)

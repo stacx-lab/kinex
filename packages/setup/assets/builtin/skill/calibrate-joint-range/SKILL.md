@@ -5,12 +5,12 @@ description: Resolve joint limits from models or referenced measurements only wh
 
 # Calibrate joint range
 
-Bind `arm` to the joint device or dexterous hand. Prefer its device-owned URDF,
-explicit joint model or vendor metadata. `calib_compute operation:urdf-introspect`
+Bind `arm` to the joint device. Prefer its device-owned URDF or vendor metadata.
+`calib_compute operation:urdf-introspect`
 resolves the selected URDF offline; no device activation is needed. Preserve the
 model reference. Home is a separate named configuration, never inferred from URDF.
 
-`scripts/estimate_reach.py` optionally samples FK reach in the device base frame.
+`scripts/estimate_reach.py` optionally samples tip_link FK reach in the device base frame.
 This is analysis without collision checking; do not persist it as world bounds.
 
 Measure limits only when the task needs missing or explicitly requested measured
@@ -25,11 +25,9 @@ verify arrival after each step.
 Stop immediately on fault, no progress, near-stop report or operator interruption;
 do not probe a hard stop. Preserve the stopped position/reason as partial evidence.
 
-Persist verified limits in the device-owned model, retaining geometry and IK.
+Persist verified limits in the device's URDF, retaining its geometry.
 Do not create duplicate joints/DOF fields in the profile. Record home only from
 an independently established configuration. Changing a model invalidates dependent
 results; re-evaluate only the current task's affected branch.
-For model-free measurement, first prepare an explicit joint inventory with the
-correct joint order; never invent a joint set from unlabelled readings.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.

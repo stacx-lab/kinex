@@ -1,7 +1,6 @@
-import { frameErrors, modelFrames } from "./frames.ts"
+import { frameErrors } from "./frames.ts"
 import { hasMissing } from "./common.ts"
-import { jointModel, jointModelErrors } from "./joint.ts"
-import { resolvedTrees } from "./urdf.ts"
+import { commandedJoints, deviceTree, modelErrors } from "./urdf.ts"
 import { cameraMissing } from "./camera.ts"
 import { ProfileStore, type ProfileSnapshot, type NeededEntry } from "./store.ts"
 import {
@@ -61,7 +60,7 @@ interface Node {
 }
 
 // Loaded devices of these types gate task readiness; world geometry is optional.
-const GATING_TYPES: readonly DeviceType[] = ["velocity", "legged_base", "joint", "dexterous_hand", "gripper", "suction", "rgb", "rgbd"]
+const GATING_TYPES: readonly DeviceType[] = ["velocity", "legged_base", "joint", "gripper", "suction", "rgb", "rgbd"]
 
 function factsCheck(device: Device): Check {
   switch (device.type) {
@@ -78,17 +77,17 @@ function factsCheck(device: Device): Check {
       if (!known(depth) || cameraMissing(depth)) return { done: false, detail: "depth is incomplete" }
       return { done: true, detail: `color ${color.width}x${color.height}, depth ${depth.scale_m_per_unit} m/unit ${depth.registration} (${device.source})` }
     }
-    case "dexterous_hand":
     case "joint": {
-      if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "joint model, home, control, feedback or stop is incomplete" }
-      const model = jointModel(device)
-      if (!model) return { done: false, detail: jointModelErrors.get(device) ?? "joint model is unresolved" }
-      return { done: true, detail: `${model.joints.length} joints, model resolved` }
+      if ([device.model, device.home, device.stop].some(hasMissing)) return { done: false, detail: "URDF model, home or stop is incomplete" }
+      const tree = deviceTree(device)
+      if (!tree) return { done: false, detail: modelErrors.get(device) ?? "joint URDF is unresolved" }
+      const tip = known(device.model) ? device.model.tip_link : null
+      return { done: true, detail: `${commandedJoints(tree).length} joints, ${device.limits} limits${tip ? `, tip ${tip}` : ""}` }
     }
     case "gripper": {
       if ([device.model, device.grip, device.stop].some(hasMissing)) return { done: false, detail: "URDF model, grip or stop is incomplete" }
-      const tree = known(device.model) ? resolvedTrees.get(device.model) : undefined
-      if (!tree) return { done: false, detail: jointModelErrors.get(device) ?? "gripper URDF is unresolved" }
+      const tree = deviceTree(device)
+      if (!tree) return { done: false, detail: modelErrors.get(device) ?? "gripper URDF is unresolved" }
       if (!device.frames.tcp) return { done: false, detail: "declare frames.tcp, the grasp point with +z approach" }
       return { done: true, detail: `${tree.links.length} URDF links, grip ${known(device.grip) ? device.grip.joint : ""}` }
     }
@@ -144,9 +143,8 @@ function profileCheck(device: Device, devices: Device[]): Check {
   if (!facts.done || device.type === "model") return facts
   const errors = frameErrors(devices).filter(message => message.startsWith(`${device.name}:`))
   if (errors.length) return { done: false, detail: errors.join("; ") }
-  const computed = new Set(modelFrames(device))
   for (const [name, frame] of Object.entries(device.frames)) {
-    if (frame.parent === null || computed.has(name)) continue
+    if (frame.parent === null) continue
     if (frame.translation_m === null || frame.rotation_xyzw === null)
       return { done: false, detail: `frames.${name} transform is unknown; calibrate or supply measured TF` }
   }

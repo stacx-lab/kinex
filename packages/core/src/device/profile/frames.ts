@@ -1,34 +1,43 @@
 import type { Device } from "./schema.ts"
 import type { LocalFrame } from "./common.ts"
-
-export function modelFrames(device: Device): string[] {
-  if (device.type !== "joint" && device.type !== "dexterous_hand") return []
-  const facts = device
-  const geometry = "geometry" in facts ? facts.geometry : undefined
-  return [
-    ...(facts.kinematics ? [facts.kinematics.frame] : []),
-    ...Object.values(geometry?.fingers ?? {}).map(finger => finger.tip_frame),
-    ...(geometry?.center ? [geometry.center.frame] : []),
-  ]
-}
+import { deviceTree, urdfSpec } from "./urdf.ts"
 
 export function deviceFrames(device: Device): Record<string, LocalFrame> {
   return "frames" in device ? device.frames : {}
 }
 
+// URDF links below the base link are frames under the device base; undefined until resolved.
+function links(device: Device): string[] | undefined {
+  if (!urdfSpec(device)) return []
+  const tree = deviceTree(device)
+  return tree?.links.filter(link => link !== tree.base_link)
+}
+
 // Validate topology, including unknown edges: calibration must not create a cycle.
+// Parents on a device whose URDF is unresolved stay unchecked until it resolves.
 export function frameErrors(devices: Device[], external = true): string[] {
-  const frames = new Map<string, LocalFrame>(devices.flatMap(device => Object.entries(deviceFrames(device)).map(([name, frame]) => [`${device.name}:${name}`, frame] as const)))
+  const parents = new Map<string, string | null>()
+  const unresolved = new Set<string>()
   const errors = new Set<string>()
-  for (const [name, frame] of frames) {
-    if (frame.parent !== null && !frames.has(frame.parent) && (external || frame.parent.split(":")[0] === name.split(":")[0]))
-      errors.add(`${name}: unknown parent frame ${frame.parent}`)
+  for (const device of devices) {
+    for (const [name, frame] of Object.entries(deviceFrames(device))) parents.set(`${device.name}:${name}`, frame.parent)
+    const names = links(device)
+    if (!names) unresolved.add(device.name)
+    for (const name of (names ?? []).map(link => `${device.name}:${link}`)) {
+      if (parents.has(name)) errors.add(`${name}: URDF link collides with a profile frame`)
+      else parents.set(name, `${device.name}:base`)
+    }
+  }
+  for (const [name, start] of parents) {
+    const owner = start?.split(":")[0]
+    if (start && !parents.has(start) && !unresolved.has(owner!) && (external || owner === name.split(":")[0]))
+      errors.add(`${name}: unknown parent frame ${start}`)
     const seen = new Set<string>([name])
-    let parent = frame.parent
-    while (parent !== null && frames.has(parent)) {
+    let parent = start
+    while (parent && parents.has(parent)) {
       if (seen.has(parent)) { errors.add(`${name}: frame parents must be acyclic`); break }
       seen.add(parent)
-      parent = frames.get(parent)!.parent
+      parent = parents.get(parent)!
     }
   }
   return [...errors]

@@ -5,7 +5,7 @@ import { spawnProcess } from "../util/process.ts"
 import { abortable } from "../util/abort.ts"
 import { z } from "zod"
 import { pythonDiagnostic } from "../python/environment.ts"
-import { deviceModel, deviceModelError } from "../device/device-model.ts"
+import { deviceTree, modelErrors } from "../device/profile/urdf.ts"
 import { deviceInputValues } from "./device-input.ts"
 import path from "node:path"
 import { formatJSON } from "../util/json.ts"
@@ -142,9 +142,9 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
     const device = await ProfileStore.readDevice(cwd, name)
     if (!device && request["optional"] === true) return { ok: true, profile: null }
     if (!device) return { ok: false, error: `no device "${name}" for robot ${robot.identity.id}` }
-    const error = deviceModelError(device)
+    const error = modelErrors.get(device)
     if (error) return { ok: false, error }
-    const model = deviceModel(device)
+    const model = deviceTree(device)
     return { ok: true, profile: model ? { ...device, resolved_model: model } : device }
   }
   if ((call === "tool" || call === "inline") && depth >= MAX_DEPTH)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline, profile-owned flange reach estimate in the joint device base frame."""
+"""Offline tip_link reach estimate in the joint device base frame from its URDF."""
 
 import argparse
 import json
@@ -9,30 +9,21 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from kinex.joints import JointDevice
+from kinex.joints import JointModel
 
 
 def estimate(file, count, percentile):
     if count < 1 or not 0 < percentile <= 100:
         raise ValueError("samples must be positive and percentile in (0,100]")
     profile = yaml.safe_load(file.read_text())
-    if profile["type"] != "joint":
-        raise ValueError("expected a joint device profile")
-    adapter = JointDevice(profile, file.parent)
-    if adapter.solver is None:
-        raise ValueError("offline reach requires URDF or serial_chain geometry")
-    bounds = []
-    for joint in adapter.joints:
-        limits = joint["limits"]
-        if limits is None and joint["type"] == "continuous":
-            bounds.append([-math.pi, math.pi])
-            continue
-        if not isinstance(limits, dict):
-            raise ValueError(f"{joint['name']}: joint limits are unresolved")
-        bounds.append([limits["min"], limits["max"]])
+    model = JointModel(profile, file.parent)
+    if not model.tip:
+        raise ValueError("offline reach requires a model tip_link")
+    # Only continuous joints lack URDF limits.
+    bounds = [[j["limits"]["min"], j["limits"]["max"]] if j["limits"] else [-math.pi, math.pi] for j in model.joints]
     rng = np.random.default_rng(0)
     configurations = rng.uniform(np.array(bounds)[:, 0], np.array(bounds)[:, 1], (count, len(bounds)))
-    positions = np.array([adapter.fk(q.tolist())["pose"][:3] for q in configurations])
+    positions = np.array([model.fk(q.tolist())[:3] for q in configurations])
     trim = (100 - percentile) / 2
     return {"ok": True, "frame": profile["name"], "samples": count,
             "percentile": percentile, "aabb_min": np.percentile(positions, trim, axis=0).tolist(),
