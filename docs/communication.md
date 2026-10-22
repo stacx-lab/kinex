@@ -216,7 +216,7 @@ invalidates dynamic history while retaining fixed calibration.
 The simulator supplies state and measurements, not TF or a transform-lookup
 service. Camera nodes set image frame IDs to the calibrated optical frame,
 including on-demand captures. Camera projection and distortion live in the
-profile, not `CameraInfo` or TF.
+profile, not TF.
 
 `relative_pose` uses tf2 and accepts qualified frame references or ROS frame IDs. Supply `timestamp` for a measurement
 at a particular world time; omitting it explicitly requests the latest available

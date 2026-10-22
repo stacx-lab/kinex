@@ -65,10 +65,9 @@ and state without publishing TF. Declare frames at the profile top level with ex
 frames. Use tf2 at observation timestamps; missing calibration must not produce
 identity transforms.
 
-Camera intrinsics live in the profile; do not expose `CameraInfo`. Establish raw
-versus rectified image space and compare a source's live calibration with profile
-facts. Apply
-measured calibration updates through `profile_write`. One source capture should
+Camera intrinsics live in the profile. Establish raw versus rectified image
+space and compare a source's live calibration with profile facts. Apply measured
+calibration updates through `profile_write`. One source capture should
 serve all subscribers, with bounded queues for slow consumers.
 
 ## Environment and verification
