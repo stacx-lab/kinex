@@ -46,9 +46,7 @@ original failure is returned. Normal script completion does not imply a stop:
 scripts use `stop_owned()` when their stopping condition requires one. Ownership
 checks preserve replacements, subject to the node's physical stop scope.
 These behaviors use the shared Python runner; hosts should route `exec` through
-core's tool API. Per-entry errors
-in a Python `devices()` result do not by themselves fail the script; scripts must
-inspect them and decide whether to stop or raise an error.
+core's tool API.
 
 ## Recording
 

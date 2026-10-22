@@ -45,9 +45,9 @@ Catalogs and descriptions stay in Python until selected for output.
 
 The model `device` tool accepts `{deviceID, action, args}`. Action is explicit.
 `devices` accepts `{calls: [...]}` and preauthorizes all valid calls before
-concurrent dispatch; results preserve order and per-entry failures. The Python
-`kinex.device(deviceID, action, args)` and `kinex.devices(calls)` APIs return the
-same data and optional file paths. Image results may attach PNGs for the model.
+concurrent dispatch; results preserve order and per-entry failures. Image
+results attach PNGs for the model. Python reaches devices only through
+`communication()`.
 There is no implicit type-based read/write or camera conversion.
 
 For workflows use `communication()` async pub/sub and request/response helpers.
@@ -211,7 +211,7 @@ be interpreted as runtime messages. Invalid arguments use the standard tool
 validation error result; permission denial propagates to the host.
 
 One `python_tool` approval covers script execution and composed runtime
-calls. Scripts can use `device`, `devices`, `call`, `profile`, `robot` and `runtime`
+calls. Scripts can use `communication`, `call`, `profile`, `robot` and `runtime`
 from `kinex`. Composed tools share the execution approval. Python cannot
 load/unload devices or call the recording tool through its runtime API. Failure,
 timeout and cancellation trigger an attempt to stop motion still owned by the
@@ -220,11 +220,8 @@ the original failure is returned; successful completion may leave submitted
 motion running. Use `kinex.stop_owned()` to request a stop and receive cleanup
 errors, including in a `finally` block around a control loop.
 
-`call(tool_name, **params)` uses keyword arguments, not a positional dictionary.
-In contrast,
-`device("world", "wait", {"duration_s": duration})` accepts an argument dictionary.
-`call` composes Python tools or `device`/`devices`, not host tools such as shell
-or file editing. `exec`, manifest tools and inline Python share the execution runner.
+`call(tool_name, **params)` composes Python tools with keyword arguments, not
+host tools such as shell or file editing. `exec`, manifest tools and inline Python share the execution runner.
 
 Python startup uses a separate host RPC channel; ordinary script stdout/stderr
 remain diagnostics. Importing the library outside a tool dialog is inert.

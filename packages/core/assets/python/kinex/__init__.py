@@ -83,23 +83,8 @@ def args():
     return json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
 
 
-def device(deviceID, action, args=None):
-    """Call an explicitly declared operation; return fields and optional file."""
-    values = {"deviceID": deviceID, "action": action, "args": {} if args is None else args}
-    return _rpc({"call": "device", **values})["result"]
-
-
-def devices(calls):
-    """Run {deviceID, action, args?} calls concurrently; return {"results": [...]}.
-
-    Entries preserve input order and contain deviceID, action, ok and data/file or error.
-    """
-    values = {"calls": calls}
-    return _rpc({"call": "devices", **values})["result"]
-
-
 def call(tool, **kwargs):
-    """Compose a Python tool or device/devices using keyword arguments."""
+    """Compose a Python tool using keyword arguments."""
     result = _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
     return result
 

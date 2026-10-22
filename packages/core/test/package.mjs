@@ -78,17 +78,13 @@ export async function checkCorePackage(directory, env, pack) {
       assert.equal('conventions' in await runtime.context(),false)
       await mkdir('.kinex/python/.venv/bin', {recursive:true})
       await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {encoding:'utf8'}).trim(), '.kinex/python/.venv/bin/python3')
-      const reading = await runtime.tools.call('exec', { python: [
-        'from kinex import device, devices, finish',
-        'request = {"deviceID": "world", "action":"read", "args": {}}',
-        'finish({"single": device(**request), "batch": devices(calls=[request])})'
-      ].join('\\n') }, {sessionID:'package'})
+      const listed = await runtime.tools.call('exec', { python: 'from kinex import runtime, finish\\nfinish(runtime.devices())' }, {sessionID:'package'})
+      assert.ok(!listed.isError, listed.output)
+      assert.equal(JSON.parse(listed.output).result[0].name, 'world')
+      const reading = await runtime.tools.call('device', { deviceID: 'world', action: 'read' }, {sessionID:'package'})
       assert.ok(!reading.isError, reading.output)
-      const value = JSON.parse(reading.output).result
-      assert.equal(typeof value.single.value, 'number')
-      assert.equal(value.single.data, undefined)
-      assert.equal(value.batch.results[0].deviceID, 'world')
-      assert.equal(typeof value.batch.results[0].data.value, 'number')
+      const batch = await runtime.tools.call('devices', { calls: [{ deviceID: 'world', action: 'read' }] }, {sessionID:'package'})
+      assert.equal(JSON.parse(batch.output).results[0].ok, true)
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
