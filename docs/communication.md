@@ -200,20 +200,19 @@ mean unknown and publish no static edge. ROS frame IDs use `<device>/<frame>`,
 including `arm/base`, `arm/flange` and `gripper/tcp`. Kinex lookup accepts either
 qualified profile references (`arm:base`) or native ROS IDs (`arm/base`).
 
-An arm's explicit `kinematics.py` factory creates a persistent
-`kinex.ros_kinematics.KinematicsNode`. It reads the profile's URDF or serial-chain
-model once, subscribes to measured `joint_state`, and publishes the modeled
-endpoint on `/tf` through Kinex. Measurements are reordered by joint name and
-are never clamped to command limits. Each publication retains the measurement
-timestamp. Dynamic TF retains the latest sample with reliable, transient-local
-QoS so Kinex readers can join while the world is paused.
+A joint or gripper device's `links.py` factory creates a persistent
+`kinex.ros_links.LinkPublisher`. It reads the profile's URDF once, subscribes to
+measured `joint_state`, and publishes every link below the base link as
+`<device>/<link>`: fixed joints once on `/tf_static`, movable and mimic joints on
+`/tf`. Measurements are never clamped to command limits, and each publication
+retains the measurement timestamp. Dynamic TF retains the latest sample with
+reliable, transient-local QoS so Kinex readers can join while the world is paused.
 
-The node exposes `fk` (`kinex_interfaces/srv/ForwardKinematics`) and optional
-`ik` (`kinex_interfaces/srv/InverseKinematics`) services. FK takes joint positions
-in model order; IK takes a pose and seed. Both accept device-local `frame` and
-`reference_frame` names: empty means the modeled endpoint and device base,
-respectively. IK uses the model's bounded solver, enforces limits and verifies
-its result with FK. These services do not command motion.
+Kinematics need no device service. `helpers.joint_model(device)` loads the
+resolved URDF: `fk(positions, link=None)` returns a link pose in `<device>/base`
+and `ik(pose, seed, link=None)` runs the bounded solver within URDF limits and
+verifies its result with FK; the link defaults to `model.tip_link`. A controller
+with native kinematics may declare `fk` or `ik` as ordinary optional operations.
 
 Kinex automatically owns a persistent tf2 service per runtime ROS domain.
 Import `helpers` from `kinex` and use `await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)`, which

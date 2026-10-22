@@ -36,12 +36,18 @@ test('frame validation catches local and cross-device missing references and cyc
   assert.match(frameErrors([arm, world]).join(), /acyclic/)
 })
 
-test('model frames require declarations and cannot also own a static edge', () => {
-  const value = { ...profile(), type: 'joint', kinematics: { frame: 'flange', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] } }
-  assert.equal(Device.safeParse(value).success, false)
-  const declared = { ...value, frames: { base: root(), flange: { ...root(), parent: 'sensor:base' }, tool: frame('sensor:flange') } }
-  assert.ok(Device.safeParse(declared).success)
-  for (const flange of [root(), frame('sensor:base')]) assert.equal(Device.safeParse({ ...declared, frames: { ...declared.frames, flange } }).success, false)
+test('URDF links are device frames, checked once the model resolves', async () => {
+  const { resolvedTrees } = await import('../dist/device/profile/urdf.js')
+  const model = { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }
+  const arm = Device.parse({ ...profile({ base: frame('world:base'), tool: frame('arm:flange') }, 'arm'), type: 'joint', model })
+  const gripper = Device.parse(profile({ base: frame('arm:flange') }, 'gripper'))
+  const world = Device.parse(profile({}, 'world'))
+  assert.deepEqual(frameErrors([arm, gripper, world]), [])
+  resolvedTrees.set(arm.model, { base_link: 'base_link', links: ['base_link', 'flange'], joints: [{ name: 'flange_joint',
+    type: 'fixed', parent: 'base_link', child: 'flange', origin: [0, 0, 0, 0, 0, 0, 1] }] })
+  assert.deepEqual(frameErrors([arm, gripper, world]), [])
+  gripper.frames.base = frame('arm:missing')
+  assert.match(frameErrors([arm, gripper, world]).join(), /gripper:base: unknown parent frame arm:missing/)
 })
 
 test('flat calibration patches retain requests, validate clears and protect required facts', async t => {

@@ -1,22 +1,21 @@
 import type { Routine } from "./index.ts"
 import { nowMeta } from "../schema.ts"
-import { deviceModel } from "@kinex/core/device/device-model"
+import { deviceTree, modelErrors } from "@kinex/core/device/profile/urdf"
 import { ProfileStore } from "@kinex/core/device/profile/store"
 
 export const UrdfIntrospectRoutine: Routine = {
   name: "urdf-introspect",
-  description: "Resolve the selected device's own URDF chains",
+  description: "Resolve the selected device's own URDF tree",
   platforms: ["real", "sim"],
-  requires: "deviceID and model with format:urdf, path, base_link and tip_link",
+  requires: "deviceID and model with format:urdf, path and base_link",
   run: async (input) => {
     const base = { routine: "urdf-introspect", robotID: input.robot.identity.id, deviceID: input.deviceID, meta: nowMeta("introspected") }
     if (!input.deviceID) return { ...base, status: "failed", notes: "deviceID is required; URDF models belong to devices" }
     const device = await ProfileStore.readDevice(input.cwd, input.deviceID)
-    const k = (device?.type === "joint" || device?.type === "dexterous_hand") ? device.model : undefined
-    if (!k || k === "???" || k.format !== "urdf")
-      return { ...base, status: "failed", notes: "record this device's URDF path, base_link and tip link selection first" }
-    const model = (device?.type === "joint" || device?.type === "dexterous_hand") ? deviceModel(device) : undefined
-    if (!model) return { ...base, status: "failed", notes: "URDF model reference is incomplete" }
-    return { ...base, status: "ok", data: model, notes: `resolved ${model.joints.length} joints; profile retains the URDF reference` }
+    if (device?.type !== "joint" && device?.type !== "gripper")
+      return { ...base, status: "failed", notes: "URDF models belong to joint and gripper devices" }
+    const model = deviceTree(device)
+    if (!model) return { ...base, status: "failed", notes: modelErrors.get(device) ?? "record this device's URDF path and base_link first" }
+    return { ...base, status: "ok", data: model, notes: `resolved ${model.links.length} links and ${model.joints.length} joints; profile retains the URDF reference` }
   },
 }

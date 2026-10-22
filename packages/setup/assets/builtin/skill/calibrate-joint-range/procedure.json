@@ -3,8 +3,7 @@
   "roles": {
     "arm": {
       "types": [
-        "joint",
-        "dexterous_hand"
+        "joint"
       ]
     }
   },

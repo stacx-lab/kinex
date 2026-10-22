@@ -12,6 +12,7 @@ import { pythonLaunch } from "../python/launch.ts"
 import { ProfileStore } from "./profile/store.ts"
 import { serveProcess, terminate, type ServeProcess } from "./serve-process.ts"
 import type { Device } from "./profile/schema.ts"
+import { urdfSpec } from "./profile/urdf.ts"
 import type { DeviceReading } from "./reading.ts"
 
 type Pending = ReturnType<typeof Promise.withResolvers<Record<string, unknown>>>
@@ -53,11 +54,8 @@ async function definition(directory: string, device: Device) {
   const { meta, loaded, ...facts } = device
   const hash = createHash("sha256").update(JSON.stringify(facts))
   for (const node of device.runtime?.nodes ?? []) hash.update(await readFile(path.resolve(directory, node.entry)))
-  if (device.type === "joint" || device.type === "dexterous_hand") {
-    const model = device.model
-    if (model !== "???" && model.format === "urdf" && model.path !== "???")
-      hash.update(await readFile(path.resolve(directory, model.path)))
-  }
+  const spec = urdfSpec(device)
+  if (spec) hash.update(await readFile(path.resolve(directory, spec.path)))
   return hash.digest("hex")
 }
 

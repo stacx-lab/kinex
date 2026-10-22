@@ -229,19 +229,22 @@ remain diagnostics. Importing the library outside a tool dialog is inert.
 provide discovery. `finish(result, file=...)` selects results and images for the
 agent. Device operation payloads follow declared ROS interfaces.
 
-For pure joint trajectory planning in exec:
+For pure joint kinematics and trajectory planning in exec:
 
 ```python
 from kinex import helpers
 
-# joints: resolved joint definitions; start/target: positions in model order.
-plan = helpers.trajectory(joints, start, target, period_s=0.01, fraction=0.15)
+arm = helpers.joint_model("arm")  # commanded joints, URDF FK and IK
+# start/target: positions in URDF document order.
+target = arm.ik(goal_pose, start)
+plan = helpers.trajectory(arm.joints, start, target, period_s=0.01, fraction=0.15)
 ```
 
 `plan.actions` contains synchronized joint references and `plan.duration_s` their
-planned duration. The helper performs no device I/O. Scripts obtain measured
-positions, resolve IK if needed, encode and submit the plan through the declared
-command operation, wait on the world clock and verify arrival. For timestamped
+planned duration. The helpers perform no device I/O. Scripts obtain measured
+positions, encode and submit the plan through the declared command operation,
+such as a `TrajectoryCommand` on `joint_target`, wait on the world clock and
+verify arrival. For timestamped
 points, sample `i` (starting at 1) occurs at `i * plan.duration_s / len(plan.actions)`.
 
 ## Development

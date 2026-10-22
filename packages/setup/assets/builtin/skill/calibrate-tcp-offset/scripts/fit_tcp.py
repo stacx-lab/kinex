@@ -7,7 +7,7 @@ fixed point p:  R_i @ t + o_i = p  for all i. Subtracting pairs eliminates p:
 flange-local tip translation t.
 
 --samples takes the calib_sample records file (calib/<routine>/samples.json):
-each record's kinematics contains the requested frame pose from FK at the sampled joints.
+each record's kinematics contains the requested link pose in the device base from FK at the sampled joints.
 Output: {"ok": true, "tcp_translation_m": [x,y,z], "fixed_point_m": [x,y,z],
          "residual_mm": ..., "per_sample_mm": [...], "n": ...}
 """
@@ -31,8 +31,8 @@ def pose_of(sample, frame):
     if sample.get("settled") is False:
         fail("sample was not settled")
     try:
-        if data.get("frame") != frame or data.get("reference_frame") is not None:
-            raise ValueError("Sample requires the requested frame relative to the device base")
+        if data.get("frame") != frame:
+            raise ValueError("Sample requires the requested link pose")
         return validate_pose(data.get("pose"), "kinematics.pose")
     except ValueError as error:
         fail(str(error))
@@ -43,7 +43,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--samples", required=True)
     parser.add_argument("--mount", required=True, help="Known gripper mount in the sampled frame, as JSON")
-    parser.add_argument("--frame", default="flange", help="Declared device frame to fit")
+    parser.add_argument("--frame", default="flange", help="Sampled URDF link to fit")
     parser.add_argument("--min-samples", type=int, default=4)
     args = parser.parse_args()
 

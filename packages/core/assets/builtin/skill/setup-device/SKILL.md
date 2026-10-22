@@ -1,7 +1,7 @@
 ---
 name: setup-device
 description: Add a device or repair its ROS nodes — choose an instance or type guide, provision its runtime, fill a profile and verify the interface.
-resolves: access:world,access:velocity,access:legged_base,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,profile:model,access:other
+resolves: access:world,access:velocity,access:legged_base,access:joint,access:gripper,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,profile:model,access:other
 ---
 
 # Set up a device
@@ -47,7 +47,7 @@ environment. Prefer official vendor SDKs and inspect their documentation.
 Use `profile_write` to validate and preserve typed facts/provenance. Leave unknown
 facts as `???`, mark missing calibration and clear resolved requests with
 `needs_calibration: null`. New devices stay unloaded. Kinex publishes known static
-frames; kinematics nodes publish measured moving frames. Use world time and the `kinex.helpers.lookup_transform` helper; do not expose
+frames; URDF link publishers publish measured moving frames. Use world time and the `kinex.helpers.lookup_transform` helper; do not expose
 transform lookup as a device operation or register a world frame-graph factory.
 When a simulator has a robot catalog, export that catalog as the source of truth
 for its nodes and operation descriptions; type guides do not reproduce a
@@ -61,7 +61,7 @@ before editing node/runtime definitions, then validate and explicitly reload.
 
 ### Profile facts and frames
 
-Write physical facts directly at the top level: `model`, `kinematics`, `control`,
+Write physical facts directly at the top level: `model`, `home`, `limits`, `grip`,
 `color`, `depth`, `frames`, etc. Do not write intrinsics/extrinsics wrappers.
 Use one top-level calibration record (`source`, `method`, `calibrated_at`,
 `needs_calibration`); readiness uses `profile:<device>` and `access:<device>`.
@@ -69,6 +69,7 @@ Every spatial device declares `frames.base`. Every frame explicitly supplies
 `parent: device:frame` or `parent: null` for an independent root. There is no
 implicit base parent. Root transform values are ignored; write null components.
 For non-roots, translation_m and rotation_xyzw describe the parent-relative edge;
-null components mean unknown and publish no static TF. Declare modeled moving
-frames with explicit base parents and null components; measured kinematics owns
-their live transforms. Parent references must exist and be acyclic.
+null components mean unknown and publish no static TF. URDF links of joint and
+gripper devices are frames under their base, named by link, whose live transforms
+come from measured joint states; parents may reference them, and profile frames
+must not reuse their names. Parent references must exist and be acyclic.

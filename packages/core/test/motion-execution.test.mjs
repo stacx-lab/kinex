@@ -22,8 +22,8 @@ test('shipped executor and trajectory generator obey motion contracts', () => {
   })
 })
 
-test('joint poses use explicit local frames and measured-state FK', () => {
-  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./joint_frames.py', import.meta.url))], {
+test('joint models follow URDF order and compute mimic-aware link FK and IK', () => {
+  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./joint_model.py', import.meta.url))], {
     env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) },
     encoding: 'utf8',
   })

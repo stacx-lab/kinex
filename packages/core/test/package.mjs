@@ -93,7 +93,7 @@ export async function checkCorePackage(directory, env, pack) {
       })
       execFileSync('python3', ['-c', [
         'from kinex.ik_search import budget_options',
-        'from kinex.kinematics import Kinematics',
+        'from kinex.kinematics import DEFAULTS, Chain',
         'import sys',
         'from kinex.helpers import trajectory, lookup_transform',
         'assert callable(lookup_transform) and "rclpy" not in sys.modules',
@@ -101,10 +101,8 @@ export async function checkCorePackage(directory, env, pack) {
         'joints = [dict(name="x", type="prismatic", limits=dict(min=0, max=1))]',
         'plan = trajectory(joints, [0], [.4], .01)',
         'assert plan.actions[-1] == [.4] and plan.duration_s > 0',
-        'chain = [dict(origin=[0,0,0,0,0,0,1], joint=0, axis=[1,0,0], anchor=[0,0,0], reference=0)]',
-        'ik = dict(max_iterations=200, damping=.01, position_tolerance_m=.001, rotation_tolerance_rad=.001)',
-        'model = Kinematics(dict(joints=joints, chain=chain), ik)',
-        'assert model.ik([.4,0,0,0,0,0,1], [.4]) == dict(joints=[.4])',
+        'tree = dict(base_link="base", joints=[dict(joints[0], parent="base", child="tip", origin=[0,0,0,0,0,0,1], axis=[1,0,0], mimic=None)])',
+        'assert Chain(tree, "tip").ik([.4,0,0,0,0,0,1], dict(x=.4), DEFAULTS) == dict(x=.4)',
       ].join('\\n')], { env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'} })
       const tools = await runtime.tools.list()
       assert.ok(tools.tools.some(tool => tool.name === 'device'))

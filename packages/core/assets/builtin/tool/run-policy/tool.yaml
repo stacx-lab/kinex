@@ -21,18 +21,18 @@ parameters:
         type: object
         additionalProperties: false
         properties:
-          device: {type: string, description: joint, dexterous_hand, gripper or suction device}
+          device: {type: string, description: joint, gripper or suction device}
           space:
             type: string
             enum: [device, pose, pose_delta]
             default: device
-            description: "device: absolute joint values; gripper values in [-1, 1] interpolate its grip from open to closed; suction values are its on/off targets. pose: xyz + quaternion xyzw (7). pose_delta: translation metres + axis-angle rotation radians (6), accumulated from the starting pose. Cartesian modes require joint IK."
+            description: "device: absolute joint values in URDF document order; gripper values in [-1, 1] interpolate its grip from open to closed; suction values are its on/off targets. pose: xyz + quaternion xyzw (7). pose_delta: translation metres + axis-angle rotation radians (6), accumulated from the starting pose. Cartesian modes solve URDF IK and require a joint device with model.tip_link."
           frame:
             type: string
             description: "Cartesian reference frame, frozen at planning start; defaults to the device canonical frame. Rotation deltas left-compose in these axes."
           target_frame:
             type: string
-            description: "Controlled frame, rigidly attached to the arm's kinematics.frame; defaults to that frame."
+            description: "Controlled frame, rigidly attached to the arm's tip_link; defaults to that link."
         required: [device]
     task:
       type: string
@@ -56,6 +56,6 @@ device_inputs:
   model:
     types: [model]
   command[].device:
-    types: [joint, gripper, dexterous_hand, suction]
+    types: [joint, gripper, suction]
 
 async: true

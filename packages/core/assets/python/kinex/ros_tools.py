@@ -50,6 +50,9 @@ async def transform_pose(io, pose, source, target, stamp=None):
     from geometry_msgs.msg import Pose
     from tf2_geometry_msgs import do_transform_pose
     from kinex.communication import message_value
+    from kinex.ros_frames import ros_frame
+    if ros_frame(source) == ros_frame(target):
+        return list(pose)  # A frame needs no transform, even one absent from TF.
     relation = await helpers.lookup_transform(io, target, source, stamp)
     result = do_transform_pose(message_value(Pose, pose_fields(pose)), relation)
     p, q = result.position, result.orientation

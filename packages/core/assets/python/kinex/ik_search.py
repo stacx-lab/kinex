@@ -16,8 +16,6 @@ DEFAULT_BUDGET = {"max_attempts": 5, "attempt_time_s": 0.02, "max_time_s": 0.1}
 
 
 def budget_options(options):
-    if "search" in options:
-        raise ValueError("IK search configuration was renamed to budget")
     search = options.get("budget", {})
     if not isinstance(search, dict) or search.keys() - DEFAULT_BUDGET.keys():
         raise ValueError("IK budget requires max_attempts, attempt_time_s and max_time_s options only")

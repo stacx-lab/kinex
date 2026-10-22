@@ -11,8 +11,8 @@ to the gripper base, preserving TCP orientation and the existing mount.
 
 Prefer verified controller TCP settings or a matching tool datasheet. Archive the
 source with provenance rather than repeating measurement. Otherwise require
-attachment-frame poses computed through FK from measured joints. Native FK
-conversion already removes the reported TCP offset; do not subtract it twice.
+attachment-link poses computed through URDF FK from measured joints; the URDF
+link excludes any controller TCP offset.
 
 Prefer hand-guiding a rigid pointed tool to one fixed reference point. Two repeated
 touches from the same orientation should agree within about 3 mm; otherwise fix
@@ -21,7 +21,7 @@ Never command motion while touching. When powered approaches are needed, retract
 before reorientation and approach in user-confirmed approximately 5 mm steps at
 an appropriate low speed. Wait for execution and verify measured arrival.
 
-Capture with `calib_sample frame:<attachment-frame>` into one attempt, using settling only when supported
+Capture with `calib_sample frame:<attachment-link>` into one attempt, using settling only when supported
 by measured velocity feedback. Collect at least 4 orientations separated by roughly
 20 degrees; 6–8 are typical. From sample 4 onward run `calib_compute operation:fit-tcp`
 with `samples` and the actual attachment `frame`, reusing the run ID. Stop collecting

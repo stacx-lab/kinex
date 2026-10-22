@@ -1,59 +1,89 @@
 ---
 name: joint
 type: joint
-description: joint control and observation contract.
+description: Joint-controlled arm, hand or other mechanism whose geometry is a URDF.
 ---
 
 ## Setup
 
-Follow setup-device for registration, Python provisioning and node lifecycle. This
-template validates physical facts; it does not prescribe operation names.
+Geometry lives in a URDF, not in profile fields. Use the vendor's description
+(expand xacro to plain URDF) and set `model` to its path and base link. The device
+commands every independent movable joint below the base link in URDF document
+order; mimic joints follow their sources. Remove links owned by other devices,
+such as a separately registered gripper, so the tree holds only this device.
+The sibling `links.py` node publishes every link on TF as `<device>/<link>`, with
+the base link as `<device>/base`; other devices mount on these links, for example
+a gripper base on `arm:flange`. Link names must not repeat profile frame names.
 
-Declare the joint model (URDF or serial chain), limits, calibration and named local frames. Register a kinematics node when FK/IK services are needed. Derive moving transforms from measured joint state; never treat target positions as observations.
+`model.tip_link` names the end-effector link that FK, IK and Cartesian policies
+use by default; set it to null for trees without one, such as a dexterous hand.
+`home` gives every commanded joint a position, or is null. With `limits: strict`,
+the node and Kinex tools reject targets outside the URDF limits, allowing only a
+bounded inward recovery toward home (`kinex.joints.recovery_targets`); use
+`native` when the device enforces or clamps its own limits and targets may reach
+them.
 
-Every profile requires a top-level `description` giving general device identity,
-capabilities and limitations. Every `operations.<name>.description` explains only
-that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
-Both descriptions are required strings; use an empty string when no text is known.
-Read device and operation descriptions directly from `profile.yaml`.
+Agents read the resolved tree as `profile(name)["resolved_model"]` and compute
+FK and IK from it with `helpers.joint_model(name)`, so a device need not serve
+kinematics. A controller with its own kinematics may still declare `fk` or `ik`
+as ordinary optional operations, for example MoveIt's
+`moveit_msgs/srv/GetPositionFK` and `GetPositionIK`, stating links, frames and
+units in their descriptions.
 
-Start from the profile below, select the typed facts and fill unknowns from
-documentation or calibration. Use `???` for unresolved facts and `null` only where
-allowed. Add actual topic/service operations and their descriptions; an empty
-operations mapping is an unfinished setup, not an implicit type interface.
-Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
-For externally managed nodes use `runtime.nodes: []` and their real endpoints.
-Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
-The old sibling driver scaffolds are unsupported by the runtime; implement ROS
-node factories or bind to existing ROS nodes.
+The sibling `node.py` adapts a ros2_control `JointTrajectoryController`; copy it
+with `links.py` into the device directory and set its topic constants. A node
+that commands hardware directly must still initialize its hold from measured
+posture, so a stop before the first command never moves the joints.
+
+### Operations
+
+- `joint_state` (recommended): output topic `sensor_msgs/msg/JointState` with
+  every commanded joint in URDF units, stamped at acquisition, with velocities
+  when measured; Kinex publishes the links from it.
+- `joint_target` (recommended): managed input topic
+  `kinex_interfaces/msg/TrajectoryCommand` whose `trajectory` is a
+  `trajectory_msgs/msg/JointTrajectory` over commanded joints, timed from
+  acceptance. A new command replaces the active trajectory; acceptance is not
+  arrival. Serve acquire, owner-scoped stop and command status with
+  `kinex.ownership.motion_service`.
+- `stop` (recommended): service `kinex_interfaces/srv/Stop` that ends motion and
+  holds the measured posture.
 
 ### Profile
 
 ```yaml
-name: joint
+name: arm
 type: joint
 loaded: false
-access:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  connection: ???
 description: ''
 runtime:
-  nodes: []
-operations: {}
-source: unknown
-method: unknown
-calibrated_at: null
-model: ???
-kinematics: null
+  observation: joint_state
+  nodes: [{entry: node.py, factory: create}, {entry: links.py, factory: create}]
+operations:
+  joint_state:
+    description: Measured joint positions and velocities in URDF units, stamped at acquisition; Kinex publishes the URDF links from them.
+    transport: topic
+    direction: output
+    endpoint: /kinex/arm/joint_state
+    type: sensor_msgs/msg/JointState
+    qos: {depth: 1, reliability: reliable, durability: transient_local}
+  joint_target:
+    description: Joint trajectory over commanded joints in URDF units, timed from acceptance. A new command replaces the active one; acceptance is not arrival, so verify joint_state.
+    transport: topic
+    direction: input
+    endpoint: /kinex/arm/joint_target
+    type: kinex_interfaces/msg/TrajectoryCommand
+    motion: {acquire: /kinex/arm/acquire, stop: /kinex/arm/stop, status: /kinex/arm/command_status}
+  stop:
+    description: Stop pending motion and hold the measured posture. An empty owner stops unconditionally.
+    transport: service
+    direction: input
+    endpoint: /kinex/arm/stop
+    type: kinex_interfaces/srv/Stop
+model: {format: urdf, path: ???, base_link: ???, tip_link: ???}
 home: ???
-control: ???
-feedback: ???
-stop: ???
+limits: strict
+stop: {behavior: hold, affected_devices: [arm]}
 frames:
-  base:
-    parent: null
-    translation_m: null
-    rotation_xyzw: null
+  base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```

@@ -149,69 +149,29 @@ test('onboarding and calibration share core profile writes and preserve planning
   }
 })
 
-test('calibration requests FK at the captured joint sample and stores poses separately', async t => {
+test('calibration settles joint devices and computes URDF link poses from the captured sample', async t => {
   const { runtime, setup, directory } = await fixture(t)
   await seed(runtime)
-  await runtime.profiles.writeDevice({ description: '',
-    name: 'arm',
-    type: 'joint',
-    loaded: false,
-    runtime: {nodes: []},
-    model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null }] },
-    kinematics: { frame: 'flange', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
-    home: null,
-    control: { mode: 'position' },
-    feedback: { velocities: false, efforts: false },
-    stop: { behavior: 'hold', affected_devices: ['arm'] },
-    frames: {base: {parent: null, translation_m: null, rotation_xyzw: null}, flange: {parent: "arm:base", translation_m: null, rotation_xyzw: null}} })
-  await protocolDevice(runtime, directory, 'arm', { ...(await runtime.devices.list()).find(d=>d.name==='arm'), operations: {fk: inputOperation('fk')}, handler: `
-def dispatch(action, args, owner, cancelled):
-    if action == '$sample':
-        return {'positions': [.35], 'velocities': [], 'efforts': [], 'faults': [], 'timestamp': 7}
-    if action == 'fk':
-        assert args == {'joints': [.35], 'frame': 'flange', 'reference_frame': ''}
-        return {'pose': [.35, 0, 0, 0, 0, 0, 1], 'frame': 'flange', 'reference_frame': ''}
-    return {'ok': True}
-` })
-  await (await runtime.devices.load('arm')).ready
-  const result = await setup.tools.call('calib_sample', { deviceID: 'arm', frame: 'flange', procedure: 'setup-device', bindings: { target: 'arm' } }, call)
-  assert.ok(!result.isError, result.output)
-  const run = result.output.match(/run: ([a-z0-9-]+)/)[1]
-  const [sample] = JSON.parse(await readFile(path.join(directory, `.kinex/calib/${run}/samples.json`), 'utf8'))
-  assert.equal(sample.data.frame_poses, undefined)
-  assert.equal(sample.data.timestamp, 7)
-  assert.deepEqual(sample.kinematics, { pose: [.35, 0, 0, 0, 0, 0, 1], frame: 'flange', reference_frame: '' })
-})
-
-test('calibration settles hands on fresh feedback and computes FK after settle timeout', async t => {
-  const { runtime, setup, directory } = await fixture(t)
-  await seed(runtime)
-  await runtime.profiles.writeDevice({ description: '',
-    name: 'hand',
-    type: 'dexterous_hand',
-    loaded: false,
-    runtime: {nodes: []},
-    model: { format: 'joints', joints: [{ name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null }] },
-    kinematics: { frame: 'tip', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
-    home: null,
-    control: { mode: 'position' },
-    feedback: { velocities: true, efforts: false },
-    stop: { behavior: 'hold', affected_devices: ['hand'] },
-    frames: {base: {parent: null, translation_m: null, rotation_xyzw: null}, tip: {parent: "hand:base", translation_m: null, rotation_xyzw: null}} })
-  await protocolDevice(runtime, directory, 'hand', { ...(await runtime.devices.list()).find(d=>d.name==='hand'), operations: {fk: inputOperation('fk')}, handler: `stamp = 0
+  const python = await runtime.python.initialize()
+  await mkdir(path.dirname(python.executable), { recursive: true })
+  await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim(), python.executable)
+  const dir = path.join(directory, '.kinex/devices/arm')
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, 'arm.urdf'), `<robot name="arm"><link name="base_link"/><link name="link"/><link name="flange"/>
+<joint name="j" type="revolute"><parent link="base_link"/><child link="link"/><axis xyz="0 0 1"/><limit lower="-1" upper="1"/></joint>
+<joint name="flange_joint" type="fixed"><parent link="link"/><child link="flange"/><origin xyz="1 0 0"/></joint></robot>`)
+  await protocolDevice(runtime, directory, 'arm', { type: 'joint', home: null, stop: { behavior: 'hold', affected_devices: ['arm'] },
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, handler: `stamp = 0
 def dispatch(action, args, owner, cancelled):
     global stamp
     if action == '$sample':
         if not args.get('cached'): stamp += 1
-        return {'positions': [.35], 'velocities': [0], 'efforts': [], 'faults': [], 'timestamp': stamp}
-    if action == 'fk':
-        assert args['joints'] == [.35]
-        return {'pose': [.35, 0, 0, 0, 0, 0, 1], 'frame': 'tip', 'reference_frame': ''}
+        return {'positions': [.35], 'velocities': [0], 'joint_names': ['j'], 'faults': [], 'timestamp': stamp}
     return {'ok': True}
 ` })
-  await (await runtime.devices.load('hand')).ready
-  const input = { deviceID: 'hand', procedure: 'setup-device', bindings: { target: 'hand' } }
-  for (const frame of [undefined, 'tip']) {
+  await (await runtime.devices.load('arm')).ready
+  const input = { deviceID: 'arm', procedure: 'setup-device', bindings: { target: 'arm' } }
+  for (const frame of [undefined, 'flange']) {
     for (const cached of [false, true]) {
       const result = await setup.tools.call('calib_sample', { ...input, frame, args: { cached },
         settle: { stable_reads: 2, timeout_s: cached ? .1 : 2 } }, call)
@@ -220,8 +180,12 @@ def dispatch(action, args, owner, cancelled):
       const [sample] = JSON.parse(await readFile(path.join(directory, `.kinex/calib/${run}/samples.json`), 'utf8'))
       assert.equal(sample.settled, !cached)
       assert.equal(sample.kinematics?.frame, frame)
+      if (!frame) continue
+      const expected = [Math.cos(.35), Math.sin(.35), 0, 0, 0, Math.sin(.175), Math.cos(.175)]
+      sample.kinematics.pose.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 1e-9, String(sample.kinematics.pose)))
     }
   }
+  assert.match((await setup.tools.call('calib_sample', { ...input, frame: 'missing' }, call)).output, /must name a URDF link of joint device arm/)
 })
 
 test('calibration archives both RGBD files and never appends an incomplete sample', async t => {
@@ -241,7 +205,7 @@ test('calibration archives both RGBD files and never appends an incomplete sampl
   await mkdir(output, { recursive: true })
   await writeFile(path.join(output, 'color.png'), 'color evidence')
   await writeFile(path.join(output, 'depth.pgm'), 'depth evidence')
-  await protocolDevice(runtime, directory, 'camera', { ...(await runtime.devices.list()).find(d=>d.name==='camera'), operations: {fk: inputOperation('fk')}, handler: `def dispatch(action, args, owner, cancelled):
+  await protocolDevice(runtime, directory, 'camera', { ...(await runtime.devices.list()).find(d=>d.name==='camera'), operations: {capture: inputOperation('capture')}, handler: `def dispatch(action, args, owner, cancelled):
     if action == '$sample':
         return {'file': ${JSON.stringify(path.join(output, 'color.png'))}, 'depth_file': ${JSON.stringify(path.join(output, 'depth.pgm'))}, 'timestamp': 1}
     return {'ok': True}

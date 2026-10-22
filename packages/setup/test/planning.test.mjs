@@ -288,7 +288,7 @@ test('reference compositions preserve moving attachments without forcing world c
 } })
     for (const [index, tool] of composition.tools.entries()) await runtime.profiles.writeDevice({ description: '',
       name: tool,
-      type: tool.endsWith('hand') ? 'dexterous_hand' : 'gripper',
+      type: tool.endsWith('hand') ? 'joint' : 'gripper',
       frames: { base: { parent: `${composition.arms[index]}:${'flange'}`, translation_m: null, rotation_xyzw: null,  } } })
     const selected = composition.arms[0]
     await save([
