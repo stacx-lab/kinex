@@ -1,44 +1,34 @@
 ---
 name: world
 type: world
-description: World clock and optional spatial reference.
+description: Authoritative world clock, waits and optional scene geometry.
 ---
 
 ## Setup
 
-Follow setup-device for registration, Python provisioning and node lifecycle. This
-template validates physical facts; it does not prescribe operation names.
+Every workspace requires a world device: exactly one per ROS domain. Its clock is
+world time for every device node, tf2 lookup and recording. Kinex supplies tf2
+lookup; do not register frame-graph nodes or lookup operations. Keep task
+instructions and benchmark judging outside device operations.
 
-Declare informational bounds and surfaces when known. Recommend a clock output topic, one relative-duration wait service and an optional reset service. Describe clock epoch, pacing, zero-duration barriers and reset behavior. Keep cancellation in operation metadata, not a separate public operation. Kinex automatically supplies persistent tf2 lookup; do not register a frame-graph node or lookup operation. Keep task instructions and benchmark judging outside device operations. Simulator state and measurements remain separate from Kinex frame publication.
+### Operations
 
-Every profile requires a top-level `description` giving general device identity,
-capabilities and limitations. Every `operations.<name>.description` explains only
-that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
-Both descriptions are required strings; use an empty string when no text is known.
-Read device and operation descriptions directly from `profile.yaml`.
+- `time` (required): output topic `rosgraph_msgs/msg/Clock`, `transient_local`.
+  No other device publishes a clock; Kinex remaps device nodes' `/clock` to it.
+- `wait` (recommended): service `kinex_interfaces/srv/Wait` with `cancellation`
+  metadata for `kinex_interfaces/srv/CancelWait`. It completes after `duration_s`
+  (finite, nonnegative) of world time; zero is an observation barrier and
+  concurrent waits share progression. Kinex fills `owner` and `request_id` and
+  cancels through the declared endpoint; an empty `request_id` retires the owner.
+  `timeout_s` bounds the longest wait.
+- `reset` (simulators only): service `std_srvs/srv/Trigger` resetting the episode
+  and clock. It invalidates observations, pending waits and motion ownership.
 
-Start from the profile below, select the typed facts and fill unknowns from
-documentation or calibration. Use `???` for unresolved facts and `null` only where
-allowed. Add actual topic/service operations and their descriptions; an empty
-operations mapping is an unfinished setup, not an implicit type interface.
-Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
-For externally managed nodes use `runtime.nodes: []` and their real endpoints.
-Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
-The old sibling driver scaffolds are unsupported by the runtime; implement ROS
-node factories or bind to existing ROS nodes.
-
-### Recommended ROS pattern
-
-Names remain device-specific. A simple world can expose `time` as
-`rosgraph_msgs/msg/Clock`, `wait` as `kinex_interfaces/srv/Wait`, and `reset`
-as `std_srvs/srv/Trigger`. The wait payload is `duration_s`; Kinex assigns owner
-and request IDs and uses its declared cancellation endpoint automatically.
-Waits share world progression; reads and transform lookup never step physics.
-Reset acknowledgements contain no task or evaluator data.
-
-For LIBERO, use `rosbridge setup` and its robot catalog as the authoritative
-profile/node implementation. This generic template does not recreate simulator
-endpoints or calibration. Fill operation descriptions from the exported contract.
+A physical workspace keeps time with the real-world clock: copy the sibling
+`node.py`, which publishes system time on `time` and completes `wait` against it.
+It has no `reset`. A simulator relays its own clock, waits and reset; describe its
+pacing (realtime, stepped or paused) and terminal-episode behavior on `time` and
+`wait`.
 
 ### Profile
 
@@ -46,23 +36,29 @@ endpoints or calibration. Fill operation descriptions from the exported contract
 name: world
 type: world
 loaded: false
-access:
-  connection:
-    kind: process
-description: ''
+description: Real-world clock from system time. No reset; bounds and surfaces are informational.
 runtime:
-  nodes: []
-operations: {}
-source: unknown
-method: unknown
-calibrated_at: null
+  nodes: [{entry: node.py, factory: create}]
+operations:
+  time:
+    description: System time published every 10 ms.
+    transport: topic
+    direction: output
+    endpoint: /kinex/world/time
+    type: rosgraph_msgs/msg/Clock
+    qos: {depth: 1, reliability: reliable, durability: transient_local}
+  wait:
+    description: Await duration_s seconds of system time (finite, nonnegative, under 120) with 10 ms granularity. Zero is an observation barrier. Returns time_s and waited_s.
+    transport: service
+    direction: input
+    endpoint: /kinex/world/wait
+    type: kinex_interfaces/srv/Wait
+    timeout_s: 120
+    cancellation: {endpoint: /kinex/world/cancel_wait, type: kinex_interfaces/srv/CancelWait}
 bounds: null
 surfaces: []
 frames:
-  base:
-    parent: null
-    translation_m: null
-    rotation_xyzw: null
+  base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```
 
 Bounds are `{min: [x,y,z], max: [x,y,z]}` in metres; null bounds impose no box,

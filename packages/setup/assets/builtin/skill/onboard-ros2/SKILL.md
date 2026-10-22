@@ -42,7 +42,8 @@ service for actuators. Managed motion uses core's `Acquire`, `Stop` and
 Validate replacements before accepting ownership. Old generations and retired
 owners cannot regain control through delayed commands.
 
-Use the world device for time and waits. Factories inherit its clock configuration
+Every workspace requires a world device for time and waits; physical workspaces
+use the real-world clock. Factories inherit its clock configuration
 through their ROS context. Do not add workflow timers or simulator switches to
 workspace.yaml. Execution mode belongs to the world implementation.
 
@@ -55,8 +56,8 @@ setup-progress files.
 
 Kinex automatically publishes known fixed profile transforms on `/tf_static`.
 Register an arm kinematics node backed by its URDF or serial-chain model for
-FK/IK services and measured endpoint transforms on `/tf`. Register the world's
-Kinex frame-graph node for persistent tf2 lookup. Simulators supply measurements
+FK/IK services and measured endpoint transforms on `/tf`. Kinex supplies
+persistent tf2 lookup. Simulators supply measurements
 and state without publishing TF. Declare frames at the profile top level with explicit
 `parent: device:frame`, or `parent: null` for an independent root. Mounts are
 `frames.base`. ROS base IDs use `<device>/base`; all other local IDs use
