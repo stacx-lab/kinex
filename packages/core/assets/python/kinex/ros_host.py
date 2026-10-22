@@ -15,10 +15,11 @@ def plain(message):
 def observation(message):
     """Selected host observations; ROS-to-ROS payloads never use this path."""
     from sensor_msgs.msg import Image, JointState
-    if hasattr(message, "image") and isinstance(message.image, Image):
-        message = message.image
+    from kinex.camera import save
+    if isinstance(getattr(message, "image", None), Image):
+        depth = getattr(message, "depth_image", None)
+        return {**observation(message.image), **({"depth_file": save(depth)} if depth is not None else {})}
     if isinstance(message, Image):
-        from kinex.ros_images import save
         return {"file": save(message), "timestamp": message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
                 "frame_id": message.header.frame_id, "width": message.width, "height": message.height}
     if isinstance(message, JointState):

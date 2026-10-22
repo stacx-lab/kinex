@@ -12,6 +12,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/Acquire.srv"
   "srv/Stop.srv"
   "srv/Capture.srv"
+  "srv/CaptureRGBD.srv"
   "srv/Wait.srv"
   "srv/CancelWait.srv"
   "srv/InferFixture.srv"

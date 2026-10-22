@@ -24,7 +24,7 @@ const Projection = z.strictObject({
 export type CameraProjection = z.infer<typeof Projection>
 
 // Newton inversion of the supported Brown-Conrady model. FOV uses the same
-// pixel-center convention as kinex.camera (outer edges are -0.5 and size-0.5).
+// pixel-center convention as kinex.camera.ray (outer edges are -0.5 and size-0.5).
 export function cameraRay(projection: CameraProjection, distortion: CameraDistortion, u: number, v: number): [number, number, number] | undefined {
   const yd = (v - projection.cy) / projection.fy
   const xd = (u - projection.cx - projection.skew * yd) / projection.fx
@@ -75,11 +75,10 @@ const derivedFov = <T extends z.infer<typeof Geometry>>(stream: T, ctx: z.Refine
   return { ...stream, fov: { horizontal_deg: angle(left, right), vertical_deg: angle(top, bottom) } }
 }
 
-export const CameraColor = Geometry.extend({ pixel_format: z.literal("rgb8"), image_format: z.literal("png") }).transform(derivedFov)
+export const CameraColor = Geometry.transform(derivedFov)
 const Range = z.strictObject({ min: z.number().nonnegative(), max: positive }).refine((r) => r.min < r.max, "min must be below max")
 const depthShape = {
   width: field(dimension), height: field(dimension), fps: field(positive.nullable()),
-  pixel_format: z.literal("uint16"), image_format: z.literal("pgm16_be"),
   quantity: z.enum(["z", "range"]), scale_m_per_unit: field(positive),
   invalid_value: z.number().int().min(0).max(65535),
   valid_range_m: field(Range), reliable_range_m: field(Range),

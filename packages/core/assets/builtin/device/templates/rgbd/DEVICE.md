@@ -1,31 +1,28 @@
 ---
 name: rgbd
 type: rgbd
-description: Register a RGBD camera with a fixed output profile and a source-specific ROS node.
+description: Color and depth camera with profile intrinsics and calibrated frames.
 ---
 
 ## Setup
 
-Follow setup-device for registration, Python provisioning and node lifecycle. This
-template validates physical facts; it does not prescribe operation names.
+Follow the rgb guide for color geometry, stamps and `frames.base`. Declare depth
+geometry, `quantity` (`z` or `range`), `scale_m_per_unit`, `invalid_value` and
+the valid and reliable ranges. Prefer depth registered to the color grid
+(`registration: color`): same size and frame `<device>/base`. Native depth adds
+its own `projection` and `distortion` and calibrated `frames.color` and
+`frames.depth`; headers then use `<device>/color` and `<device>/depth`, and Kinex
+resolves depth-to-color through tf2.
 
-Declare color and depth calibration, depth scale and registration. Native depth requires named `frames.color` and `frames.depth`, with an explicit parent and calibrated transform between them; color-registered depth must share the color grid. Describe units, invalid values and encoding on the depth operation. Preserve acquisition stamps and set image/CameraInfo header.frame_id to the corresponding ROS frame ID. Use tf2 for depth-to-color lookup; keep camera projection parameters in color/depth.
+### Operations
 
-Every profile requires a top-level `description` giving general device identity,
-capabilities and limitations. Every `operations.<name>.description` explains only
-that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
-Both descriptions are required strings; use an empty string when no text is known.
-Read device and operation descriptions directly from `profile.yaml`.
-
-Start from the profile below, select the typed facts and fill unknowns from
-documentation or calibration. Use `???` for unresolved facts and `null` only where
-allowed. Add actual topic/service operations and their descriptions; an empty
-operations mapping is an unfinished setup, not an implicit type interface.
-Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
-For externally managed nodes use `runtime.nodes: []` and their real endpoints.
-Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
-The old sibling driver scaffolds are unsupported by the runtime; implement ROS
-node factories or bind to existing ROS nodes.
+- `image` (recommended): as for rgb.
+- `depth` (recommended): output topic `sensor_msgs/msg/Image`, `16UC1` in units of
+  `scale_m_per_unit` with `invalid_value: 0` for missing samples, `best_effort`
+  with depth 1.
+- `capture` (recommended): service `kinex_interfaces/srv/CaptureRGBD` returning
+  `image` and `depth_image` from one acquisition without advancing world time.
+  Snapshots archive both; perception tools measure from them.
 
 ### Profile
 
@@ -33,30 +30,46 @@ node factories or bind to existing ROS nodes.
 name: rgbd
 type: rgbd
 loaded: false
-access:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  connection: ???
 description: ''
 runtime:
-  nodes: []
-operations: {}
-source: unknown
-method: unknown
-calibrated_at: null
+  nodes: [{entry: node.py, factory: create}]
+operations:
+  image:
+    description: rgb8 images stamped at acquisition in optical frame rgbd/base.
+    transport: topic
+    direction: output
+    endpoint: /kinex/rgbd/image
+    type: sensor_msgs/msg/Image
+    qos: {depth: 1, reliability: best_effort, durability: volatile}
+  depth:
+    description: 16UC1 depth registered to image, in millimetres; 0 marks missing samples.
+    transport: topic
+    direction: output
+    endpoint: /kinex/rgbd/depth
+    type: sensor_msgs/msg/Image
+    qos: {depth: 1, reliability: best_effort, durability: volatile}
+  capture:
+    description: Paired image and depth_image from one acquisition without advancing world time.
+    transport: service
+    direction: input
+    endpoint: /kinex/rgbd/capture
+    type: kinex_interfaces/srv/CaptureRGBD
 color:
   width: ???
   height: ???
   fps: ???
-  pixel_format: rgb8
-  image_format: png
   projection: ???
   distortion: ???
-depth: ???
+depth:
+  registration: color
+  width: ???
+  height: ???
+  fps: ???
+  quantity: z
+  scale_m_per_unit: 0.001
+  invalid_value: 0
+  valid_range_m: ???
+  reliable_range_m: ???
 frames:
-  base:
-    parent: null
-    translation_m: null
-    rotation_xyzw: null
+  base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```

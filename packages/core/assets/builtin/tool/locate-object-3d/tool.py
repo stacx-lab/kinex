@@ -1,38 +1,36 @@
 """Locate a detected object in a stamped camera optical frame."""
 from kinex import helpers, profile
+from kinex.camera import save
 from kinex.object_location import detection_region, locate, select_detection
+
+
+async def depth_to_color(io, image, depth_image):
+    tf = await helpers.lookup_transform(io, image.header.frame_id, depth_image.header.frame_id, image.header.stamp)
+    t, q = tf.transform.translation, tf.transform.rotation
+    return {"translation_m": [t.x, t.y, t.z], "rotation_xyzw": [q.x, q.y, q.z, q.w]}
 
 
 async def main(a, io):
     from rosidl_runtime_py.convert import message_to_ordereddict
-    from kinex.ros_images import save
-    import os
-    camera, model = a["camera"], a["model"]
+    camera, model, depth = a["camera"], a["model"], a.get("depth")
     cam = profile(camera)
     color = cam["color"]
     capture = await io.request(f"{camera}.capture")
     image = capture.image
     if (image.width, image.height) != (color["width"], color["height"]):
         raise ValueError("image dimensions differ from calibration")
+    if depth is None and not hasattr(capture, "depth_image"):
+        raise ValueError("capture has no depth_image; supply optical depth in metres")
     detected = await io.request(f"{model}.detect", image=image, prompt=a["prompt"],
                                 min_score=a.get("min_score", .25), max_results=max(10, a.get("instance", 0) + 1))
     detection, count = select_detection(message_to_ordereddict(detected)["results"], a.get("min_score", .25), a.get("instance", 0))
     region, reference = detection_region(detection, color)
-    depth_path = None
-    if a.get("depth") is None:
-        if not hasattr(capture, "depth_image"):
-            raise ValueError("capture must include depth_image, or supply optical depth in metres")
-        depth_path = save(capture.depth_image)
-    try:
-        relation = None
-        if depth_path and cam["depth"]["registration"] == "native":
-            tf = await helpers.lookup_transform(io, image.header.frame_id, capture.depth_image.header.frame_id, image.header.stamp)
-            t, q = tf.transform.translation, tf.transform.rotation
-            relation = {"translation_m": [t.x, t.y, t.z], "rotation_xyzw": [q.x, q.y, q.z, q.w]}
-        measured = locate(cam, region, depth_path=depth_path, depth=a.get("depth"), depth_to_color=relation)
-    finally:
-        if depth_path:
-            os.unlink(depth_path)
+    if depth is not None:
+        measured = locate(cam, region, depth=depth)
+    else:
+        relation = (await depth_to_color(io, image, capture.depth_image)
+                    if cam["depth"]["registration"] == "native" else None)
+        measured = locate(cam, region, depth_image=capture.depth_image, depth_to_color=relation)
     return {**measured, "frame": image.header.frame_id, "reference": reference,
             "rotation_xyzw": None, "label": detection.get("label", a["prompt"]),
             "detection_score": detection["score"], "detections": count,

@@ -64,7 +64,7 @@ Reusable Python tools declare their schema in `tool.yaml`. Async entries export
 Perception and control share one execution approval. Tools and their temporary
 communication resources end with the invocation; model state persists in devices.
 
-`relative_pose` queries tf2; camera intrinsics are carried in CameraInfo.
+`relative_pose` queries tf2; camera intrinsics are profile facts.
 
 Python tools and `exec` preserve permissions, cancellation and motion ownership;
 they cannot load or unload devices. Scripts own their stopping conditions and

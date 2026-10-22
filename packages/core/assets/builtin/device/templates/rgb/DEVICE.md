@@ -1,31 +1,25 @@
 ---
 name: rgb
 type: rgb
-description: Register a RGB camera with a fixed output profile and a source-specific ROS node.
+description: Color camera with profile intrinsics and a calibrated optical frame.
 ---
 
 ## Setup
 
-Follow setup-device for registration, Python provisioning and node lifecycle. This
-template validates physical facts; it does not prescribe operation names.
+Declare color geometry (`width`, `height`, `fps`, `projection`, `distortion`);
+Kinex derives `fov`. The profile is the only source of intrinsics, so do not
+expose `CameraInfo`. `frames.base` is the optical frame (+X right, +Y down,
++Z forward) and its mount. Stamp every image at acquisition on the world clock
+and set `header.frame_id` to `<device>/base`. One source stream serves both
+operations.
 
-Declare image dimensions, raw/rectified projection and distortion, mount and optical frame. Use CameraInfo for intrinsics and preserve image acquisition stamps. Describe encoding, optical axes and any capture behavior on the image operation.
+### Operations
 
-Every profile requires a top-level `description` giving general device identity,
-capabilities and limitations. Every `operations.<name>.description` explains only
-that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
-Both descriptions are required strings; use an empty string when no text is known.
-Read device and operation descriptions directly from `profile.yaml`.
-
-Start from the profile below, select the typed facts and fill unknowns from
-documentation or calibration. Use `???` for unresolved facts and `null` only where
-allowed. Add actual topic/service operations and their descriptions; an empty
-operations mapping is an unfinished setup, not an implicit type interface.
-Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
-For externally managed nodes use `runtime.nodes: []` and their real endpoints.
-Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
-The old sibling driver scaffolds are unsupported by the runtime; implement ROS
-node factories or bind to existing ROS nodes.
+- `image` (recommended): output topic `sensor_msgs/msg/Image`, `rgb8` at the
+  profile resolution, `best_effort` with depth 1. Recording subscribes to it.
+- `capture` (recommended): service `kinex_interfaces/srv/Capture` returning the
+  latest `image` without advancing world time. Snapshots and perception tools
+  call it.
 
 ### Profile
 
@@ -33,30 +27,29 @@ node factories or bind to existing ROS nodes.
 name: rgb
 type: rgb
 loaded: false
-access:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  connection: ???
 description: ''
 runtime:
-  nodes: []
-operations: {}
-source: unknown
-method: unknown
-calibrated_at: null
+  nodes: [{entry: node.py, factory: create}]
+operations:
+  image:
+    description: rgb8 images stamped at acquisition in optical frame rgb/base.
+    transport: topic
+    direction: output
+    endpoint: /kinex/rgb/image
+    type: sensor_msgs/msg/Image
+    qos: {depth: 1, reliability: best_effort, durability: volatile}
+  capture:
+    description: Latest image on demand without advancing world time.
+    transport: service
+    direction: input
+    endpoint: /kinex/rgb/capture
+    type: kinex_interfaces/srv/Capture
 color:
   width: ???
   height: ???
   fps: ???
-  pixel_format: rgb8
-  image_format: png
   projection: ???
   distortion: ???
-  fov: ???
 frames:
-  base:
-    parent: null
-    translation_m: null
-    rotation_xyzw: null
+  base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```

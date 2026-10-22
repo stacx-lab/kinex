@@ -1,11 +1,15 @@
-"""Shared camera geometry and depth decoding. See builtin/device/templates/*/DEVICE.md#use."""
+"""Camera projection from profile intrinsics and ROS image conversion."""
 
-import array
 import math
-import sys
+import tempfile
+
+import numpy as np
+from PIL import Image
+
+ENCODINGS = {"rgb8": (np.uint8, 3), "bgr8": (np.uint8, 3), "mono8": (np.uint8, 1), "16UC1": (np.uint16, 1)}
 
 
-def distort(distortion, x, y):
+def _distort(distortion, x, y):
     if distortion["model"] == "none":
         return x, y
     if distortion["model"] != "opencv_brown_conrady":
@@ -24,13 +28,13 @@ def ray(stream, u, v):
         return [xd, yd, 1.0]
     x, y = xd, yd
     for _ in range(30):
-        px, py = distort(d, x, y)
+        px, py = _distort(d, x, y)
         ex, ey = px-xd, py-yd
         if math.hypot(ex, ey) < 1e-10:
             return [x, y, 1.0]
         h = 1e-6
-        hx, hy = distort(d, x+h, y)
-        vx, vy = distort(d, x, y+h)
+        hx, hy = _distort(d, x+h, y)
+        vx, vy = _distort(d, x, y+h)
         a, b, c, e = (hx-px)/h, (vx-px)/h, (hy-py)/h, (vy-py)/h
         det = a*e-b*c
         if abs(det) < 1e-12:
@@ -40,50 +44,27 @@ def ray(stream, u, v):
 
 
 def project(stream, point):
-    x, y = distort(stream["distortion"], point[0]/point[2], point[1]/point[2])
+    x, y = _distort(stream["distortion"], point[0]/point[2], point[1]/point[2])
     p = stream["projection"]
     return p["fx"]*x + p["skew"]*y + p["cx"], p["fy"]*y + p["cy"]
 
 
-def fov(stream):
-    width, height = stream["width"], stream["height"]
-    def angle(a, b):
-        cosine = sum(x*y for x, y in zip(a, b)) / (math.hypot(*a)*math.hypot(*b))
-        return math.degrees(math.acos(max(-1, min(1, cosine))))
-    return {
-        "horizontal_deg": angle(ray(stream, -0.5, (height-1)/2), ray(stream, width-0.5, (height-1)/2)),
-        "vertical_deg": angle(ray(stream, (width-1)/2, -0.5), ray(stream, (width-1)/2, height-0.5)),
-    }
+def array(message):
+    """Native-order pixels of a sensor_msgs/Image: HxWx3 RGB or HxW mono8/16UC1."""
+    if message.encoding not in ENCODINGS:
+        raise ValueError(f"unsupported image encoding {message.encoding}")
+    scalar, channels = ENCODINGS[message.encoding]
+    dtype = np.dtype(scalar).newbyteorder(">" if message.is_bigendian else "<")
+    rows = np.frombuffer(message.data, dtype).reshape(message.height, message.step // dtype.itemsize)
+    values = rows[:, :message.width * channels].astype(scalar, copy=False)
+    if channels == 1:
+        return values
+    values = values.reshape(message.height, message.width, channels)
+    return values[:, :, ::-1] if message.encoding == "bgr8" else values
 
 
-def read_depth(path, meta):
-    if meta["pixel_format"] != "uint16" or meta["image_format"] != "pgm16_be":
-        raise ValueError("unsupported depth encoding")
-    with open(path, "rb") as handle:
-        raw = handle.read()
-    tokens, i = [], 0
-    while len(tokens) < 4 and i < len(raw):
-        if raw[i:i+1].isspace():
-            i += 1
-            continue
-        if raw[i:i+1] == b"#":
-            while i < len(raw) and raw[i:i+1] != b"\n":
-                i += 1
-            continue
-        j = i
-        while i < len(raw) and not raw[i:i+1].isspace():
-            i += 1
-        tokens.append(raw[j:i])
-    if len(tokens) != 4 or tokens[0] != b"P5" or tokens[3] != b"65535" or i >= len(raw):
-        raise ValueError("expected PGM P5 with maxval 65535")
-    width, height = int(tokens[1]), int(tokens[2])
-    if (width, height) != (meta["width"], meta["height"]):
-        raise ValueError("depth dimensions differ from the profile")
-    start = i + (2 if raw[i:i+2] == b"\r\n" else 1)
-    if len(raw)-start != width*height*2:
-        raise ValueError("depth payload size differs from its dimensions")
-    pixels = array.array("H")
-    pixels.frombytes(raw[start:])
-    if sys.byteorder == "little":
-        pixels.byteswap()
-    return width, height, pixels
+def save(message):
+    """Write an image as a temporary PNG, keeping 16-bit depth, and return its path."""
+    with tempfile.NamedTemporaryFile(prefix="kinex-observation-", suffix=".png", delete=False) as file:
+        Image.fromarray(array(message)).save(file, format="PNG")
+    return file.name

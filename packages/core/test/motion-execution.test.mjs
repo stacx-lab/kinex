@@ -29,8 +29,8 @@ test('joint poses use explicit local frames and measured-state FK', () => {
   })
 })
 
-test('camera output modes preserve image bytes and array ownership', () => {
-  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./camera_output.py', import.meta.url))], {
+test('camera images convert ROS payloads and locate registered depth', () => {
+  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./camera_images.py', import.meta.url))], {
     env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) },
     encoding: 'utf8',
   })

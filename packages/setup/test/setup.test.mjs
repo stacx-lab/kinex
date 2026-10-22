@@ -232,8 +232,8 @@ test('calibration archives both RGBD files and never appends an incomplete sampl
     type: 'rgbd',
     loaded: false,
     runtime: {nodes: []},
-    color: { width: 1, height: 1, pixel_format: 'rgb8', image_format: 'png' },
-    depth: { width: 1, height: 1, pixel_format: 'uint16', image_format: 'pgm16_be',
+    color: { width: 1, height: 1 },
+    depth: { width: 1, height: 1,
       registration: 'color', quantity: 'z', scale_m_per_unit: .001, invalid_value: 0,
       valid_range_m: { min: .001, max: 65.535 } },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
