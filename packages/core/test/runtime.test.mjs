@@ -167,7 +167,7 @@ test('exec validates before approval and denial does not prepare Python or run c
   assert.ok(!(await readdir(path.join(directory, '.kinex'))).includes('python'))
 })
 
-test('inline Python retains fresh globals, argument validation and lifecycle restrictions inside exec', async t => {
+test('inline Python retains fresh globals and argument validation inside exec', async t => {
   const { runtime } = await fixture(t, {host})
   const success = await execScript(runtime, { python: `from kinex import inline, finish
 source = 'count = 0\\ndef main(value):\\n    global count\\n    count += 1\\n    return {"count": count, "value": value}\\n'
@@ -180,7 +180,6 @@ finish({'results': [inline(source, {'value': i}) for i in range(2)]})
     ['value = 1', /must be a lambda or define main/],
     ['lambda value: {1, 2}', /not JSON serializable/],
     ['lambda missing: {}', /unexpected keyword argument/],
-    ['lambda value: __import__("kinex").device("sensor", "unload")', /inside Python/],
   ]) {
     const result = await execScript(runtime, { args: { source }, python: 'from kinex import args, inline\ninline(args()["source"], {"value": 1})' })
     assert.equal(result.isError, true)

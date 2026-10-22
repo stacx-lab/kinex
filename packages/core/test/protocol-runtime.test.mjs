@@ -99,7 +99,7 @@ test('host startup, out-of-order results, cancellation and reload preserve opera
  assert.ok((await events(dir)).some(e=>e.action==='unload'))
 })
 
-test('batch preauthorization and validation precede dispatch; Python cannot change lifecycle',async t=>{
+test('batch preauthorization and validation precede dispatch',async t=>{
  const {runtime,directory}=await fixture(t)
  const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
  const before=(await events(dir)).length
@@ -109,28 +109,24 @@ test('batch preauthorization and validation precede dispatch; Python cannot chan
  const invalid=await runtime.tools.call('device',{deviceID:'sensor',action:'invented'},{sessionID:'test'})
  assert.equal(invalid.isError,true)
  assert.equal((await events(dir)).length,before)
- const python=await exec(runtime,`from kinex import device\ndevice('sensor','unload')`)
- assert.equal(python.isError,true);assert.match(python.output,/load\/unload are unavailable/)
  const batch=await runtime.tools.call('devices',{calls:[{deviceID:'sensor',action:'read'},{deviceID:'missing',action:'read'}]},{sessionID:'test'})
  const results=JSON.parse(batch.output).results
  assert.equal(results[0].ok,true);assert.equal(results[1].ok,false)
 })
 
-for(const mode of ['success','failure','cancel']) test(`managed calls enroll cleanup on ${mode} and share exec approval`,async t=>{
+// io enrolls a device this way before managed motion or a cancellable request.
+const enroll = "_rpc({'call':'ros_enroll','device':'sensor'})"
+
+for(const mode of ['success','failure','cancel']) test(`enrolled devices are cleaned up on ${mode} under one exec approval`,async t=>{
  const approvals=[]
  const {runtime,directory}=await fixture(t,{host:{ask:async p=>approvals.push(p.permission)}})
- const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true,operations:{
-   move:{...outputOperation('move'),direction:'input',motion:{acquire:'/a',stop:'/s',status:'/c'}},
-   stop:{...inputOperation('stop'),type:'kinex_interfaces/srv/Stop'},
- }})
+ const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
  const tail=mode==='failure'?"raise RuntimeError('task failed')":mode==='cancel'?'import time;time.sleep(10)':"finish({'ok':True})"
- const result=await exec(runtime,`from kinex import device, finish\ndevice('sensor','move',{'value':1})\n${tail}`,mode==='cancel'?{signal:AbortSignal.timeout(500)}:{})
+ const result=await exec(runtime,`from kinex import _rpc, finish\n${enroll}\n${tail}`,mode==='cancel'?{signal:AbortSignal.timeout(500)}:{})
  assert.equal(!!result.isError,mode!=='success',result.output)
  assert.deepEqual(approvals,['python_tool'])
- const trace=await events(dir)
- const operation=trace.find(e=>e.action==='move');const cleanup=trace.find(e=>e.action==='$cleanup')
- assert.ok(operation && cleanup)
- assert.equal(cleanup.owner,operation.owner)
+ const cleanup=(await events(dir)).find(e=>e.action==='$cleanup')
+ assert.ok(cleanup?.owner)
  assert.equal(cleanup.args.failed,mode!=='success')
 })
 
@@ -147,21 +143,17 @@ test('separate runtimes own separate node processes and disposal does not close 
  await b.dispose()
 })
 
-test('composed inline operations keep the parent owner and timeout cleans owned requests',async t=>{
+test('composed inline enrollment keeps the parent owner and timeout cleans it',async t=>{
  const {runtime,directory}=await fixture(t)
- const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true,operations:{
-   wait:{...inputOperation('wait'),cancellation:{endpoint:'/cancel',type:'kinex_interfaces/srv/CancelWait'}},
- }})
- const result=await runtime.tools.call('exec',{timeout_s:1,python:`from kinex import device, inline
-first=device('sensor','wait')
-inline("lambda: __import__('kinex').device('sensor','wait')", {})
+ const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
+ // Only the inline call enrolls, so the parent's cleanup reaches it only under one owner.
+ const result=await runtime.tools.call('exec',{timeout_s:1,python:`from kinex import inline
+inline("lambda: __import__('kinex').${enroll}", {})
 import time; time.sleep(10)`},{sessionID:'timeout'})
  assert.equal(result.isError,true);assert.match(result.output,/timed out|timeout/i)
- const trace=await events(dir)
- const calls=trace.filter(e=>e.action==='wait')
- assert.equal(calls.length,2)
- assert.equal(calls[0].owner,calls[1].owner)
- assert.ok(trace.some(e=>e.action==='$cleanup' && e.owner===calls[0].owner && e.args.failed))
+ const cleanups=(await events(dir)).filter(e=>e.action==='$cleanup')
+ assert.equal(cleanups.length,1)
+ assert.equal(cleanups[0].args.failed,true)
 })
 
 test('failed startup reports the device, rolls back its host and requires explicit reload',async t=>{

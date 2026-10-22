@@ -19,11 +19,11 @@ test('important tools show action and target, including streamed arguments and a
     ['record', { action: 'start', devices: { arm: 10, camera: 2 } }, 'record start arm=10Hz camera=2Hz'],
     ['record', { action: 'snap', devices: ['arm', 'camera'] }, 'record snap arm, camera'],
     ['device_stop', {}, 'device_stop all'],
-    ['exec', { description: 'inspect arm state', python: 'from kinex import device' }, 'exec inspect arm state'],
+    ['exec', { description: 'inspect arm state', python: 'from kinex import runtime' }, 'exec inspect arm state'],
     ['exec', { description: 'inspect arm state', file: 'scripts/inspect.py' }, 'exec inspect arm state'],
     ['exec', { file: 'scripts/inspect.py' }, 'exec scripts/inspect.py'],
     ['exec', { description: '  ', file: 'scripts/inspect.py' }, 'exec scripts/inspect.py'],
-    ['exec', { python: 'from kinex import device\nprint(device("arm"))' }, 'exec python script'],
+    ['exec', { python: 'from kinex import runtime\nprint(runtime.devices())' }, 'exec python script'],
     ['exec', { description: 'inspect' }, 'exec inspect'],
     ['exec', {}, 'exec python script'],
   ]) assert.equal(plain(toolRenderers(name).renderCall(args, theme, context)), expected)
@@ -41,13 +41,13 @@ test('important tools show action and target, including streamed arguments and a
 
 test('exec labels preserve aliases, sanitize text and truncate without hiding expanded source', () => {
   const renderers = toolRenderers('exec', 'kinex_exec')
-  const args = { description: '\x1b[2Jinspect\narm state', python: 'from kinex import device\nprint(device("arm"))' }
+  const args = { description: '\x1b[2Jinspect\narm state', python: 'from kinex import runtime\nprint(runtime.devices())' }
   assert.equal(plain(renderers.renderCall(args, theme, context)), 'kinex_exec inspect arm state')
   const narrow = renderers.renderCall(args, theme, context).render(20)
   assert.equal(narrow.length, 1)
   assert.ok(visibleWidth(narrow[0]) <= 20)
   const expanded = plain(renderers.renderCall(args, theme, { ...context, expanded: true }))
-  assert.match(expanded, /from kinex import device/)
+  assert.match(expanded, /from kinex import runtime/)
 })
 
 test('all Kinex tools share JSON result formatting regardless of argument-summary support', () => {

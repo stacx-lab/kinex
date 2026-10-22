@@ -40,9 +40,8 @@ path); no tool manifest or required function signature is needed. Optional `args
 are available through `kinex.args()`, and `argv` supplies script arguments.
 `description` gives the invocation a short display label.
 
-Scripts use `device(deviceID, action="read", args=None)` for one call and
-`devices(calls=[...])` for concurrent calls. Batch entries use `deviceID`, `action`
-and `args`, and results preserve input order with per-call errors.
+Scripts reach devices through `communication()`: `io.request`, `io.publish` and
+`io.subscribe` on declared operations, concurrently with asyncio when needed.
 `call(tool_name, **arguments)` composes a Python tool using keyword arguments.
 Host coding tools are outside this Python composition API.
 

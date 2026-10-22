@@ -11,7 +11,6 @@ import path from "node:path"
 import { formatJSON } from "../util/json.ts"
 import { ProfileStore } from "../device/profile/store.ts"
 import { matchesDeviceType } from "../device/profile/schema.ts"
-import { callDevices, DeviceCallSchema, DeviceCallsSchema } from "./device/calls.ts"
 import { pythonLaunch } from "../python/launch.ts"
 import { imageMime } from "../util/media.ts"
 import { PermissionDeniedError, failure, failureMetadata } from "./errors.ts"
@@ -68,7 +67,7 @@ const missingDevicesError = (name: string, missing: string[]) =>
 // The dialog carries invocation metadata, profiles and selected results.
 // ROS payloads travel directly between Python nodes and devices.
 type Request = Record<string, unknown>
-type ExecutionContext = Context & { approved?: boolean; output?: (text: string) => void }
+type ExecutionContext = Context & { output?: (text: string) => void }
 type MotionContext = ExecutionContext & { motionOwner: string }
 type PythonExecution = Pick<ToolManifest, "name" | "timeout_s"> & {
   directory: string
@@ -95,15 +94,6 @@ async function composed(result: Promise<unknown>): Promise<Record<string, unknow
     if (error instanceof PermissionDeniedError) throw error
     return { ok: false, ...failure(error) }
   }
-}
-
-async function dispatchDevices(name: "device" | "devices", input: unknown, ctx: MotionContext, authorize: boolean) {
-  const calls = name === "device" ? [DeviceCallSchema.parse(input)] : DeviceCallsSchema.parse(input).calls
-  const results = await callDevices(calls, ctx, { python: true, owner: ctx.motionOwner, authorize })
-  if (name === "devices") return { ok: true, result: { results } }
-  const result = results[0]!
-  return result.ok ? { ok: true, result: { ...result.data, ...(result.file ? { file: result.file } : {}) } }
-    : { ok: false, error: result.error, ...failureMetadata({ ...result }) }
 }
 
 async function dispatch(cwd: string, info: PythonExecution, request: Request, ctx: MotionContext, depth: number): Promise<Record<string, unknown>> {
@@ -157,10 +147,6 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
     const model = deviceModel(device)
     return { ok: true, profile: model ? { ...device, resolved_model: model } : device }
   }
-  if (call === "device" || call === "devices") {
-    const { call: _, ...input } = request
-    return dispatchDevices(call, input, ctx, false)
-  }
   if ((call === "tool" || call === "inline") && depth >= MAX_DEPTH)
     return { ok: false, error: `tool composition deeper than ${MAX_DEPTH} — likely a cycle` }
   if (call === "inline") {
@@ -170,8 +156,6 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
   if (call === "tool") {
     const name = request["name"]
     if (typeof name !== "string") return { ok: false, error: "tool call needs a name" }
-    if (name === "device" || name === "devices")
-      return dispatchDevices(name, request["args"], ctx, !ctx.approved)
     const target = (await listPyTools(cwd)).tools.find((tool) => tool.manifest.name === name)
     if (!target) return { ok: false, error: `unknown python tool "${name}"` }
     const missing = await missingDeviceTypes(cwd, target.manifest)
@@ -305,7 +289,7 @@ export async function runScript(input: ScriptInput, ctx: Context): Promise<Resul
     result = await invoke(ctx.directory, {
       name: "exec", directory: ctx.directory, entry: ["-u", "-m", "kinex._exec"],
       timeout_s: input.timeout_s, source: input.python, script,
-    }, input.args, { ...ctx, approved: true, output: capture }, 0)
+    }, input.args, { ...ctx, output: capture }, 0)
   } catch (caught) {
     if (caught instanceof PermissionDeniedError) throw caught
     error = failure(caught)
@@ -337,7 +321,7 @@ export async function runPyTool(cwd: string, info: PyToolInfo, args: Record<stri
   await validateInputs(cwd, info, args)
   await ctx.ask({ permission: "python_tool", description: `run Python tool ${name} ${JSON.stringify(args)}` })
   await validateInputs(cwd, info, args)
-  const returned = await invoke(cwd, execution(info), args, { ...ctx, approved: true }, 0)
+  const returned = await invoke(cwd, execution(info), args, ctx, 0)
   return {
     title: `${name} (Python tool)`,
     output: formatJSON(returned),
