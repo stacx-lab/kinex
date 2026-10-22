@@ -214,9 +214,9 @@ device catalog; no world operation or device factory registers it. A world-clock
 invalidates dynamic history while retaining fixed calibration.
 
 The simulator supplies state and measurements, not TF or a transform-lookup
-service. LIBERO camera nodes map image and `CameraInfo` frame IDs to the calibrated
-device base frame, including on-demand captures. Camera projection/distortion
-uses `CameraInfo`; non-geometric properties remain in profiles.
+service. Camera nodes set image frame IDs to the calibrated optical frame,
+including on-demand captures. Camera projection and distortion live in the
+profile, not `CameraInfo` or TF.
 
 `relative_pose` uses tf2 and accepts qualified frame references or ROS frame IDs. Supply `timestamp` for a measurement
 at a particular world time; omitting it explicitly requests the latest available
@@ -224,7 +224,7 @@ transform. Kinex retains the tf2 service across exec calls, so a new
 invocation can query a paused world without waiting for another physics tick.
 Missing relationships and unavailable timestamps are errors.
 
-Images stay as ROS payloads in Python. `kinex.ros_images.array` converts them for
+Images stay as ROS payloads in Python. `kinex.camera.array` converts them for
 computation; `save` writes a selected image. Return paths with
 `finish(result, file=...)` after leaving the scope to attach images to the model.
 

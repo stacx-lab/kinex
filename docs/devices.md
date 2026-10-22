@@ -65,7 +65,8 @@ References must exist and be acyclic. ROS IDs use `device/frame`; inherent
 Query at observation stamps. Simulator nodes supply measurements and state;
 they do not own Kinex frame publication.
 
-Camera projection/distortion parameters use CameraInfo, not TF. Native RGB-D
+Camera projection and distortion live in profile `color`/`depth`, not
+`CameraInfo` or TF. Native RGB-D
 profiles declare `color` and `depth` frames and resolve depth-to-color geometry
 through tf2. A model service needs no spatial frames. Calibration procedures write
 top-level facts and `frames.<name>`, using `profile:<device>` readiness items.

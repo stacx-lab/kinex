@@ -92,7 +92,7 @@ export async function checkCorePackage(directory, env, pack) {
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
-      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.stream; import kinex.policy; import kinex.kinematics'], {
+      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.camera; import kinex.policy; import kinex.kinematics'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
       execFileSync('python3', ['-c', [

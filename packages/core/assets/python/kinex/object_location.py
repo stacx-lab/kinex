@@ -3,7 +3,7 @@
 import numpy as np
 from PIL import Image
 
-from kinex.camera import project, ray, read_depth
+from kinex.camera import array, project, ray
 from kinex.geometry import pose_to_rt
 from kinex.validation import number, vector
 
@@ -70,7 +70,7 @@ def _central(points):
     return np.argmin(np.sum((points - np.median(points, axis=0)) ** 2, axis=1))
 
 
-def locate(profile, region, *, depth_path=None, depth=None, depth_to_color=None):
+def locate(profile, region, *, depth_image=None, depth=None, depth_to_color=None):
     color = profile["color"]
     if depth is not None:
         if number(depth, "depth") <= 0:
@@ -80,8 +80,11 @@ def locate(profile, region, *, depth_path=None, depth=None, depth_to_color=None)
         return {"point": (np.asarray(ray(color, *pixel)) * depth).tolist(), "pixel": pixel.tolist(), "depth_samples": 0}
 
     meta = profile["depth"]
-    width, height, raw = read_depth(depth_path, meta)
-    raw = np.asarray(raw).reshape(height, width)
+    if depth_image.encoding != "16UC1":
+        raise ValueError("depth_image must be 16UC1")
+    raw = array(depth_image)
+    if raw.shape != (meta["height"], meta["width"]):
+        raise ValueError("depth dimensions differ from the profile")
     distances = raw.astype(float) * meta["scale_m_per_unit"]
     limits = meta["valid_range_m"]
     valid = (raw != meta["invalid_value"]) & (distances > 0) & (distances >= limits["min"]) & (distances <= limits["max"])
