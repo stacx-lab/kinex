@@ -1,51 +1,55 @@
 ---
 name: model
 type: model
-description: General ML inference service — local model process or remote client, explicit artifacts and typed operation inputs/outputs.
+description: Inference service whose operations depend on the model; compute and artifacts are profile facts.
 ---
 
 ## Setup
 
-Follow setup-device for registration, Python provisioning and node lifecycle. This
-template validates physical facts; it does not prescribe operation names.
+The model type prescribes no operations or payloads. Name each operation after
+what the model computes and declare it as a `kinex_interfaces/srv/Json` service:
+callers send a JSON object and receive one, and the operation description is the
+only contract for their fields. Pass images and other large data as file paths.
+Serve each operation with `kinex.communication.json_service(node, operation,
+handler)`; `handler(**request)` returns the response object and its exceptions
+become failed responses.
 
-Declare model identity and typed input/output facts when available. Expose inference as ROS services with explicit cancellation when applicable; describe request inputs, coordinate systems, outputs and limitations on each operation.
+Record `family`, optional `variant` and `implementation`, and `artifacts` with a
+pinned source for every weight file. Record `compute` as where the node places
+the model: `cpu`, `cuda` with a device `index`, `mps`, or `remote` when the node
+only calls an external service. Install the model SDK into a device-local
+directory that a `runtime.overlays` script adds to `PYTHONPATH`, pinning Kinex
+Python's numpy, so the node keeps Kinex's ROS environment. `runtime.interpreter`
+replaces that environment; use it only with overlays for a complete one.
 
-Every profile requires a top-level `description` giving general device identity,
-capabilities and limitations. Every `operations.<name>.description` explains only
-that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
-Both descriptions are required strings; use an empty string when no text is known.
-Read device and operation descriptions directly from `profile.yaml`.
+### Load and unload
 
-Start from the profile below, select the typed facts and fill unknowns from
-documentation or calibration. Use `???` for unresolved facts and `null` only where
-allowed. Add actual topic/service operations and their descriptions; an empty
-operations mapping is an unfinished setup, not an implicit type interface.
-Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
-For externally managed nodes use `runtime.nodes: []` and their real endpoints.
-Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
-The old sibling driver scaffolds are unsupported by the runtime; implement ROS
-node factories or bind to existing ROS nodes.
+Load starts a fresh device process and creates the node; unload destroys the node
+and then terminates that process group. Keep every resource inside this lifecycle:
+
+- Load weights onto `compute` in the factory and fail clearly when an artifact
+  or the compute device is missing. Provision artifacts during setup, never on load.
+- Return from `ready()` only once the model serves requests, and size
+  `runtime.ready_timeout_s` for the loading time.
+- Release what process exit cannot in `destroy_node()`, such as remote sessions or
+  servers in their own process group; never start detached processes.
+- A borrowed service (`runtime.nodes: []`) keeps its own lifecycle; Kinex neither
+  loads nor frees its model.
 
 ### Profile
 
 ```yaml
-name: ???
+name: model
 type: model
 loaded: false
-access:
-  source: unknown
-  connection:
-    kind: process
-    compute: ???
 description: ''
 runtime:
-  nodes: []
+  nodes: [{entry: node.py, factory: create}]
+  ready_timeout_s: 120
 operations: {}
-source: unknown
 family: ???
 variant: null
 implementation: null
 artifacts: ???
-inference_contracts: []
+compute: ???
 ```

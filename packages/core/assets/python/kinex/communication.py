@@ -6,12 +6,30 @@ World operations are the sole source of workflow timing.
 import asyncio
 from collections import deque
 import contextvars
+import json
 import threading
 import time
 import uuid
 from kinex.errors import RPCError, OperationError
 
 _active = contextvars.ContextVar("kinex_communication", default=None)
+# Free-form operations carry JSON objects; their descriptions define the fields.
+JSON = "kinex_interfaces/srv/Json"
+
+
+def json_service(node, operation, handler):
+    """Serve handler(**request) -> dict on an owned node's Json operation."""
+    from kinex_interfaces.srv import Json
+
+    def call(request, response):
+        # Handler failures are responses; they must not stop the node's executor.
+        try:
+            response.response = json.dumps(handler(**json.loads(request.request)), allow_nan=False)
+            response.success = True
+        except Exception as error:
+            response.message = f"{type(error).__name__}: {error}"
+        return response
+    return node.create_service(Json, operation["endpoint"], call)
 
 
 def message_value(cls, value):
@@ -305,7 +323,10 @@ class Communication:
             fields = {**fields, "owner": self.owner, "request_id": uuid.uuid4().hex}
             self.waits[fields["request_id"]] = cancellation
         try:
-            return await self._request(spec, fields, timeout_s, operation=operation)
+            if spec["type"] != JSON:
+                return await self._request(spec, fields, timeout_s, operation=operation)
+            result = await self._request(spec, {"request": json.dumps(fields, allow_nan=False)}, timeout_s, operation=operation)
+            return json.loads(result.response)
         except BaseException as error:
             if cancellation and not isinstance(error, OperationError):
                 try:

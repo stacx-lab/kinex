@@ -8,7 +8,7 @@ contract and Python API.
 ## Types
 
 Builtin types remain: world, joint, dexterous_hand, gripper, suction, velocity,
-legged_base, rgb, rgbd, imu, force_torque, model, detection, segmentation and other.
+legged_base, rgb, rgbd, imu, force_torque, model and other.
 Their schemas validate physical facts, model structure, calibration and frames.
 Each type guide recommends operation names and semantics for onboarding; Kinex
 does not enforce them.
@@ -117,9 +117,13 @@ than a simulator-specific timer.
 
 ## Models: inference as a device
 
-Persistent inference services are devices. Their operation descriptions explain
-inputs, output coordinates and limitations. Typed model facts and schemas remain
-validated. Declare cancellation for long-running owner-scoped services.
+Persistent inference services are `model` devices; detection, segmentation and
+policies are models too. The type prescribes no operations or payloads: model
+operations are `kinex_interfaces/srv/Json` services exchanging JSON objects, and
+each operation description defines their fields, coordinates and limitations.
+Images pass as file paths. Profiles record family, artifacts and `compute`
+placement. Load places the model and unload releases it with the device process.
+Declare cancellation for long-running owner-scoped services.
 
 ## Joints, grippers and hands
 

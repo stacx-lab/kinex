@@ -42,7 +42,6 @@ def share(action, plan):
 
 async def main(a, io):
     import asyncio
-    from rosidl_runtime_py.convert import message_to_ordereddict
     from kinex.ros_tools import duration, pose_fields, transform_pose
     from kinex.geometry import compose_rt, xyzq_to_rt, rt_to_pose
     from kinex.joint_control import measured_positions, project_seed
@@ -54,9 +53,8 @@ async def main(a, io):
     options = a.get("inference_args", {})
     if set(options) & {"obs", "task"}:
         raise ValueError("inference_args cannot override obs or task")
-    inference = await io.request(f"{a['model']}.infer", **options, obs=a["observation"],
-                                 **({"task": a["task"]} if a.get("task") else {}))
-    data = message_to_ordereddict(inference)
+    data = await io.request(f"{a['model']}.infer", **options, obs=a["observation"],
+                            **({"task": a["task"]} if a.get("task") else {}))
     actions = data.get("actions", [data["action"]] if "action" in data else None)
     if not actions:
         raise ValueError("infer must return nonempty actions")

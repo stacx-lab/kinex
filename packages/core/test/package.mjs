@@ -16,7 +16,7 @@ export async function checkCorePackage(directory, env, pack) {
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/_exec.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
-  for (const name of ['driver.py', 'setup.sh', 'provision.py', 'fastwam_config.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
+  for (const name of ['node.py', 'env.sh', 'setup.sh', 'provision.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
     assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/policy.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/ik_search.py'))

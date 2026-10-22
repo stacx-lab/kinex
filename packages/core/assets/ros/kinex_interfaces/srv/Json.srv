@@ -1,0 +1,6 @@
+# Free-form JSON objects; the operation description defines their fields.
+string request
+---
+bool success
+string message
+string response

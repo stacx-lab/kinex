@@ -6,7 +6,6 @@ import { ProfileStore, type ProfileSnapshot, type NeededEntry } from "./store.ts
 import {
   known,
   deviceActions,
-  isModel,
   renderWorkspaceBounds,
   type Device,
   type DeviceType,
@@ -116,17 +115,17 @@ function factsCheck(device: Device): Check {
       const surfaceBit = surfaces.length > 0 ? `; surfaces: ${surfaces.map((surface) => surface.name).join(", ")}` : ""
       return { done: true, detail: `${bounds === null ? "no bounds declared" : `${renderWorkspaceBounds(bounds)} m`}${surfaceBit}` }
     }
-    case "detection":
-    case "segmentation":
     case "model": {
-      const family = device.family
+      const { family, artifacts, compute } = device
       if (!known(family)) return { done: false, detail: "family is ???" }
-      if (!known(device.artifacts)) return { done: false, detail: "artifacts is ???" }
+      if (!known(artifacts)) return { done: false, detail: "artifacts is ???" }
+      if (!known(compute)) return { done: false, detail: "compute is ???" }
       if (Object.keys(device.operations).length === 0)
-        return { done: false, detail: `${family} declared but no operations — record the inference input/output contracts` }
+        return { done: false, detail: `${family} declared but no operations — expose its inference services` }
+      const placement = compute.kind === "cuda" ? `cuda:${compute.index}` : compute.kind
       return {
         done: true,
-        detail: `${family}${device.variant ? ` (${device.variant})` : ""}: ${Object.keys(device.operations).join(", ")}`,
+        detail: `${family}${device.variant ? ` (${device.variant})` : ""} on ${placement}: ${Object.keys(device.operations).join(", ")}`,
       }
     }
     default:
@@ -136,7 +135,7 @@ function factsCheck(device: Device): Check {
 
 function profileCheck(device: Device, devices: Device[]): Check {
   const facts = factsCheck(device)
-  if (!facts.done || isModel(device)) return facts
+  if (!facts.done || device.type === "model") return facts
   const errors = frameErrors(devices).filter(message => message.startsWith(`${device.name}:`))
   if (errors.length) return { done: false, detail: errors.join("; ") }
   const computed = new Set(modelFrames(device))

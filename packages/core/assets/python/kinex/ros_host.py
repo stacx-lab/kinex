@@ -14,6 +14,8 @@ def plain(message):
 
 def observation(message):
     """Selected host observations; ROS-to-ROS payloads never use this path."""
+    if isinstance(message, dict):
+        return message
     from sensor_msgs.msg import Image, JointState
     from kinex.camera import save
     if isinstance(getattr(message, "image", None), Image):

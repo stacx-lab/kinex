@@ -92,7 +92,8 @@ Interface source paths resolve relative to `.kinex`. Explicit preparation with
 Python 3.12 environment and builds core and configured interfaces there. The
 provider is selected from workspace configuration, independent of device load
 state. Discovery does not install or create an environment. First approved use
-prepares a missing environment; explicit preparation also rebuilds interfaces.
+prepares a missing environment and rebuilds interfaces whose sources changed;
+explicit preparation always rebuilds them from clean.
 ROS processes source only their own overlays; host shells remain unchanged.
 Non-ROS workspaces default to the existing uv environment. A simulator keeps its
 own Python and communicates with Kinex through ROS; simulator packages are not
@@ -109,8 +110,9 @@ async def main():
     async with communication() as io:
         state = io.subscribe("arm.joint_state", depth=1)
         sample = await state.next(timeout_s=2)
-        # Payload fields follow the declared ROS message/service types.
-        response = await io.request("model.infer", image=image)
+        # Payload fields follow the declared ROS types; Json operations
+        # exchange plain objects described by the operation.
+        response = await io.request("model.infer", image=image_path)
         await io.publish("arm.joint_target", target_message)
         await io.request("world.wait", duration_s=0.05)
     finish({"summary": "selected result"})
@@ -118,7 +120,10 @@ async def main():
 asyncio.run(main())
 ```
 
-`image` and `target_message` above are application inputs. `publish`, `subscribe`,
+`image_path` and `target_message` above are application inputs. A
+`kinex_interfaces/srv/Json` operation encodes keyword arguments as one JSON object
+and returns the decoded response object; owned nodes serve it with
+`json_service(node, operation, handler)`. `publish`, `subscribe`,
 `request` and `serve` are protocol primitives; the helpers do not prescribe
 control flow. Use ordinary functions, branching and asyncio task groups.
 Messages may be native ROS messages or field mappings. Subscriptions expose

@@ -9,7 +9,7 @@ import { currentSignal, currentScope } from "../scope.ts"
 import PROJECT from "./project.txt"
 import { loadRawConfig } from "../config/loader.ts"
 import { PythonSettings } from "../config/config.ts"
-import { prepareRosPython } from "./ros-environment.ts"
+import { prepareRosPython, rosReceipt } from "./ros-environment.ts"
 
 // Core owns a project separate from the host coding agent's Python environment.
 export async function pythonEnvironment(cwd: string) {
@@ -22,7 +22,7 @@ export async function pythonEnvironment(cwd: string) {
   const overlays = config.provider === "ros-jazzy" ? [path.join(venv, "setup.bash"), path.join(project, "ros/install/local_setup.bash")] : []
   const receipt = config.provider === "ros-jazzy"
     ? await readFile(path.join(project, "ros-ready.json"), "utf8").catch(() => "") : undefined
-  const present = await exists(executable) && (receipt === undefined || receipt === JSON.stringify({ interfaces }))
+  const present = await exists(executable) && (receipt === undefined || receipt === await rosReceipt(interfaces))
   const { PYTHONHOME: _home, VIRTUAL_ENV: _venv, UV_PROJECT: _project, UV_PROJECT_ENVIRONMENT: _environment, ...inherited } = process.env
   if (config.provider === "ros-jazzy") {
     for (const key of ["PYTHONPATH", "LD_LIBRARY_PATH", "AMENT_PREFIX_PATH", "CMAKE_PREFIX_PATH", "COLCON_PREFIX_PATH", "CONDA_PREFIX", "ROS_DISTRO", "ROS_VERSION", "ROS_PYTHON_VERSION"]) delete inherited[key]

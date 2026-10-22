@@ -40,7 +40,7 @@ async function missingDeviceTypes(cwd: string, manifest: PyToolInfo["manifest"])
   if (!robot) return [...manifest.devices]
   const devices = await ProfileStore.listDevices(cwd)
   const loaded = devices.filter((device) => device.loaded).map((device) => device.type)
-  // Richer device types satisfy their base contract (RGBD and segmentation).
+  // Richer device types satisfy their base contract (RGBD for RGB).
   return manifest.devices.filter(
     (type) => !loaded.some((have) => matchesDeviceType(have, type)),
   )

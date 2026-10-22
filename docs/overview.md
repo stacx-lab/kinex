@@ -58,8 +58,9 @@ Pixi/RoboStack Jazzy when workspace configuration selects `ros-jazzy`. Exec,
 helpers, ROS clients, tf2 and recording use Kinex Python, independent of device
 load state. Only device processes may select separate SDK interpreters.
 Concurrent first use waits for preparation; incomplete bootstraps retry. Existing
-prepared environments run without synchronization; `python.prepare()` explicitly
-synchronizes dependencies and builds interfaces. Host shells retain their environment.
+prepared environments run without synchronization until their interface sources
+change; `python.prepare()` explicitly synchronizes dependencies and rebuilds
+interfaces from clean. Host shells retain their environment.
 
 User commands and permission-checked model tools control lifecycle; Python tools
 cannot. `loaded` is intent, not readiness; ordinary calls never restart failed
