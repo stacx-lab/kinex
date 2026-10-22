@@ -168,9 +168,13 @@ A motion input topic declares `motion: {acquire, stop, status}` endpoints using
 the core `Acquire`, `Stop` and `CommandStatus` interfaces. The command type must
 carry `owner`, `generation` and `command_id` fields. Kinex supplies these fields.
 The accepting endpoint validates and atomically replaces ownership; owned nodes
-serve all three endpoints with `kinex.ownership.motion_service(node, operation,
-apply, hold)`. A stop invalidates every issued generation, so commanding again
-requires a new invocation.
+serve all three endpoints with `kinex.ownership.motion_service(node, operations,
+commands, hold)`, where `commands` maps each managed operation to the function that
+admits its messages. Several command topics of one device share one ownership and
+its endpoints. A stop invalidates every issued generation, so commanding again
+requires a new invocation. `kinex_interfaces/msg/JsonCommand` is the managed
+counterpart of `Json`: `publish` encodes its fields as one JSON object, whose
+contract is the operation description.
 
 `publish` returns a command ID for managed motion. `await io.accepted(operation,
 command_id)` observes its correlated acceptance. Acceptance does not establish

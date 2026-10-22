@@ -31,7 +31,7 @@ class Gripper(Node):
         self.state = self.create_publisher(JointState, state["endpoint"], qos(state))
         self.create_subscription(JointState, STATE, self.receive, qos_profile_sensor_data)
         self.command = self.create_publisher(Float64, COMMAND, 10)
-        motion_service(self, operations["target"], self.apply, self.hold)
+        motion_service(self, operations, {"target": self.apply}, self.hold)
         if "grasped" in operations:
             grasped = self.create_publisher(Bool, operations["grasped"]["endpoint"], qos(operations["grasped"]))
             self.create_subscription(Bool, GRASPED, grasped.publish, qos_profile_sensor_data)

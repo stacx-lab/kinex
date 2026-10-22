@@ -1,4 +1,5 @@
 """Device-side managed motion: owner generations, admission status and owner-scoped stop."""
+import json
 from collections import OrderedDict
 
 from kinex.communication import qos
@@ -47,15 +48,21 @@ class Ownership:
         self.active = None
 
 
-def motion_service(node, operation, apply, hold):
-    """Serve a managed input topic: apply(message) admits a command or raises to reject it,
-    and hold() keeps the actuator at its measured posture after an accepted stop."""
+def motion_service(node, operations, commands, hold):
+    """Serve managed input topics under one ownership: commands maps each operation name
+    to apply(message), which admits its command or raises to reject it, and hold() keeps
+    the actuator at its measured posture after an accepted stop. The operations share
+    their acquire, stop and status endpoints."""
     from kinex_interfaces.msg import CommandStatus
     from kinex_interfaces.srv import Acquire, Stop
     from rclpy.qos import DurabilityPolicy, QoSProfile
     from rosidl_runtime_py.utilities import get_message
 
-    ownership, motion = Ownership(), operation["motion"]
+    ownership = Ownership()
+    endpoints = {json.dumps(operations[name]["motion"], sort_keys=True) for name in commands}
+    if len(endpoints) != 1:
+        raise ValueError("managed operations served together must share their motion endpoints")
+    motion = operations[next(iter(commands))]["motion"]
     status = node.create_publisher(CommandStatus, motion["status"],
                                    QoSProfile(depth=64, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
@@ -66,7 +73,7 @@ def motion_service(node, operation, apply, hold):
             response.message = str(error)
         return response
 
-    def submit(message):
+    def submit(message, apply):
         result = CommandStatus(owner=message.owner, generation=message.generation, command_id=message.command_id)
         # Rejections are statuses; they must not stop the node's executor.
         try:
@@ -88,7 +95,10 @@ def motion_service(node, operation, apply, hold):
         response.message = "hold applied" if response.stopped else "owner already replaced"
         return response
 
-    node.create_subscription(get_message(operation["type"]), operation["endpoint"], submit, qos(operation))
+    for name, apply in commands.items():
+        operation = operations[name]
+        node.create_subscription(get_message(operation["type"]), operation["endpoint"],
+                                 lambda message, apply=apply: submit(message, apply), qos(operation))
     node.create_service(Acquire, motion["acquire"], acquire)
     node.create_service(Stop, motion["stop"], stop)
     return ownership

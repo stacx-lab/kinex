@@ -35,7 +35,7 @@ class Suction(Node):
             publisher = self.create_publisher(FluidPressure, pressure["endpoint"], qos(pressure))
             self.create_subscription(FluidPressure, PRESSURE, publisher.publish, qos_profile_sensor_data)
         # The vacuum state persists, so a stop has nothing to hold: it never releases an object.
-        motion_service(self, operations["target"], self.apply, hold=lambda: None)
+        motion_service(self, operations, {"target": self.apply}, hold=lambda: None)
 
     def receive(self, message):
         self.detected = message.data

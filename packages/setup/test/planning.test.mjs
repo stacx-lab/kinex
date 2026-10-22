@@ -198,21 +198,21 @@ test('dual-arm prerequisites bind both particular TCPs, with producer dependenci
   await assert.rejects(save([dual, node('rt-translation', { outputs: [fact('rt', '/frames/base/translation_m')] })], ['dual']), /missing dependency/)
 })
 
-test('a usable base mode is not blocked by unknown bounds in an unused mode', async t => {
+test('a usable base mode is not blocked by unknown facts it does not use', async t => {
   const { runtime, save, setup } = await fixture(t)
-  const drive = { velocity: { frame: 'body', components: [{ axis: 'vx', units: 'm/s', bounds: null }] }, posture: null }
-  const unused = { velocity: { frame: 'body', components: [{ axis: 'wz', units: 'rad/s', bounds: '???' }] }, posture: null }
+  const velocity = { description: '', transport: 'topic', direction: 'input', endpoint: '/kinex/base/velocity', type: 'kinex_interfaces/msg/TwistCommand' }
   await runtime.profiles.writeDevice({ description: '',
     name: 'base',
-    type: 'velocity',
-    control: { mode: 'motion', body_frame: 'base', modes: { drive, unused } },
-    feedback: { velocity_frame: 'base', velocity_components: ['vx'] },
+    type: 'locomotion',
+    operations: { velocity },
+    velocity: { units: 'si', axes: { vx: null } },
+    modes: { drive: { description: 'Drives on velocity commands.', accepts: ['velocity'], transitions: [] } },
     stop: { behavior: 'halt', affected_devices: ['base'] },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await save([node('drive-check', { kind: 'verify', skill: 'verify-base-motion', bindings: { base: 'base' },
-    inputs: [fact('base', '/control/modes/drive')] })], ['drive-check'])
+    inputs: [fact('base', '/modes/drive')] })], ['drive-check'])
   assert.deepEqual((await setup.plan.inspect()).next, ['drive-check'])
-  assert.equal((await runtime.devices.list())[0].control.modes.unused.velocity.components[0].bounds, '???')
+  assert.equal((await runtime.devices.list())[0].posture, '???')
 })
 
 test('workspace skill override supplies the selected procedure and malformed deferred skills do not gate tasks', async t => {
@@ -268,8 +268,7 @@ test('reference compositions preserve moving attachments without forcing world c
     if (composition.parent !== 'world') {
       await runtime.profiles.writeDevice({ description: '',
         name: 'base',
-        type: 'velocity',
-        feedback: { velocity_frame: 'base', velocity_components: ['vx', 'vy', 'wz'] },
+        type: 'locomotion',
         frames: { base: {parent: null, translation_m: null, rotation_xyzw: null}, torso: { parent: "base:base", translation_m: null, rotation_xyzw: null } } })
       if (composition.parent !== 'base') await runtime.profiles.writeDevice({ description: '',
         name: composition.parent,

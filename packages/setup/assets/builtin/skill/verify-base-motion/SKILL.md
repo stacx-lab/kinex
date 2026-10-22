@@ -5,11 +5,12 @@ description: Measure selected base motion, expiry or stopping behavior when the 
 
 # Verify base motion
 
-Declare only the selected mode and measured channels as plan inputs; unused modes
-and feedback channels are not prerequisites.
+Declare only the selected mode and measured axes as plan inputs; unused modes and
+axes are not prerequisites.
 
-Bind `base` to the selected velocity endpoint. Use its declared mode, supported
-axes, command units, measured feedback and stop scope. Choose the missing fact
+Bind `base` to the selected locomotion device and reach a mode that accepts
+velocity through its declared transitions. Use its declared velocity axes, command
+units, odometry and stop scope. Choose the missing fact
 and its acceptance criteria before trials; do not run a full axis sweep by default.
 
 Use documented or explicitly supplied trial amplitudes, durations and tolerances.

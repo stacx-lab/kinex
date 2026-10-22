@@ -7,8 +7,7 @@ import { Operation, RosRuntime } from "./operations.ts"
 import { ForceTorqueConnection, forceTorqueShape } from "./force-torque.ts"
 import { worldShape, type WorkspaceBounds } from "./world.ts"
 export { WorkspaceBounds, Surface } from "./world.ts"
-import { VelocityControl, VelocityFeedback, VelocityStop } from "./velocity.ts"
-import { LeggedControl, LeggedStop } from "./legged.ts"
+import { locomotionShape, refineLocomotion } from "./locomotion.ts"
 import { gripperShape } from "./gripper.ts"
 import { suctionShape } from "./suction.ts"
 import { commandedJoints, deviceTree } from "./urdf.ts"
@@ -28,8 +27,7 @@ const Aabb = z.object({
 })
 
 export const DeviceType = z.enum([
-  "legged_base",
-  "velocity",
+  "locomotion",
   "suction",
   "joint",
   "gripper",
@@ -43,10 +41,10 @@ export const DeviceType = z.enum([
 ])
 export type DeviceType = z.infer<typeof DeviceType>
 
-// One device-local command dimension. Joint targets use model order; mobile
-// Bases use mode-qualified velocity/posture fields for capability display, not one command vector.
+// One device-local command dimension. Joint targets use model order; locomotion
+// velocity and posture axes are listed for capability display, not one command vector.
 export const DeviceAction = z.object({
-  component: z.string().optional().describe('non-joint dim: "grip", "locomotion.velocity.vx", "locomotion.posture.height", ...'),
+  component: z.string().optional().describe('non-joint dim: "vacuum", "velocity.vx", "posture.height", ...'),
   joint: z.string().optional().describe("the physical joint this dim commands"),
   meaning: z.string().optional(),
   units: z.string().optional().describe('e.g. "m", "rad", "m/s", "normalized"'),
@@ -78,8 +76,7 @@ const spatial = { ...deviceBase, ...localFrames }
 const camera = { ...spatial, access: z.strictObject({ ...provenance, connection: may(CameraConnection).default(MISSING) }).optional(), color: may(CameraColor).default(MISSING) }
 
 export const Device = z.discriminatedUnion("type", [
-  z.strictObject({ ...spatial, type: z.literal("legged_base"), control: may(LeggedControl).default(MISSING), stop: may(LeggedStop).default(MISSING) }),
-  z.strictObject({ ...spatial, type: z.literal("velocity"), access: JointDeviceAccess.optional(), control: may(VelocityControl).default(MISSING), feedback: may(VelocityFeedback).default(MISSING), stop: may(VelocityStop).default(MISSING) }),
+  z.strictObject({ ...spatial, ...locomotionShape, type: z.literal("locomotion") }).superRefine(refineLocomotion),
   z.strictObject({ ...spatial, ...jointShape, type: z.literal("joint"), access: JointDeviceAccess.optional() }),
   z.strictObject({ ...spatial, ...gripperShape, type: z.literal("gripper"), access: JointDeviceAccess.optional() }),
   z.strictObject({ ...spatial, ...suctionShape, type: z.literal("suction"), access: JointDeviceAccess.optional() }),
@@ -175,21 +172,23 @@ export function matchesDeviceType(actual: DeviceType, required: DeviceType): boo
 
 // Control contracts determine actuation.
 export function isActuated(device: Device): boolean {
-  return ["joint", "velocity", "legged_base", "gripper", "suction"].includes(device.type)
+  return ["joint", "locomotion", "gripper", "suction"].includes(device.type)
 }
-export function isVelocity(device: Device): device is Extract<Device, { type: "velocity" }> { return device.type === "velocity" }
 export function isJoint(device: Device): device is Extract<Device, { type: "joint" }> { return device.type === "joint" }
 export function deviceJoints(device: Device) { return isJoint(device) ? commandedJoints(deviceTree(device)) : [] }
 
 // The device's own ordered action space, for the actuated types.
 export function deviceActions(device: Device): DeviceAction[] {
-  if (isVelocity(device)) {
-    const { control } = device
-    if (!known(control)) return []
-    return Object.entries(control.modes).flatMap(([mode, capabilities]) => [
-      ...(capabilities.velocity?.components ?? []).map((c) => ({ component: `${mode}.velocity.${c.axis}`, units: c.units, ...(known(c.bounds) && c.bounds !== null ? { bounds: c.bounds } : {}) })),
-      ...(capabilities.posture?.components ?? []).map((c) => ({ component: `${mode}.posture.${c.axis}`, units: c.units, ...(c.bounds !== null ? { bounds: c.bounds } : {}) })),
-    ])
+  if (device.type === "locomotion") {
+    const velocity = known(device.velocity) ? device.velocity : null
+    const posture = known(device.posture) ? device.posture : null
+    const action = (component: string, units: string, bounds?: { min: number, max: number } | null) =>
+      ({ component, units, ...(bounds ? { bounds } : {}) })
+    const speed = (axis: string) => velocity?.units === "normalized" ? "normalized" : axis.startsWith("v") ? "m/s" : "rad/s"
+    return [
+      ...Object.entries(velocity?.axes ?? {}).map(([axis, bounds]) => action(`velocity.${axis}`, speed(axis), bounds)),
+      ...Object.entries(posture ?? {}).map(([axis, bounds]) => action(`posture.${axis}`, axis === "height" ? "m" : "rad", bounds)),
+    ]
   }
   if (isJoint(device)) return deviceJoints(device).map((j) => ({
     joint: j.name, units: j.type === "prismatic" ? "m" : "rad",

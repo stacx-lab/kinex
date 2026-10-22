@@ -7,9 +7,9 @@ contract and Python API.
 
 ## Types
 
-Builtin types remain: world, joint, gripper, suction, velocity, legged_base, rgb,
-rgbd, imu, force_torque, model and other. Arms, lifts and dexterous hands are joint
-devices. Their schemas validate physical facts, model structure, calibration and
+Builtin types remain: world, joint, gripper, suction, locomotion, rgb, rgbd, imu,
+force_torque, model and other. Arms, lifts and dexterous hands are joint devices;
+wheeled bases, quadrupeds and humanoid walking controllers are locomotion devices. Their schemas validate physical facts, model structure, calibration and
 frames. Each type guide recommends operation names and semantics for onboarding;
 Kinex does not enforce them. `other` is the fallback when no type fits: it
 prescribes no facts or operations, and its frames are optional for devices
@@ -143,8 +143,13 @@ releases a held object. Policy values in [-1, 1] release at -1 and grip at +1 fo
 both.
 No typed fact implies a mandatory operation or supplies a default payload.
 
-## Mobile and legged bases
+## Locomotion
 
-Profiles retain verified modes, SDK skills, response, limits and stop scopes.
-Devices remain unlocalized roots unless supported by measured localization.
-Describe units, coordinate frames, expiry and command semantics on each operation.
+A locomotion device declares its commandable body `velocity` axes, optional
+`posture` offsets from the nominal stance, `strict` or `native` limits and its
+`modes`: a state machine in which each mode lists the operations it accepts and
+the modes it can be commanded to. Velocity commands hold for a duration of world
+time, posture and mode commands persist, and all share one ownership; a stop
+zeroes velocity without leaving the mode. Mode-specific inputs are ordinary
+operations, managed `JsonCommand` topics when they move the body. Devices remain
+unlocalized roots: odometry drifts and is never a global pose.

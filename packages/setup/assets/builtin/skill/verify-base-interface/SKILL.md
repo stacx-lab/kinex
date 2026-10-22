@@ -5,17 +5,18 @@ description: Establish missing base control and feedback conventions for a task,
 
 # Verify base interface
 
-Bind `base` to a velocity endpoint. Read the core velocity guide and actual SDK
+Bind `base` to a locomotion device. Read the core locomotion guide and actual SDK
 or simulator metadata. Reuse existing verified conventions. Select only facts
-needed by the task: body/heading command frame, mode, axis signs, units, feedback
-velocity frames, body measurements, stop scope, or moving attachment frames. Use the world
-device for time and waiting; do not add a clock-type label to feedback.
+needed by the task: modes and transitions, accepted operations, command frame,
+axis signs, units, odometry frames, body measurements, stop scope, or moving
+attachment frames. Use the world device for time and waiting; do not add a
+clock-type label to feedback.
 
 Archive the source of each fact. Preserve normalized command units where the
 interface declares them; a normalized value does not imply metres per second.
-Velocity bases are unlocalized roots and expose no global pose. Use explicit
-frame estimates when needed; do not create a fixed world mount. Verify the
-reference for body height and parent-relative local frame measurements. A wheeled base need not expose
+Locomotion bodies are unlocalized roots; odometry drifts and is never a global
+pose. Use explicit frame estimates when needed; do not create a fixed world mount.
+Verify parent-relative local frame measurements. A wheeled base need not expose
 posture; quadruped and humanoid modes can expose it without raw leg-joint control.
 
 For live verification prepare the driver, load explicitly, then inspect fresh

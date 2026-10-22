@@ -9,8 +9,8 @@ measured. Registration and driver writing belong to core setup-device.
 ## Compose the embodiment
 
 Describe actual non-overlapping endpoints by interface: URDF joint arms, lifts and
-dexterous hands, velocity bases with supported travel/posture modes, URDF grippers, cameras
-and other sensors. An arm need not have a gripper. Quadrupeds need not expose raw
+dexterous hands, locomotion bodies (wheeled, legged or humanoid) with declared
+modes, URDF grippers, cameras and other sensors. An arm need not have a gripper. Quadrupeds need not expose raw
 leg joints; never invent a locomotion policy or a whole-body control interface.
 Morphology is identity.kind, not an execution contract.
 
