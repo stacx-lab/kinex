@@ -26,7 +26,7 @@ parameters:
             type: string
             enum: [device, pose, pose_delta]
             default: device
-            description: "device: absolute joint values in URDF document order; gripper values in [-1, 1] interpolate its grip from open to closed; suction values are its on/off targets. pose: xyz + quaternion xyzw (7). pose_delta: translation metres + axis-angle rotation radians (6), accumulated from the starting pose. Cartesian modes solve URDF IK and require a joint device with model.tip_link."
+            description: "device: absolute joint values in URDF document order; gripper and suction values in [-1, 1] release at -1 and grip at +1: grippers interpolate from open to closed, proportional suction takes the vacuum level (v + 1) / 2, binary suction switches on above 0. pose: xyz + quaternion xyzw (7). pose_delta: translation metres + axis-angle rotation radians (6), accumulated from the starting pose. Cartesian modes solve URDF IK and require a joint device with model.tip_link."
           frame:
             type: string
             description: "Cartesian reference frame, frozen at planning start; defaults to the device canonical frame. Rotation deltas left-compose in these axes."

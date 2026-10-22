@@ -158,6 +158,11 @@ class MotionTests(unittest.TestCase):
         for value in (-1.001, 1.001, True, math.nan, math.inf):
             with self.assertRaises(ValueError):
                 scalar(gripper, {"actions": [0, value], "duration_s": .1})
+        policy = {"actions": [-1, 0, .1, 1], "duration_s": .1}
+        self.assertEqual(scalar({"type": "suction", "vacuum": "binary"}, policy)["actions"], [0, 0, 1, 1])
+        self.assertEqual(scalar({"type": "suction", "vacuum": "proportional"}, policy)["actions"], [0, .5, .55, 1])
+        with self.assertRaisesRegex(ValueError, "no vacuum control"):
+            scalar({"type": "suction", "vacuum": "???"}, policy)
         for bounds in ({"min": -1, "max": 1}, None):
             base = {"type": "velocity", "control": {"mode": "motion", "limit_handling": "native",
                 "modes": {"drive": {"velocity": {"components": [
