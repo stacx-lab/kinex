@@ -60,13 +60,15 @@ interface Node {
 }
 
 // Loaded devices of these types gate task readiness; world geometry is optional.
-const GATING_TYPES: readonly DeviceType[] = ["velocity", "legged_base", "joint", "gripper", "suction", "rgb", "rgbd"]
+const GATING_TYPES: readonly DeviceType[] = ["locomotion", "joint", "gripper", "suction", "rgb", "rgbd"]
 
 function factsCheck(device: Device): Check {
   switch (device.type) {
-    case "legged_base": {
-      if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "legged control or stop is incomplete" }
-      return { done: true, detail: "SDK-defined legged control" }
+    case "locomotion": {
+      const { modes } = device
+      if (!known(modes) || [device.velocity, device.posture, device.stop].some(hasMissing)) return { done: false, detail: "velocity, posture, modes or stop is incomplete" }
+      const listed = Object.entries(modes).map(([mode, { accepts }]) => accepts.length ? `${mode} (${accepts.join(", ")})` : mode)
+      return { done: true, detail: `modes ${listed.join(", ")}; ${deviceActions(device).length} command axes` }
     }
     case "rgb":
     case "rgbd": {
@@ -95,10 +97,6 @@ function factsCheck(device: Device): Check {
       if ([device.vacuum, device.stop].some(hasMissing)) return { done: false, detail: "vacuum or stop is incomplete" }
       if (!device.frames.tcp) return { done: false, detail: "declare frames.tcp, the cup contact centre with +z approach" }
       return { done: true, detail: `${device.vacuum} suction` }
-    }
-    case "velocity": {
-      if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "velocity control, feedback or stop is incomplete" }
-      return { done: true, detail: `velocity controller, ${deviceActions(device).length} command dimensions` }
     }
     case "imu": {
       const measurement = device.measurement

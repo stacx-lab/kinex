@@ -9,6 +9,10 @@ find_package(trajectory_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ScalarCommand.msg"
   "msg/TrajectoryCommand.msg"
+  "msg/TwistCommand.msg"
+  "msg/PoseCommand.msg"
+  "msg/ModeCommand.msg"
+  "msg/JsonCommand.msg"
   "msg/CommandStatus.msg"
   "srv/Acquire.srv"
   "srv/Stop.srv"

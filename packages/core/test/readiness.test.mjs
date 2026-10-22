@@ -66,3 +66,27 @@ test('suction readiness requires vacuum control, stop scope and a contact TCP', 
   assert.equal(await detail(), 'proportional suction')
   await assert.rejects(runtime.profiles.writeDevice({ description: '', name: 'cup', vacuum: 'on_off' }))
 })
+
+test('locomotion modes form a state machine over declared operations and limits', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-locomotion-'))
+  const runtime = createKinexRuntime({ directory })
+  t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
+  await runtime.profiles.writeManifest({ identity: { id: 'dog', name: 'Dog', kind: 'quadruped' } })
+  const command = type => ({ description: '', transport: 'topic', direction: 'input', endpoint: `/kinex/dog/${type}`, type: `kinex_interfaces/msg/${type}` })
+  const dog = { description: '', name: 'dog', type: 'locomotion', loaded: false, runtime: { nodes: [] },
+    operations: { velocity: command('TwistCommand'), posture: command('PoseCommand') },
+    velocity: { units: 'si', axes: { vx: { min: -1, max: 1 }, wz: null } },
+    posture: { height: { min: -.1, max: .05 } },
+    modes: { standing: { description: 'Standing balanced.', accepts: ['velocity', 'posture'], transitions: ['crouched'] },
+      crouched: { description: 'Lying down.', accepts: [], transitions: ['standing'] } },
+    stop: { behavior: 'hold', affected_devices: ['dog'] }, frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } }
+  for (const [patch, error] of [
+    [{ modes: { ...dog.modes, crouched: { ...dog.modes.crouched, transitions: ['walking'] } } }, /walking must be another declared mode/],
+    [{ modes: { ...dog.modes, crouched: { ...dog.modes.crouched, accepts: ['gait'] } } }, /gait must be a declared operation/],
+    [{ posture: null }, /posture requires declared posture limits/],
+    [{ velocity: { units: 'si', axes: { vx: { min: .1, max: 1 } } } }, /include zero/],
+  ]) await assert.rejects(runtime.profiles.writeDevice({ ...dog, ...patch }), error)
+  await runtime.profiles.writeDevice(dog)
+  assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:dog').detail,
+    'modes standing (velocity, posture), crouched; 3 command axes')
+})

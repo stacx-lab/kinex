@@ -9,7 +9,7 @@
     "parent": {
       "types": [
         "world",
-        "velocity",
+        "locomotion",
         "joint",
         "other"
       ]

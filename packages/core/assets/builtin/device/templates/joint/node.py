@@ -35,7 +35,7 @@ class Joints(Node):
         self.state = self.create_publisher(JointState, state["endpoint"], qos(state))
         self.create_subscription(JointState, STATE, self.receive, qos_profile_sensor_data)
         self.trajectory = self.create_publisher(JointTrajectory, TRAJECTORY, 10)
-        motion_service(self, operations["joint_target"], self.apply, self.hold)
+        motion_service(self, operations, {"joint_target": self.apply}, self.hold)
 
     def receive(self, message):
         values = dict(zip(message.name, message.position))

@@ -1,7 +1,7 @@
 ---
 name: setup-device
 description: Add a device or repair its ROS nodes — choose an instance or type guide, provision its runtime, fill a profile and verify the interface.
-resolves: access:world,access:velocity,access:legged_base,access:joint,access:gripper,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,profile:model,access:other
+resolves: access:world,access:locomotion,access:joint,access:gripper,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,profile:model,access:other
 ---
 
 # Set up a device

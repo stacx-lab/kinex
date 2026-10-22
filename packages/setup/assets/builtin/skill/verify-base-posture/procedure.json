@@ -3,18 +3,18 @@
   "roles": {
     "base": {
       "types": [
-        "velocity"
+        "locomotion"
       ]
     }
   },
   "requires": [
     {
       "role": "base",
-      "pointer": "/control/mode"
+      "pointer": "/modes"
     },
     {
       "role": "base",
-      "pointer": "/control/body_frame"
+      "pointer": "/posture"
     },
     {
       "role": "base",

@@ -68,10 +68,10 @@ sessions; those sessions do not inherit Kinex robotics tools or permission hooks
 | `calib_compute` | Run bundled offline solvers or model introspection and propose exact profile changes. |
 
 `calib_sample.settle` supports joint devices whose joint states measure velocities,
-and velocity devices with declared measured velocities. Only distinct device timestamps count toward
-stability. A timeout after a reading saves `settled: false`, including requested
-FK; caller cancellation saves no sample. The sampler does not advance simulator
-time, so arrange world waits outside it. For cameras, pass `args: {output: "file"}`
+and locomotion devices whose odometry measures their declared velocity axes. Only
+distinct device timestamps count toward stability. A timeout after a reading saves
+`settled: false`, including requested FK; caller cancellation saves no sample. The
+sampler does not advance simulator time, so arrange world waits outside it. For cameras, pass `args: {output: "file"}`
 to `calib_sample` to obtain archived image paths; the default internal camera read
 returns encoded image data. File-mode RGBD evidence copies both color and depth
 into attempt artifacts before appending the sample.

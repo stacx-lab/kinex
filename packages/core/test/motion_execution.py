@@ -75,27 +75,36 @@ class QuaternionTests(unittest.TestCase):
         solved = arm.ik(target, [0], position_tolerance_m=1e-3, rotation_tolerance_rad=1e-3)
         self.assertAlmostEqual(solved[0], .5, delta=2e-3)
 
-    def test_velocity_body_and_frame_readings_without_global_pose(self):
-        from kinex.velocity import reading
+    def test_locomotion_commands_follow_modes_and_limits(self):
+        from types import SimpleNamespace as NS
+        from kinex.locomotion import accepted, posture, transition, velocity
 
-        profile = {"type": "velocity", "frames": {"torso": {"parent_frame": None, "translation_m": None, "rotation_xyzw": None}}, "feedback": {
-            "velocity_components": [], "velocity_frame": None}}
-        sample = {"velocities": [], "faults": [], "timestamp": 0, "height_m": .74,
-                  "frame_poses": {"torso": [0, 0, .2, 0, 0, 0, 1]}}
-        self.assertEqual(reading(profile, sample), sample)
-        for value in (None, {"translation_m": [0, 0, 0], "rotation_xyzw": [0, 0, 0, 1]}):
-            with self.assertRaisesRegex(ValueError, "global pose"):
-                reading(profile, {**sample, "pose": value})
-        for value in (True, math.nan, math.inf):
+        profile = {"limits": "strict", "velocity": {"units": "si", "axes": {"vx": {"min": -1, "max": 1}, "wz": None}},
+                   "posture": {"height": {"min": -.1, "max": .05}, "pitch": {"min": -.3, "max": .3}},
+                   "modes": {"standing": {"accepts": ["velocity", "posture"], "transitions": ["crouched"]},
+                             "crouched": {"accepts": [], "transitions": ["standing"]}}}
+        twist = lambda vx=0., vy=0., wz=0.: NS(linear=NS(x=vx, y=vy, z=0.), angular=NS(x=0., y=0., z=wz))
+        accepted(profile, "standing", "velocity")
+        for mode, operation in (("crouched", "velocity"), ("fallen", "velocity"), (None, "posture")):
             with self.assertRaises(ValueError):
-                reading(profile, {**sample, "height_m": value})
-        empty = {**sample, "frame_poses": {}}
-        self.assertNotIn("frame_poses", reading(profile, empty))
-        del empty["frame_poses"]
-        self.assertEqual(reading(profile, empty), empty)
-        for frames in ({"missing": [0, 0, 0, 0, 0, 0, 1]}, {"torso": [0, 0, 0, 0, 0, 0, .9995]}, None):
+                accepted(profile, mode, operation)
+        transition(profile, "crouched", "standing")
+        for mode, target in (("standing", "standing"), ("crouched", "walking"), (None, "standing")):
             with self.assertRaises(ValueError):
-                reading(profile, {**sample, "frame_poses": frames})
+                transition(profile, mode, target)
+        self.assertEqual(velocity(profile, twist(.5, wz=5.))["wz"], 5.)
+        for command in (twist(1.5), twist(vy=.1), twist(math.nan)):
+            with self.assertRaises(ValueError):
+                velocity(profile, command)
+        self.assertEqual(velocity({**profile, "limits": "native"}, twist(1.5))["vx"], 1.5)
+        tilt = NS(x=0., y=math.sin(.1), z=0., w=math.cos(.1))
+        values = posture(profile, NS(position=NS(x=0., y=0., z=-.05), orientation=tilt))
+        self.assertAlmostEqual(values["pitch"], .2)
+        self.assertEqual(values["height"], -.05)
+        roll = NS(x=math.sin(.1), y=0., z=0., w=math.cos(.1))
+        for pose in (NS(position=NS(x=.1, y=0., z=0.), orientation=tilt), NS(position=NS(x=0., y=0., z=0.), orientation=roll)):
+            with self.assertRaises(ValueError):
+                posture(profile, pose)
 
 
 class MotionTests(unittest.TestCase):
@@ -141,7 +150,6 @@ class MotionTests(unittest.TestCase):
     def test_native_commands_pass_raw_targets_and_still_validate_structure(self):
         from kinex.joints import command
         from kinex.scalar_control import command as scalar
-        from kinex.velocity import command as velocity
 
         profile, joints = copy.deepcopy(PROFILE), copy.deepcopy(JOINTS)
         args = {"actions": [[100]], "duration_s": .1}
@@ -163,15 +171,6 @@ class MotionTests(unittest.TestCase):
         self.assertEqual(scalar({"type": "suction", "vacuum": "proportional"}, policy)["actions"], [0, .5, .55, 1])
         with self.assertRaisesRegex(ValueError, "no vacuum control"):
             scalar({"type": "suction", "vacuum": "???"}, policy)
-        for bounds in ({"min": -1, "max": 1}, None):
-            base = {"type": "velocity", "control": {"mode": "motion", "limit_handling": "native",
-                "modes": {"drive": {"velocity": {"components": [
-                    {"axis": "vx", "units": "m/s", "bounds": bounds}]}, "posture": None}}}}
-            args = {"mode": "drive", "velocity": {"vx": 100}, "duration_s": .1}
-            self.assertEqual(velocity(base, args), args)
-            for value in (True, math.nan, math.inf):
-                with self.assertRaises(ValueError):
-                    velocity(base, {**args, "velocity": {"vx": value}})
 
     def test_full_plan_duration_endpoint_and_speed_scaling(self):
         joints = [{"type": "revolute", "limits": {"min": -3, "max": 3}}] * 2

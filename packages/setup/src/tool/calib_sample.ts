@@ -25,17 +25,35 @@ function measured(data: Reading, key: "positions" | "velocities") {
   return Object.fromEntries(names.map((name, index) => [name, values[index]!]))
 }
 
-// Settling velocities: commanded joints of a joint device, or a velocity device's channels.
-function velocityReader(device: Device): (data: Reading) => number[] {
-  if (device.type === "velocity" && known(device.feedback) && known(device.feedback.velocity_components)) {
-    const count = device.feedback.velocity_components.length
-    return data => z.array(z.number()).length(count).parse(data?.velocities)
+const xyz = z.object({ x: z.number(), y: z.number(), z: z.number() })
+const Odometry = z.object({
+  header: z.object({ stamp: z.object({ sec: z.number(), nanosec: z.number() }) }),
+  twist: z.object({ twist: z.object({ linear: xyz, angular: xyz }) }),
+})
+const TWIST = { vx: ["linear", "x"], vy: ["linear", "y"], vz: ["linear", "z"], wx: ["angular", "x"], wy: ["angular", "y"], wz: ["angular", "z"] } as const
+
+// Settling motion: a joint device's commanded joints, or a locomotion device's
+// declared velocity axes measured by odometry.
+function motionReader(device: Device): (data: Reading) => { velocities: number[], stamp: number } {
+  if (device.type === "locomotion") {
+    const declared = known(device.velocity) && device.velocity ? device.velocity.axes : {}
+    const paths = Object.entries(TWIST).flatMap(([axis, path]) => Object.hasOwn(declared, axis) ? [path] : [])
+    if (!paths.length) throw new Error("settling requires declared velocity axes")
+    return data => {
+      const { header: { stamp }, twist: { twist } } = Odometry.parse(data)
+      return { stamp: stamp.sec + stamp.nanosec / 1e9, velocities: paths.map(([part, axis]) => twist[part][axis]) }
+    }
   }
   if (!isJoint(device)) throw new Error("settling requires measured velocities")
   const names = deviceJoints(device).map(joint => joint.name)
   return data => {
+    const faults = z.array(z.unknown()).parse(data?.faults)
+    if (faults.length) throw new Error(`cannot settle with faults: ${JSON.stringify(faults)}`)
     const velocities = measured(data, "velocities")
-    return names.map(name => velocities[name] ?? fail(`settling requires a measured velocity for ${name}`))
+    return {
+      stamp: z.number().parse(data?.timestamp),
+      velocities: names.map(name => velocities[name] ?? fail(`settling requires a measured velocity for ${name}`)),
+    }
   }
 }
 
@@ -65,7 +83,7 @@ export const CalibSampleTool = define("calib_sample", {
     if (!device.loaded) return unloadedDevice(device)
     if (args.frame !== undefined && !(isJoint(device) && deviceTree(device)?.links.includes(args.frame)))
       fail(modelErrors.get(device) ?? `frame must name a URDF link of joint device ${device.name}`)
-    const settle = args.settle && { ...args.settle, velocities: velocityReader(device) }
+    const settle = args.settle && { ...args.settle, motion: motionReader(device) }
     if (device.runtime)
       await ctx.ask({ permission: "device_read", description: `sample read from ${device.name} (${args.run ?? args.procedure ?? args.node})` })
 
@@ -77,13 +95,10 @@ export const CalibSampleTool = define("calib_sample", {
     const state = { reading: await read(), settled: false, stable: 0, stamp: -Infinity }
     if (settle) for (;;) {
       ctx.abort.throwIfAborted()
-      const data = state.reading.data
-      const faults = z.array(z.unknown()).parse(data?.faults)
-      if (faults.length) throw new Error(`cannot settle with faults: ${JSON.stringify(faults)}`)
-      const stamp = z.number().parse(data?.timestamp)
+      const { velocities, stamp } = settle.motion(state.reading.data)
       if (stamp < state.stamp) throw new Error("sample clock moved backwards")
       if (stamp > state.stamp) {
-        state.stable = settle.velocities(data).every((v) => Math.abs(v) <= settle.velocity_threshold) ? state.stable + 1 : 0
+        state.stable = velocities.every((v) => Math.abs(v) <= settle.velocity_threshold) ? state.stable + 1 : 0
         state.stamp = stamp
       }
       if (state.stable >= settle.stable_reads) { state.settled = true; break }

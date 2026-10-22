@@ -15,6 +15,7 @@ from kinex.errors import RPCError, OperationError
 _active = contextvars.ContextVar("kinex_communication", default=None)
 # Free-form operations carry JSON objects; their descriptions define the fields.
 JSON = "kinex_interfaces/srv/Json"
+JSON_COMMAND = "kinex_interfaces/msg/JsonCommand"
 
 
 def json_service(node, operation, handler):
@@ -341,6 +342,8 @@ class Communication:
     async def publish(self, operation, message):
         from rosidl_runtime_py.utilities import get_message
         spec = self.operation(operation, "topic", "input")
+        if spec["type"] == JSON_COMMAND:
+            message = {"data": json.dumps(message, allow_nan=False)}
         value = message_value(get_message(spec["type"]), message)
         motion = spec.get("motion")
         if motion:

@@ -12,8 +12,8 @@ distinct samples. Unsupported/malformed feedback and faults are errors. Cached
 readings do not establish stability. A timeout after a reading saves that reading
 with settled:false; cancellation saves nothing. Without settle, the sample makes no
 claim of stationary motion. Settling supports joint devices whose joint states
-measure every commanded joint's velocity, and velocity devices with declared
-measured velocity channels.
+measure every commanded joint's velocity, and locomotion devices whose odometry
+measures their declared velocity axes.
 This blocking sampler does not advance simulator time; arrange world waits
 outside the sampler when collecting simulation evidence.
 

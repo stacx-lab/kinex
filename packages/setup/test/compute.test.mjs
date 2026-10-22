@@ -27,7 +27,7 @@ test('survey computes a known rigid mount, archives sources and never writes pro
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await runtime.profiles.writeDevice({ description: '',
     name: 'base',
-    type: 'velocity',
+    type: 'locomotion',
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const profile = path.join(directory, '.kinex/devices/arm/profile.yaml')
   const before = await readFile(profile, 'utf8')
@@ -58,7 +58,7 @@ test('degenerate survey cannot propose a profile patch or complete a node', asyn
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await runtime.profiles.writeDevice({ description: '',
     name: 'base',
-    type: 'velocity',
+    type: 'locomotion',
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await setup.plan.save({ version: 1, task: { objective: 'Mount', targets: ['mount'] }, nodes: [{ id: 'mount',
     title: 'Arm mount', kind: 'calibrate', skill: 'calibrate-fixed-arm-mount', bindings: { target: 'arm', parent: 'base' } }] }, 0)
@@ -78,7 +78,7 @@ test('base checks require explicit tolerances, units, reference evidence and fre
   const { runtime, compute, json } = await fixture(t)
   await runtime.profiles.writeDevice({ description: '',
     name: 'base',
-    type: 'velocity',
+    type: 'locomotion',
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const input = { operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' } }
   const check = { name: 'vx', expected: .1, measured: .105, tolerance: .01, units: 'm/s', reference: 'tracked displacement / measured elapsed time', timestamps: [1, 2] }
@@ -99,7 +99,7 @@ test('attempts reject changed participants and inputs and keep repeated computat
   const { runtime, compute, json, directory } = await fixture(t)
   await runtime.profiles.writeDevice({ description: '',
     name: 'base',
-    type: 'velocity',
+    type: 'locomotion',
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const file = await json('measurements.json', { required_checks: ['units'], checks: [{ name: 'units', expected: 'normalized',
     measured: 'normalized', reference: 'SDK metadata' }] })
@@ -166,7 +166,7 @@ test('cancelling an owned computation never publishes a result', async t => {
   const { runtime, setup, directory, json } = await fixture(t)
   await runtime.profiles.writeDevice({ description: '',
     name: 'base',
-    type: 'velocity',
+    type: 'locomotion',
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const interpreter = path.join(directory, 'slow-python')
   const marker = path.join(directory, 'started')
