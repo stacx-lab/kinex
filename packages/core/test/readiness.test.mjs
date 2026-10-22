@@ -14,7 +14,7 @@ test('core alone validates calibration clears and reports readiness without proc
     name: 'sensor',
     type: 'other',
     loaded: false,
-    access: { connection: '???', needs_calibration: 'verify connection' },
+    access: { needs_calibration: 'verify connection' },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const file = path.join(directory, '.kinex/devices/sensor/profile.yaml')
   const before = await readFile(file, 'utf8')

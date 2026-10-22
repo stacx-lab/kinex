@@ -33,20 +33,4 @@ export function hasMissing(value: unknown): boolean {
   return Object.values(value).some(hasMissing)
 }
 
-export const Tcp = z.strictObject({ kind: z.literal("tcp"), host: field(z.string().min(1)), port: field(z.number().int().min(1).max(65535)) })
-export const Url = z.strictObject({ kind: z.literal("url"), url: field(z.url()), device: field(z.string().min(1)) })
-export const Serial = z.strictObject({ kind: z.literal("serial"), path: field(z.string().min(1)), baud_rate: field(z.number().int().positive()) })
-export const Mock = z.strictObject({ kind: z.literal("mock") })
-export const StateTopic = z.strictObject({ kind: z.literal("ros"), state_topic: field(z.string().min(1)) })
-export const CommandTopics = StateTopic.extend({ command_topic: field(z.string().min(1)) })
-export const ControlConnection = z.discriminatedUnion("kind", [Tcp, Url, Serial, CommandTopics, Mock])
-export const SensorConnection = z.discriminatedUnion("kind", [Tcp, Url, Serial, StateTopic])
-export const OtherConnection = z.discriminatedUnion("kind", [Tcp, Url, Serial, StateTopic, Mock,
-  z.strictObject({ kind: z.literal("device"), path: field(z.string().min(1)) }),
-  z.strictObject({ kind: z.literal("process") }),
-])
-
-// Actuator buffer duration in seconds on the device clock.
-export const segmentFields = { duration_s: z.number().positive() }
-
 export const lifecycle = ["load", "unload", "status"] as const

@@ -4,14 +4,6 @@ import { z } from "zod"
 const positive = z.number().positive()
 const dimension = z.number().int().positive()
 
-export const CameraConnection = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("device"), path: field(z.string().min(1)) }),
-  z.strictObject({ kind: z.literal("usb"), serial: field(z.string().min(1)) }),
-  z.strictObject({ kind: z.literal("url"), url: field(z.url()), camera: field(z.string().min(1)) }),
-  z.strictObject({ kind: z.literal("ros"), color_topic: field(z.string().min(1)), depth_topic: z.string().min(1).optional() }),
-  z.strictObject({ kind: z.literal("mock") }),
-])
-
 export const CameraDistortion = z.discriminatedUnion("model", [
   z.strictObject({ model: z.literal("none") }),
   z.strictObject({ model: z.literal("opencv_brown_conrady"), k1: z.number(), k2: z.number(), p1: z.number(), p2: z.number(), k3: z.number() }),
