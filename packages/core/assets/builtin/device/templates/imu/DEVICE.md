@@ -1,31 +1,37 @@
 ---
 name: imu
 type: imu
-description: Inertial measurements with explicit acceleration quantity, measured axes, optional orientation reference and magnetic field. Typed profile facts and ROS operations.
+description: Inertial measurements with explicit acceleration quantity, measured axes, optional orientation reference and magnetic field.
 ---
 
 ## Setup
 
-Follow setup-device for registration, Python provisioning and node lifecycle. This
-template validates physical facts; it does not prescribe operation names.
+Declare `measurement`: `angular_velocity`, `linear_acceleration` with its
+`quantity` (`specific_force` includes gravity, `gravity_removed` excludes it),
+`orientation` with its `reference`, and optional `magnetic_field`; use `null` for
+channels the device does not provide. Each vector channel lists its `axes`,
+optional `range` and `resolution`, and `bias`. `frames.base` is the measurement
+frame and its mount. Record `sample_rate_hz` when known.
 
-Declare supported measurement channels, units, axes, reference frames and gravity convention. Preserve unavailable values and covariance. Record calibration bias and measurement frame relationships.
+The node subtracts the profile `bias` from every published sample, so readings
+are calibrated and consumers never correct them. Record zero bias until
+calibrated; a bias calibration averages readings in a known static state and
+adds the residual to it. Never remove gravity, tare or reset orientation
+implicitly.
 
-Every profile requires a top-level `description` giving general device identity,
-capabilities and limitations. Every `operations.<name>.description` explains only
-that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
-Both descriptions are required strings; use an empty string when no text is known.
-Read device and operation descriptions directly from `profile.yaml`.
+The sibling `node.py` adapts an existing ROS IMU driver to this contract; copy it
+into the device directory and set `SOURCE`, and `MAGNETIC` when measured.
 
-Start from the profile below, select the typed facts and fill unknowns from
-documentation or calibration. Use `???` for unresolved facts and `null` only where
-allowed. Add actual topic/service operations and their descriptions; an empty
-operations mapping is an unfinished setup, not an implicit type interface.
-Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
-For externally managed nodes use `runtime.nodes: []` and their real endpoints.
-Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
-The old sibling driver scaffolds are unsupported by the runtime; implement ROS
-node factories or bind to existing ROS nodes.
+### Operations
+
+- `imu` (recommended): output topic `sensor_msgs/msg/Imu` in rad/s and m/s² in
+  `<device>/base`, with orientation mapping that frame into the declared
+  reference, stamped at acquisition on the world clock. A channel the device does
+  not provide has covariance `[0] = -1` (REP-145) and NaN values; unmeasured axes
+  are NaN, and unknown covariance is all zeros. Use `best_effort` with depth 1.
+  Recording and snapshots read it through `runtime.observation`.
+- `magnetic_field` (optional): output topic `sensor_msgs/msg/MagneticField` in
+  tesla in `<device>/base`, bias-corrected, only when the device measures it.
 
 ### Profile
 
@@ -33,18 +39,18 @@ node factories or bind to existing ROS nodes.
 name: imu
 type: imu
 loaded: false
-access:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  connection: ???
 description: ''
 runtime:
-  nodes: []
-operations: {}
-source: unknown
-method: unknown
-calibrated_at: null
+  observation: imu
+  nodes: [{entry: node.py, factory: create}]
+operations:
+  imu:
+    description: Bias-corrected angular velocity (rad/s) and acceleration (m/s^2) in imu/base with orientation in its declared reference; unprovided channels have covariance[0] = -1 and NaN values.
+    transport: topic
+    direction: output
+    endpoint: /kinex/imu/imu
+    type: sensor_msgs/msg/Imu
+    qos: {depth: 1, reliability: best_effort, durability: volatile}
 measurement:
   angular_velocity: ???
   linear_acceleration: ???
@@ -52,8 +58,5 @@ measurement:
   magnetic_field: null
 sample_rate_hz: null
 frames:
-  base:
-    translation_m: null
-    rotation_xyzw: null
-    parent: null
+  base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```
