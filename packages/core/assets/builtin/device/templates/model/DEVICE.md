@@ -12,7 +12,9 @@ callers send a JSON object and receive one, and the operation description is the
 only contract for their fields. Pass images and other large data as file paths.
 Serve each operation with `kinex.communication.json_service(node, operation,
 handler)`; `handler(**request)` returns the response object and its exceptions
-become failed responses.
+become failed responses. The sibling `node.py` serves a TorchScript image model as
+`infer` from an artifact named `weights`; the grounding-dino, sam3 and fastwam
+bundles are complete examples.
 
 Record `family`, optional `variant` and `implementation`, and `artifacts` with a
 pinned source for every weight file. Record `compute` as where the node places

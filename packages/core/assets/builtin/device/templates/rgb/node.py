@@ -1,0 +1,44 @@
+"""Reference rgb node adapting an existing ROS camera driver to the Kinex camera contract.
+
+Set SOURCE to the driver's rgb8 image topic at the profile resolution. The driver
+keeps acquisition and its stamps; this node publishes in the calibrated optical
+frame and serves the latest frame on demand.
+"""
+import asyncio
+
+from kinex_interfaces.srv import Capture
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+
+from kinex.communication import qos
+
+SOURCE = "/camera/image_raw"
+
+
+class Camera(Node):
+    def __init__(self, profile, context):
+        super().__init__("kinex_" + profile["name"], context=context)
+        self.frame = profile["name"] + "/base"
+        self.latest = None
+        image = profile["operations"]["image"]
+        self.image = self.create_publisher(Image, image["endpoint"], qos(image))
+        self.create_subscription(Image, SOURCE, self.receive, qos(image))
+        self.create_service(Capture, profile["operations"]["capture"]["endpoint"], self.capture)
+
+    def receive(self, message):
+        message.header.frame_id = self.frame
+        self.latest = message
+        self.image.publish(message)
+
+    def capture(self, request, response):
+        response.image = self.latest
+        return response
+
+    async def ready(self):
+        # Capture cannot report a missing frame, so load waits for the first one.
+        while self.latest is None:
+            await asyncio.sleep(.02)
+
+
+def create(profile, context):
+    return Camera(profile, context)

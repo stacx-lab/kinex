@@ -12,6 +12,9 @@ is the optical frame (+X right, +Y down, +Z forward) and its mount. Stamp every
 image at acquisition on the world clock and set `header.frame_id` to
 `<device>/base`. One source stream serves both operations.
 
+The sibling `node.py` adapts an existing ROS camera driver to this contract; copy
+it into the device directory and set `SOURCE` to the driver's image topic.
+
 ### Operations
 
 - `image` (recommended): output topic `sensor_msgs/msg/Image`, `rgb8` at the

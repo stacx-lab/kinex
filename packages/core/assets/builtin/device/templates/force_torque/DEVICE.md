@@ -6,26 +6,28 @@ description: Force-only, torque-only or combined load measurements with explicit
 
 ## Setup
 
-Follow setup-device for registration, Python provisioning and node lifecycle. This
-template validates physical facts; it does not prescribe operation names.
+Declare `measurement`: the measured `quantity`, the `target` device and frame the
+wrench acts on, and for each measured channel its `axes`, optional `range` and
+`resolution`, and `bias`. `frames.base` is the measurement frame and its mount;
+torque is about its origin. Record `sample_rate_hz` when known.
 
-Declare measured quantity, supported force/torque axes, units, sign convention, target and measurement frame. Record bias calibration and preserve acquisition timestamps.
+The node subtracts the profile `bias` from every published sample, so `wrench`
+is calibrated and consumers never correct it. Record zero bias until calibrated;
+a bias calibration averages `wrench` with no load and adds that mean to it.
 
-Every profile requires a top-level `description` giving general device identity,
-capabilities and limitations. Every `operations.<name>.description` explains only
-that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
-Both descriptions are required strings; use an empty string when no text is known.
-Read device and operation descriptions directly from `profile.yaml`.
+The sibling `node.py` adapts an existing ROS F/T driver to this contract; copy it
+into the device directory and set `SOURCE` to the driver's wrench topic.
 
-Start from the profile below, select the typed facts and fill unknowns from
-documentation or calibration. Use `???` for unresolved facts and `null` only where
-allowed. Add actual topic/service operations and their descriptions; an empty
-operations mapping is an unfinished setup, not an implicit type interface.
-Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
-For externally managed nodes use `runtime.nodes: []` and their real endpoints.
-Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
-The old sibling driver scaffolds are unsupported by the runtime; implement ROS
-node factories or bind to existing ROS nodes.
+### Operations
+
+- `wrench` (recommended): output topic `geometry_msgs/msg/WrenchStamped` in N and
+  N·m, expressed in `<device>/base`, signed as acting on the target and stamped
+  at acquisition on the world clock. Unmeasured axes are NaN, never 0. Use
+  `best_effort` with depth 1. Recording and snapshots read it through
+  `runtime.observation`.
+- `zero` (optional): service `std_srvs/srv/Trigger` that re-zeros at the current
+  load, so later readings are relative to it. Call it only without contact. The
+  offset lasts until unload and never changes the profile.
 
 ### Profile
 
@@ -33,29 +35,24 @@ node factories or bind to existing ROS nodes.
 name: force_torque
 type: force_torque
 loaded: false
-access:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  connection: ???
 description: ''
 runtime:
-  nodes: []
-operations: {}
-source: unknown
-method: unknown
-calibrated_at: null
+  observation: wrench
+  nodes: [{entry: node.py, factory: create}]
+operations:
+  wrench:
+    description: Bias-corrected wrench in N and N·m in force_torque/base, torque about its origin, acting on the measurement target; unmeasured axes are NaN.
+    transport: topic
+    direction: output
+    endpoint: /kinex/force_torque/wrench
+    type: geometry_msgs/msg/WrenchStamped
+    qos: {depth: 1, reliability: best_effort, durability: volatile}
 measurement:
   quantity: ???
-  target:
-    device: ???
-    frame: ???
+  target: {device: ???, frame: ???}
   force: ???
   torque: ???
 sample_rate_hz: null
 frames:
-  base:
-    translation_m: null
-    rotation_xyzw: null
-    parent: null
+  base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```
