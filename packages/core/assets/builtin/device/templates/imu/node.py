@@ -9,6 +9,7 @@ import asyncio
 import math
 
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, MagneticField
 
 from kinex.communication import qos
@@ -42,11 +43,11 @@ class InertialSensor(Node):
         self.latest = None
         imu = profile["operations"]["imu"]
         self.imu = self.create_publisher(Imu, imu["endpoint"], qos(imu))
-        self.create_subscription(Imu, SOURCE, self.receive, qos(imu))
+        self.create_subscription(Imu, SOURCE, self.receive, qos_profile_sensor_data)
         if "magnetic_field" in profile["operations"]:
             magnetic = profile["operations"]["magnetic_field"]
             self.magnetic = self.create_publisher(MagneticField, magnetic["endpoint"], qos(magnetic))
-            self.create_subscription(MagneticField, MAGNETIC, self.receive_magnetic, qos(magnetic))
+            self.create_subscription(MagneticField, MAGNETIC, self.receive_magnetic, qos_profile_sensor_data)
 
     def receive(self, message):
         message.header.frame_id = self.frame

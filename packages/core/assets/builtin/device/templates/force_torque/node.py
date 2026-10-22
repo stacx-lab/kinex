@@ -9,6 +9,7 @@ import math
 
 from geometry_msgs.msg import WrenchStamped
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_srvs.srv import Trigger
 
 from kinex.communication import qos
@@ -32,7 +33,7 @@ class ForceTorque(Node):
         self.latest = None
         wrench = profile["operations"]["wrench"]
         self.wrench = self.create_publisher(WrenchStamped, wrench["endpoint"], qos(wrench))
-        self.create_subscription(WrenchStamped, SOURCE, self.receive, qos(wrench))
+        self.create_subscription(WrenchStamped, SOURCE, self.receive, qos_profile_sensor_data)
         if "zero" in profile["operations"]:
             self.create_service(Trigger, profile["operations"]["zero"]["endpoint"], self.zero)
 

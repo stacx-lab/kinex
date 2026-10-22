@@ -38,11 +38,14 @@ when another cleanup step fails. Lifecycle belongs to the host; Python tools
 cannot load or unload devices. Legacy JSONL drivers and implicit mocks are not
 supported, including the old shipped driver scaffolds.
 
-Nodes inherit the independent Kinex Python environment. Set `runtime.interpreter`
-and overlays only when a device SDK needs its own environment. Configure ROS
-interface sources and prepare Kinex Python explicitly; discovery must not create
-an environment or activate one in an ordinary shell. Keep credentials in the
-environment. Prefer official vendor SDKs and inspect their documentation.
+Nodes that adapt a vendor driver read its topics with sensor-data QoS, which
+matches publishers of any reliability and durability; Kinex operations keep their
+declared QoS. Nodes inherit the independent Kinex Python environment. Set
+`runtime.interpreter` and overlays only when a device SDK needs its own
+environment. Configure ROS interface sources and prepare Kinex Python explicitly;
+discovery must not create an environment or activate one in an ordinary shell.
+Keep credentials in the environment. Prefer official vendor SDKs and inspect
+their documentation.
 
 Use `profile_write` to validate and preserve typed facts/provenance. Leave unknown
 facts as `???`, mark missing calibration and clear resolved requests with
