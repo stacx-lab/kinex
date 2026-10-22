@@ -16,7 +16,9 @@ function mountTreeLines(devices: Device[]): string[] {
     if (device.type === "world" || device.type === "model") continue
     const mount = deviceMount(device)
     if (mount === undefined || !known(mount)) {
-      if ("frames" in device && device.frames.base?.parent === null) continue
+      // Independent roots and non-spatial devices have no mount to report.
+      const base = deviceFrames(device).base
+      if (!base || base.parent === null) continue
       unplaced.push(device.name)
       continue
     }

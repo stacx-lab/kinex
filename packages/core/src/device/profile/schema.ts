@@ -13,7 +13,7 @@ import { gripperShape } from "./gripper.ts"
 import { suctionShape } from "./suction.ts"
 import { commandedJoints, deviceTree } from "./urdf.ts"
 import { jointShape } from "./joint.ts"
-import { frameErrors } from "./frames.ts"
+import { deviceFrames, frameErrors } from "./frames.ts"
 import { CameraColor, CameraConnection, CameraDepth } from "./camera.ts"
 
 import { MISSING, may, known, section, measured, OtherConnection } from "./common.ts"
@@ -98,7 +98,8 @@ export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...spatial, ...forceTorqueShape, type: z.literal("force_torque"), access: z.strictObject({ ...provenance, connection: may(ForceTorqueConnection).default(MISSING) }).optional() }),
   z.strictObject({ ...deviceBase, ...modelShape, type: z.literal("model") }),
   z.strictObject({ ...spatial, ...worldShape, type: z.literal("world") }),
-  z.strictObject({ ...spatial, type: z.literal("other") }),
+  // The fallback type prescribes nothing and may have no spatial frames.
+  z.strictObject({ ...deviceBase, frames: localFrames.frames.optional(), type: z.literal("other") }),
 ]).superRefine((device, ctx) => {
   for (const name of ["load", "unload", "status"])
     if (Object.hasOwn(device.operations, name))
@@ -109,7 +110,7 @@ export const Device = z.discriminatedUnion("type", [
     ctx.addIssue({ code: "custom", path: ["operations"], message: "managed motion requires a stop service" })
   if ("stop" in device && known(device.stop) && !device.stop.affected_devices.includes(device.name))
     ctx.addIssue({ code: "custom", path: ["stop"], message: "stop scope must include this device" })
-  if (!("frames" in device)) return
+  if (!("frames" in device) || !device.frames) return
   if (!device.frames.base) ctx.addIssue({ code: "custom", path: ["frames", "base"], message: "spatial devices require an explicit base frame" })
   for (const message of frameErrors([device], false))
     ctx.addIssue({ code: "custom", path: ["frames"], message })
@@ -221,8 +222,7 @@ export function deviceHome(device: Device): number[] | undefined {
 
 // A mount is simply the device's declared base edge.
 export function deviceMount(device: Device) {
-  if (!("frames" in device)) return undefined
-  const base = device.frames.base
+  const base = deviceFrames(device).base
   if (!base || base.parent === null) return undefined
   const [parent, parent_frame] = base.parent.split(":")
   return { ...base, parent: parent!, parent_frame: parent_frame! }

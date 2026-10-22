@@ -7,7 +7,7 @@ import fs from "node:fs/promises"
 import { ConfigPaths } from "../../config/paths.ts"
 import { exists } from "../../util/filesystem.ts"
 import { toYaml } from "../../util/yaml.ts"
-import { frameErrors } from "./frames.ts"
+import { deviceFrames, frameErrors } from "./frames.ts"
 import { RobotManifest, Device } from "./schema.ts"
 import { create } from "../../util/log.ts"
 
@@ -215,8 +215,7 @@ export const ProfileStore = {
     const required = new Set([name])
     for (const current of required) {
       const device = devices.find(device => device.name === current)
-      if (!device || !("frames" in device)) continue
-      for (const frame of Object.values(device.frames))
+      for (const frame of Object.values(device ? deviceFrames(device) : {}))
         if (frame.parent !== null) required.add(frame.parent.split(":")[0]!)
     }
     const errors = frameErrors(devices.filter(device => required.has(device.name)))

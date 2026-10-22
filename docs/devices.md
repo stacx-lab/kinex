@@ -9,10 +9,11 @@ contract and Python API.
 
 Builtin types remain: world, joint, gripper, suction, velocity, legged_base, rgb,
 rgbd, imu, force_torque, model and other. Arms, lifts and dexterous hands are joint
-devices.
-Their schemas validate physical facts, model structure, calibration and frames.
-Each type guide recommends operation names and semantics for onboarding; Kinex
-does not enforce them.
+devices. Their schemas validate physical facts, model structure, calibration and
+frames. Each type guide recommends operation names and semantics for onboarding;
+Kinex does not enforce them. `other` is the fallback when no type fits: it
+prescribes no facts or operations, and its frames are optional for devices
+without spatial meaning.
 
 ## Profiles
 
