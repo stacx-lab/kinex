@@ -96,8 +96,7 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         io.request = request
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = lambda value: value
-        facts = {"type": "gripper", "control": {
-            "mode": "direction", "open_target": -1, "close_target": 1}}
+        facts = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0.}}
         with patch.object(policy, "profile", return_value=facts), patch.dict(sys.modules, {
             "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
         }):
@@ -105,7 +104,7 @@ class Tools(unittest.IsolatedAsyncioTestCase):
                                        "command": [{"device": "gripper"}], "action_hz": 10}, io)
         self.assertEqual(result["actions_submitted"], 2)
         self.assertEqual([event[2] for event in io.events if event[0] == "publish"],
-                         [{"target": -1.}, {"target": 1.}])
+                         [{"target": .04}, {"target": 0.}])
         self.assertEqual([event[2] for event in io.events if event[:2] == ("request", "world.wait")],
                          [{"duration_s": .1}, {"duration_s": .1}])
         self.assertFalse(any(event[1].endswith(".stop") for event in io.events))

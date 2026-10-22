@@ -10,7 +10,7 @@ const profile = (frames = {}, name = 'sensor') => ({ description: '', name, type
 test('profiles flatten facts and reject legacy wrappers', () => {
   const parsed = Device.parse({ ...profile(), type: 'gripper', source: 'user' })
   assert.equal(parsed.source, 'user')
-  assert.equal(parsed.control, '???')
+  assert.equal(parsed.grip, '???')
   for (const key of ['intrinsics', 'extrinsics']) assert.equal(Device.safeParse({ ...profile(), [key]: {} }).success, false)
 })
 

@@ -181,12 +181,11 @@ class MotionTests(unittest.TestCase):
                 command(profile, {**args, "actions": [[0], target]})
         joints = profile["model"]["joints"]
         self.assertTrue(trajectory(joints, [2.001], [100], .01, check_limits=False).actions)
-        tool = {"control": {"mode": "position", "bounds": {"min": 0, "max": 1},
-            "resolution": None, "speed": None}}
-        self.assertEqual(scalar(tool, {"actions": [0, 1], "duration_s": .1})["actions"], [0, 1])
-        for value in (-.001, 1.001, True, math.nan, math.inf):
+        gripper = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0}}
+        self.assertEqual(scalar(gripper, {"actions": [-1, 0, 1], "duration_s": .1})["actions"], [.04, .02, 0])
+        for value in (-1.001, 1.001, True, math.nan, math.inf):
             with self.assertRaises(ValueError):
-                scalar(tool, {"actions": [0, value], "duration_s": .1})
+                scalar(gripper, {"actions": [0, value], "duration_s": .1})
         for bounds in ({"min": -1, "max": 1}, None):
             base = {"type": "velocity", "control": {"mode": "motion", "limit_handling": "native",
                 "modes": {"drive": {"velocity": {"components": [

@@ -26,7 +26,7 @@ parameters:
             type: string
             enum: [device, pose, pose_delta]
             default: device
-            description: "device: existing absolute joint/scalar values. pose: xyz + quaternion xyzw (7). pose_delta: translation metres + axis-angle rotation radians (6), accumulated from the starting pose. Cartesian modes require joint IK."
+            description: "device: absolute joint values; gripper values in [-1, 1] interpolate its grip from open to closed; suction values are its on/off targets. pose: xyz + quaternion xyzw (7). pose_delta: translation metres + axis-angle rotation radians (6), accumulated from the starting pose. Cartesian modes require joint IK."
           frame:
             type: string
             description: "Cartesian reference frame, frozen at planning start; defaults to the device canonical frame. Rotation deltas left-compose in these axes."

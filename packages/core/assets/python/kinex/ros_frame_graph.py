@@ -11,7 +11,6 @@ from rosgraph_msgs.msg import Clock
 from tf2_ros import Buffer, LookupException, TransformException, TransformListener
 
 from kinex.communication import qos
-from kinex.ros_frames import dynamic_qos
 
 
 def nanoseconds(stamp):
@@ -108,8 +107,10 @@ class FrameBuffer(Buffer):
 
 
 def listen(node):
+    from rclpy.qos import DurabilityPolicy, QoSProfile
     buffer = FrameBuffer()
-    return buffer, TransformListener(buffer, node, qos=dynamic_qos())
+    # Several devices publish TF in one world step; a shallow reader queue drops samples.
+    return buffer, TransformListener(buffer, node, qos=QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
 
 class FrameGraphNode(Node):

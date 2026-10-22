@@ -11,10 +11,13 @@ import { NamedError } from "../util/error.ts"
 import type { Device } from "./profile/schema.ts"
 import { jointConfigurationErrors, ResolvedJointModel, resolvedJointModels, jointModelErrors } from "./profile/joint.ts"
 import { handJointErrors } from "./profile/hand.ts"
+import { gripErrors } from "./profile/gripper.ts"
+import { UrdfTree, resolvedTrees } from "./profile/urdf.ts"
 
-const models = scoped(() => new Map<string, Promise<ResolvedJointModel>>())
+const models = scoped(() => new Map<string, Promise<unknown>>())
 
-export async function urdfModel(directory: string, file: string, base: string, tip: string): Promise<ResolvedJointModel> {
+// A chain from base to tip, or the whole tree below base when tip is omitted.
+async function introspect(directory: string, file: string, base: string, tip?: string): Promise<unknown> {
   const signal = currentSignal()
   signal?.throwIfAborted()
   const xml = await readFile(file, "utf8")
@@ -28,12 +31,12 @@ export async function urdfModel(directory: string, file: string, base: string, t
   const pending = (async () => {
     const runtime = await pythonRuntime(directory, undefined, ownerSignal)
     const proc = spawnProcess([runtime.executable, Assets.python("introspect_urdf.py"), "--urdf", file,
-      "--base-link", base, "--tip-link", tip, "--stdin"], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: runtime.env, signal: ownerSignal })
+      "--base-link", base, ...(tip ? ["--tip-link", tip] : []), "--stdin"], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: runtime.env, signal: ownerSignal })
     proc.stdin.write(xml)
     proc.stdin.end()
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
     if (code !== 0) throw new NamedError("JointModelError", err.trim())
-    return ResolvedJointModel.parse(JSON.parse(out))
+    return JSON.parse(out) as unknown
   })()
   models().set(key, pending)
   void pending.catch(() => {
@@ -46,7 +49,20 @@ export async function urdfModel(directory: string, file: string, base: string, t
   return abortable(pending, signal)
 }
 
+export async function urdfModel(directory: string, file: string, base: string, tip: string): Promise<ResolvedJointModel> {
+  return ResolvedJointModel.parse(await introspect(directory, file, base, tip))
+}
+
 async function resolve(device: Device, directory: string): Promise<Device> {
+  if (device.type === "gripper") {
+    const spec = device.model
+    if (spec === "???" || hasMissing(spec)) return device
+    const tree = UrdfTree.parse(await introspect(directory, path.resolve(directory, spec.path), spec.base_link))
+    const errors = gripErrors(device, tree)
+    if (errors.length) throw new NamedError("JointModelError", `${device.name}: ${errors.join("; ")}`)
+    resolvedTrees.set(spec, tree)
+    return device
+  }
   if (device.type !== "joint" && device.type !== "dexterous_hand") return device
   const modelSpec = device.model
   if (modelSpec === "???" || modelSpec.format !== "urdf" || hasMissing(modelSpec)) return device
@@ -63,7 +79,7 @@ async function resolve(device: Device, directory: string): Promise<Device> {
 export function resolveJoint(device: Device, directory: string, strict = false): Promise<Device> {
   return resolve(device, directory).catch((error: unknown) => {
     if (strict) throw error
-    if (device.type === "joint" || device.type === "dexterous_hand") jointModelErrors.set(device, error instanceof Error ? error.message : String(error))
+    if (["joint", "dexterous_hand", "gripper"].includes(device.type)) jointModelErrors.set(device, error instanceof Error ? error.message : String(error))
     return device
   })
 }

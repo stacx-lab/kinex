@@ -10,6 +10,7 @@ export { WorkspaceBounds, Surface } from "./world.ts"
 import { VelocityControl, VelocityFeedback, VelocityStop } from "./velocity.ts"
 import { LeggedControl, LeggedStop } from "./legged.ts"
 import { gripperShape, suctionShape } from "./gripper.ts"
+import { resolvedTrees } from "./urdf.ts"
 import { jointShape, refineJoint, jointModel } from "./joint.ts"
 import { HandGeometry, refineHand } from "./hand.ts"
 import { modelFrames, frameErrors } from "./frames.ts"
@@ -203,12 +204,17 @@ export function deviceActions(device: Device): DeviceAction[] {
     joint: j.name, units: j.type === "prismatic" ? "m" : "rad",
     ...(j.limits ? { bounds: j.limits } : {}),
   }))
-  if (device.type === "gripper" || device.type === "suction") {
+  if (device.type === "gripper") {
+    const { model, grip } = device
+    if (!known(model) || !known(grip)) return []
+    const joint = resolvedTrees.get(model)?.joints.find((item) => item.name === grip.joint)
+    return [{ joint: grip.joint, units: joint?.type === "prismatic" ? "m" : "rad",
+      bounds: { min: Math.min(grip.open, grip.closed), max: Math.max(grip.open, grip.closed) } }]
+  }
+  if (device.type === "suction") {
     const control = device.control
     if (!known(control)) return []
-    if (control.mode === "binary") return [{ component: "vacuum", units: "normalized", bounds: { min: Math.min(control.off_target, control.on_target), max: Math.max(control.off_target, control.on_target) } }]
-    if (control.mode === "direction") return [{ component: "direction", units: "normalized", bounds: { min: -1, max: 1 } }]
-    return [{ component: "position", units: control.units, bounds: control.bounds }]
+    return [{ component: "vacuum", units: "normalized", bounds: { min: Math.min(control.off_target, control.on_target), max: Math.max(control.off_target, control.on_target) } }]
   }
   return []
 }
