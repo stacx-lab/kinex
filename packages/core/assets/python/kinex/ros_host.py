@@ -2,6 +2,7 @@
 import asyncio
 import importlib.util
 import json
+import math
 import sys
 
 from kinex.communication import communication
@@ -10,6 +11,17 @@ from kinex.communication import communication
 def plain(message):
     from rosidl_runtime_py.convert import message_to_ordereddict
     return message_to_ordereddict(message)
+
+
+def finite(value):
+    """JSON has no NaN or infinity; unavailable measurements become null."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: finite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [finite(item) for item in value]
+    return value
 
 
 def observation(message):
@@ -25,10 +37,10 @@ def observation(message):
         return {"file": save(message), "timestamp": message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
                 "frame_id": message.header.frame_id, "width": message.width, "height": message.height}
     if isinstance(message, JointState):
-        return {"positions": list(message.position), "velocities": list(message.velocity),
-                "joint_names": list(message.name), "faults": [],
-                "timestamp": message.header.stamp.sec + message.header.stamp.nanosec / 1e9}
-    return dict(plain(message))
+        return finite({"positions": list(message.position), "velocities": list(message.velocity),
+                       "joint_names": list(message.name), "faults": [],
+                       "timestamp": message.header.stamp.sec + message.header.stamp.nanosec / 1e9})
+    return finite(dict(plain(message)))
 
 
 class DeviceHost:

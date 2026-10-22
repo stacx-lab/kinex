@@ -14,6 +14,9 @@ its own `projection` and `distortion` and calibrated `frames.color` and
 `frames.depth`; headers then use `<device>/color` and `<device>/depth`, and Kinex
 resolves depth-to-color through tf2.
 
+The sibling `node.py` adapts an existing ROS RGB-D driver with registered depth;
+copy it into the device directory and set `COLOR` and `DEPTH` to its topics.
+
 ### Operations
 
 - `image` (recommended): as for rgb.
