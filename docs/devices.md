@@ -128,9 +128,11 @@ Declare cancellation for long-running owner-scoped services.
 ## Joints, grippers and hands
 
 Joint models validate limits, model order and local frames. FK/IK are operations
-provided by nodes when available. Grippers retain geometry, aperture and control
-facts; actual command polarity and hold/release behavior belong in their operation
-descriptions. Hand models validate finger references and optional center geometry.
+provided by nodes when available. A gripper's geometry is a URDF: Kinex publishes
+its links on TF from measured joint states, mimic joints included, and `grip`
+names the actuated joint with its open and closed positions. `frames.tcp` is the
+grasp point with +z approach. Hand models validate finger references and optional
+center geometry.
 No typed fact implies a mandatory operation or supplies a default payload.
 
 ## Mobile and legged bases

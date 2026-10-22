@@ -255,8 +255,8 @@ checks verify actual topics, services, world timing, recording and tf2 separatel
 Apache-2.0. See [LICENSE](LICENSE).
 
 Device type guides recommend ROS patterns; the workspace descriptions define the
-actual interface. A gripper target can be a persistent scalar with no duration,
-with aperture measured on a separate state topic. `communication.publish` manages
+actual interface. A gripper target is a persistent grip joint position with no
+duration, measured on its joint state topic. `communication.publish` manages
 ownership and acknowledgements without exposing acquisition as a device operation.
 
 Within `async with communication() as io`, use

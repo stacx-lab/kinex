@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -75,4 +75,35 @@ test('runtime disposal cancels shared URDF parsing and releases its process', { 
   await model.runtime.dispose()
   await Promise.all([first, second])
   assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' })
+})
+
+test('gripper URDF trees resolve mimic joints, validate the grip and expose the model', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-gripper-'))
+  const runtime = createKinexRuntime({ directory })
+  t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const python = await runtime.python.initialize()
+  await mkdir(path.dirname(python.executable), { recursive: true })
+  await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim(), python.executable)
+  await runtime.profiles.writeManifest({ identity: { id: 'gripper', name: 'Gripper', kind: 'other' } })
+  const device = path.join(directory, '.kinex/devices/gripper')
+  await mkdir(device, { recursive: true })
+  await copyFile(fileURLToPath(new URL('../assets/builtin/device/templates/gripper/gripper.urdf', import.meta.url)), path.join(device, 'gripper.urdf'))
+  const tcp = { parent: 'gripper:base', translation_m: [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] }
+  const gripper = { description: '', name: 'gripper', type: 'gripper', loaded: false,
+    model: { format: 'urdf', path: 'gripper.urdf', base_link: 'base_link' }, stop: { behavior: 'hold', affected_devices: ['gripper'] },
+    frames: { base: { parent: null, translation_m: null, rotation_xyzw: null }, tcp } }
+  const grip = { joint: 'finger_joint', open: .04, closed: 0 }
+  for (const [patch, error] of [
+    [{ grip: { ...grip, joint: 'right_finger_joint' } }, /independent movable/],
+    [{ grip: { ...grip, open: .05 } }, /within finger_joint limits/],
+    [{ grip, frames: { ...gripper.frames, left_pad: tcp } }, /collides with profile frame left_pad/],
+  ]) await assert.rejects(runtime.profiles.writeDevice({ ...gripper, ...patch }), error)
+  await runtime.profiles.writeDevice({ ...gripper, grip })
+  assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:gripper').detail, '5 URDF links, grip finger_joint')
+  const result = await runtime.tools.call('exec', { python: `from kinex import profile, finish
+model = profile("gripper")["resolved_model"]
+finish({"links": model["links"], "mimic": [joint["mimic"] for joint in model["joints"] if joint.get("mimic")]})` }, { sessionID: 'gripper', ask: async () => {} })
+  assert.ok(!result.isError, result.output)
+  assert.deepEqual(JSON.parse(result.output).result, { links: ['base_link', 'left_finger', 'left_pad', 'right_finger', 'right_pad'],
+    mimic: [{ joint: 'finger_joint', multiplier: 1, offset: 0 }] })
 })

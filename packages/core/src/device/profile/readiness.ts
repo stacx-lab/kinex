@@ -1,6 +1,7 @@
 import { frameErrors, modelFrames } from "./frames.ts"
 import { hasMissing } from "./common.ts"
 import { jointModel, jointModelErrors } from "./joint.ts"
+import { resolvedTrees } from "./urdf.ts"
 import { cameraMissing } from "./camera.ts"
 import { ProfileStore, type ProfileSnapshot, type NeededEntry } from "./store.ts"
 import {
@@ -84,11 +85,16 @@ function factsCheck(device: Device): Check {
       if (!model) return { done: false, detail: jointModelErrors.get(device) ?? "joint model is unresolved" }
       return { done: true, detail: `${model.joints.length} joints, model resolved` }
     }
-    case "suction":
     case "gripper": {
-      const type = device.type
+      if ([device.model, device.grip, device.stop].some(hasMissing)) return { done: false, detail: "URDF model, grip or stop is incomplete" }
+      const tree = known(device.model) ? resolvedTrees.get(device.model) : undefined
+      if (!tree) return { done: false, detail: jointModelErrors.get(device) ?? "gripper URDF is unresolved" }
+      if (!device.frames.tcp) return { done: false, detail: "declare frames.tcp, the grasp point with +z approach" }
+      return { done: true, detail: `${tree.links.length} URDF links, grip ${known(device.grip) ? device.grip.joint : ""}` }
+    }
+    case "suction": {
       if ([device.control, device.feedback, device.stop].some(hasMissing)) return { done: false, detail: "end-effector control, feedback or stop semantics are incomplete" }
-      return { done: true, detail: `${type}, ${deviceActions(device).length} command dimensions` }
+      return { done: true, detail: `suction, ${deviceActions(device).length} command dimensions` }
     }
     case "velocity": {
       if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "velocity control, feedback or stop is incomplete" }

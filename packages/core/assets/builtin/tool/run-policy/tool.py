@@ -120,9 +120,9 @@ async def main(a, io):
                                  for index, value in enumerate(samples)]}}
             operation = f"{name}.joint_target"
         else:
-            scalar_command(prof, command)
-            fields, operation = {"target": command["actions"][0]}, f"{name}.target"
-            scalars.append((name, operation, command["actions"]))
+            targets = scalar_command(prof, command)["actions"]
+            fields, operation = {"target": targets[0]}, f"{name}.target"
+            scalars.append((name, operation, targets))
         prepared.append((name, operation, fields))
     async def submit(name, operation, fields):
         identifier = await io.publish(operation, fields)
