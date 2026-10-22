@@ -3,7 +3,7 @@ import type { LocalFrame } from "./common.ts"
 import { deviceTree, urdfSpec } from "./urdf.ts"
 
 export function deviceFrames(device: Device): Record<string, LocalFrame> {
-  return "frames" in device ? device.frames : {}
+  return ("frames" in device && device.frames) || {}
 }
 
 // URDF links below the base link are frames under the device base; undefined until resolved.

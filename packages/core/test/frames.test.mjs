@@ -24,6 +24,15 @@ test('every frame has an explicit parent; null declares a root regardless of tra
   assert.equal(Device.safeParse({ ...profile(), frames: {} }).success, false)
 })
 
+test('other devices may omit frames; spatial types and declared frames still need a base', () => {
+  const { frames, ...bare } = profile()
+  const device = Device.parse(bare)
+  assert.equal(device.frames, undefined)
+  assert.deepEqual(frameErrors([device]), [])
+  assert.equal(Device.safeParse({ ...bare, frames: {} }).success, false)
+  assert.equal(Device.safeParse({ ...bare, type: 'rgb' }).success, false)
+})
+
 test('frame validation catches local and cross-device missing references and cycles', () => {
   for (const frames of [{ tip: frame('sensor:missing') }, { a: frame('sensor:b'), b: frame('sensor:a') }, { a: frame('sensor:a') }]) {
     assert.equal(Device.safeParse(profile(frames)).success, false)

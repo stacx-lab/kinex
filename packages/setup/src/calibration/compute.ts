@@ -6,6 +6,7 @@ import { spawnProcess } from "@kinex/core/util/process"
 import { pythonRuntime } from "@kinex/core/python/environment"
 import { Assets as CoreAssets } from "@kinex/core/installation/assets"
 import { ProfileStore } from "@kinex/core/device/profile/store"
+import { deviceFrames } from "@kinex/core/device/profile/frames"
 import { getRoutine } from "./routines/index.ts"
 import { AttemptInput, attempt, archive, saveAttempt } from "./attempt.ts"
 import { procedures } from "../planning/procedures.ts"
@@ -78,7 +79,7 @@ async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSign
     if (args.operation === "fit-mount" || args.operation === "fit-dual") argv.push("--points", await archived(args.points))
     if (args.operation === "fit-tcp") {
       const target = await ProfileStore.readDevice(cwd, run.bindings.target ?? fail("Bind target"))
-      const mount = target && "frames" in target ? target.frames.base : undefined
+      const mount = target ? deviceFrames(target).base : undefined
       if (!mount || mount.parent !== `${run.bindings.arm}:${args.frame}` ||
           mount.translation_m === null || mount.rotation_xyzw === null) fail("TCP fitting requires a known mount in the sampled arm frame")
       argv.push("--samples", await archived(args.samples), "--frame", args.frame, "--mount", JSON.stringify(mount))

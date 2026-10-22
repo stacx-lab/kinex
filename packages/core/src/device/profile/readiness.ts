@@ -1,4 +1,4 @@
-import { frameErrors } from "./frames.ts"
+import { deviceFrames, frameErrors } from "./frames.ts"
 import { hasMissing } from "./common.ts"
 import { commandedJoints, deviceTree, modelErrors } from "./urdf.ts"
 import { cameraMissing } from "./camera.ts"
@@ -144,7 +144,7 @@ function profileCheck(device: Device, devices: Device[]): Check {
   if (!facts.done || device.type === "model") return facts
   const errors = frameErrors(devices).filter(message => message.startsWith(`${device.name}:`))
   if (errors.length) return { done: false, detail: errors.join("; ") }
-  for (const [name, frame] of Object.entries(device.frames)) {
+  for (const [name, frame] of Object.entries(deviceFrames(device))) {
     if (frame.parent === null) continue
     if (frame.translation_m === null || frame.rotation_xyzw === null)
       return { done: false, detail: `frames.${name} transform is unknown; calibrate or supply measured TF` }
