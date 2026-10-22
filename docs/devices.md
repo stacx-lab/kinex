@@ -10,8 +10,8 @@ contract and Python API.
 Builtin types remain: world, joint, dexterous_hand, gripper, suction, velocity,
 legged_base, rgb, rgbd, imu, force_torque, model, detection, segmentation and other.
 Their schemas validate physical facts, model structure, calibration and frames.
-They do not prescribe public operation names. Two devices of the same type can
-expose entirely different operations.
+Each type guide recommends operation names and semantics for onboarding; Kinex
+does not enforce them.
 
 ## Profiles
 
@@ -107,9 +107,12 @@ precedes device unload; disposal finalizes recordings. Model recording is opt-in
 
 ## World: time and geometry
 
-The world device owns clock/wait semantics. Bounds and surfaces are informational
-facts. Document pacing, epoch resets and terminal episode behavior on each relevant
-operation. Workflow loops use world time rather than a simulator-specific timer.
+Every workspace requires one world device per ROS domain. Its `time` clock is the
+world time of device nodes, tf2 lookup and recording; `wait` and simulator-only
+`reset` are recommended. Physical workspaces use the real-world clock. Bounds and
+surfaces are informational facts. Document pacing, epoch resets and terminal
+episode behavior on each relevant operation. Workflow loops use world time rather
+than a simulator-specific timer.
 
 ## Models: inference as a device
 

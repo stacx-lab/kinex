@@ -190,10 +190,12 @@ function buildNodes(ctx: PlanContext): Node[] {
       id: "devices-declared",
       title: "Device inventory",
       dependsOn: ["identity"],
-      check: () =>
-        ctx.devices.length > 0
-          ? { done: true, detail: ctx.devices.map((device) => `${device.name} (${device.type})`).join(", ") }
-          : { done: false, detail: "no devices recorded — declare its control and observation endpoints" },
+      check: () => {
+        if (!ctx.devices.length) return { done: false, detail: "no devices recorded — declare its control and observation endpoints" }
+        if (!ctx.devices.some((device) => device.type === "world"))
+          return { done: false, detail: "no world device — every workspace requires one for its clock" }
+        return { done: true, detail: ctx.devices.map((device) => `${device.name} (${device.type})`).join(", ") }
+      },
     },
   ]
   for (const device of [...ctx.devices].sort((a, b) => a.name.localeCompare(b.name)))

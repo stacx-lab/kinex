@@ -1,7 +1,7 @@
 ---
 name: setup-device
 description: Add a device or repair its ROS nodes — choose an instance or type guide, provision its runtime, fill a profile and verify the interface.
-resolves: access:velocity,access:legged_base,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,profile:model,access:detection,profile:detection,access:segmentation,profile:segmentation,access:other
+resolves: access:world,access:velocity,access:legged_base,access:joint,access:gripper,access:dexterous_hand,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,profile:model,access:detection,profile:detection,access:segmentation,profile:segmentation,access:other
 ---
 
 # Set up a device
@@ -9,7 +9,9 @@ resolves: access:velocity,access:legged_base,access:joint,access:gripper,access:
 Resolve the configured name and builtin type from user facts. In the ordered
 Device guide roots, search all `<root>/<name>/DEVICE.md` paths before the first
 `<root>/templates/<type>/DEVICE.md`. Read Setup and start from its Profile YAML.
-Types validate physical facts and calibration; they do not prescribe operations.
+Type guides recommend operation names and semantics; implement those the device
+supports. Schemas validate only physical facts and calibration. Every workspace
+requires a world device.
 
 Use the nearest `.kinex/` in this directory or its ancestors. Store the profile
 and owned node sources in `.kinex/devices/<name>/`; shared code may use `.kinex/lib/`.
@@ -21,8 +23,8 @@ Do not create
 instance DEVICE.md usage sections.
 
 Define each operation with transport, direction, endpoint, ROS type and bounded
-QoS. Services are inputs. Choose names supported by the actual node; two devices
-of the same type may have entirely different operations. `load`, `unload` and
+QoS. Services are inputs. Use the type guide's names for recommended operations
+and name others after the actual node. `load`, `unload` and
 `status` are reserved host verbs. Declare a stop service for managed motion and
 its Acquire/Stop/CommandStatus ownership endpoints. Describe exact command
 semantics on that operation, including replacement and expiry behavior.
@@ -48,8 +50,8 @@ facts as `???`, mark missing calibration and clear resolved requests with
 frames; kinematics nodes publish measured moving frames. Use world time and the `kinex.helpers.lookup_transform` helper; do not expose
 transform lookup as a device operation or register a world frame-graph factory.
 When a simulator has a robot catalog, export that catalog as the source of truth
-for its nodes and operation descriptions. Type guides recommend patterns; they
-do not reproduce a particular simulator or require operation names.
+for its nodes and operation descriptions; type guides do not reproduce a
+particular simulator.
 Keep task metadata and benchmark judges outside the agent device graph.
 
 Validate schema, imports and syntax before activation. Load through the host only
