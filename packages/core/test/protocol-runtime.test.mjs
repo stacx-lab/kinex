@@ -73,7 +73,6 @@ test('legacy profiles fail with actionable migration diagnostics',async t=>{
    type:'other',
    description:'',
    loaded:true,
-   access:{connection:{kind:'mock'}},
    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
  await assert.rejects(runtime.devices.dispatch('old','read'),/legacy.*no longer supported/)
  const file=path.join(directory,'.kinex/devices/old/profile.yaml')

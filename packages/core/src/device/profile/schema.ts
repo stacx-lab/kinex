@@ -1,10 +1,9 @@
-import { LocalFrame, ControlConnection } from "./common.ts"
+import { LocalFrame } from "./common.ts"
 import { modelShape } from "./model.ts"
 import { imuShape } from "./imu.ts"
-import { SensorConnection } from "./sensor.ts"
 import { z } from "zod"
 import { Operation, RosRuntime } from "./operations.ts"
-import { ForceTorqueConnection, forceTorqueShape } from "./force-torque.ts"
+import { forceTorqueShape } from "./force-torque.ts"
 import { worldShape, type WorkspaceBounds } from "./world.ts"
 export { WorkspaceBounds, Surface } from "./world.ts"
 import { locomotionShape, refineLocomotion } from "./locomotion.ts"
@@ -13,9 +12,9 @@ import { suctionShape } from "./suction.ts"
 import { commandedJoints, deviceTree } from "./urdf.ts"
 import { jointShape } from "./joint.ts"
 import { deviceFrames, frameErrors } from "./frames.ts"
-import { CameraColor, CameraConnection, CameraDepth } from "./camera.ts"
+import { CameraColor, CameraDepth } from "./camera.ts"
 
-import { MISSING, may, known, section, measured, OtherConnection } from "./common.ts"
+import { MISSING, may, known, section, measured } from "./common.ts"
 export { MISSING, known, Source } from "./common.ts"
 
 // Device profiles own access, intrinsic facts and parent-relative SI mounts.
@@ -60,8 +59,9 @@ const provenance = {
 const localFrames = {
   frames: z.record(z.string().regex(/^[^:/]+$/, "local frame names cannot contain ':' or '/'"), LocalFrame),
 }
-const AccessSection = z.strictObject({ ...section, connection: may(OtherConnection).default(MISSING) })
-const JointDeviceAccess = z.strictObject({ ...provenance, connection: may(ControlConnection).default(MISSING) })
+// How a device is reached belongs to its runtime nodes; access only carries an
+// explicit request against the access:<device> readiness item.
+const Access = z.strictObject({ needs_calibration: section.needs_calibration })
 const deviceBase = {
   name: z.string().regex(/^[^:/]+$/),
   description: z.string().describe("General device identity, capabilities and limitations; may be empty"),
@@ -69,17 +69,17 @@ const deviceBase = {
   runtime: RosRuntime.optional(),
   operations: z.record(z.string().regex(/^[a-zA-Z_]\w*$/), Operation).default({}),
   loaded: z.boolean().default(true),
-  access: AccessSection.optional(),
+  access: Access.optional(),
   meta: z.strictObject({ created_at: z.string(), updated_at: z.string() }),
 }
 const spatial = { ...deviceBase, ...localFrames }
-const camera = { ...spatial, access: z.strictObject({ ...provenance, connection: may(CameraConnection).default(MISSING) }).optional(), color: may(CameraColor).default(MISSING) }
+const camera = { ...spatial, color: may(CameraColor).default(MISSING) }
 
 export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...spatial, ...locomotionShape, type: z.literal("locomotion") }).superRefine(refineLocomotion),
-  z.strictObject({ ...spatial, ...jointShape, type: z.literal("joint"), access: JointDeviceAccess.optional() }),
-  z.strictObject({ ...spatial, ...gripperShape, type: z.literal("gripper"), access: JointDeviceAccess.optional() }),
-  z.strictObject({ ...spatial, ...suctionShape, type: z.literal("suction"), access: JointDeviceAccess.optional() }),
+  z.strictObject({ ...spatial, ...jointShape, type: z.literal("joint") }),
+  z.strictObject({ ...spatial, ...gripperShape, type: z.literal("gripper") }),
+  z.strictObject({ ...spatial, ...suctionShape, type: z.literal("suction") }),
   z.strictObject({ ...camera, type: z.literal("rgb") }),
   z.strictObject({ ...camera, type: z.literal("rgbd"), depth: may(CameraDepth).default(MISSING) }).superRefine((device, ctx) => {
     const { color, depth } = device
@@ -91,8 +91,8 @@ export const Device = z.discriminatedUnion("type", [
       if (known(color[key]) && known(depth[key]) && color[key] !== depth[key])
         ctx.addIssue({ code: "custom", path: ["depth", key], message: "color-registered depth must match the color grid" })
   }),
-  z.strictObject({ ...spatial, ...imuShape, type: z.literal("imu"), access: z.strictObject({ ...provenance, connection: may(SensorConnection).default(MISSING) }).optional() }),
-  z.strictObject({ ...spatial, ...forceTorqueShape, type: z.literal("force_torque"), access: z.strictObject({ ...provenance, connection: may(ForceTorqueConnection).default(MISSING) }).optional() }),
+  z.strictObject({ ...spatial, ...imuShape, type: z.literal("imu") }),
+  z.strictObject({ ...spatial, ...forceTorqueShape, type: z.literal("force_torque") }),
   z.strictObject({ ...deviceBase, ...modelShape, type: z.literal("model") }),
   z.strictObject({ ...spatial, ...worldShape, type: z.literal("world") }),
   // The fallback type prescribes nothing and may have no spatial frames.

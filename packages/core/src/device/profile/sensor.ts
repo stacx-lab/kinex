@@ -18,4 +18,3 @@ export const SensorChannel = z.strictObject({
   }
 })
 
-export { SensorConnection } from "./common.ts"
