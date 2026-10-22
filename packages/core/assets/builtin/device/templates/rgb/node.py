@@ -8,6 +8,7 @@ import asyncio
 
 from kinex_interfaces.srv import Capture
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
 from kinex.communication import qos
@@ -22,7 +23,7 @@ class Camera(Node):
         self.latest = None
         image = profile["operations"]["image"]
         self.image = self.create_publisher(Image, image["endpoint"], qos(image))
-        self.create_subscription(Image, SOURCE, self.receive, qos(image))
+        self.create_subscription(Image, SOURCE, self.receive, qos_profile_sensor_data)
         self.create_service(Capture, profile["operations"]["capture"]["endpoint"], self.capture)
 
     def receive(self, message):

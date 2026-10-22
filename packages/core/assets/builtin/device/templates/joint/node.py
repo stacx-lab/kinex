@@ -10,6 +10,7 @@ from pathlib import Path
 
 from builtin_interfaces.msg import Duration
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -32,7 +33,7 @@ class Joints(Node):
         operations = profile["operations"]
         state = operations["joint_state"]
         self.state = self.create_publisher(JointState, state["endpoint"], qos(state))
-        self.create_subscription(JointState, STATE, self.receive, qos(state))
+        self.create_subscription(JointState, STATE, self.receive, qos_profile_sensor_data)
         self.trajectory = self.create_publisher(JointTrajectory, TRAJECTORY, 10)
         motion_service(self, operations["joint_target"], self.apply, self.hold)
 
