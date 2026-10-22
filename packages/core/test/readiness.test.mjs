@@ -33,3 +33,19 @@ test('core alone validates calibration clears and reports readiness without proc
   assert.match(context.readiness, /access:sensor: done/)
   assert.doesNotMatch(context.instructions + context.robotics + context.guideRoots, /calib_plan|calib_write|\/onboarding|\/calibrate/)
 })
+
+test('model readiness requires compute placement; detection is a model, not a type', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-model-readiness-'))
+  const runtime = createKinexRuntime({ directory })
+  t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
+  await runtime.profiles.writeManifest({ identity: { id: 'models', name: 'Models', kind: 'other' } })
+  const model = { description: '', name: 'detector', type: 'model', loaded: false, runtime: { nodes: [] },
+    family: 'grounding_dino', artifacts: [], operations: { detect: { description: '', transport: 'service',
+      direction: 'input', endpoint: '/kinex/detector/detect', type: 'std_srvs/srv/Trigger' } } }
+  await runtime.profiles.writeDevice(model)
+  const detail = async () => (await runtime.readiness()).items.find(item => item.id === 'profile:detector').detail
+  assert.equal(await detail(), 'compute is ???')
+  await runtime.profiles.writeDevice({ description: '', name: 'detector', compute: { kind: 'cuda', index: 1 } })
+  assert.equal(await detail(), 'grounding_dino on cuda:1: detect')
+  await assert.rejects(runtime.profiles.writeDevice({ ...model, name: 'legacy', type: 'detection' }))
+})

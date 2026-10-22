@@ -1,6 +1,5 @@
 import { LocalFrame, ControlConnection } from "./common.ts"
-import { ModelConnection, modelShape } from "./model.ts"
-import { perceptionOperations } from "./perception.ts"
+import { modelShape } from "./model.ts"
 import { imuShape } from "./imu.ts"
 import { SensorConnection } from "./sensor.ts"
 import { z } from "zod"
@@ -39,8 +38,6 @@ export const DeviceType = z.enum([
   "imu",
   "force_torque",
   "model",
-  "detection",
-  "segmentation",
   "world",
   "other",
 ])
@@ -67,7 +64,6 @@ const localFrames = {
 }
 const AccessSection = z.strictObject({ ...section, connection: may(OtherConnection).default(MISSING) })
 const JointDeviceAccess = z.strictObject({ ...provenance, connection: may(ControlConnection).default(MISSING) })
-const ModelAccess = z.strictObject({ ...section, connection: may(ModelConnection).default(MISSING) })
 const deviceBase = {
   name: z.string().regex(/^[^:/]+$/),
   description: z.string().describe("General device identity, capabilities and limitations; may be empty"),
@@ -80,7 +76,6 @@ const deviceBase = {
 }
 const spatial = { ...deviceBase, ...localFrames }
 const camera = { ...spatial, access: z.strictObject({ ...provenance, connection: may(CameraConnection).default(MISSING) }).optional(), color: may(CameraColor).default(MISSING) }
-const model = { ...deviceBase, ...modelShape, access: ModelAccess.optional() }
 
 export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...spatial, type: z.literal("legged_base"), control: may(LeggedControl).default(MISSING), stop: may(LeggedStop).default(MISSING) }),
@@ -102,9 +97,7 @@ export const Device = z.discriminatedUnion("type", [
   }),
   z.strictObject({ ...spatial, ...imuShape, type: z.literal("imu"), access: z.strictObject({ ...provenance, connection: may(SensorConnection).default(MISSING) }).optional() }),
   z.strictObject({ ...spatial, ...forceTorqueShape, type: z.literal("force_torque"), access: z.strictObject({ ...provenance, connection: may(ForceTorqueConnection).default(MISSING) }).optional() }),
-  z.strictObject({ ...model, type: z.literal("model") }),
-  z.strictObject({ ...model, type: z.literal("detection"), inference_contracts: perceptionOperations("detection") }),
-  z.strictObject({ ...model, type: z.literal("segmentation"), inference_contracts: perceptionOperations("segmentation") }),
+  z.strictObject({ ...deviceBase, ...modelShape, type: z.literal("model") }),
   z.strictObject({ ...spatial, ...worldShape, type: z.literal("world") }),
   z.strictObject({ ...spatial, type: z.literal("other") }),
 ]).superRefine((device, ctx) => {
@@ -184,13 +177,8 @@ export function isCameraType(type: DeviceType): boolean {
   return type === "rgb" || type === "rgbd"
 }
 
-export function isModel(device: Device): device is Extract<Device, { type: "model" | "detection" | "segmentation" }> {
-  return device.type === "model" || device.type === "detection" || device.type === "segmentation"
-}
-
 export function matchesDeviceType(actual: DeviceType, required: DeviceType): boolean {
   return actual === required || (required === "rgb" && isCameraType(actual))
-    || (required === "detection" && actual === "segmentation")
 }
 
 // Control contracts determine actuation.

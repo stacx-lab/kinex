@@ -1,7 +1,7 @@
 import { deviceFrames } from "../device/profile/frames.ts"
 import { ProfileStore, type ProfileSnapshot } from "../device/profile/store.ts"
 import { readinessPlan, type ReadinessPlan } from "../device/profile/readiness.ts"
-import { isModel, deviceMount, known, type Device } from "../device/profile/schema.ts"
+import { deviceMount, known, type Device } from "../device/profile/schema.ts"
 
 function deviceLine(device: Device): string {
   return `    ${device.name} (${device.type})${device.loaded ? "" : " [UNLOADED]"}`
@@ -13,7 +13,7 @@ function mountTreeLines(devices: Device[]): string[] {
   const children = new Map<string, { name: string; note: string }[]>()
   const unplaced: string[] = []
   for (const device of devices) {
-    if (device.type === "world" || isModel(device)) continue
+    if (device.type === "world" || device.type === "model") continue
     const mount = deviceMount(device)
     if (mount === undefined || !known(mount)) {
       if ("frames" in device && device.frames.base?.parent === null) continue

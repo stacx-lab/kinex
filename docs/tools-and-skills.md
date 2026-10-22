@@ -29,7 +29,7 @@ or unload devices, and both retain permissions and cancellation.
 | Tool | Kind | Purpose |
 | --- | --- | --- |
 | `relative_pose` | Perception | Express a frame or local pose relative to another frame. |
-| `locate_object_3d` | Perception | Combine a camera, detection/segmentation model and depth to estimate an object's position in the camera frame. |
+| `locate_object_3d` | Perception | Combine a camera, detection model and depth to estimate an object's position in the camera frame. |
 | `run_policy` | Controller | Run policy inference once and submit the resulting valid action prefix across devices. |
 
 ### Python execution with `exec`

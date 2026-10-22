@@ -12,6 +12,7 @@ process.env.KINEX_DATA_DIR = path.join(home, 'data')
 after(() => rm(home, { recursive: true, force: true }))
 const { createKinexRuntime } = await import('../dist/index.js')
 const { pythonRuntime } = await import('../dist/python/environment.js')
+const { rosReceipt } = await import('../dist/python/ros-environment.js')
 const python = execFileSync(process.env.PYTHON ?? 'python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
 
 async function until(check) {
@@ -252,7 +253,7 @@ test('prepared ROS exec sources its own overlays and ignores ambient Python impo
     await mkdir(path.dirname(overlay),{recursive:true})
     await writeFile(overlay,`export KINEX_TEST_OVERLAY_${index}=own\n`)
   }
-  await writeFile(path.join(status.project,'ros-ready.json'),JSON.stringify({interfaces:[]}))
+  await writeFile(path.join(status.project,'ros-ready.json'),await rosReceipt([]))
   const previous=process.env.PYTHONPATH
   process.env.PYTHONPATH='/must/not/inherit/simulator'
   t.after(()=>{if(previous===undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH=previous})
@@ -264,4 +265,24 @@ finish({'python':sys.executable})`},{sessionID:'ros-python'})
   assert.ok(!result.isError,result.output)
   assert.equal(JSON.parse(result.output).result.python,status.executable)
   assert.deepEqual(await f.calls(),[])
+})
+
+test('changed ROS interface sources require preparation again', async t => {
+  const f = await fixture(t)
+  const interfaces = path.join(f.directory, 'interfaces/demo_interfaces')
+  await mkdir(path.join(interfaces, 'srv'), {recursive:true})
+  await writeFile(path.join(interfaces, 'srv/Echo.srv'), 'string text\n---\nstring text\n')
+  await mkdir(path.join(f.directory, '.kinex'), {recursive:true})
+  await writeFile(path.join(f.directory, '.kinex/kinex.json'), JSON.stringify({python:{provider:'ros-jazzy',interfaces:['../interfaces']}}))
+  const status = await f.runtime.python.status()
+  await mkdir(path.dirname(status.executable), {recursive:true})
+  await symlink(python, status.executable)
+  await writeFile(path.join(status.project, 'ros-ready.json'), await rosReceipt(status.interfaces))
+  assert.equal((await f.runtime.python.status()).present, true)
+  await writeFile(path.join(interfaces, 'srv/Echo.srv'), 'string text\n---\nstring echoed\n')
+  assert.equal((await f.runtime.python.status()).present, false)
+  await writeFile(path.join(status.project, 'ros-ready.json'), await rosReceipt(status.interfaces))
+  await mkdir(path.join(interfaces, 'build/demo'), {recursive:true})
+  await writeFile(path.join(interfaces, 'build/demo/Stale.srv'), '---\n')
+  assert.equal((await f.runtime.python.status()).present, true)
 })

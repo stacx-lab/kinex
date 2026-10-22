@@ -1,7 +1,0 @@
-sensor_msgs/Image image
----
-bool success
-string message
-uint64 initialization
-uint64 calls
-float64 mean

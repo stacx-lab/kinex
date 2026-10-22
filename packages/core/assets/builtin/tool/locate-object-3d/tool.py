@@ -11,7 +11,6 @@ async def depth_to_color(io, image, depth_image):
 
 
 async def main(a, io):
-    from rosidl_runtime_py.convert import message_to_ordereddict
     camera, model, depth = a["camera"], a["model"], a.get("depth")
     cam = profile(camera)
     color = cam["color"]
@@ -21,9 +20,10 @@ async def main(a, io):
         raise ValueError("image dimensions differ from calibration")
     if depth is None and not hasattr(capture, "depth_image"):
         raise ValueError("capture has no depth_image; supply optical depth in metres")
-    detected = await io.request(f"{model}.detect", image=image, prompt=a["prompt"],
+    file = save(image)
+    detected = await io.request(f"{model}.detect", image=file, prompt=a["prompt"],
                                 min_score=a.get("min_score", .25), max_results=max(10, a.get("instance", 0) + 1))
-    detection, count = select_detection(message_to_ordereddict(detected)["results"], a.get("min_score", .25), a.get("instance", 0))
+    detection, count = select_detection(detected["results"], a.get("min_score", .25), a.get("instance", 0))
     region, reference = detection_region(detection, color)
     if depth is not None:
         measured = locate(cam, region, depth=depth)
@@ -35,4 +35,4 @@ async def main(a, io):
             "rotation_xyzw": None, "label": detection.get("label", a["prompt"]),
             "detection_score": detection["score"], "detections": count,
             "timestamp": image.header.stamp.sec + image.header.stamp.nanosec / 1e9,
-            "file": save(image)}
+            "file": file}

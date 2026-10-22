@@ -16,7 +16,7 @@ parameters:
       description: rgb or rgbd camera with calibrated color intrinsics
     model:
       type: string
-      description: detection or segmentation device serving detect(image, prompt, min_score, max_results)
+      description: model device whose Json detect takes an image path, prompt, min_score and max_results and returns results with box, score and label
     prompt:
       type: string
       minLength: 1
@@ -42,6 +42,6 @@ device_inputs:
   camera:
     types: [rgb, rgbd]
   model:
-    types: [detection, segmentation]
+    types: [model]
 
 async: true
