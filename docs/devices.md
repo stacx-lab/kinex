@@ -127,7 +127,7 @@ Images pass as file paths. Profiles record family, artifacts and `compute`
 placement. Load places the model and unload releases it with the device process.
 Declare cancellation for long-running owner-scoped services.
 
-## Joints, grippers and hands
+## Joints and end effectors
 
 Joint and gripper geometry is a URDF; the template `links.py` node publishes its
 links on TF from measured joint states, mimic joints included. A joint device
@@ -136,7 +136,10 @@ native limit handling; `helpers.joint_model` computes FK and IK from the URDF, a
 `tip_link` is the default end-effector link. Arms, lifts and dexterous hands are
 joint devices; a hand has no tip link. A gripper's `grip` names the actuated joint
 with its open and closed positions, and `frames.tcp` is the grasp point with +z
-approach.
+approach. A suction tool has no URDF: `vacuum` says whether it switches on and off
+or accepts a level, `frames.tcp` is the cup contact centre, and its stop never
+releases a held object. Policy values in [-1, 1] release at -1 and grip at +1 for
+both.
 No typed fact implies a mandatory operation or supplies a default payload.
 
 ## Mobile and legged bases

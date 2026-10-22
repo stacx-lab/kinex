@@ -92,8 +92,9 @@ function factsCheck(device: Device): Check {
       return { done: true, detail: `${tree.links.length} URDF links, grip ${known(device.grip) ? device.grip.joint : ""}` }
     }
     case "suction": {
-      if ([device.control, device.feedback, device.stop].some(hasMissing)) return { done: false, detail: "end-effector control, feedback or stop semantics are incomplete" }
-      return { done: true, detail: `suction, ${deviceActions(device).length} command dimensions` }
+      if ([device.vacuum, device.stop].some(hasMissing)) return { done: false, detail: "vacuum or stop is incomplete" }
+      if (!device.frames.tcp) return { done: false, detail: "declare frames.tcp, the cup contact centre with +z approach" }
+      return { done: true, detail: `${device.vacuum} suction` }
     }
     case "velocity": {
       if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "velocity control, feedback or stop is incomplete" }

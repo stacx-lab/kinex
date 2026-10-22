@@ -9,7 +9,8 @@ import { worldShape, type WorkspaceBounds } from "./world.ts"
 export { WorkspaceBounds, Surface } from "./world.ts"
 import { VelocityControl, VelocityFeedback, VelocityStop } from "./velocity.ts"
 import { LeggedControl, LeggedStop } from "./legged.ts"
-import { gripperShape, suctionShape } from "./gripper.ts"
+import { gripperShape } from "./gripper.ts"
+import { suctionShape } from "./suction.ts"
 import { commandedJoints, deviceTree } from "./urdf.ts"
 import { jointShape } from "./joint.ts"
 import { frameErrors } from "./frames.ts"
@@ -200,11 +201,8 @@ export function deviceActions(device: Device): DeviceAction[] {
     return [{ joint: grip.joint, units: joint?.type === "prismatic" ? "m" : "rad",
       bounds: { min: Math.min(grip.open, grip.closed), max: Math.max(grip.open, grip.closed) } }]
   }
-  if (device.type === "suction") {
-    const control = device.control
-    if (!known(control)) return []
-    return [{ component: "vacuum", units: "normalized", bounds: { min: Math.min(control.off_target, control.on_target), max: Math.max(control.off_target, control.on_target) } }]
-  }
+  if (device.type === "suction")
+    return known(device.vacuum) ? [{ component: "vacuum", units: "normalized", bounds: { min: 0, max: 1 } }] : []
   return []
 }
 

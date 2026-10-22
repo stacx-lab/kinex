@@ -1,31 +1,35 @@
 ---
 name: suction
 type: suction
-description: suction control and observation contract.
+description: Vacuum suction tool switched on and off, or set to a vacuum level.
 ---
 
 ## Setup
 
-Follow setup-device for registration, Python provisioning and node lifecycle. This
-template validates physical facts; it does not prescribe operation names.
+A suction tool has no moving joints and no URDF. `frames.tcp` is the cup's contact
+centre with +z as the approach direction; summarize cup size, count and material in
+`description`. `vacuum` is `binary` when the device only switches vacuum on and off,
+or `proportional` when it accepts a level. Policy values in [-1, 1] release at -1
+and grip at +1: proportional devices take the level (v + 1) / 2, binary devices
+switch on above 0.
 
-Declare control ranges, pressure/contact feedback support and stop scope. Describe vacuum polarity, units and release/hold behavior on their operations. Unsupported measurements remain unavailable.
+The sibling `node.py` adapts an existing ROS vacuum driver with an on/off service
+and an object-detection topic; copy it into the device directory and set its topic
+constants.
 
-Every profile requires a top-level `description` giving general device identity,
-capabilities and limitations. Every `operations.<name>.description` explains only
-that operation: inputs/outputs, units, frames, timing, preconditions and side effects.
-Both descriptions are required strings; use an empty string when no text is known.
-Read device and operation descriptions directly from `profile.yaml`.
+### Operations
 
-Start from the profile below, select the typed facts and fill unknowns from
-documentation or calibration. Use `???` for unresolved facts and `null` only where
-allowed. Add actual topic/service operations and their descriptions; an empty
-operations mapping is an unfinished setup, not an implicit type interface.
-Register owned factories as `runtime.nodes: [{entry: node.py, factory: create}]`.
-For externally managed nodes use `runtime.nodes: []` and their real endpoints.
-Nodes inherit Kinex Python unless a separate SDK requires an interpreter override.
-The old sibling driver scaffolds are unsupported by the runtime; implement ROS
-node factories or bind to existing ROS nodes.
+- `target` (recommended): managed input topic `kinex_interfaces/msg/ScalarCommand`
+  whose `target` is a vacuum level from 0 (release, venting) to 1 (full vacuum);
+  binary devices accept only 0 or 1. It persists until replaced, and acceptance is
+  not arrival. Serve acquire, owner-scoped stop and command status with
+  `kinex.ownership.motion_service`.
+- `stop` (recommended): service `kinex_interfaces/srv/Stop` that ends pending
+  commands and keeps the current vacuum; a stop never releases a held object.
+- `grasped` (recommended): output topic `std_msgs/msg/Bool`, true while an object
+  is held, for example vacuum reached or an object detected.
+- `pressure` (optional): output topic `sensor_msgs/msg/FluidPressure`, absolute
+  pressure in Pa stamped at acquisition; add ambient pressure to a gauge reading.
 
 ### Profile
 
@@ -33,24 +37,34 @@ node factories or bind to existing ROS nodes.
 name: suction
 type: suction
 loaded: false
-access:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  connection: ???
 description: ''
 runtime:
-  nodes: []
-operations: {}
-source: unknown
-method: unknown
-calibrated_at: null
-control: ???
-feedback: ???
-stop: ???
+  observation: grasped
+  nodes: [{entry: node.py, factory: create}]
+operations:
+  target:
+    description: Vacuum level from 0 (release) to 1 (full vacuum); binary devices accept only 0 or 1. It persists until replaced; acceptance is not arrival, so verify grasped.
+    transport: topic
+    direction: input
+    endpoint: /kinex/suction/target
+    type: kinex_interfaces/msg/ScalarCommand
+    motion: {acquire: /kinex/suction/acquire, stop: /kinex/suction/stop, status: /kinex/suction/command_status}
+  stop:
+    description: Stop pending commands and keep the current vacuum; a held object is never released. An empty owner stops unconditionally.
+    transport: service
+    direction: input
+    endpoint: /kinex/suction/stop
+    type: kinex_interfaces/srv/Stop
+  grasped:
+    description: True while the driver detects a held object.
+    transport: topic
+    direction: output
+    endpoint: /kinex/suction/grasped
+    type: std_msgs/msg/Bool
+    qos: {depth: 1, reliability: reliable, durability: transient_local}
+vacuum: ???
+stop: {behavior: hold, affected_devices: [suction]}
 frames:
-  base:
-    parent: null
-    translation_m: null
-    rotation_xyzw: null
+  base: {parent: null, translation_m: null, rotation_xyzw: null}
+  tcp: {parent: "suction:base", translation_m: null, rotation_xyzw: null}
 ```

@@ -49,3 +49,20 @@ test('model readiness requires compute placement; detection is a model, not a ty
   assert.equal(await detail(), 'grounding_dino on cuda:1: detect')
   await assert.rejects(runtime.profiles.writeDevice({ ...model, name: 'legacy', type: 'detection' }))
 })
+
+test('suction readiness requires vacuum control, stop scope and a contact TCP', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-suction-readiness-'))
+  const runtime = createKinexRuntime({ directory })
+  t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
+  await runtime.profiles.writeManifest({ identity: { id: 'suction', name: 'Suction', kind: 'arm' } })
+  const root = { parent: null, translation_m: null, rotation_xyzw: null }
+  await runtime.profiles.writeDevice({ description: '', name: 'cup', type: 'suction', loaded: false, runtime: { nodes: [] },
+    stop: { behavior: 'hold', affected_devices: ['cup'] }, frames: { base: root } })
+  const detail = async () => (await runtime.readiness()).items.find(item => item.id === 'profile:cup').detail
+  assert.equal(await detail(), 'vacuum or stop is incomplete')
+  await runtime.profiles.writeDevice({ description: '', name: 'cup', vacuum: 'proportional' })
+  assert.match(await detail(), /declare frames.tcp/)
+  await runtime.profiles.writeDevice({ description: '', name: 'cup', frames: { tcp: { parent: 'cup:base', translation_m: [0, 0, .05], rotation_xyzw: [0, 0, 0, 1] } } })
+  assert.equal(await detail(), 'proportional suction')
+  await assert.rejects(runtime.profiles.writeDevice({ description: '', name: 'cup', vacuum: 'on_off' }))
+})
