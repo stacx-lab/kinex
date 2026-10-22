@@ -7,11 +7,10 @@ description: Color camera with profile intrinsics and a calibrated optical frame
 ## Setup
 
 Declare color geometry (`width`, `height`, `fps`, `projection`, `distortion`);
-Kinex derives `fov`. The profile is the only source of intrinsics, so do not
-expose `CameraInfo`. `frames.base` is the optical frame (+X right, +Y down,
-+Z forward) and its mount. Stamp every image at acquisition on the world clock
-and set `header.frame_id` to `<device>/base`. One source stream serves both
-operations.
+Kinex derives `fov`. The profile is the only source of intrinsics. `frames.base`
+is the optical frame (+X right, +Y down, +Z forward) and its mount. Stamp every
+image at acquisition on the world clock and set `header.frame_id` to
+`<device>/base`. One source stream serves both operations.
 
 ### Operations
 
