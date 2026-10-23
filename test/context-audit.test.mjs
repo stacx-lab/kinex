@@ -378,7 +378,7 @@ test('device load state never changes model prefixes or injects operation catalo
   const prefix=request=>request.messages.filter(m=>['system','developer'].includes(m.role))
   assert.match(JSON.stringify(prefix(first)), /Read device and operation descriptions directly from each device's profile\.yaml/)
   assert.doesNotMatch(JSON.stringify(prefix(first)), /lookup_transform/)
-  assert.match(first.tools.find(tool => tool.function.name === 'exec').function.description, /kinex\/helpers\.txt/)
+  assert.match(first.tools.find(tool => tool.function.name === 'exec').function.description, /kinex\/helpers\/helpers\.txt/)
   for(const request of fake.requests) {
     assert.deepEqual(prefix(request),prefix(first))
     assert.deepEqual(request.tools,first.tools)

@@ -33,4 +33,5 @@ export function hasMissing(value: unknown): boolean {
   return Object.values(value).some(hasMissing)
 }
 
-export const lifecycle = ["load", "unload", "status"] as const
+/** Host lifecycle actions every device has; they are never declared operations. */
+export const lifecycle: readonly string[] = ["load", "unload", "status"]

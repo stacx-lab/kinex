@@ -61,6 +61,8 @@ interface Active {
   // Set by a tool-initiated stop: the trace export waits for the final
   // assistant message of the step (saved after the tool returns).
   finalMessage?: { resolve: () => void; promise: Promise<void> }
+  // Registered on process exit while recording, so a crash leaves a stopped manifest.
+  exit: () => void
 }
 
 export type RecordingEvent = { type: "recording.changed" } | { type: "recording.warning"; message: string }
@@ -244,9 +246,7 @@ function emitChanged() {
 }
 
 // Crash/exit fallback (sync-only context): leave a valid manifest behind.
-function checkpoint() {
-  const active = state().active
-  if (!active) return
+function checkpoint(active: Active) {
   syncManifest(active)
   active.manifest.ended = new Date().toISOString()
   active.manifest.endedBy = "exit"
@@ -444,6 +444,7 @@ async function open(cwd: string, kind: RecordingManifest["kind"], sessionID: str
     designated: new Set(),
     seq: new Map(),
     reads: new Set(),
+    exit: () => checkpoint(active),
   }
   active.manifestTimer = setInterval(() => {
     if (active.manifest.status !== "recording") return
@@ -466,6 +467,7 @@ async function open(cwd: string, kind: RecordingManifest["kind"], sessionID: str
     })
   }, MANIFEST_INTERVAL_MS)
   state().active = active
+  process.once("exit", active.exit)
   timeline(active, { kind: "record.start" })
   return active
 }
@@ -525,7 +527,6 @@ async function initialize<T>(cwd: string, kind: RecordingManifest["kind"], sessi
 export const Recorder = {
   configure(host: RecorderHost): void { state().host = host },
   observe: onExecutionEvent,
-  checkpoint,
   async dispose(): Promise<void> {
     await Recorder.stop({ endedBy: "exit" })
     for (const pending of state().pending) pending.finalMessage?.resolve()
@@ -665,6 +666,7 @@ export const Recorder = {
       return manifest
     })().finally(() => {
       active.unobserve()
+      process.off("exit", active.exit)
       if (state().active === active) state().active = undefined
       emitChanged()
     })

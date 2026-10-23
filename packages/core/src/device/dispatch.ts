@@ -4,17 +4,23 @@ import type { Device } from "./profile/schema.ts"
 import type { DeviceReading } from "./reading.ts"
 import { notifyDevice, notifyDeactivation } from "./observe.ts"
 import { NamedError } from "../util/error.ts"
+import { lifecycle } from "./profile/common.ts"
+
+/** The rules for a requested device call. Stop is allowed on unloaded devices. */
+export function checkDeviceCall(device: Device, action: string, args: Record<string, unknown>) {
+  if (lifecycle.includes(action)) {
+    if (Object.keys(args).length) throw new NamedError("DeviceLifecycleError", `${action} accepts no arguments`)
+    return
+  }
+  if (action === "stop") return
+  if (!device.loaded) throw new NamedError("DeviceInactiveError", `${device.name} is unloaded`)
+  if (!device.operations[action])
+    throw new NamedError("DeviceOperationError", `unknown operation ${device.name}.${action}; available: ${Object.keys(device.operations).join(", ")}`)
+}
 
 export async function dispatchDevice(cwd: string, device: Device, action: string, args: Record<string, unknown>, origin?: string, signal?: AbortSignal): Promise<DeviceReading> {
   signal?.throwIfAborted()
-  if (!device.runtime)
-    throw new NamedError("UnsupportedDeviceContract", `${device.name}: configure runtime.nodes and operations; legacy access.driver and in-memory mock execution are no longer supported`)
-  if (["load", "unload", "status"].includes(action) && Object.keys(args).length)
-    throw new NamedError("DeviceLifecycleError", `${action} accepts no arguments`)
-  if (!["load", "unload", "status", "stop"].includes(action) && !device.loaded)
-    throw new NamedError("DeviceInactiveError", `${device.name} is unloaded`)
-  if (!["load", "unload", "status", "stop", "$sample"].includes(action) && !device.operations[action])
-    throw new NamedError("DeviceOperationError", `unknown operation ${device.name}.${action}; inspect runtime.operations("${device.name}")`)
+  if (!device.runtime) throw new NamedError("UnsupportedDeviceContract", `${device.name}: configure runtime.nodes and operations`)
   const workspace = await ProfileStore.workspaceDir(cwd)
   const wall = Date.now()
   try {

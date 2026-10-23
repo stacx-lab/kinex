@@ -1,4 +1,4 @@
-import { LocalFrame } from "./common.ts"
+import { LocalFrame, lifecycle } from "./common.ts"
 import { modelShape } from "./model.ts"
 import { imuShape } from "./imu.ts"
 import { z } from "zod"
@@ -98,7 +98,7 @@ export const Device = z.discriminatedUnion("type", [
   // The fallback type prescribes nothing and may have no spatial frames.
   z.strictObject({ ...deviceBase, frames: localFrames.frames.optional(), type: z.literal("other") }),
 ]).superRefine((device, ctx) => {
-  for (const name of ["load", "unload", "status"])
+  for (const name of lifecycle)
     if (Object.hasOwn(device.operations, name))
       ctx.addIssue({ code: "custom", path: ["operations", name], message: "reserved host lifecycle operation" })
   if (device.operations.stop && device.operations.stop.transport !== "service")
