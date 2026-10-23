@@ -21,7 +21,7 @@ export async function protocolDevice(runtime, directory, name = 'sensor', { hand
     loaded: false,
     frames: {base: {parent: null, translation_m: null, rotation_xyzw: null}},
     ...profile,
-    runtime: { interpreter },
+    runtime: { interpreter, nodes: [] },
     operations: operations ?? { read: outputOperation(), write: inputOperation(), stop: inputOperation('stop') } })
   if (loaded) await (await runtime.devices.load(name)).ready
   return dir

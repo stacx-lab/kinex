@@ -32,7 +32,7 @@ export async function checkCorePackage(directory, env, pack) {
   await exec(process.execPath, [path.join(root, '../../node_modules/typescript/bin/tsc'),
     '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2023', '--lib', 'ES2024', '--types', 'node', 'consumer.mts'], { cwd: directory })
   const { stdout } = await exec(process.execPath, ['--input-type=module', '--eval', `
-    import {protocolDevice} from ${JSON.stringify(new URL('./fixtures/protocol.mjs',import.meta.url).href)}
+    import {protocolDevice, protocolFramePython} from ${JSON.stringify(new URL('./fixtures/protocol.mjs',import.meta.url).href)}
     import assert from 'node:assert/strict'
     import { copyFile, stat, mkdir, writeFile, symlink } from 'node:fs/promises'
     import { execFileSync } from 'node:child_process'
@@ -65,13 +65,12 @@ export async function checkCorePackage(directory, env, pack) {
       const template = templates.find(template => template.name === 'world')
       const profile = await deviceGuideProfile(path.join(template.directory, 'DEVICE.md'))
       await write({kind:'device',data:profile})
+      await protocolFramePython(runtime)
       await protocolDevice(runtime, process.cwd(), 'world', {type:'world',description:'World description',loaded:true})
       assert.equal((await runtime.devices.list())[0].loaded, true)
       const capabilities = coreContribution(runtime)
       assert.ok(capabilities.commands.some(command => command.name === 'unregister'))
       assert.equal('conventions' in await runtime.context(),false)
-      await mkdir('.kinex/python/.venv/bin', {recursive:true})
-      await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {encoding:'utf8'}).trim(), '.kinex/python/.venv/bin/python3')
       const listed = await runtime.tools.call('exec', { python: 'from kinex import runtime, finish\\nfinish(runtime.devices())' }, {sessionID:'package'})
       assert.ok(!listed.isError, listed.output)
       assert.equal(JSON.parse(listed.output).result[0].name, 'world')

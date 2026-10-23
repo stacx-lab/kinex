@@ -58,11 +58,11 @@ try {
   await rm(path.join(installed, 'node_modules/@kinex/setup'), { recursive: true })
   await exec(process.execPath, ['--input-type=module', '--eval', `
 import assert from 'node:assert/strict'
-import { mkdir, symlink, writeFile, stat, readFile, readdir } from 'node:fs/promises'
-import { execFileSync } from 'node:child_process'
+import { writeFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { createKinexRuntime } from '@kinex/core'
 import { urdfTree } from '@kinex/core/device/device-model'
+import { protocolFramePython } from ${JSON.stringify(new URL('../../core/test/fixtures/protocol.mjs',import.meta.url).href)}
 await assert.rejects(import('@kinex/setup'), {code:'ERR_MODULE_NOT_FOUND'})
 const runtime = createKinexRuntime({directory: process.cwd(), host:{ask: async () => {}}})
 try {
@@ -73,17 +73,15 @@ try {
   assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'onboard-ros2'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))
   await assert.rejects(stat('.kinex/python'), {code:'ENOENT'})
+  // The world template's clock needs a frame host; the fake one answers without ROS.
+  await protocolFramePython(runtime)
   await (await runtime.devices.load('sensor')).ready
   assert.equal((await runtime.devices.dispatch('sensor','read')).data.value,1)
   const snap = await runtime.recording.snap({sessionID:'operate',devices:['sensor']})
   assert.ok(snap.readings.sensor)
   await runtime.recording.stop()
   await runtime.devices.unload('sensor')
-  // Model resolution belongs to core even when its Python environment is newly prepared.
-  const python = await runtime.python.initialize()
-  await mkdir(path.dirname(python.executable), {recursive:true})
-  const executable = execFileSync('python3', ['-c','import sys; print(sys.executable)'], {encoding:'utf8'}).trim()
-  await symlink(executable, python.executable)
+  // Model resolution belongs to core and runs in Kinex Python.
   const urdf = path.resolve('arm.urdf')
   await writeFile(urdf, '<robot name="arm"><link name="base"/><link name="tip"/><joint name="j" type="revolute"><parent link="base"/><child link="tip"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="10" velocity="1"/></joint></robot>')
   const model = await runtime.operation(() => urdfTree(process.cwd(), urdf, 'base'))
