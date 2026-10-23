@@ -1,6 +1,6 @@
 import type { KinexRuntime } from "./runtime.ts"
 import { parseSpecs } from "./record/spec.ts"
-import { recordingOutput } from "./record/output.ts"
+import { recordingOutput, recordingSummary } from "./record/output.ts"
 import { workflows } from "./workflows/index.ts"
 
 export const roboticsCommands = [
@@ -78,7 +78,8 @@ async function record(runtime: KinexRuntime, tokens: string[], sessionID: string
   const json = (value: unknown) => recordingOutput(value, verbose)
   if (verb === "status") {
     if (rest.length) throw new Error("Usage: /record status")
-    return json({ active: await runtime.recording.status(), recent: await runtime.recording.recent(5) })
+    const active = await runtime.recording.status()
+    return json({ active, recent: (await runtime.recording.recent(5)).filter(entry => entry.id !== active?.id).map(recordingSummary) })
   }
   if (verb === "start") {
     const { specs, instruction } = parseSpecs(rest)

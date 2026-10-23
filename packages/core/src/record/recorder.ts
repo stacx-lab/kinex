@@ -197,7 +197,7 @@ function onDeviceEvent(event: DeviceEvent) {
     }
     const depth = reading.data?.["depth_file"]
     if (typeof depth === "string") {
-      const staged = stage(active, event.device, seq, depth, ".depth.pgm", passive)
+      const staged = stage(active, event.device, seq, depth, `.depth${path.extname(depth) || ".png"}`, passive)
       if (staged) {
         row.depthFile = staged.rel
         stats.bytes += staged.bytes
@@ -243,6 +243,8 @@ function emitChanged() {
 // Crash/exit fallback (sync-only context): leave a valid manifest behind.
 function checkpoint(active: Active) {
   syncManifest(active)
+  for (const stats of Object.values(active.manifest.devices))
+    if (stats.stream?.status === "recording") stats.stream.status = "stopped"
   active.manifest.ended = new Date().toISOString()
   active.manifest.endedBy = "exit"
   active.manifest.status = "stopped"

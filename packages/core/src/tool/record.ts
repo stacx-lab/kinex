@@ -2,7 +2,7 @@ import { z } from "zod"
 import { define } from "./tool.ts"
 import { Recorder, type DeviceSpec } from "../record/recorder.ts"
 import { parseSpec } from "../record/spec.ts"
-import { recordingOutput } from "../record/output.ts"
+import { recordingOutput, recordingSummary } from "../record/output.ts"
 import DESCRIPTION from "./record.txt"
 
 // The agent's handle on the recorder: start | snap | stop | status. Starting
@@ -67,22 +67,7 @@ export const RecordTool = define("record", {
       }
     }
     const status = await Recorder.status()
-    const recent = (await Recorder.recent(ctx.directory)).map((entry) => ({
-      id: entry.id,
-      kind: entry.kind,
-      name: entry.name,
-      task: entry.task,
-      dir: entry.dir,
-      started: entry.started,
-      ended: entry.ended,
-      outcome: entry.outcome,
-      status: entry.status,
-      endedBy: entry.endedBy,
-      error: entry.error,
-      elapsedS: Math.round(entry.wallMs / 1000),
-      devices: entry.devices,
-      mb: Math.round((entry.bytes / 1024 / 1024) * 10) / 10,
-    }))
+    const recent = (await Recorder.recent(ctx.directory)).filter(entry => entry.id !== status?.id).map(recordingSummary)
     return { title: status ? `recording ${status.id} running` : "no recording running", output: json({ running: status ?? null, recent }) }
   },
 })
