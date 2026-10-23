@@ -4,8 +4,8 @@ import { Assets } from "../installation/assets.ts"
 import { overlayCommand } from "./ros-environment.ts"
 import { pythonRuntime } from "./environment.ts"
 
-// Drivers can share workspace SDK helpers. Tools prefer the shipped client that
-// implements their dialog; both retain the caller's remaining import paths.
+// Device nodes and scripts prefer workspace helpers in .kinex/lib; tools prefer the
+// shipped client that implements their dialog. Both keep the caller's import paths.
 export async function pythonLaunch(cwd: string, kind: "node" | "tool", interpreter?: string, signal?: AbortSignal) {
   const runtime = await pythonRuntime(cwd, interpreter, signal)
   const lib = path.join(await ProfileStore.workspaceDir(cwd), "lib")

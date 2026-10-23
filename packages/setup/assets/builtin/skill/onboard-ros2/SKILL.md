@@ -79,8 +79,8 @@ source only for an unsupported capability/version or an explicit user choice.
 
 Configure `.kinex/kinex.json` with `python.provider: "ros-jazzy"` and
 `python.interfaces` containing required ROS interface source directories (relative
-to `.kinex`). Explicit `runtime.python.prepare()` prepares the independent Kinex
-Pixi/RoboStack environment and builds core and configured interfaces. Verify rclpy,
+to `.kinex`). The first approved exec prepares the independent Kinex Pixi/RoboStack
+environment and builds core and configured interfaces. Verify rclpy,
 tf2, generated type support and rosbag2 in that environment. Simulators keep their
 own dependency environment; exec, helpers and recording always use Kinex Python.
 Keep overlays local to owned subprocesses; do not activate ROS or `.kinex/python`

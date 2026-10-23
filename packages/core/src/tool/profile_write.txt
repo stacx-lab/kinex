@@ -11,4 +11,4 @@ New devices use loaded:false; activation uses the device tool (action="load") or
 
 Device description gives general identity, capabilities and limitations. Each operation requires its own description for payload conventions and behavior; both descriptions are required strings and may be empty. Typed templates guide setup, while actual operation names are device-specific.
 
-Physical facts (model, control, color, frames, etc.) are top-level. Every frame requires parent: device:frame or null for an independent root; there is no implicit parent. Root transform components are ignored. Non-root null components mean unknown, never identity. Mounts are frames.base.
+Physical facts (model, limits, color, frames, etc.) are top-level. Every frame requires parent: device:frame or null for an independent root; there is no implicit parent. Root transform components are ignored. Non-root null components mean unknown, never identity. Mounts are frames.base.

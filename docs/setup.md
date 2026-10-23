@@ -3,13 +3,14 @@
 ## Task prerequisites and calibration evidence
 
 Setup owns a persisted, task-scoped DAG; inspection is read-only. Completion checks
-fact availability, explicit values, evidence and completed prerequisites, without
-receipt-hash invalidation on content/definition edits. Calibration attempts and
-solver results retain separate fingerprint checks. Calibration samplers' settling
-checks require fresh measured velocities and never advance simulation time. A timeout after a read saves `settled:false`; FK and archival still honor
-caller cancellation. Camera samples archive their image files; RGBD archival
-copies both streams before appending. Profile
-writes are validated; unrelated calibration never gates all operations. See the
+fact availability, explicit values, evidence and completed prerequisites; content
+edits alone do not invalidate it. Calibration attempts and solver results keep
+their own fingerprint checks. Sampler settling requires fresh measured velocities
+and never advances simulation time; a locomotion device settles on the odometry its
+`runtime.observation` names. A timeout after a read saves `settled:false`; FK and
+archival still honor caller cancellation. Camera samples archive their image files;
+RGBD archival copies both streams before appending. Profile writes are validated;
+unrelated calibration never gates all operations. See the
 [setup evidence contracts](../packages/setup/README.md#plan-and-evidence-contracts).
 
 For calibration motion, explicitly wait on the loaded world clock and check
@@ -33,10 +34,8 @@ before replacing runtime definitions, validate, then explicitly reload. Existing
 external stacks are borrowed; Kinex unload releases only its owned nodes.
 Interface checks return observations to the caller instead of writing setup reports.
 
-Core owns async protocol helpers and the world-clock client. Legacy direct
-hardware adapters and profile_ros.yaml execution are unsupported. Declare native
-ROS operations and node factories instead. ROS activation stays within owned
-subprocesses; shared host packages and overlays are never rolled back on unload.
+Core owns async protocol helpers and the world-clock client. ROS activation stays
+within owned subprocesses; shared host packages and overlays are never rolled back on unload.
 
 Dependency installation uses the host's permission-checked shell;
 sudo-required commands go to the user with the target host. See the

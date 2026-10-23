@@ -74,6 +74,12 @@ def profile(_):
 
 
 class Tools(unittest.IsolatedAsyncioTestCase):
+    def test_helper_index_lists_every_helper(self):
+        index = (Path(helpers.__file__).parent / "helpers.txt").read_text()
+        for name in helpers.__all__:
+            self.assertTrue(callable(getattr(helpers, name)), name)
+            self.assertIn(f"helpers.{name}(", index)
+
     async def test_policy_validates_chunk_before_publishing(self):
         policy, io = tool("run_policy"), Protocol()
         convert = ModuleType("rosidl_runtime_py.convert")

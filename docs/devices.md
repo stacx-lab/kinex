@@ -7,10 +7,10 @@ contract and Python API.
 
 ## Types
 
-Builtin types remain: world, joint, gripper, suction, locomotion, rgb, rgbd, imu,
+Builtin types are world, joint, gripper, suction, locomotion, rgb, rgbd, imu,
 force_torque, model and other. Arms, lifts and dexterous hands are joint devices;
-wheeled bases, quadrupeds and humanoid walking controllers are locomotion devices. Their schemas validate physical facts, model structure, calibration and
-frames. Each type guide recommends operation names and semantics for onboarding;
+wheeled bases, quadrupeds and humanoid walking controllers are locomotion devices.
+Their schemas validate physical facts, model structure, calibration and frames. Each type guide recommends operation names and semantics for onboarding;
 Kinex does not enforce them. `other` is the fallback when no type fits: it
 prescribes no facts or operations, and its frames are optional for devices
 without spatial meaning.
@@ -32,8 +32,8 @@ and `needs_calibration` record covers calibration. `loaded` is lifecycle intent;
 readiness. Unknown facts use `???`; null has only the schema-defined meaning.
 
 Builtin DEVICE.md files are setup templates, including profile examples. They
-help authors write device/operation descriptions and register nodes. Their Use
-sections are removed; no type or instance usage text enters runtime context.
+help authors write device/operation descriptions and register nodes. They have no
+usage section, and no type or instance usage text enters runtime context.
 Agents read descriptions directly from profiles. Inside exec, `runtime.devices()`
 and `runtime.operations(name)` provide discovery; `runtime.describe("device.operation")`
 resolves ROS payload schemas when needed. These work on unloaded profiles and
@@ -62,9 +62,10 @@ frames:
 Non-root null transform components mean unknown, never identity. Kinex publishes
 complete fixed edges to tf2. Joint and gripper geometry is a URDF: each link below
 `model.base_link` is a device frame named by the link, published from measured
-joint state by the template `links.py` node, and profile frames may use it as a
-parent but must not reuse its name. References must exist and be acyclic. ROS IDs use `device/frame`; inherent
-`kinex.helpers.lookup_transform` accepts these IDs or qualified `device:frame` references.
+joint state, mimic joints included, by the template `links.py` node. Profile frames
+may use a link as a parent but must not reuse its name. References must exist and be
+acyclic. ROS IDs use `device/frame`; `kinex.helpers.lookup_transform` accepts these
+IDs or qualified `device:frame` references.
 Query at observation stamps. Simulator nodes supply measurements and state;
 they do not own Kinex frame publication.
 
@@ -80,8 +81,7 @@ A device may own multiple node factories or bind a subset of a shared node's
 operations. Empty `runtime.nodes` binds external endpoints; it does not create an
 implicit mock. Factories receive `(profile, context)` and return owned rclpy nodes.
 Relay implementation lives in node source, not the public operation catalog.
-Legacy JSONL `access.driver` execution and in-memory mocks are unsupported.
-Historical driver/provisioning files remain on disk without runtime support.
+Nodes take their ROS names from `kinex.node.node_name(profile)`.
 
 ### Transport and lifecycle
 
@@ -90,7 +90,7 @@ status observes, and unload stops/reclaims owned resources. Definition changes
 require unload, validation and reload. Discovery never initializes Python or ROS.
 Model operations require host permission; Python cannot change lifecycle.
 Normal operations never restart a failed node. Stop/disposal never kill borrowed
-services. Explicit action names replace implicit read/write adapters.
+services.
 
 ### Motion and stop
 
@@ -130,12 +130,9 @@ Declare cancellation for long-running owner-scoped services.
 
 ## Joints and end effectors
 
-Joint and gripper geometry is a URDF; the template `links.py` node publishes its
-links on TF from measured joint states, mimic joints included. A joint device
-commands the URDF's independent movable joints in document order, with strict or
-native limit handling; `helpers.joint_model` computes FK and IK from the URDF, and
-`tip_link` is the default end-effector link. Arms, lifts and dexterous hands are
-joint devices; a hand has no tip link. A gripper's `grip` names the actuated joint
+A joint device commands the URDF's independent movable joints in document order,
+with strict or native limit handling; `helpers.joint_model` computes FK and IK from
+the URDF, and `tip_link` is the default end-effector link. A hand has no tip link. A gripper's `grip` names the actuated joint
 with its open and closed positions, and `frames.tcp` is the grasp point with +z
 approach. A suction tool has no URDF: `vacuum` says whether it switches on and off
 or accepts a level, `frames.tcp` is the cup contact centre, and its stop never

@@ -59,13 +59,9 @@ without setup. See [device definitions](assets/builtin/skill/onboard-ros2/SKILL.
 | `calib_sample` | Capture one measured sample into an isolated, participant-bound attempt. |
 | `calib_compute` | Run bundled offline solvers or model introspection and propose exact profile changes. |
 
-`calib_sample.settle` supports joint devices whose joint states measure velocities,
-and locomotion devices whose odometry measures their declared velocity axes. Only
-distinct device timestamps count toward stability. A timeout after a reading saves
-`settled: false`, including requested FK; caller cancellation saves no sample. The
-sampler does not advance simulator time, so arrange world waits outside it. Camera
-samples archive their image files; RGBD samples copy both color and depth into
-attempt artifacts before appending the sample.
+`calib_sample.settle` waits for measured joint or odometry velocities to stay below
+a threshold over distinct device timestamps; see the
+[sampling contract](../../docs/setup.md#task-prerequisites-and-calibration-evidence).
 
 `/onboarding [objective]` prepares the embodiment and follows only the requested
 objective's prerequisite subgraph. Without a task it prepares profiles/nodes and
@@ -104,7 +100,7 @@ Use narrow profile pointers for both inputs and outputs, tracking only facts rel
 to the node's conclusion. Keep volatile loaded/meta fields and live poses out of
 persistent calibration dependencies and outputs. World motion does not invalidate
 arm-to-base geometry.
-Record required driver/model files as inputs. Plan inspection checks their presence;
+Record required node/model files as inputs. Plan inspection checks their presence;
 calibration attempts separately fingerprint input contents, including URDF bytes.
 Planning never resolves models or reads hardware.
 
@@ -123,8 +119,7 @@ Completed nodes become stale when required facts, outputs, evidence files or com
 prerequisites are missing, including when an explicit profile value no longer matches.
 Content changes, node-definition edits and re-recorded completed prerequisites alone
 do not invalidate receipts. Reassess their relevance when modifying a completed plan.
-Receipts contain status, note, evidence and time; old hash fields are ignored on read
-and removed on the next plan write. Calibration attempts and solver results retain
+Receipts contain status, note, evidence and time. Calibration attempts and solver results retain
 their separate input, definition and prerequisite checks. Malformed deferred
 procedures are reported without gating unrelated tasks.
 
@@ -167,8 +162,7 @@ Archive the errors, limits and user decision; retain the original quality assess
 and do not mark a failed-quality node done. Record the returned numbered `evidence` path after applying and
 verifying accepted changes; later solves do not overwrite that evidence.
 
-`setup.plan` exposes `inspect`, `read`, `save`, `select`, and `record`.
-`setup.calibration.compute` exposes the offline computation API.
+`setup.plan` exposes `inspect`, `save`, `select` and `record`.
 
 ## Procedures and embodiments
 
@@ -177,8 +171,8 @@ types, distinct participants, parent relationships, required profile pointers,
 produced fields, supported computations and quality criteria. Setup reads the
 sidecar from the skill directory selected by core discovery. Custom skills without
 sidecars remain usable with explicitly authored requirements/evidence. The compute
-tool executes only known bundled programs; overriding prose does not replace its
-Python executable. Custom computations use host tools and archive their evidence.
+tool executes only known bundled programs in Kinex Python; overriding prose does
+not replace them. Custom computations use host tools and archive their evidence.
 
 | Skills | Coverage |
 | --- | --- |
@@ -202,26 +196,17 @@ ROS onboarding observes the selected interfaces directly and reports the results
 Failed checks leave onboarding incomplete. Existing base procedures use `verify-base`
 with the evidence format documented in the `calib_compute` tool description.
 
-## Migration and checks
+## Checks
 
-Replace `calib_plan` with `setup_plan` (`action:read`), and
-`setup.calibration.plan()` with `setup.plan.inspect()`. Replace `device_calibrate`
-with `calib_compute` (`operation:urdf-introspect`, procedure:`calibrate-joint-range`,
-bindings:{arm:deviceName}); migrate its permission key to `calib_compute`.
-Replace sampler `routine` with a node or procedure/bindings, then reuse `run`.
-Replace `calibrate-joint-range-workspace` with `calibrate-joint-range` or
-`calibrate-world-geometry`. No compatibility aliases are provided for these renamed
-calibration commands and procedures.
-
-Historical calibration evidence can be explicitly referenced after checking provenance; it is not automatically
-promoted to a completed plan. Removing setup leaves core devices operational.
-Unregistering a device preserves new attempt history; affected plan requirements
-become missing/stale. Native plugin snapshot adoption is separate work.
+Existing calibration evidence can be referenced after checking its provenance; it is
+not automatically promoted to a completed plan. Removing setup leaves core devices
+operational. Unregistering a device preserves attempt history; affected plan
+requirements become missing or stale.
 
 From the repository root run `npm run typecheck`, `npm test`, `npm run test:core`,
 `npm run test:setup`, then `npm run build` and `npm run pack -- OUTPUT_DIRECTORY`.
 Builds and consumer tests run sequentially. Tests use synthetic evidence and fake
-drivers; physical and live simulator validation are separate. Nothing is published.
+device hosts; physical and live simulator validation are separate. Nothing is published.
 
 ## License
 

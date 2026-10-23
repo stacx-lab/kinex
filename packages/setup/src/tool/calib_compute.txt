@@ -7,8 +7,14 @@ Custom procedure code runs through existing host tools, not this offline registr
 Results distinguish computation, quality and exact resolved fields.
 Valid computed results that miss accuracy targets may still be accepted within
 the user's accuracy/time budget. Do not repeat calibration solely to meet those
-targets when the user accepts the result. Preserve measured errors and the original
-quality assessment; never treat missing or invalid results as approximate estimates.
+targets when the user accepts the result. If the user explicitly keeps a result
+that exceeds a limit, honor it without repeated confirmation or forced recollection;
+when requested, persist its computed fields with profile_write from the archived
+solver data even if failed quality leaves proposedChanges empty, using the
+procedure's frame conventions, and record the errors, limits and user decision in
+evidence. Always preserve measured errors and the original quality assessment,
+never mark a failed-quality node done, and never treat missing or invalid results
+as approximate estimates.
 Apply accepted proposedChanges with core profile_write, preserving unrelated facts.
 Proposed patches never clear calibration requests automatically. A pivot solve
 measures translation only; RGB-D color calibration does not measure depth facts.
