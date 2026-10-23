@@ -46,7 +46,8 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         const result = await executeCommand(command, args, ctx)
         if (result.kind === "workflow") await session.prompt(result.prompt)
         else {
-          pi.sendMessage({ customType: "kinex", content: result.text, display: true }, { triggerTurn: false })
+          // The model sees this result, so it states which user command produced it.
+          pi.sendMessage({ customType: "kinex", content: `User ran /${[name, args.trim()].filter(Boolean).join(" ")}:\n${result.text}`, display: true }, { triggerTurn: false })
           if (!ctx.hasUI) report(result.text)
           if (result.isError) owner.failure = new Error(result.text)
         }
