@@ -13,7 +13,7 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/verify-base-motion/procedure.json'))
   assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_base.py'))
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/kinex/') || file.path.endsWith('.pyc')))
-  assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/onboard-ros2/SKILL.md'))
+  assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/calibrate-tcp-offset/SKILL.md'))
   await writeFile(path.join(relocated, 'consumer.mts'), `
 import { createKinexRuntime } from '@kinex/core'
 import { composeContributions, coreContribution } from '@kinex/core/integration'
@@ -52,7 +52,7 @@ try {
   await write({kind:'device',data:profile})
   await protocolDevice(runtime, process.cwd(), 'sensor')
   assert.equal((await setup.plan.inspect()).taskSatisfied, null)
-  assert.ok(await runtime.skills.load('onboard-ros2'))
+  assert.ok(await runtime.skills.load('calibrate-tcp-offset'))
 } finally {await runtime.dispose()}
 `], { cwd: relocated, env })
   await rm(path.join(installed, 'node_modules/@kinex/setup'), { recursive: true })
@@ -70,7 +70,7 @@ try {
   for (const name of ['profile_write','device','devices','device_stop','relative_pose','locate_object_3d','run_policy']) assert.ok(tools.includes(name), name)
   for (const name of ['setup_plan','calib_compute','calib_sample']) assert.ok(!tools.includes(name), name)
   assert.ok(await runtime.skills.load('setup-device'))
-  assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'onboard-ros2'))
+  assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'calibrate-tcp-offset'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))
   await assert.rejects(stat('.kinex/python'), {code:'ENOENT'})
   // The world template's clock needs a frame host; the fake one answers without ROS.

@@ -11,7 +11,7 @@ Design history and progress belong in git.
   device guides and setup-device. Core must not
   import setup, a host agent or UI.
 - `packages/setup` owns onboarding and calibration procedures/assets, including
-  ROS onboarding skills and calibration evidence. Setup borrows core operational
+  calibration skills and evidence. Setup borrows core operational
   runtime resources through package exports.
 - `src` composes standalone with published Pi SDKs; `src/integration` owns its
   product policy. Do not fork/reimplement providers, coding tools, loops or TUI.

@@ -45,7 +45,7 @@ select a preparation objective, then clear it with task:null and report possible
 steps. Do not automatically run the full measurement backlog.
 
 Write minimal identity and unloaded device profiles with profile_write as preparation nodes require them.
-Use setup-device for generic device preparation and onboard-ros2 for ROS hardware.
+Use setup-device to prepare each device.
 Follow the selected skill and device guide; share host dependencies across devices
 and keep failed or cancelled installation incomplete.
 Validate schema, imports and syntax before activation. Writes preserve activation intent;

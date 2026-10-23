@@ -22,8 +22,8 @@ allowed; do not invent facts. Read descriptions directly from `profile.yaml`.
 Do not create
 instance DEVICE.md usage sections.
 
-Define each operation with transport, direction, endpoint, ROS type and bounded
-QoS. Services are inputs. Use the type guide's names for recommended operations
+Define each operation with transport, direction, endpoint, native ROS type and
+bounded QoS; do not introduce ROS actions. Services are inputs. Use the type guide's names for recommended operations
 and name others after the actual node. `load`, `unload` and
 `status` are reserved host verbs. Declare a stop service for managed motion and
 its Acquire/Stop/CommandStatus ownership endpoints. Describe exact command
@@ -34,18 +34,24 @@ For owned ROS implementations, register factories in `runtime.nodes`, each with
 rclpy node named with `kinex.node.node_name(profile)`, since device names may hold
 characters ROS rejects. A device may have several nodes or expose a subset of a shared node's
 endpoints. For borrowed nodes use `runtime.nodes: []`; never stop their processes.
+A node may define `async def ready(self)` to check its dependencies within
+`runtime.ready_timeout_s`.
 Keep reads and stop responsive and make cleanup release every owned resource even
 when another cleanup step fails. Lifecycle belongs to the host; Python tools
 cannot load or unload devices.
 
 Nodes that adapt a vendor driver read its topics with sensor-data QoS, which
 matches publishers of any reliability and durability; Kinex operations keep their
-declared QoS. Nodes inherit the independent Kinex Python environment. Set
-`runtime.interpreter` and overlays only when a device SDK needs its own
-environment. Configure ROS interface sources and prepare Kinex Python explicitly;
-discovery must not create an environment or activate one in an ordinary shell.
-Keep credentials in the environment. Prefer official vendor SDKs and inspect
-their documentation.
+declared QoS. Match the device's ROS domain and middleware configuration.
+
+Nodes inherit the independent Kinex Python environment. Set `runtime.interpreter`
+and overlays only when a device SDK needs its own environment. For ROS, set
+`python.provider: "ros-jazzy"` and `python.interfaces` (interface source
+directories) in `.kinex/kinex.json`; the first approved exec prepares it, then
+verify rclpy, tf2, message type support and rosbag2 there. Never activate it in an
+ordinary shell. Prefer official vendor SDKs: installed packages first, then
+binaries, building from source only when needed; check what is installed after
+sourcing the intended ROS distribution. Keep credentials in the environment.
 
 Use `profile_write` to validate and preserve typed facts/provenance. Leave unknown
 facts as `???`, mark missing calibration and clear resolved requests with

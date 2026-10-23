@@ -44,12 +44,9 @@ For core alone use `{ contributions: runtime => [coreContribution(runtime)] }`.
 Custom setup composition explicitly supplies `setupSkillRoots`, `setupToolNames`
 and its setup contribution. Omitted values do not inherit standalone's defaults.
 
-The `onboard-ros2` skill owns onboarding policy. Core owns the `kinex.communication` library
-and operational ROS resources. Match the
-ROS interpreter to the selected distribution as described by the skill. Configure
-runtime files directly in the device directory and register their paths through
-`profile_write`. Nodes consume core runtime helpers to remain operational
-without setup. See [device definitions](assets/builtin/skill/onboard-ros2/SKILL.md#device-definitions).
+Device preparation, including ROS dependencies and Kinex Python for ROS, follows
+core's [setup-device](../core/assets/builtin/skill/setup-device/SKILL.md) skill.
+Nodes consume core runtime helpers to remain operational without setup.
 
 ## Tools and workflows
 
@@ -67,9 +64,6 @@ a threshold over distinct device timestamps; see the
 objective's prerequisite subgraph. Without a task it prepares profiles/nodes and
 reports possible next steps, leaving measurements deferred. `/calibrate [scope]`
 resumes selected measurement work; it never exhausts an unrelated backlog.
-
-For ROS devices, `/onboarding [objective]` and `/register` select `onboard-ros2`
-through their existing workflows. No dedicated ROS command or alias is needed.
 
 Core owns `profile_write`, `setup-device`, registration, device configuration and operation execution,
 load/unload, topic/service operations, motion and stop. Prepare profiles/nodes incrementally
@@ -176,7 +170,6 @@ not replace them. Custom computations use host tools and archive their evidence.
 
 | Skills | Coverage |
 | --- | --- |
-| `onboard-ros2` | ROS integration selection, configuration, registration and interface verification; explicit plan requirements without a fixed procedure. |
 | `calibrate-camera-intrinsics`, `calibrate-camera-extrinsics` | Color image geometry and camera mounting. |
 | `calibrate-tcp-offset` | Gripper or suction tool-tip translation; orientation is separate. |
 | `calibrate-fixed-arm-mount`, `calibrate-dual-arm` | Rigid parent/arm or cross-arm transforms. |

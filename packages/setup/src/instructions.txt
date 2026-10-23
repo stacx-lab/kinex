@@ -15,4 +15,5 @@ The frame graph and setup dependency DAG are different graphs. Plans live in
 
 Avoid adding new tests unless necessary. Skip python tests during task execution or setup attempts.
 
-For new or replaced ROS hardware in /onboarding or /register, load onboard-ros2. It owns ROS integration selection, dependencies, device configuration and interface verification. Keep existing working integrations unless replacement is requested.
+Prepare or repair devices with core's setup-device skill; keep existing working
+integrations unless replacement is requested.
