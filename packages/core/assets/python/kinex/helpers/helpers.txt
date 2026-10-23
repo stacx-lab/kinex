@@ -30,6 +30,13 @@ Policy
     Infer once and submit the valid action prefix to the commanded devices.
     Implementation: policy.py
 
+Images
+  helpers.image_array(image)
+    Native-order pixels of a sensor_msgs/Image as numpy for computation.
+  helpers.save_image(image)
+    Write a sensor_msgs/Image as a PNG and return its path for finish(file=...).
+    Implementation: images.py
+
 Perception
   await helpers.locate_object_3d(io, camera, model, prompt, depth=None, min_score=0.25, instance=0)
     Locate a detected object in a stamped camera optical frame.

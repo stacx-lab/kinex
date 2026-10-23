@@ -6,7 +6,7 @@ Kinex connects coding agents to physical robots and simulators through three lay
 - **Tools** execute operations that combine device access, computation and control.
 - **Skills** guide the agent through tasks using reusable procedures.
 
-![Kinex architecture: the agent loads skills and calls tools or devices directly; tools also operate devices, whose drivers exchange commands and observations with hardware, simulators and services.](../assets/architecture.svg)
+![Kinex architecture: the agent loads skills and calls tools or devices directly; tools also operate devices, whose nodes exchange commands and observations with hardware, simulators and services.](../assets/architecture.svg)
 
 The agent loads skills as needed, then calls devices directly through `device` or
 `devices`, uses reusable tools, or combines operations in Python through `exec`.
@@ -18,7 +18,7 @@ A useful analogy is a coding-agent harness:
 
 | Layer | Coding-agent analogy | Kinex example |
 | --- | --- | --- |
-| Devices | System resources such as disks and GPUs. OS and driver interfaces provide basic operations such as storage reads/writes or GPU computation. | Cameras, actuators and model services expose operations through drivers. |
+| Devices | System resources such as disks and GPUs. OS and driver interfaces provide basic operations such as storage reads/writes or GPU computation. | Cameras, actuators and model services expose operations through device nodes. |
 | Tools | `bash` executes commands; `grep` searches text. These tools turn resource access into useful operations. | `exec` runs Python with device access; `locate_object_3d` combines camera and model outputs to estimate a position. |
 | Skills | A debugging procedure guides the agent to reproduce a failure, inspect code, make a fix and run tests using available tools. | A calibration procedure guides sampling, computation and verification. |
 
@@ -46,7 +46,7 @@ Examples include:
 - A `world` device exposes environment time through its clock topic and wait services.
   Tools schedule work through these operations for hardware or simulation.
 
-See [device contracts](devices.md) for frames, motion and driver behavior.
+See [device contracts](devices.md) for frames, motion and node behavior.
 
 ## Tools
 
@@ -54,7 +54,7 @@ Tools are executable operations with names, descriptions and input schemas. They
 perform computation or sequences of device calls without requiring the agent to
 choose every intermediate step. The `exec` tool runs ordinary Python source or
 script files with runtime access, without requiring a tool manifest. Scripts can
-compose perception and control tools, wait on the world clock, check measured
+compose perception and control helpers, wait on the world clock, check measured
 feedback in bounded loops, and return structured results with multiple images.
 The agent interprets those observations before choosing the next action.
 
@@ -81,7 +81,7 @@ supported by references, scripts or procedure metadata. The agent loads it to
 choose operations, interpret results and decide next steps. Loading a skill does
 not execute the procedure or grant additional permissions.
 
-For example, `setup-device` guides driver provisioning, profile creation and
+For example, `setup-device` guides device node provisioning, profile creation and
 interface verification. A camera calibration skill guides the agent to collect
 observations through sampling tools, compute a calibration, and apply accepted
 results through `profile_write`. The devices supply measurements, tools perform

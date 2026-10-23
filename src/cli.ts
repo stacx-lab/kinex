@@ -43,7 +43,8 @@ RPC, @file attachments and advanced Pi tool/resource flags are not supported.
 
 TUI: /load /unload /ping /stop /devices /record
      /onboarding /register /calibrate /mode /model /login /new /compact
-Pi's /reload refreshes agent resources. Python/uv remain external dependencies.
+Pi's /reload refreshes agent resources. Python with uv, or Pixi for ROS workspaces,
+remains an external dependency.
 `
 
 async function main(): Promise<void> {

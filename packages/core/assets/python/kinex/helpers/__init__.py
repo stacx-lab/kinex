@@ -8,6 +8,7 @@ _MODULES = {
     "lookup_transform": "frames", "transform_pose": "frames", "relative_pose": "frames",
     "joint_model": "kinematics", "trajectory": "motion",
     "run_policy": "policy", "locate_object_3d": "perception",
+    "image_array": "images", "save_image": "images",
 }
 __all__ = sorted(_MODULES)
 

@@ -21,9 +21,9 @@ capabilities. Hosts own permissions, sessions, cancellation and compaction.
 ## Device calls and control
 
 Each `.kinex/devices/<name>/profile.yaml` requires `type` and `description`.
-The description gives general identity, capabilities and limitations. Typed
-Top-level physical facts and explicit frames retain typed schema checks. Type does not imply
-an operation name or payload.
+The description gives general identity, capabilities and limitations. Top-level
+physical facts and explicit frames keep typed schema checks; type does not imply an
+operation name or payload.
 
 `operations.<name>` requires its own `description`, transport, direction, endpoint
 and ROS type. Describe only that operation: units, frames, timing, input/output
@@ -48,30 +48,53 @@ The model `device` tool accepts `{deviceID, action, args}`. Action is explicit.
 concurrent dispatch; results preserve order and per-entry failures. Image
 results attach PNGs for the model. Python reaches devices only through
 `communication()`.
-There is no implicit type-based read/write or camera conversion.
 
 For workflows use `communication()` async pub/sub and request/response helpers.
 Managed commands carry invocation ownership and generation; acceptance is not
 arrival. Measure feedback to verify results. Use the world for time and tf2 for
 stamped transforms. Helper-specific operation requirements are explicit helper
-contracts, never requirements of the device type.
+contracts, never requirements of the device type. Device type guides recommend ROS
+patterns; workspace descriptions define the actual interface.
+
+Within `async with communication() as io`,
+`await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)` queries
+Kinex-owned tf2 history without advancing world time. See
+[the helper index](assets/python/kinex/helpers/helpers.txt) for available functions
+and their implementations.
 
 ### Feedback control with `exec`
 
-Use bounded Python loops and return only selected results. On failure, timeout,
-cancellation or disposal, cleanup stops motion still owned by that invocation and
-cancels its pending requests. Successful completion may leave accepted motion
-running. `stop_owned()` explicitly stops owned motion. A failed old invocation
-cannot stop a newer replacement. Borrowed node processes are never terminated.
+Use bounded Python loops and return only selected results; ownership and cleanup
+follow [motion and supervision](../../docs/communication.md#motion-and-supervision).
+For example, wait until an arm settles, then return two camera images:
+
+```python
+import asyncio
+from kinex import communication, finish, helpers
+
+async def main():
+    async with communication() as io:
+        state = io.subscribe("arm.joint_state", depth=1)
+        for step in range(50):
+            sample = await state.next(timeout_s=2)
+            if max(map(abs, sample.velocity)) < 0.005:
+                break
+            await io.request("world.wait", duration_s=0.1)
+        files = [helpers.save_image((await io.request(f"{camera}.capture")).image)
+                 for camera in ("camera_wrist", "camera_scene")]
+    finish({"steps": step + 1}, file=files)
+
+asyncio.run(main())
+```
 
 ## Public runtime
 
 - `tools.list()` returns input JSON schemas plus discovery problems; defaulted
   arguments remain optional for host validation. `tools.call()`
   rescans, validates arguments, checks permissions and returns normalized results.
-- `skills.list()/load()` and `context()` provide discovered skills and live robotics
-  context (shared instructions, guide roots, readiness and Python environment)
-  for the host's prompt. Python context includes `library` and `workspaceLibrary`
+- `skills.list()/load()` and `context()` provide discovered skills and robotics
+  context (shared instructions, guide roots, skills, recording and Python
+  environment) for the host's prompt. Python context includes `library` and `workspaceLibrary`
   paths for shells that need an explicit `PYTHONPATH`. Core does not edit the
   host's system prompt.
 - `devices.warmLoaded()` restores already-loaded devices once per runtime and returns
@@ -85,16 +108,16 @@ cannot stop a newer replacement. Borrowed node processes are never terminated.
   a process waits for preparation; failed bootstraps can retry without accepting a partial environment.
   Preparation returns the interpreter and child-process environment.
 - `devices.list()/load()/reload()/unload()/ping()` provide device lifecycle APIs.
-  Load/reload returns `{device, activating, ready}`; await
+  Load/reload returns `{device, ready}`; await
   `ready` for background initialization. `devices.dispatch()` is a trusted operation API.
 - `devices.templates()` discovers provisioning instances and type templates.
   `devices.unregister(name, signal?)` holds the device lifecycle fence through
-  capture shutdown, deactivation and deletion, including legacy calibration
-  files named `*-<device>.json`. Attempt directories and setup plans are retained.
+  capture shutdown, deactivation and deletion. Attempt directories and setup plans
+  are retained.
   Failed deactivation preserves device files. This trusted method
   does not prompt; the `/unregister` command confirms through its host.
-- `profiles.snapshot()/writeManifest()/writeDevice()` and `readiness()` expose
-  workspace state. Profile writes validate using the existing schemas.
+- `profiles.writeManifest()/writeDevice()` and `readiness()` expose workspace
+  state. Profile writes validate using the existing schemas.
 - `recording.start()/snap()/stop()/status()/recent()` manage topic bags and explicit
   snapshots. Start specs accept `{rate, operations?}` per device; the default is all
   declared topics. Rates cap outputs in world time, while commands, clock and TF
@@ -116,16 +139,14 @@ is shared; use separate workspaces for independent persistent state.
 URDF parsing is shared within a runtime. Cancelling a caller releases its wait;
 runtime disposal cancels the shared parser and releases its process.
 
-`run()` binds low-level calls and their asynchronous work to a runtime scope.
-Standalone and extension integrations should prefer bound runtime methods.
-Exported subpaths support internal Kinex consumers; the root runtime API
-is the intended integration surface.
+Exported subpaths support internal Kinex consumers; the root runtime API is the
+intended integration surface.
 
 Onboarding and calibration use `createKinexSetup(runtime)` and
 `setupContribution(setup)` from `@kinex/setup`. Core retains registration workflows
 at `@kinex/core/workflows/index`, template discovery and unregister.
-`runtime.readiness()` and dynamic context report profile completeness and
-prerequisite status without procedural calibration guidance.
+`runtime.readiness()` reports profile completeness and prerequisite status without
+procedural calibration guidance.
 
 The core model tool `profile_write` writes workspace facts (`kind: robot`), device
 profiles (`kind: device`) and calibration-request markers (`kind: needed`). It
@@ -134,11 +155,6 @@ clears. New devices remain unloaded; edits preserve activation intent. The trust
 profile API remains available for hosts. The tool requests `profile_write`
 permission, whose core resolver default is `allow`; explicit rules and host
 callbacks still apply.
-
-Migration: replace `calib_write` calls with `profile_write` and move configured
-`permission.calib_write` rules to `permission.profile_write`. No alias is provided.
-Replace `setup.devices.templates/unregister` with `runtime.devices.templates/unregister`;
-setup's device facade is removed. Workspace formats are unchanged.
 
 `runtime.operation(fn, signal?)` tracks a trusted feature operation in the runtime's
 scope and supplies a combined cancellation signal. `runtime.tools.execute(def, input,
@@ -151,27 +167,20 @@ other tool traffic retains its tool name.
 ## Assets and discovery
 
 Builtin typed device templates contain Setup and Profile guidance. They explain
-how to author descriptions, physical facts, operations and nodes. They do not
-provide usage text for the system prompt. No DEVICE.md Use section is selected
-or injected, including instance files. The stable prompt only directs agents to
-runtime discovery. Context refresh and compaction do not inject catalogs.
+how to author descriptions, physical facts, operations and nodes, and supply no
+usage text ([device contracts](../../docs/devices.md#profiles)). The stable prompt
+only directs agents to runtime discovery. Context refresh and compaction do not inject catalogs.
 
 Guide discovery preserves nearest-workspace/user/builtin precedence and searches
 named bundles before type templates. Python discovery is inert; `.kinex/python`
 is prepared lazily on approved execution or by explicit preparation. Nodes use
 Kinex Python unless a device SDK needs a separate `runtime.interpreter`.
 
-Legacy `access.driver`, JSONL drivers and production in-memory mocks are unsupported.
-Old shipped provisioning/driver assets remain historical references; they are not
-executable device contracts. Bind actual ROS endpoints or implement factories in
-`runtime.nodes`. Existing workspaces need explicit migration; no adapter fallback
-is installed. Only workspace_libero was migrated in this refactor.
-
 ## Python scripting
 
 Use `exec` to run ordinary Python with access to the active runtime. Supply exactly
-one of `python` (source) or `file` (a script path); no manifest, `main()` function or
-`kind` is required. Multiline source is passed directly, without shell syntax.
+one of `python` (source) or `file` (a script path); no manifest or `main()` function
+is required. Multiline source is passed directly, without shell syntax.
 Optional `description` supplies a short lowercase TUI label, such as `inspect arm state`.
 
 ```json
@@ -191,9 +200,8 @@ directory. For example:
 
 `args` defaults to `{}` and is available through `kinex.args()`; `argv` defaults to
 `[]` and populates `sys.argv[1:]`. Execution lazily prepares and reuses Kinex's
-managed Python. Interpreter overrides on exec and Python tool manifests are rejected.
-`timeout_s` defaults to 120 wall-clock seconds. Composed tools also enforce their
-own timeouts within the parent's remaining time. Each invocation uses a fresh
+managed Python; exec and Python tools have no interpreter option. `timeout_s`
+defaults to 120 wall-clock seconds. Each invocation uses a fresh
 process; script stdin receives EOF. Owned subprocesses are terminated when the
 invocation ends, including on success.
 
@@ -210,18 +218,13 @@ Output truncation is reported explicitly. Raw prints and subprocess output canno
 be interpreted as runtime messages. Invalid arguments use the standard tool
 validation error result; permission denial propagates to the host.
 
-One `python_tool` approval covers script execution and composed runtime
-calls. Scripts can use `communication`, `call`, `profile`, `robot` and `runtime`
-from `kinex`. Composed tools share the execution approval. Python cannot
-load/unload devices or call the recording tool through its runtime API. Failure,
-timeout and cancellation trigger an attempt to stop motion still owned by the
-invocation and terminate owned subprocesses. Cleanup failures are logged while
-the original failure is returned; successful completion may leave submitted
-motion running. Use `kinex.stop_owned()` to request a stop and receive cleanup
-errors, including in a `finally` block around a control loop.
-
-`call(tool_name, **params)` composes Python tools with keyword arguments, not
-host tools such as shell or file editing. `exec`, manifest tools and inline Python share the execution runner.
+One `python_tool` approval covers an invocation. Scripts use `communication`,
+`helpers`, `profile`, `robot` and `runtime` from `kinex`; they cannot change device
+lifecycle or control recording. Ownership and cleanup follow
+[motion and supervision](../../docs/communication.md#motion-and-supervision). Use
+`kinex.stop_owned()` to request a stop and receive cleanup errors, including in a
+`finally` block around a control loop. `exec` and manifest tools share the
+execution runner.
 
 Python startup uses a separate host RPC channel; ordinary script stdout/stderr
 remain diagnostics. Importing the library outside a tool dialog is inert.
@@ -256,14 +259,3 @@ checks verify actual topics, services, world timing, recording and tf2 separatel
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
-
-Device type guides recommend ROS patterns; the workspace descriptions define the
-actual interface. A gripper target is a persistent grip joint position with no
-duration, measured on its joint state topic. `communication.publish` manages
-ownership and acknowledgements without exposing acquisition as a device operation.
-
-Within `async with communication() as io`, use
-`await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)` for Kinex-owned
-persistent tf2 history. Transform lookup is independent of world operations and
-never advances world time. See [the helper index](assets/python/kinex/helpers/helpers.txt)
-for available functions and their implementations.

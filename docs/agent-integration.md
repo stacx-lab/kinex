@@ -2,13 +2,12 @@
 
 ## Tools and device guidance
 
-Tools declare input schemas; Python manifests also declare capability kind and
-timeout. Composition preserves permissions and recording attribution. Device
-templates own setup/profile guidance only. Device and operation descriptions live
-in profile.yaml, which agents read directly. Neither type usage nor instance
-DEVICE.md usage enters agent context.
+Tools declare input schemas; Python manifests also declare a timeout. Composition
+preserves permissions and recording attribution. Device templates own setup
+guidance only, and agents read device and operation descriptions from profiles; see
+[device contracts](devices.md#profiles).
 Workspace safety limits and keep-out zones remain manifest data, outside robot
-context; `safety.notes` is not a schema field.
+context.
 
 `exec` is a core tool alongside direct device calls and reusable Python tools.
 It runs source or script files in a fresh process, returning captured stdout/stderr,
@@ -27,26 +26,17 @@ without discarding the successful observations.
 ## Sessions and permissions
 
 Hosts own approval UI, session identity and cancellation, keeping trusted commands
-separate from model calls. Missing permission callbacks deny except stop. Standalone
+separate from model calls. Missing permission callbacks deny; stop never asks. Standalone
 retains connections across same-workspace sessions while cancelling old calls,
 resetting grants and ending recordings; workspace replacement/quit disposes them.
 Robotics/question batches execute sequentially; denial/cancellation stops later
 calls without rolling back completed work. Pure coding batches remain parallel.
 
-`exec` requests `python_tool` approval once for the script and its
-composed runtime calls. Device reads and actions share that approval; composed
-Python tools share the same execution scope. Python's runtime API cannot
-change device lifecycle or call the recording tool. Existing manifest tools keep
-their permission behavior when invoked outside `exec`.
-
-Scripts and composed tools share cancellation and motion ownership. On controller
-failure, timeout or cancellation, the runner attempts to stop motion they still
-own and terminates owned subprocesses. Cleanup failures are logged while the
-original failure is returned. Normal script completion does not imply a stop:
-scripts use `stop_owned()` when their stopping condition requires one. Ownership
-checks preserve replacements, subject to the node's physical stop scope.
-These behaviors use the shared Python runner; hosts should route `exec` through
-core's tool API.
+`exec` requests `python_tool` approval once per invocation; its device reads and
+commands share that approval, and Python cannot change device lifecycle or control
+recording. Manifest tools keep their own permission when invoked outside `exec`.
+Ownership and cleanup follow [motion and supervision](communication.md#motion-and-supervision);
+hosts route `exec` through core's tool API so the shared Python runner applies them.
 
 ## Recording
 
@@ -73,7 +63,7 @@ retain invocation attribution separately. No automatic video transcoding occurs.
 Queue losses and errors are counted. Rate-filtered output samples are counted
 separately from losses. Unload/disposal finalize owned capture processes;
 borrowed publishers remain running. Quotas permit limited overshoot. Hosts supply
-transcript references; outcome labels are annotations, not verification.
+transcript references; outcomes and summaries are annotations, not verification.
 
 ## Context and compaction
 
@@ -90,7 +80,7 @@ persists outside model context; shutdown clears footer timers/subscriptions.
 
 Standalone uses Kinex storage and a managed auth link so SDK child sessions share
 credentials and OAuth locks; conflicts are never overwritten. Pi owns `/reload`;
-programmatic core `devices.reload()` remains available. Setup bundles upstream
+programmatic core `devices.reload()` remains available. Standalone bundles upstream
 web-search/BTW extensions, loaded through Pi with explicit packages taking
 precedence. BTW children use upstream coding tools and credentials without Kinex
 runtime or permission hooks. Package management uses Pi APIs without starting

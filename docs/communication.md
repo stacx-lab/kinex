@@ -76,7 +76,6 @@ The host TypeScript API retains `runtime.devices.operations()`.
 
 Device and operation descriptions are required strings and may be empty. Typed
 templates guide setup; they do not prescribe operation names or inject usage text.
-Legacy JSONL drivers and in-memory mock execution are unsupported.
 
 ## Kinex Python
 
@@ -87,9 +86,10 @@ For ROS workspaces, configure `.kinex/kinex.json`:
 {"python": {"provider": "ros-jazzy", "interfaces": ["../../vendor/ros/interfaces"]}}
 ```
 
-Interface source paths resolve relative to `.kinex`. Explicit preparation with
-`await runtime.python.prepare()` installs the independent Pixi/RoboStack Jazzy
-Python 3.12 environment and builds core and configured interfaces there. The
+Interface source paths resolve relative to `.kinex`. Hosts prepare it explicitly
+with the TypeScript `runtime.python.prepare()`, which installs the independent
+Pixi/RoboStack Jazzy Python 3.12 environment and builds core and configured
+interfaces there. The
 provider is selected from workspace configuration, independent of device load
 state. Discovery does not install or create an environment. First approved use
 prepares a missing environment and rebuilds interfaces whose sources changed;
@@ -97,8 +97,8 @@ explicit preparation always rebuilds them from clean.
 ROS processes source only their own overlays; host shells remain unchanged.
 Non-ROS workspaces default to the existing uv environment. A simulator keeps its
 own Python and communicates with Kinex through ROS; simulator packages are not
-installed in Kinex Python. `exec.interpreter` and Python tool manifest interpreter
-overrides are rejected with migration guidance.
+installed in Kinex Python. `exec` and Python tool manifests have no interpreter
+option.
 
 ## Async communication
 
@@ -241,8 +241,8 @@ transform. Kinex retains the tf2 service across exec calls, so a new
 invocation can query a paused world without waiting for another physics tick.
 Missing relationships and unavailable timestamps are errors.
 
-Images stay as ROS payloads in Python. `kinex.lib.camera.array` converts them for
-computation; `save` writes a selected image. Return paths with
+Images stay as ROS payloads in Python. `helpers.image_array` converts them for
+computation; `helpers.save_image` writes a selected image. Return paths with
 `finish(result, file=...)` after leaving the scope to attach images to the model.
 
 ## Native validation

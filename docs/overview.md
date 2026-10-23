@@ -13,7 +13,7 @@ repository root.
 | --- | --- |
 | `packages/core` | Device management, ROS communication and supervision, schemas, runtime Python, operational tools, setup-device and device guides. No setup, agent or UI dependency. |
 | `packages/setup` | Onboarding, calibration and ROS setup procedures. Imports core through package exports. |
-| `src`, `src/integration` | Standalone CLI, storage and product policy. Published Pi SDKs supply providers, coding tools, agent loops and TUI. |
+| `src`, `src/integration` | Standalone CLI, storage, product policy and bundled Pi extensions. Published Pi SDKs supply providers, coding tools, agent loops and TUI. |
 | `../kinex-plugins` | Plugins for Pi, Claude Code and Codex using a shared MCP adapter and explicit packed core/setup snapshots. |
 
 `KinexContribution` exposes tools, skills, commands and namespaced context. Hosts
@@ -48,9 +48,8 @@ not create a nearer workspace or initialize Python.
 Custom tools use `.kinex/tools/`: Python tools occupy
 `<name>/{tool.yaml,tool.py}`, and JS/TS tools live directly in that directory.
 Custom skills use `.kinex/skills/<name>/SKILL.md`, searched recursively. Global
-configuration uses the same plural `tools/` and `skills/` directories. Move custom
-content from the old singular directories to these discovery roots. Packaged
-assets retain their internal `builtin/tool` and `builtin/skill` paths.
+configuration uses the same `tools/` and `skills/` directories. Packaged assets
+use their internal `builtin/tool` and `builtin/skill` paths.
 Ordinary scripts passed to `exec` need no discovery entry or manifest.
 
 Core lazily prepares `.kinex/python`: uv for non-ROS workspaces, or independent
