@@ -10,7 +10,8 @@ Reuse verified factory, model, simulator and calibration facts before measuring.
 Keep unknowns as ???. Split broad objectives into independently useful facts so a
 partial calibration can satisfy a narrower task. Optional work stays deferred.
 Bind procedures to actual devices and frames; morphology does not imply an interface.
-The frame graph and setup dependency DAG are different graphs.
+The frame graph and setup dependency DAG are different graphs. Plans live in
+`.kinex/setup/plan.json`, calibration attempts in `.kinex/calib/<run>/`.
 
 Avoid adding new tests unless necessary. Skip python tests during task execution or setup attempts.
 

@@ -47,7 +47,7 @@ test('Pi package skills, prompts, themes and extensions coexist with Kinex acros
   await app.host.session.prompt('/probe-prompt argument')
   assert.match(JSON.stringify(fake.requests.at(-1)), /PACKAGE_PROMPT argument/)
   assert.match(JSON.stringify(fake.requests.at(-1)), /Inspect package resource integration/)
-  assert.match(JSON.stringify(fake.requests.at(-1)), /Kinex Python owns exec/)
+  assert.match(JSON.stringify(fake.requests.at(-1)), /exec runs Kinex Python/)
   await app.host.session.prompt('/skill:package-probe')
   assert.match(JSON.stringify(fake.requests.at(-1)), /PACKAGE_SKILL_BODY/)
   await writeFile(path.join(dir, 'probe-prompt.md'), 'RELOADED_PACKAGE_PROMPT $1')
