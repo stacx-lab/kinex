@@ -179,3 +179,20 @@ test('public sample and cleanup names remain ordinary declared operations',async
  }
  assert.deepEqual((await events(dir)).slice(-2).map(e=>e.action),['sample','cleanup'])
 })
+
+test('device reads attach PNG, JPEG, GIF and WebP captures in call order', async t => {
+ const {runtime,directory}=await fixture(t)
+ const images={png:'89504e470d0a1a0a',jpg:'ffd8ffe000104a46',gif:'474946383961',webp:'52494646000000005745425056503820'}
+ for (const [format,bytes] of Object.entries(images)) {
+  const file=path.join(directory,`frame.${format}`)
+  await writeFile(file,Buffer.from(bytes,'hex'))
+  await protocolDevice(runtime,directory,format,{loaded:true,handler:`def dispatch(action, args, owner, cancelled):\n    return {'file': ${JSON.stringify(file)}, 'ready': True}\n`})
+ }
+ await writeFile(path.join(directory,'notes.txt'),'not an image')
+ await protocolDevice(runtime,directory,'text',{loaded:true,handler:`def dispatch(action, args, owner, cancelled):\n    return {'file': ${JSON.stringify(path.join(directory,'notes.txt'))}, 'ready': True}\n`})
+ const single=await runtime.tools.call('device',{deviceID:'jpg',action:'read'},{sessionID:'images'})
+ assert.deepEqual(single.attachments,[{mime:'image/jpeg',path:path.join(directory,'frame.jpg')}])
+ const batch=await runtime.tools.call('devices',{calls:['webp','gif','png','text'].map(deviceID=>({deviceID,action:'read'}))},{sessionID:'images'})
+ assert.deepEqual(batch.attachments.map(attachment=>attachment.mime),['image/webp','image/gif','image/png'])
+ assert.equal(JSON.parse(batch.output).results[3].file,path.join(directory,'notes.txt'))
+})

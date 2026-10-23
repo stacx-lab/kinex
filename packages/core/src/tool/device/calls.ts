@@ -1,11 +1,10 @@
 import { z } from "zod"
-import { readFile } from "node:fs/promises"
 import { ProfileStore } from "../../device/profile/store.ts"
 import { checkDeviceCall, dispatchDevice } from "../../device/dispatch.ts"
 import { lifecycleAction } from "../../device/lifecycle.ts"
 import { isCommandAction } from "../../device/interface.ts"
 import { NamedError } from "../../util/error.ts"
-import { imageMimeBytes } from "../../util/media.ts"
+import { imageMime } from "../../util/media.ts"
 import type { Attachment, Context } from "../tool.ts"
 import { failure, type Failure } from "../errors.ts"
 
@@ -57,13 +56,10 @@ export async function callDevices(calls: Call[], ctx: Context): Promise<CallResu
         ? await lifecycleAction(ctx.directory, item.device, action, ctx.abort)
         : await dispatchDevice(ctx.directory, item.device, action, args, undefined, ctx.abort)
       ctx.abort.throwIfAborted()
-      if (reading.filePath) {
-        const data = (await readFile(reading.filePath)).toString("base64")
-        if (imageMimeBytes(Buffer.from(data.slice(0, 32), "base64")) === "image/png")
-          return { deviceID, action, ok: true, data: reading.data, file: reading.filePath,
-            attachments: [{ mime: "image/png", data }] }
-      }
-      return { deviceID, action, ok: true, ...(reading.data ? { data: reading.data } : {}), ...(reading.filePath ? { file: reading.filePath } : {}) }
+      const { data, filePath: file } = reading
+      const mime = file && await imageMime(file)
+      return { deviceID, action, ok: true, ...(data ? { data } : {}), ...(file ? { file } : {}),
+        ...(file && mime ? { attachments: [{ mime, path: file }] } : {}) }
     } catch (error) {
       ctx.abort.throwIfAborted()
       return { deviceID, action, ok: false, ...failure(error) }

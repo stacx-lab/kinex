@@ -1,12 +1,13 @@
 import { shortID } from "@kinex/core/util/id"
 import path from "node:path"
-import { readdir, mkdir, copyFile } from "node:fs/promises"
+import { readdir, readFile, mkdir, copyFile } from "node:fs/promises"
 import { z } from "zod"
 import { spawnProcess } from "@kinex/core/util/process"
 import { pythonLaunch } from "@kinex/core/python/launch"
 import { ProfileStore } from "@kinex/core/device/profile/store"
 import { deviceFrames } from "@kinex/core/device/profile/frames"
 import { deviceTree, modelErrors } from "@kinex/core/device/profile/urdf"
+import { known } from "@kinex/core/device/profile/schema"
 import { AttemptInput, attempt, archive, saveAttempt, type Attempt } from "./attempt.ts"
 import { procedures } from "../planning/procedures.ts"
 import { atomicJSON, fail, location, inspectFacts } from "../planning/facts.ts"
@@ -28,6 +29,9 @@ export const ComputeInput = z.discriminatedUnion("operation", [
     marker_mm: z.number().positive().optional(), squares_x: z.number().int().min(2).default(7), squares_y: z.number().int().min(2).default(5),
     corners_x: z.number().int().min(2).default(9), corners_y: z.number().int().min(2).default(6), dictionary: z.string().default("DICT_4X4_50") }),
   z.strictObject({ ...common, operation: z.literal("verify-base"), measurements: file }),
+  z.strictObject({ ...common, operation: z.literal("sensor-bias"), samples: file,
+    gravity_m_s2: z.tuple([z.number(), z.number(), z.number()]).optional()
+      .describe("expected static specific force in the IMU frame, e.g. [0, 0, 9.80665] when level with +z up") }),
 ])
 export type ComputeInput = z.infer<typeof ComputeInput>
 type Operation = ComputeInput["operation"]
@@ -70,6 +74,49 @@ async function script(file: string, argv: string[], { cwd, directory, signal }: 
 const rigid = (source: string, target: string) => async (input: { points: string }, context: Context) =>
   script(computeScript("fit_rigid.py"), ["--points", await archived(context, input.points), "--source", source, "--target", target], context)
 
+// Bias channels: where each reading sits in a sample and what a static, unloaded
+// sensor should read. The node already subtracts the profile bias, so the mean
+// residual is added to it. Static averaging cannot separate a magnetic field from
+// its bias, so magnetometers are not calibrated here.
+const BIAS_CHANNELS = {
+  imu: { angular_velocity: ["angular_velocity"], linear_acceleration: ["linear_acceleration"] },
+  force_torque: { force: ["wrench", "force"], torque: ["wrench", "torque"] },
+} as const
+const Samples = z.array(z.object({ device: z.string(), data: z.record(z.string(), z.unknown()) })).min(1)
+const AXES = ["x", "y", "z"] as const
+function reading(data: unknown, path: readonly string[], axis: string): number | undefined {
+  const value = [...path, axis].reduce<unknown>((node, key) => node && typeof node === "object" ? Reflect.get(node, key) : undefined, data)
+  return typeof value === "number" ? value : undefined
+}
+
+async function sensorBias(input: Inputs["sensor-bias"], context: Context): Promise<Data> {
+  const name = context.run.bindings.target ?? fail("Bind target")
+  const device = await ProfileStore.readDevice(context.cwd, name)
+  if (device?.type !== "imu" && device?.type !== "force_torque") fail("Bias calibration needs an imu or force_torque target")
+  const measurement: Record<string, unknown> = known(device.measurement) ? device.measurement : fail("Record the measured channels first")
+  const samples = Samples.parse(JSON.parse(await readFile(await archived(context, input.samples), "utf8"))).filter(sample => sample.device === name)
+  const channels: Data = {}
+  for (const [channel, path] of Object.entries(BIAS_CHANNELS[device.type])) {
+    const spec = z.object({ axes: z.array(z.enum(AXES)), bias: z.record(z.string(), z.number()), quantity: z.string().optional() })
+      .safeParse(measurement[channel]).data
+    if (!spec) continue
+    const expected = channel === "linear_acceleration" && spec.quantity !== "gravity_removed"
+      ? input.gravity_m_s2 ?? fail("specific-force accelerometers need gravity_m_s2, the expected static reading in the IMU frame")
+      : [0, 0, 0]
+    const axes = spec.axes.map(axis => {
+      const values = samples.flatMap(sample => reading(sample.data, path, axis) ?? [])
+      if (!values.length) fail(`no ${channel}.${axis} readings from ${name}`)
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length
+      const std = Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length)
+      const residual = mean - expected[AXES.indexOf(axis)]!
+      return [axis, { n: values.length, mean, std, residual, bias: spec.bias[axis]! + residual }] as const
+    })
+    channels[channel] = Object.fromEntries(axes)
+  }
+  if (!Object.keys(channels).length) fail(`${name} declares no channel with a recorded bias to calibrate`)
+  return { ok: true, n: samples.length, channels }
+}
+
 // A measured mount of the target in a frame of its bound parent.
 function mount(method: string, frame: string, data: Data, { run }: Context): Facts {
   const parent = run.bindings.parent ?? run.bindings.anchor ?? run.bindings.arm ?? fail("Bind parent, anchor or arm")
@@ -80,7 +127,7 @@ function mount(method: string, frame: string, data: Data, { run }: Context): Fac
 const SOLVERS: { [O in Operation]: Solver<O> } = {
   "urdf-introspect": {
     async solve(_, { cwd, run }) {
-      const device = await ProfileStore.readDevice(cwd, run.bindings.arm ?? fail("Bind arm"))
+      const device = await ProfileStore.readDevice(cwd, run.bindings.arm ?? run.bindings.target ?? fail("Bind arm or target"))
       if (device?.type !== "joint" && device?.type !== "gripper") return { ok: false, notes: "URDF models belong to joint and gripper devices" }
       const model = deviceTree(device)
       if (!model) return { ok: false, notes: modelErrors.get(device) ?? "record this device's URDF path and base_link first" }
@@ -155,6 +202,17 @@ const SOLVERS: { [O in Operation]: Solver<O> } = {
   "verify-base": {
     solve: async (input, context) => script(computeScript("verify_base.py"), ["--measurements", await archived(context, input.measurements)], context),
     quality: passed,
+  },
+  "sensor-bias": {
+    solve: sensorBias,
+    quality: data => number(data, "n") >= 20 ? "passed" : "failed",
+    async facts(_, data) {
+      const channels = z.record(z.string(), z.record(z.string(), z.object({ bias: z.number() }))).parse(data.channels)
+      const bias = Object.fromEntries(Object.entries(channels).map(([channel, axes]) =>
+        [channel, Object.fromEntries(Object.entries(axes).map(([axis, value]) => [axis, value.bias]))]))
+      return { method: "bias", patch: { measurement: Object.fromEntries(Object.entries(bias).map(([channel, value]) => [channel, { bias: value }])) },
+        resolved: Object.entries(bias).map(([channel, value]) => [`/measurement/${channel}/bias`, value]) }
+    },
   },
 }
 

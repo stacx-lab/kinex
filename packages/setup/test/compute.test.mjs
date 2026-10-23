@@ -172,6 +172,44 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
   assert.deepEqual((await runtime.devices.list()).find(device => device.name === 'tool').frames.base.translation_m, [0, 0, .02])
 })
 
+test('sensor bias adds the mean static residual and needs gravity for specific force', async t => {
+  const { runtime, compute, json } = await fixture(t)
+  const channel = (bias, extra = {}) => ({ axes: ['x', 'y', 'z'], bias, ...extra })
+  await runtime.profiles.writeDevice({ description: '', name: 'imu', type: 'imu',
+    measurement: { angular_velocity: channel({ x: .01, y: 0, z: 0 }), orientation: null,
+      linear_acceleration: channel({ x: 0, y: 0, z: 0 }, { quantity: 'specific_force' }) },
+    frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } })
+  const samples = await json('samples.json', Array.from({ length: 20 }, () => ({ device: 'imu',
+    data: { angular_velocity: { x: .02, y: -.01, z: 0 }, linear_acceleration: { x: .1, y: 0, z: 9.9 } } })))
+  const input = { operation: 'sensor-bias', procedure: 'calibrate-sensor-bias', bindings: { target: 'imu' }, samples }
+  const missing = await compute(input)
+  assert.equal(missing.isError, true)
+  assert.match(missing.output, /gravity_m_s2/)
+  const result = await compute({ ...input, gravity_m_s2: [0, 0, 9.80665] })
+  assert.ok(!result.isError, result.output)
+  const value = JSON.parse(result.output)
+  assert.equal(value.quality, 'passed')
+  const { measurement } = value.proposedChanges[0].data
+  assert.ok(Math.abs(measurement.angular_velocity.bias.x - .03) < 1e-12)
+  assert.ok(Math.abs(measurement.linear_acceleration.bias.z - (9.9 - 9.80665)) < 1e-12)
+  await runtime.profiles.writeDevice(value.proposedChanges[0].data)
+  const device = (await runtime.devices.list()).find(entry => entry.name === 'imu')
+  assert.equal(device.measurement.linear_acceleration.quantity, 'specific_force')
+  assert.ok(Math.abs(device.measurement.linear_acceleration.bias.x - .1) < 1e-12)
+})
+
+test('grip calibration introspects the bound gripper URDF', async t => {
+  const { directory, runtime, compute } = await fixture(t)
+  await mkdir(path.join(directory, '.kinex/devices/hand'), { recursive: true })
+  await writeFile(path.join(directory, '.kinex/devices/hand/hand.urdf'), '<robot name="hand"><link name="base_link"/><link name="finger"/><joint name="finger_joint" type="prismatic"><parent link="base_link"/><child link="finger"/><axis xyz="1 0 0"/><limit lower="0" upper="0.04"/></joint></robot>')
+  await runtime.profiles.writeDevice({ description: '', name: 'hand', type: 'gripper',
+    model: { format: 'urdf', path: 'hand.urdf', base_link: 'base_link' },
+    frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } })
+  const result = await compute({ operation: 'urdf-introspect', procedure: 'calibrate-gripper-grip', bindings: { target: 'hand' } })
+  assert.ok(!result.isError, result.output)
+  assert.deepEqual(JSON.parse(result.output).data.model.joints.map(joint => [joint.name, joint.limits]), [['finger_joint', { min: 0, max: .04 }]])
+})
+
 test('cancelling an owned computation never publishes a result', async t => {
   const { runtime, setup, directory, python, json } = await fixture(t)
   await runtime.profiles.writeDevice({ description: '',

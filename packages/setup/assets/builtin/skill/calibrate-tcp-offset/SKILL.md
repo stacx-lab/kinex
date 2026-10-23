@@ -1,13 +1,14 @@
 ---
 name: calibrate-tcp-offset
-description: Measure the tool-tip translation in the gripper base by pivot touches when a task needs a TCP; orientation remains a separate fact.
+description: Measure the tool-tip translation in a gripper or suction tool's base by pivot touches when a task needs a TCP; orientation remains a separate fact.
 ---
 
 # Calibrate tcp offset
 
-Bind `target` to the gripper and `arm` to its parent arm. Require a known
-mount in the sampled arm frame. The fit updates `frames.tcp`, relative
-to the gripper base, preserving TCP orientation and the existing mount.
+Bind `target` to the gripper or suction tool and `arm` to its parent arm. Require
+a known mount in the sampled arm frame. The fit updates `frames.tcp`, relative to
+the tool's base, preserving TCP orientation and the existing mount. A suction
+tool's TCP is the cup contact centre.
 
 Prefer verified controller TCP settings or a matching tool datasheet. Archive the
 source with provenance rather than repeating measurement. Otherwise require

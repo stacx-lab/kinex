@@ -178,9 +178,11 @@ not replace them. Custom computations use host tools and archive their evidence.
 | --- | --- |
 | `onboard-ros2` | ROS integration selection, configuration, registration and interface verification; explicit plan requirements without a fixed procedure. |
 | `calibrate-camera-intrinsics`, `calibrate-camera-extrinsics` | Color image geometry and camera mounting. |
-| `calibrate-tcp-offset` | Tool-tip translation; orientation is separate. |
+| `calibrate-tcp-offset` | Gripper or suction tool-tip translation; orientation is separate. |
 | `calibrate-fixed-arm-mount`, `calibrate-dual-arm` | Rigid parent/arm or cross-arm transforms. |
 | `calibrate-joint-range`, `calibrate-world-geometry` | Joint/model limits and independently measured environment geometry. |
+| `calibrate-gripper-grip` | The grip joint and its open and closed positions. |
+| `calibrate-sensor-bias` | IMU gyro/accelerometer and force/torque bias from static readings. |
 | `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected base conventions, motion response, expiry/stop and posture references, evaluated with `verify-base`. |
 
 Fixed arms, dual arms, wheeled manipulators, quadrupeds with arms and humanoids use

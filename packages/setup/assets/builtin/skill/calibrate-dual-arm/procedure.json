@@ -13,12 +13,14 @@
     },
     "anchor_tcp": {
       "types": [
-        "gripper"
+        "gripper",
+        "suction"
       ]
     },
     "second_tcp": {
       "types": [
-        "gripper"
+        "gripper",
+        "suction"
       ]
     }
   },

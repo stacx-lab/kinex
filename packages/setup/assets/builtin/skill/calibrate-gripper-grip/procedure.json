@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "roles": {
+    "target": {
+      "types": [
+        "gripper"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "target",
+      "pointer": "/model"
+    }
+  ],
+  "produces": [
+    {
+      "role": "target",
+      "pointer": "/grip"
+    }
+  ],
+  "computes": [
+    "urdf-introspect"
+  ],
+  "quality": "Open and closed come from vendor documentation or measured joint_state at the ends of travel, on the actuated non-mimic joint."
+}

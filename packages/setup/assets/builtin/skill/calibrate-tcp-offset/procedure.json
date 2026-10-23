@@ -3,7 +3,8 @@
   "roles": {
     "target": {
       "types": [
-        "gripper"
+        "gripper",
+        "suction"
       ]
     },
     "arm": {

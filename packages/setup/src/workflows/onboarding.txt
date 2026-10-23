@@ -10,7 +10,7 @@ measured. Registration and device node authoring belong to core setup-device.
 
 Describe actual non-overlapping endpoints by interface: URDF joint arms, lifts and
 dexterous hands, locomotion bodies (wheeled, legged or humanoid) with declared
-modes, URDF grippers, cameras and other sensors. An arm need not have a gripper. Quadrupeds need not expose raw
+modes, URDF grippers, suction tools, cameras and other sensors. An arm need not have a gripper. Quadrupeds need not expose raw
 leg joints; never invent a locomotion policy or a whole-body control interface.
 Morphology is identity.kind, not an execution contract.
 
