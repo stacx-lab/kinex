@@ -40,7 +40,7 @@ export class Interaction {
     ask: async request => {
       const { ctx, signal } = this.current()
       const key = `${ctx.sessionManager.getSessionId()}:${request.permission}`
-      if (request.permission === "device_stop" || this.mode !== "ask" || this.grants.has(key)) return
+      if (this.mode !== "ask" || this.grants.has(key)) return
       const action = kinexPermissionAction(request.permission, await loadPermissionRules(ctx.cwd), setupPermissionDefaults)
       if (action === "allow") return
       if (action === "ask" && ctx.hasUI) {

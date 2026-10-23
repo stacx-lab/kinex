@@ -41,7 +41,7 @@ test('Pi package skills, prompts, themes and extensions coexist with Kinex acros
   assert.ok(loader.getSkills().skills.some(skill => skill.name === 'package-probe'))
   assert.ok(loader.getPrompts().prompts.some(prompt => prompt.name === 'probe-prompt'))
   assert.ok(loader.getThemes().themes.some(theme => theme.name === 'probe-theme'))
-  assert.ok(app.host.session.getAllTools().some(tool => tool.name === 'kinex_skill'))
+  assert.ok(app.host.session.getAllTools().some(tool => tool.name === 'skill'))
   await app.host.session.prompt('/package-command')
   assert.ok(app.host.session.sessionManager.getEntries().some(entry => entry.customType === 'package-command-ran'))
   await app.host.session.prompt('/probe-prompt argument')

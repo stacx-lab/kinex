@@ -30,11 +30,11 @@ function jsonText(text: string, compact: boolean): string {
   catch { return text }
 }
 
-export function toolRenderers(name: string, displayName = name): Pick<ToolDefinition, "renderCall" | "renderResult"> {
+export function toolRenderers(name: string): Pick<ToolDefinition, "renderCall" | "renderResult"> {
   return {
     renderCall(input, theme, context) {
       const args = object(input)
-      const title = theme.fg("toolTitle", theme.bold(displayName))
+      const title = theme.fg("toolTitle", theme.bold(name))
       if (!tools.has(name)) return new TruncatedText(title, 0, 0)
       const line = `${title} ${theme.fg("muted", singleLine(summary(name, args)))}`.trimEnd()
       if (!context.expanded) return new TruncatedText(line, 0, 0)

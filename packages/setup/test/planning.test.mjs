@@ -124,13 +124,13 @@ test('inspection checks file presence and explicit profile values without compar
     loaded: true,
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const file = await evidence()
-  const input = await evidence('driver.txt', 'original input')
+  const input = await evidence('node.py', 'original input')
   const output = await evidence('output.txt', 'original output')
   const fileFact = path => ({ kind: 'file', path })
   const nodes = [node('check', { inputs: [fileFact(input), fact('sensor', '/loaded', true)], outputs: [fileFact(output)] })]
   await save(nodes, ['check'], [fileFact(input)])
   await done('check', file)
-  await evidence('driver.txt', 'changed input')
+  await evidence('node.py', 'changed input')
   await evidence('output.txt', 'changed output')
   await save([{ ...nodes[0], title: 'Updated title' }], ['check'], [fileFact(input)])
   assert.equal((await setup.plan.inspect()).taskSatisfied, true)

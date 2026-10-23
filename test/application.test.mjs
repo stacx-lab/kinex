@@ -60,7 +60,7 @@ test('headless permission denial prevents coding side effects', async t => {
   assert.equal(fake.requests.length, 1)
 })
 
-test('same-workspace replacement retains drivers and finalizes recording', async t => {
+test('same-workspace replacement retains device nodes and finalizes recording', async t => {
   const cwd = await workspace(t)
   await fakeProvider(t, isolation.root)
   const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
