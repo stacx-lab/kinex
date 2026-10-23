@@ -14,7 +14,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 
 from kinex.communication import qos
-from kinex.node import motion_service
+from kinex.node import motion_service, node_name
 
 SWITCH = "/vacuum_gripper/grip_cmd"
 DETECTED = "/vacuum_gripper/object_detected"
@@ -23,7 +23,7 @@ PRESSURE = "/vacuum_gripper/pressure"
 
 class Suction(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"], context=context)
+        super().__init__(node_name(profile), context=context)
         self.detected = None
         operations = profile["operations"]
         self.switch = self.create_client(SetBool, SWITCH)

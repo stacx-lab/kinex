@@ -1,12 +1,13 @@
 name: relative_pose
-description: Transform a frame-attached pose through tf2. Use device:frame references or ROS frame IDs and an
-  optional world timestamp. Missing frame relationships and unavailable timestamps
-  are errors.
+description: >-
+  Transform a frame-attached pose through tf2. Use device:frame references or ROS
+  frame IDs and an optional world timestamp. Missing frame relationships and
+  unavailable timestamps are errors.
 parameters:
   type: object
   additionalProperties: false
   properties:
-    child: &id001
+    child: &framed_pose
       type: object
       additionalProperties: false
       properties:
@@ -15,27 +16,15 @@ parameters:
           description: Qualified frame reference such as arm:base or arm:flange; ROS IDs such as arm/base also work.
         pose:
           type: array
-          items:
-            type: number
+          items: {type: number}
           minItems: 7
           maxItems: 7
-          default:
-          - 0
-          - 0
-          - 0
-          - 0
-          - 0
-          - 0
-          - 1
-      required:
-      - frame
-    parent: *id001
+          default: [0, 0, 0, 0, 0, 0, 1]
+      required: [frame]
+    parent: *framed_pose
     timestamp:
       type: number
       minimum: 0
-  required:
-  - child
-  - parent
+  required: [child, parent]
 timeout_s: 60
-devices: []
 async: true

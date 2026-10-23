@@ -15,8 +15,8 @@ test('persisted calibration poses and transforms retain strict quaternion valida
   }
 })
 
-test('shipped executor and trajectory generator obey motion contracts', () => {
-  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./motion_execution.py', import.meta.url))], {
+test('geometry, joint, locomotion and trajectory helpers obey motion contracts', () => {
+  execFileSync(process.env.PYTHON ?? 'python3', [fileURLToPath(new URL('./motion.py', import.meta.url))], {
     env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) },
     encoding: 'utf8',
   })

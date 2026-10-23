@@ -13,18 +13,22 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, MagneticField
 
 from kinex.communication import qos
+from kinex.node import node_name
 
 SOURCE = "/imu/data"
 MAGNETIC = "/imu/mag"
 VECTORS = ("angular_velocity", "linear_acceleration")
 
 
+def fact(value, what):
+    if value == "???":
+        raise ValueError(f"record {what}")
+    return value
+
+
 def bias(channel, name):
-    if channel is None:
-        return None
-    if channel["bias"] == "???":
-        raise ValueError(f"record the {name} bias; use zeros until it is calibrated")
-    return channel["bias"]
+    channel = fact(channel, f"the {name} channel, or null when it is not measured")
+    return None if channel is None else fact(channel["bias"], f"the {name} bias; use zeros until it is calibrated")
 
 
 def correct(vector, offsets):
@@ -35,11 +39,11 @@ def correct(vector, offsets):
 
 class InertialSensor(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"], context=context)
+        super().__init__(node_name(profile), context=context)
         self.frame = profile["name"] + "/base"
-        measurement = profile["measurement"]
+        measurement = fact(profile["measurement"], "the measured channels")
         self.bias = {name: bias(measurement[name], name) for name in (*VECTORS, "magnetic_field")}
-        self.orientation = measurement["orientation"] is not None
+        self.orientation = fact(measurement["orientation"], "the orientation channel, or null when it is not measured") is not None
         self.latest = None
         imu = profile["operations"]["imu"]
         self.imu = self.create_publisher(Imu, imu["endpoint"], qos(imu))

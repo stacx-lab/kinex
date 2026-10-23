@@ -1,5 +1,6 @@
 """Frame lookups and pose transforms through Kinex tf2 history."""
 
+from kinex.communication import seconds
 from kinex.errors import RPCError
 from kinex.lib.geometry import compose_rt, flat, invert_rt, pose as validate_pose, xyzq_to_rt
 
@@ -85,4 +86,4 @@ async def relative_pose(io, child, parent, timestamp=None):
     local_parent = xyzq_to_rt(validate_pose(parent.get("pose", IDENTITY)))
     stamp = relation.header.stamp
     return {"pose": flat(compose_rt(invert_rt(local_parent), compose_rt(edge, local_child))),
-            "timestamp": stamp.sec + stamp.nanosec / 1e9}
+            "timestamp": seconds(stamp)}

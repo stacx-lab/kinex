@@ -44,8 +44,6 @@ def _emit(payload):
     _out.flush()
 
 
-
-
 if _out is not None:
     _previous_excepthook = sys.excepthook
 
@@ -58,9 +56,10 @@ if _out is not None:
     sys.excepthook = _excepthook
 
 
-def _rpc_unlocked(payload):
-    _emit(payload)
-    line = _in.readline()
+def _rpc(payload):
+    with _rpc_lock:
+        _emit(payload)
+        line = _in.readline()
     if not line:
         raise RuntimeError("harness closed the dialog")
     response = json.loads(line)
@@ -71,16 +70,11 @@ def _rpc_unlocked(payload):
     return response
 
 
-def _rpc(payload):
-    with _rpc_lock:
-        return _rpc_unlocked(payload)
-
-
 def args():
     """The tool's arguments from its startup request."""
-    if _request is not None:
-        return _request["args"]
-    return json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
+    if _request is None:
+        raise RuntimeError("not running inside a kinex tool dialog")
+    return _request["args"]
 
 
 def stop_owned():
@@ -89,8 +83,8 @@ def stop_owned():
 
 
 def profile(device, *, optional=False):
-    """The device's parsed profile.yaml — the white-box read path for
-    top-level calibrated facts (color projection, explicit frames, kinematics models and typed controls).
+    """The device's parsed profile.yaml — the white-box read path for top-level
+    calibrated facts (color projection, frames, URDF model and typed device facts).
     With optional=True, an absent profile returns None; other errors still raise."""
     return _rpc({"call": "profile", "device": device, "optional": optional})["profile"]
 

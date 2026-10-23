@@ -15,8 +15,8 @@ from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from kinex.communication import qos
-from kinex.lib.joints import JointModel, home_start_tolerance, recovery_targets
-from kinex.node import motion_service
+from kinex.lib.joints import JointModel, command
+from kinex.node import motion_service, node_name
 
 STATE = "/joint_states"
 TRAJECTORY = "/joint_trajectory_controller/joint_trajectory"
@@ -25,7 +25,7 @@ HOLD_S = .1
 
 class Joints(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"], context=context)
+        super().__init__(node_name(profile), context=context)
         self.profile = profile
         self.joints = {joint["name"]: joint for joint in JointModel(profile, Path(__file__).parent).joints}
         self.names = list(self.joints)
@@ -45,12 +45,10 @@ class Joints(Node):
 
     def apply(self, message):
         trajectory = message.trajectory
-        if not trajectory.points or not set(trajectory.joint_names) <= set(self.names):
-            raise ValueError("trajectory requires points over commanded joints")
-        if self.profile["limits"] == "strict":
-            joints = [self.joints[name] for name in trajectory.joint_names]
-            targets = [list(point.positions) for point in trajectory.points]
-            recovery_targets(targets, joints, home_start_tolerance(self.profile, joints, targets[-1]))
+        if not set(trajectory.joint_names) <= set(self.names):
+            raise ValueError("trajectory names joints this device does not command")
+        command(self.profile, [list(point.positions) for point in trajectory.points],
+                [self.joints[name] for name in trajectory.joint_names])
         self.trajectory.publish(trajectory)
 
     def hold(self):

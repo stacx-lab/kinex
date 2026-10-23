@@ -24,6 +24,11 @@ def duration(seconds):
     return {"sec": nanoseconds // 1_000_000_000, "nanosec": nanoseconds % 1_000_000_000}
 
 
+def seconds(stamp):
+    """Seconds from a builtin_interfaces Time or Duration."""
+    return stamp.sec + stamp.nanosec / 1e9
+
+
 def message_value(cls, value):
     from rosidl_runtime_py.set_message import set_message_fields
     if isinstance(value, cls):
@@ -138,9 +143,9 @@ class Communication:
         self.subscriptions = []
         self.publishers = {}
         self.clients = {}
-        self.services = []
         self.generations = {}
         self.motion_locks = {}
+        self.acceptances = []
         self.enrolled = set()
         self.enroll_lock = asyncio.Lock()
         self.pending = set()
@@ -339,21 +344,10 @@ class Communication:
         motion = spec.get("motion")
         if motion:
             await self._enroll(operation)
-            async with self.motion_locks.setdefault(operation, asyncio.Lock()):
-                if operation not in self.generations:
-                    result = await self._request(
-                        {"endpoint": motion["acquire"], "type": "kinex_interfaces/srv/Acquire"},
-                        {"owner": self.owner})
-                    self.generations[operation] = result.generation
-                    status = {"endpoint": motion["status"], "type": "kinex_interfaces/msg/CommandStatus",
-                              "qos": {"depth": 64, "durability": "transient_local"}}
-                    stream = Subscription(self, status, 64)
-                    self.subscriptions.append(stream)
-                    task = asyncio.create_task(self._acceptances(stream))
-                    self.motion_pending[operation] = (task, {})
+            await self._acquire(motion)
             value.owner, value.generation, value.command_id = (
-                self.owner, self.generations[operation], uuid.uuid4().hex)
-            pending = self.motion_pending[operation][1]
+                self.owner, self.generations[motion["acquire"]], uuid.uuid4().hex)
+            pending = self.motion_pending.setdefault(operation, {})
             if len(pending) >= 32:
                 await self.accepted(operation, next(iter(pending)))
             pending[value.command_id] = self.loop.create_future()
@@ -367,13 +361,27 @@ class Communication:
         publisher.publish(value)
         return value.command_id if motion else None
 
+    async def _acquire(self, motion):
+        """One generation and status stream per motion endpoint set, shared by its operations."""
+        key = motion["acquire"]
+        async with self.motion_locks.setdefault(key, asyncio.Lock()):
+            if key in self.generations:
+                return
+            result = await self._request({"endpoint": key, "type": "kinex_interfaces/srv/Acquire"}, {"owner": self.owner})
+            self.generations[key] = result.generation
+            status = {"endpoint": motion["status"], "type": "kinex_interfaces/msg/CommandStatus",
+                      "qos": {"depth": 64, "durability": "transient_local"}}
+            stream = Subscription(self, status, 64)
+            self.subscriptions.append(stream)
+            self.acceptances.append(asyncio.create_task(self._acceptances(stream)))
+
     async def _acceptances(self, stream):
         try:
             while True:
                 status = await stream.next()
                 if status.owner != self.owner:
                     continue
-                for _, futures in self.motion_pending.values():
+                for futures in self.motion_pending.values():
                     future = futures.get(status.command_id)
                     if future and not future.done():
                         future.set_result(status)
@@ -384,12 +392,12 @@ class Communication:
         """Managed-motion protocol: acceptance does not establish arrival."""
         if command_id is None:
             raise ValueError("accepted requires (operation, command_id); use the ID returned by publish(operation, payload)")
-        if operation not in self.motion_pending or command_id not in self.motion_pending[operation][1]:
+        pending = self.motion_pending.get(operation, {})
+        if command_id not in pending:
             raise ValueError(f"no pending command {command_id} for {operation} in this invocation")
-        future = self.motion_pending[operation][1][command_id]
         async with asyncio.timeout(self.catalog[operation].get("timeout_s", 10)):
-            result = await asyncio.shield(future)
-        self.motion_pending[operation][1].pop(command_id, None)
+            result = await asyncio.shield(pending[command_id])
+        pending.pop(command_id, None)
         if not result.accepted:
             raise RuntimeError(result.message)
         return result
@@ -418,8 +426,7 @@ class Communication:
                     bridge.set_exception(error)
             pending.add_done_callback(complete)
             return await bridge
-        service = self.node.create_service(cls, endpoint, invoke, callback_group=ReentrantCallbackGroup())
-        self.services.append(service)
+        self.node.create_service(cls, endpoint, invoke, callback_group=ReentrantCallbackGroup())
         return endpoint
 
     def transforms(self):
@@ -430,26 +437,28 @@ class Communication:
                 self.tf.observe_clock(self.world_stamp)
         return self.tf
 
-    async def cleanup_owned(self, *, failed=True):
-        if not failed:
-            for request_id, cancellation in list(self.waits.items()):
-                await self._request(cancellation, {"owner": self.owner, "request_id": request_id}, 2)
-            return
-        failures = []
-        cancelled = set()
+    async def _cancel_waits(self):
+        for request_id, cancellation in list(self.waits.items()):
+            await self._request(cancellation, {"owner": self.owner, "request_id": request_id}, 2)
+
+    async def cleanup_owned(self, *, stop=True):
+        """Cancel the owner's waits on enrolled devices and, with stop, its motion; each endpoint once."""
+        failures, sent = [], set()
         for name, spec in self.catalog.items():
             if name.split(".", 1)[0] not in self.enrolled:
                 continue
             motion, cancellation = spec.get("motion"), spec.get("cancellation")
-            try:
-                if motion and failed:
-                    await self._request({"endpoint": motion["stop"], "type": "kinex_interfaces/srv/Stop"},
-                                        {"owner": self.owner}, 2)
-                if cancellation and cancellation["endpoint"] not in cancelled:
-                    cancelled.add(cancellation["endpoint"])
-                    await self._request(cancellation, {"owner": self.owner, "request_id": ""}, 2)
-            except Exception as error:
-                failures.append(error)
+            requests = [({"endpoint": motion["stop"], "type": "kinex_interfaces/srv/Stop"}, {"owner": self.owner})] if stop and motion else []
+            if cancellation:
+                requests.append((cancellation, {"owner": self.owner, "request_id": ""}))
+            for target, fields in requests:
+                if target["endpoint"] in sent:
+                    continue
+                sent.add(target["endpoint"])
+                try:
+                    await self._request(target, fields, 2)
+                except Exception as error:
+                    failures.append(error)
         if failures:
             raise ExceptionGroup("owned resource cleanup failed", failures)
 
@@ -457,12 +466,12 @@ class Communication:
         succeeded = error is None or isinstance(error, SystemExit) and error.code in (None, 0)
         try:
             if succeeded:
-                for operation, (_, pending) in self.motion_pending.items():
+                for operation, pending in self.motion_pending.items():
                     for command_id in list(pending):
                         await self.accepted(operation, command_id)
                 if self.motion_error:
                     raise self.motion_error
-                await self.cleanup_owned(failed=False)
+                await self._cancel_waits()
             else:
                 try:
                     await self.cleanup_owned()
@@ -480,9 +489,9 @@ class Communication:
             for handler in handlers:
                 handler.cancel()
             await asyncio.gather(*(asyncio.wrap_future(handler) for handler in handlers), return_exceptions=True)
-            for task, _ in self.motion_pending.values():
+            for task in self.acceptances:
                 task.cancel()
-            await asyncio.gather(*(task for task, _ in self.motion_pending.values()), return_exceptions=True)
+            await asyncio.gather(*self.acceptances, return_exceptions=True)
             for stream in tuple(self.subscriptions):
                 stream.close()
             if self.tf is not None:

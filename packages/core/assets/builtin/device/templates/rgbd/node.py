@@ -12,6 +12,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
 from kinex.communication import qos
+from kinex.node import node_name
 
 COLOR = "/camera/color/image_raw"
 DEPTH = "/camera/aligned_depth_to_color/image_raw"
@@ -19,7 +20,7 @@ DEPTH = "/camera/aligned_depth_to_color/image_raw"
 
 class Camera(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"], context=context)
+        super().__init__(node_name(profile), context=context)
         self.frame = profile["name"] + "/base"
         self.latest = {"image": None, "depth": None}
         self.pair = None

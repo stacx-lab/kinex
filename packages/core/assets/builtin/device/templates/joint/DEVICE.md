@@ -25,8 +25,8 @@ them.
 
 Agents read the resolved tree as `profile(name)["resolved_model"]` and compute
 FK and IK from it with `helpers.joint_model(name)`, so a device need not serve
-kinematics. A controller with its own kinematics may still declare `fk` or `ik`
-as ordinary optional operations, for example MoveIt's
+kinematics. A controller with its own kinematics may declare `fk` or `ik` as
+ordinary optional operations, for example MoveIt's
 `moveit_msgs/srv/GetPositionFK` and `GetPositionIK`, stating links, frames and
 units in their descriptions.
 

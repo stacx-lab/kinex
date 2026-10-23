@@ -13,22 +13,27 @@ from rclpy.qos import qos_profile_sensor_data
 from std_srvs.srv import Trigger
 
 from kinex.communication import qos
+from kinex.node import node_name
 
 SOURCE = "/ft_sensor/wrench"
 CHANNELS = ("force", "torque")
 
 
+def fact(value, what):
+    if value == "???":
+        raise ValueError(f"record {what}")
+    return value
+
+
 class ForceTorque(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"], context=context)
+        super().__init__(node_name(profile), context=context)
         self.frame = profile["name"] + "/base"
-        measurement = profile["measurement"]
+        measurement = fact(profile["measurement"], "the measured channels")
         self.bias = {}
         for channel in CHANNELS:
-            bias = (measurement[channel] or {}).get("bias", {})
-            if bias == "???":
-                raise ValueError(f"record the {channel} bias; use zeros until it is calibrated")
-            self.bias[channel] = bias
+            values = fact(measurement[channel], f"the {channel} channel, or null when it is not measured") or {}
+            self.bias[channel] = fact(values.get("bias", {}), f"the {channel} bias; use zeros until it is calibrated")
         self.offset = {channel: dict.fromkeys(self.bias[channel], 0.) for channel in CHANNELS}
         self.latest = None
         wrench = profile["operations"]["wrench"]

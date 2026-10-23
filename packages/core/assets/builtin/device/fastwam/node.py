@@ -11,7 +11,7 @@ from omegaconf import OmegaConf
 from PIL import Image
 from rclpy.node import Node
 
-from kinex.node import json_service
+from kinex.node import json_service, node_name, placement
 from kinex.lib.geometry import vector
 
 HERE = Path(__file__).resolve().parent
@@ -72,26 +72,25 @@ def decode_actions(actions, variant):
 
 class FastWam(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"].replace("-", "_"), context=context)
-        self.variant, compute = profile["variant"], profile["compute"]
+        super().__init__(node_name(profile), context=context)
+        self.variant = profile["variant"]
         if self.variant not in VARIANTS:
             raise ValueError(f"unsupported FastWAM variant: {self.variant}")
-        if compute["kind"] != "cuda":
-            raise ValueError("FastWAM requires cuda compute")
+        device = placement(profile["compute"], ("cuda",))
         # Fail before allocating memory; load never downloads artifacts.
-        missing = [item["path"] for item in profile["artifacts"] if not (HERE / item["path"]).is_file()]
+        artifacts = {item["name"]: HERE / item["path"] for item in profile["artifacts"]}
+        missing = [str(path) for path in artifacts.values() if not path.is_file()]
         if missing:
             raise FileNotFoundError(f"artifacts not provisioned: {', '.join(missing)}; run setup.sh")
-        torch.cuda.set_device(compute["index"])
+        torch.cuda.set_device(device)
         data, model, *_ = VARIANTS[self.variant]
         config = OmegaConf.to_container(OmegaConf.create({
             "data": OmegaConf.load(HERE / "source/configs/data" / f"{data}.yaml"),
             "model": OmegaConf.load(HERE / "source/configs/model" / f"{model}.yaml"),
         }), resolve=True)
-        self.model = create_model(config["model"], self.variant, f"cuda:{compute['index']}")
-        checkpoint = HERE / "weights/yuanty/fastwam" / f"{self.variant}.pt"
+        self.model = create_model(config["model"], self.variant, device)
         # Upstream's loader tolerates missing trained weights; deployment must not.
-        payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        payload = torch.load(artifacts["checkpoint"], map_location="cpu", weights_only=True)
         self.model.mot.load_state_dict(payload["mot"], strict=True)
         self.model.proprio_encoder.load_state_dict(payload["proprio_encoder"], strict=True)
         del payload
@@ -100,7 +99,7 @@ class FastWam(Node):
         self.normalizer = LinearNormalizer(
             shape_meta=processor["shape_meta"], use_stepwise_action_norm=False,
             default_mode=processor["norm_default_mode"], exception_mode=processor["norm_exception_mode"],
-            stats=load_dataset_stats_from_json(str(checkpoint.with_name(f"{self.variant}_dataset_stats.json"))),
+            stats=load_dataset_stats_from_json(str(artifacts["dataset_stats"])),
         )
         json_service(self, profile["operations"]["infer"], self.infer)
 
