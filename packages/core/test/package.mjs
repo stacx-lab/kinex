@@ -64,7 +64,7 @@ export async function checkCorePackage(directory, env, pack) {
         const result = await runtime.tools.call('profile_write', data, {sessionID:'register'})
         assert.ok(!result.isError, result.output)
       }
-      await write({kind:'robot',data:{identity:{id:'clock',name:'Clock',platform:'real',kind:'arm'}}})
+      await write({kind:'robot',data:{identity:{id:'clock',name:'Clock',kind:'arm'}}})
       const template = templates.find(template => template.name === 'world')
       const profile = await deviceGuideProfile(path.join(template.directory, 'DEVICE.md'))
       await write({kind:'device',data:profile})

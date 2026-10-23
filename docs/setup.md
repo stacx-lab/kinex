@@ -7,8 +7,8 @@ fact availability, explicit values, evidence and completed prerequisites, withou
 receipt-hash invalidation on content/definition edits. Calibration attempts and
 solver results retain separate fingerprint checks. Calibration samplers' settling
 checks require fresh measured velocities and never advance simulation time. A timeout after a read saves `settled:false`; FK and archival still honor
-caller cancellation. Camera sampling must request `args: {output: "file"}` to
-archive image files; RGBD archival copies both streams before appending. Profile
+caller cancellation. Camera samples archive their image files; RGBD archival
+copies both streams before appending. Profile
 writes are validated; unrelated calibration never gates all operations. See the
 [setup evidence contracts](../packages/setup/README.md#plan-and-evidence-contracts).
 

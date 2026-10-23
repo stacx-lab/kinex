@@ -21,6 +21,6 @@ docker run --rm --network none -v "$root:/src:ro" "$tag" timeout -k 5 120 bash -
   source install/setup.bash
   set -u
   export ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=1 PYTHONDONTWRITEBYTECODE=1
-  export PYTHONPATH="/src/packages/core/assets/python:/src/packages/setup/assets/python:/src/packages/setup/test${PYTHONPATH:+:$PYTHONPATH}"
+  export PYTHONPATH="/src/packages/core/assets/python:/src/packages/setup/test${PYTHONPATH:+:$PYTHONPATH}"
   python3 /src/packages/setup/test/container/ros2_native.py
 '

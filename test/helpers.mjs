@@ -64,6 +64,6 @@ export async function bind(app, uiContext) {
 
 export async function seed(core, name = 'sensor', { preparePython = true } = {}) {
   if (preparePython) await protocolFramePython(core)
-  await core.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm', platform: 'real' } })
+  await core.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm' } })
   await protocolDevice(core, path.dirname(path.dirname((await core.python.status()).project)), name)
 }

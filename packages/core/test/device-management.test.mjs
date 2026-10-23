@@ -19,7 +19,7 @@ async function fixture(t) {
   return { directory, runtime, capabilities: coreContribution(runtime) }
 }
 async function seed(runtime) {
-  await runtime.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm', platform: 'real' } })
+  await runtime.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm' } })
   await protocolDevice(runtime, path.dirname(path.dirname((await runtime.python.status()).project)))
 }
 const call = { sessionID: 'core' }

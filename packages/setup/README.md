@@ -51,14 +51,6 @@ runtime files directly in the device directory and register their paths through
 `profile_write`. Nodes consume core runtime helpers to remain operational
 without setup. See [device definitions](assets/builtin/skill/onboard-ros2/SKILL.md#device-definitions).
 
-Setup also bundles `pi-web-search` 1.7.0 and `pi-btw` 0.7.1 as npm dependencies.
-`setupPiExtensions()` from `@kinex/setup/extensions` returns their package names
-and absolute package directories for a Pi host's resource loader. Standalone
-loads these extensions by default; other hosts opt in through this export.
-Importing setup does not activate a Pi session or load these extensions.
-Web search uses the host's model and credentials. BTW creates upstream Pi side
-sessions; those sessions do not inherit Kinex robotics tools or permission hooks.
-
 ## Tools and workflows
 
 | Tool | Responsibility |
@@ -71,10 +63,9 @@ sessions; those sessions do not inherit Kinex robotics tools or permission hooks
 and locomotion devices whose odometry measures their declared velocity axes. Only
 distinct device timestamps count toward stability. A timeout after a reading saves
 `settled: false`, including requested FK; caller cancellation saves no sample. The
-sampler does not advance simulator time, so arrange world waits outside it. For cameras, pass `args: {output: "file"}`
-to `calib_sample` to obtain archived image paths; the default internal camera read
-returns encoded image data. File-mode RGBD evidence copies both color and depth
-into attempt artifacts before appending the sample.
+sampler does not advance simulator time, so arrange world waits outside it. Camera
+samples archive their image files; RGBD samples copy both color and depth into
+attempt artifacts before appending the sample.
 
 `/onboarding [objective]` prepares the embodiment and follows only the requested
 objective's prerequisite subgraph. Without a task it prepares profiles/nodes and

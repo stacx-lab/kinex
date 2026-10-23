@@ -6,7 +6,7 @@ import { deviceTree, modelErrors } from "@kinex/core/device/profile/urdf"
 import path from "node:path"
 import { z } from "zod"
 import { define } from "@kinex/core/tool/tool"
-import { noRobot, unknownDevice, unloadedDevice } from "@kinex/core/tool/device/shared"
+import { unknownDevice, unloadedDevice } from "@kinex/core/tool/device/shared"
 import { ProfileStore } from "@kinex/core/device/profile/store"
 import { readJson } from "@kinex/core/util/filesystem"
 import { AttemptInput, attempt, saveAttempt, archive } from "../calibration/attempt.ts"
@@ -47,8 +47,6 @@ function motionReader(device: Device): (data: Reading) => { velocities: number[]
   if (!isJoint(device)) throw new Error("settling requires measured velocities")
   const names = deviceJoints(device).map(joint => joint.name)
   return data => {
-    const faults = z.array(z.unknown()).parse(data?.faults)
-    if (faults.length) throw new Error(`cannot settle with faults: ${JSON.stringify(faults)}`)
     const velocities = measured(data, "velocities")
     return {
       stamp: z.number().parse(data?.timestamp),
@@ -76,8 +74,6 @@ export const CalibSampleTool = define("calib_sample", {
     note: z.string().optional().describe("label stored with the sample, e.g. 'touch 3, rolled +45deg'"),
   }),
   execute: async (args, ctx) => {
-    const robot = await ProfileStore.readManifest(ctx.directory)
-    if (!robot) return noRobot()
     const device = await ProfileStore.readDevice(ctx.directory, args.deviceID)
     if (!device) return unknownDevice(args.deviceID)
     if (!device.loaded) return unloadedDevice(device)
@@ -128,7 +124,6 @@ export const CalibSampleTool = define("calib_sample", {
         index: samples.length,
         recorded_at: new Date().toISOString(),
         device: device.name,
-        action: "read",
         // Only claim settledness when it was actually checked.
         ...(settle ? { settled } : {}),
         ...(args.note ? { note: args.note } : {}),

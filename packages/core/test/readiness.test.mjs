@@ -9,7 +9,7 @@ test('core alone validates calibration clears and reports readiness without proc
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-readiness-'))
   const runtime = createKinexRuntime({ directory })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
-  await runtime.profiles.writeManifest({ identity: { id: 'existing', name: 'Existing', kind: 'arm', platform: 'real' } })
+  await runtime.profiles.writeManifest({ identity: { id: 'existing', name: 'Existing', kind: 'arm' } })
   await runtime.profiles.writeDevice({ description: '',
     name: 'sensor',
     type: 'other',

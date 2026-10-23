@@ -8,12 +8,13 @@ Use note to identify the collection step. Samples
 contain measured state and timestamps; this tool cannot command or load devices.
 
 Optional settle waits for measured velocities to remain below the threshold over
-distinct samples. Unsupported/malformed feedback and faults are errors. Cached
-readings do not establish stability. A timeout after a reading saves that reading
-with settled:false; cancellation saves nothing. Without settle, the sample makes no
+distinct samples. Unsupported or malformed feedback is an error. Cached readings
+do not establish stability. A timeout after a reading saves that reading with
+settled:false; cancellation saves nothing. Without settle, the sample makes no
 claim of stationary motion. Settling supports joint devices whose joint states
 measure every commanded joint's velocity, and locomotion devices whose odometry
-measures their declared velocity axes.
+measures their declared velocity axes; their runtime.observation must name the
+odometry operation.
 This blocking sampler does not advance simulator time; arrange world waits
 outside the sampler when collecting simulation evidence.
 

@@ -32,7 +32,7 @@ calib_compute and run operation:verify-base. Numerical checks require explicit
 units and tolerance; insufficient references remain needs-input or partial.
 
 Record trial conditions and coverage. Repeat only failed or underdetermined checks.
-Correct verified driver conversion errors if needed, then reload and retest that
+Correct verified node conversion errors if needed, then reload and retest that
 check. Do not optimize odometry, wheel geometry or gait control. Once the current
 task's required fact is established, resume the task.
 

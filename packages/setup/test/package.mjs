@@ -18,8 +18,6 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
 import { createKinexRuntime } from '@kinex/core'
 import { composeContributions, coreContribution } from '@kinex/core/integration'
 import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } from '@kinex/setup'
-import { setupPiExtensions } from '@kinex/setup/extensions'
-const extensions: { name: string; path: string }[] = setupPiExtensions()
 const runtime = createKinexRuntime({ directory: process.cwd(), builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames })
 const setup = createKinexSetup(runtime)
 const capabilities = composeContributions([coreContribution(runtime), setupContribution(setup)])
@@ -39,15 +37,6 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { deviceGuideProfile } from '@kinex/core/device/guide'
 import { createKinexSetup, setupSkillRoots } from '@kinex/setup'
-import { setupPiExtensions } from '@kinex/setup/extensions'
-const extensions = setupPiExtensions()
-assert.deepEqual(extensions.map(extension => extension.name), ['pi-web-search', 'pi-btw'])
-for (const extension of extensions) {
-  const manifest = JSON.parse(await readFile(path.join(extension.path, 'package.json'), 'utf8'))
-  assert.equal(manifest.name, extension.name)
-  assert.equal(manifest.version, extension.name === 'pi-web-search' ? '1.7.0' : '0.7.1')
-  for (const entry of manifest.pi.extensions) assert.ok((await stat(path.join(extension.path, entry))).isFile())
-}
 const runtime = createKinexRuntime({directory: process.cwd(), builtinSkillRoots: setupSkillRoots, host: {ask: async () => {}}})
 const setup = createKinexSetup(runtime)
 try {
@@ -57,7 +46,7 @@ try {
     const result = await runtime.tools.call('profile_write', data, {sessionID:'configure'})
     assert.ok(!result.isError, result.output)
   }
-  await write({kind:'robot', data:{identity:{id:'clock',name:'Clock',platform:'real',kind:'arm'}}})
+  await write({kind:'robot', data:{identity:{id:'clock',name:'Clock',kind:'arm'}}})
   const template = (await runtime.devices.templates()).find(template => template.name === 'world')
   const profile = await deviceGuideProfile(path.join(template.directory, 'DEVICE.md'))
   await write({kind:'device',data:profile})

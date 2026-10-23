@@ -7,7 +7,7 @@ description: Measure the relative transform of two arms using their calibrated T
 
 Bind `anchor`, `second`, `anchor_tcp` and `second_tcp` to the actual two arms and
 their own tools. Require each TCP translation/orientation and participating arms'
-measured pose/control capabilities. Calibration of an unrelated gripper is irrelevant.
+URDF models and motion operations. Calibration of an unrelated gripper is irrelevant.
 The second arm's mount is the output. Neither arm needs a surveyed world mount.
 
 Collect shared fixed fiducials reachable by both TCPs, recording each touched

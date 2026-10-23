@@ -19,10 +19,10 @@ pose. Use explicit frame estimates when needed; do not create a fixed world moun
 Verify parent-relative local frame measurements. A wheeled base need not expose
 posture; quadruped and humanoid modes can expose it without raw leg-joint control.
 
-For live verification prepare the driver, load explicitly, then inspect fresh
+For live verification prepare the device node, load explicitly, then inspect fresh
 read/status data. Interface inspection itself never commands motion. If a fact
 requires movement, use a narrowly scoped motion/posture procedure. Fix proven
-conversion or frame-mapping errors in the driver, reload through core lifecycle,
+conversion or frame-mapping errors in the device node, reload through core lifecycle,
 and verify the corrected output. Do not silently tune the controller.
 
 Archive relevant exact assertions in a measurements file, naming only required

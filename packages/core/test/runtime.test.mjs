@@ -23,7 +23,7 @@ async function fixture(t, { preparePython = true, ...options } = {}) {
   }
   const runtime = createKinexRuntime({ directory, ...options })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
-  await runtime.profiles.writeManifest({ identity: { id: 'node-test', name: 'Node test', platform: 'real', kind: 'arm' } })
+  await runtime.profiles.writeManifest({ identity: { id: 'node-test', name: 'Node test', kind: 'arm' } })
   await runtime.profiles.writeDevice({ description: '',
     name: 'sensor',
     type: 'other',

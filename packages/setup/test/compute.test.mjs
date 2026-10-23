@@ -9,14 +9,19 @@ import { createKinexRuntime } from '@kinex/core'
 import { createKinexSetup, setupSkillRoots } from '../dist/index.js'
 import { quality } from '../dist/calibration/compute.js'
 
+const system = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
+
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-compute-'))
+  const python = path.join(directory, '.kinex/python/.venv/bin/python3')
+  await mkdir(path.dirname(python), { recursive: true })
+  await symlink(system, python)
   const runtime = createKinexRuntime({ directory, builtinSkillRoots: setupSkillRoots, host: { ask: async () => {} } })
   const setup = createKinexSetup(runtime)
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   const json = async (name, value) => { const file = path.join(directory, name); await writeFile(file, JSON.stringify(value)); return file }
-  const compute = async args => setup.tools.call('calib_compute', { interpreter: 'python3', ...args }, { sessionID: 'compute' })
-  return { directory, runtime, setup, json, compute }
+  const compute = async args => setup.tools.call('calib_compute', args, { sessionID: 'compute' })
+  return { directory, python, runtime, setup, json, compute }
 }
 
 test('survey computes a known rigid mount, archives sources and never writes profiles', async t => {
@@ -114,6 +119,14 @@ test('attempts reject changed participants and inputs and keep repeated computat
   assert.match(stale.output, /inputs changed/)
 })
 
+test('calibration computations never accept a caller-chosen interpreter', async t => {
+  const { compute, json } = await fixture(t)
+  const result = await compute({ operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' },
+    measurements: await json('measurements.json', {}), interpreter: 'python3' })
+  assert.equal(result.isError, true)
+  assert.match(result.output, /interpreter/)
+})
+
 test('quality gates distinguish partial coverage and warnings without weakening minima', () => {
   assert.equal(quality('fit-tcp', { n: 4, residual_mm: 4 }), 'passed')
   assert.equal(quality('fit-tcp', { n: 4, residual_mm: 7 }), 'warning')
@@ -126,9 +139,6 @@ test('quality gates distinguish partial coverage and warnings without weakening 
 
 test('TCP solver produces translation only and preserves unresolved rotation', async t => {
   const { directory, runtime, compute, json } = await fixture(t)
-  const python = await runtime.python.initialize()
-  await mkdir(path.dirname(python.executable), { recursive: true })
-  await symlink(execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim(), python.executable)
   await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
   await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-3" upper="3"/></joint></robot>')
   await runtime.profiles.writeDevice({ description: '',
@@ -141,7 +151,7 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
     type: 'gripper',
     frames: {
       tcp: { parent: "tool:base", translation_m: null, rotation_xyzw: [0, 0, 0, 1] },
-      base: { parent: "arm:flange", translation_m: null, rotation_xyzw: null, translation_m: [0, 0, .02], rotation_xyzw: [0, 0, 1, 0] }
+      base: { parent: "arm:flange", translation_m: [0, 0, .02], rotation_xyzw: [0, 0, 1, 0] }
 } })
   const s = Math.sqrt(.5)
   const quaternions = [[0, 0, 0, 1], [s, 0, 0, s], [0, s, 0, s], [0, 0, s, s], [-s, 0, 0, s], [0, -s, 0, s]]
@@ -150,7 +160,7 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
     return { settled: true, kinematics: { frame: 'flange', pose: [.2 - rotated[0], .1 - rotated[1], .5 - rotated[2], x, y, z, w] } }
   })
   const result = await compute({ operation: 'fit-tcp', procedure: 'calibrate-tcp-offset', bindings: { arm: 'arm', target: 'tool' },
-    samples: await json('samples.json', samples) })
+    samples: await json('samples.json', samples), frame: 'flange' })
   assert.ok(!result.isError, result.output)
   const value = JSON.parse(result.output)
   assert.equal(value.quality, 'passed')
@@ -163,17 +173,17 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
 })
 
 test('cancelling an owned computation never publishes a result', async t => {
-  const { runtime, setup, directory, json } = await fixture(t)
+  const { runtime, setup, directory, python, json } = await fixture(t)
   await runtime.profiles.writeDevice({ description: '',
     name: 'base',
     type: 'locomotion',
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
-  const interpreter = path.join(directory, 'slow-python')
   const marker = path.join(directory, 'started')
-  await writeFile(interpreter, `#!/usr/bin/env python3\nimport time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('started')\ntime.sleep(30)\n`, { mode: 0o755 })
+  await rm(python)
+  await writeFile(python, `#!${system}\nimport time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('started')\ntime.sleep(30)\n`, { mode: 0o755 })
   const abort = new AbortController()
   const pending = setup.tools.call('calib_compute', { operation: 'verify-base', procedure: 'verify-base-interface',
-    bindings: { base: 'base' }, measurements: await json('measurements.json', {}), interpreter }, { sessionID: 'cancel', signal: abort.signal })
+    bindings: { base: 'base' }, measurements: await json('measurements.json', {}) }, { sessionID: 'cancel', signal: abort.signal })
   for (let i = 0; i < 100; i++) {
     if (await stat(marker).then(() => true, () => false)) break
     await delay(20)

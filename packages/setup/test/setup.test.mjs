@@ -23,7 +23,7 @@ async function fixture(t, host = allow) {
   return { directory, runtime, setup, capabilities: composeContributions([coreContribution(runtime), setupContribution(setup)]) }
 }
 async function seed(runtime) {
-  await runtime.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm', platform: 'real' } })
+  await runtime.profiles.writeManifest({ identity: { id: 'test', name: 'Test', kind: 'arm' } })
   await runtime.profiles.writeDevice({ description: '',
     name: 'sensor',
     type: 'other',
@@ -166,7 +166,7 @@ def dispatch(action, args, owner, cancelled):
     global stamp
     if action == '$sample':
         if not args.get('cached'): stamp += 1
-        return {'positions': [.35], 'velocities': [0], 'joint_names': ['j'], 'faults': [], 'timestamp': stamp}
+        return {'positions': [.35], 'velocities': [0], 'joint_names': ['j'], 'timestamp': stamp}
     return {'ok': True}
 ` })
   await (await runtime.devices.load('arm')).ready
