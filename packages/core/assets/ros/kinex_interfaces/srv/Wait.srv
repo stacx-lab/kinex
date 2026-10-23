@@ -1,5 +1,3 @@
-string owner
-string request_id
 float64 duration_s
 ---
 bool success

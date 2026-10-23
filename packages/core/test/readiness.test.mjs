@@ -69,9 +69,10 @@ test('locomotion modes form a state machine over declared operations and limits'
   const runtime = createKinexRuntime({ directory })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   await runtime.profiles.writeManifest({ identity: { id: 'dog', name: 'Dog', kind: 'quadruped' } })
-  const command = type => ({ description: '', transport: 'topic', direction: 'input', endpoint: `/kinex/dog/${type}`, type: `kinex_interfaces/msg/${type}` })
+  const command = (name, type) => ({ description: '', transport: name === 'stop' ? 'service' : 'topic', direction: 'input', endpoint: `/kinex/dog/${name}`, type })
   const dog = { description: '', name: 'dog', type: 'locomotion', loaded: false, runtime: { nodes: [] },
-    operations: { velocity: command('TwistCommand'), posture: command('PoseCommand') },
+    operations: { velocity: command('velocity', 'geometry_msgs/msg/Twist'), posture: command('posture', 'geometry_msgs/msg/Pose'),
+      stop: command('stop', 'std_srvs/srv/Trigger') },
     velocity: { units: 'si', axes: { vx: { min: -1, max: 1 }, wz: null } },
     posture: { height: { min: -.1, max: .05 } },
     modes: { standing: { description: 'Standing balanced.', accepts: ['velocity', 'posture'], transitions: ['crouched'] },
@@ -82,6 +83,7 @@ test('locomotion modes form a state machine over declared operations and limits'
     [{ modes: { ...dog.modes, crouched: { ...dog.modes.crouched, accepts: ['gait'] } } }, /gait must be a declared operation/],
     [{ posture: null }, /posture requires declared posture limits/],
     [{ velocity: { units: 'si', axes: { vx: { min: .1, max: 1 } } } }, /include zero/],
+    [{ operations: { velocity: dog.operations.velocity, posture: dog.operations.posture } }, /require a stop service/],
   ]) await assert.rejects(runtime.profiles.writeDevice({ ...dog, ...patch }), error)
   await runtime.profiles.writeDevice(dog)
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:dog').detail,

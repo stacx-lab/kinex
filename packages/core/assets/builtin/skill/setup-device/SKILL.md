@@ -25,9 +25,11 @@ instance DEVICE.md usage sections.
 Define each operation with transport, direction, endpoint, native ROS type and
 bounded QoS; do not introduce ROS actions. Services are inputs. Use the type guide's names for recommended operations
 and name others after the actual node. `load`, `unload` and
-`status` are reserved host verbs. Declare a stop service for managed motion and
-its Acquire/Stop/CommandStatus ownership endpoints. Describe exact command
-semantics on that operation, including replacement and expiry behavior.
+`status` are reserved host verbs. Commands use standard message types; anything
+that moves, and a world with `wait`, declares a `std_srvs/srv/Trigger` `stop`,
+served after the command subscriptions (`kinex.node.command_service` does).
+Describe exact command semantics on each operation, including replacement and
+expiry behavior.
 
 For owned ROS implementations, register factories in `runtime.nodes`, each with
 `entry` and `factory`. Factories receive `(profile, context)` and return an owned
@@ -65,7 +67,7 @@ Keep task metadata and benchmark judges outside the agent device graph.
 
 Validate schema, imports and syntax before activation. Load through the host only
 within the authorized task scope, inspect readiness and verify the declared
-operations. Test input rejection, ownership, cancellation and teardown. Unload
+operations. Test input rejection, stop and teardown. Unload
 before editing node/runtime definitions, then validate and explicitly reload.
 
 ### Profile facts and frames

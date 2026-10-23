@@ -47,28 +47,28 @@ service per mode; copy it into the device directory and set its constants.
 
 ### Operations
 
-- `velocity` (recommended): managed input topic `kinex_interfaces/msg/TwistCommand`.
-  The body follows `twist` for `duration_s` of world time, then stops; a new
-  command replaces it.
-- `posture` (optional): managed input topic `kinex_interfaces/msg/PoseCommand`, a
-  body offset from the nominal stance (`position.z` height, orientation roll,
-  pitch, yaw); it persists until replaced.
-- `mode_target` (recommended with more than one mode): managed input topic
-  `kinex_interfaces/msg/ModeCommand` requesting a declared transition. Acceptance
+- `velocity` (recommended): input topic `geometry_msgs/msg/Twist` in base axes.
+  The body follows the latest twist and stops when none arrives within the
+  watchdog timeout its description states, so callers re-send to keep moving.
+- `posture` (optional): input topic `geometry_msgs/msg/Pose`, a body offset from
+  the nominal stance (`position.z` height, orientation roll, pitch, yaw); it
+  persists until replaced.
+- `mode_target` (recommended with more than one mode): input topic
+  `std_msgs/msg/String` whose `data` names a declared transition target. Sending
   is not arrival; wait until `mode` reports it.
 - `mode` (recommended with more than one mode): output topic `std_msgs/msg/String`,
   `transient_local`, the last declared mode reached.
 - `odometry` (recommended): output topic `nav_msgs/msg/Odometry` with measured
   twist in `<device>/base` and a dead-reckoned pose in `<device>/odom` that drifts.
-- `stop` (recommended): service `kinex_interfaces/srv/Stop` that sends zero
+- `stop` (recommended): service `std_srvs/srv/Trigger` that sends zero
   velocity and keeps the mode and posture; it never sits, lies down or powers off.
 - Mode-specific inputs (optional): any other operation a mode accepts. Inputs that
-  move the body are managed `kinex_interfaces/msg/JsonCommand` topics; others may
-  be services. The description is the whole contract.
+  move the body are `std_msgs/msg/String` topics carrying JSON; others may be
+  services. The description is the whole contract.
 
-All managed operations share the device's acquire, stop and status endpoints;
-serve them together with `kinex.node.motion_service`. The node rejects an
-operation the current mode does not accept and a transition it does not list.
+Serve the inputs with `stop` through `kinex.node.command_service`. The node
+rejects an operation the current mode does not accept and a transition it does
+not list.
 
 ### Profile
 
@@ -82,26 +82,23 @@ runtime:
   nodes: [{entry: node.py, factory: create}]
 operations:
   velocity:
-    description: Body velocity in base axes held for duration_s of world time, then zero; a new command replaces it. Acceptance is not arrival, so verify odometry.
+    description: Body velocity in base axes. The body follows the latest twist and stops 0.5 s of world time after the last one, so re-send to keep moving; verify with odometry.
     transport: topic
     direction: input
     endpoint: /kinex/base/velocity
-    type: kinex_interfaces/msg/TwistCommand
-    motion: {acquire: /kinex/base/acquire, stop: /kinex/base/stop, status: /kinex/base/command_status}
+    type: geometry_msgs/msg/Twist
   posture:
     description: Body offset from the nominal stance, height in position.z and attitude in orientation; it persists until replaced.
     transport: topic
     direction: input
     endpoint: /kinex/base/posture
-    type: kinex_interfaces/msg/PoseCommand
-    motion: {acquire: /kinex/base/acquire, stop: /kinex/base/stop, status: /kinex/base/command_status}
+    type: geometry_msgs/msg/Pose
   mode_target:
-    description: Request a declared transition from the current mode; wait until mode reports it.
+    description: Request a declared transition from the current mode, naming the target in data; wait until mode reports it.
     transport: topic
     direction: input
     endpoint: /kinex/base/mode_target
-    type: kinex_interfaces/msg/ModeCommand
-    motion: {acquire: /kinex/base/acquire, stop: /kinex/base/stop, status: /kinex/base/command_status}
+    type: std_msgs/msg/String
   mode:
     description: The last declared mode the body reached.
     transport: topic
@@ -117,11 +114,11 @@ operations:
     type: nav_msgs/msg/Odometry
     qos: {depth: 1, reliability: reliable, durability: transient_local}
   stop:
-    description: Send zero velocity and keep the mode and posture. An empty owner stops unconditionally.
+    description: Send zero velocity and keep the mode and posture.
     transport: service
     direction: input
     endpoint: /kinex/base/stop
-    type: kinex_interfaces/srv/Stop
+    type: std_srvs/srv/Trigger
 velocity: ???
 posture: ???
 modes: ???

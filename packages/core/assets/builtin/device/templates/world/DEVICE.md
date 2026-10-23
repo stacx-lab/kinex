@@ -14,20 +14,20 @@ lookup. Keep task instructions and benchmark judging outside device operations.
 
 - `time` (required): output topic `rosgraph_msgs/msg/Clock`, `transient_local`.
   No other device publishes a clock; Kinex remaps device nodes' `/clock` to it.
-- `wait` (recommended): service `kinex_interfaces/srv/Wait` with `cancellation`
-  metadata for `kinex_interfaces/srv/CancelWait`. It completes after `duration_s`
-  (finite, nonnegative) of world time; zero is an observation barrier and
-  concurrent waits share progression. Kinex fills `owner` and `request_id` and
-  cancels through the declared endpoint; an empty `request_id` retires the owner.
+- `wait` (recommended): service `kinex_interfaces/srv/Wait`. It completes after
+  `duration_s` (finite, nonnegative) of world time; zero is an observation barrier.
+  Waits are sequential: one requested while another is pending is rejected.
   `timeout_s` bounds the longest wait.
+- `stop` (required with `wait`): service `std_srvs/srv/Trigger` that cancels the
+  pending wait. Kinex calls it when a script that waited fails or abandons its wait.
 - `reset` (simulators only): service `std_srvs/srv/Trigger` resetting the episode
-  and clock. It invalidates observations, pending waits and motion ownership.
+  and clock. It invalidates observations and the pending wait.
 
 A physical workspace keeps time with the real-world clock: copy the sibling
 `node.py`, which publishes system time on `time` and completes `wait` against it.
-It has no `reset`. A simulator relays its own clock, waits and reset; describe its
-pacing (realtime, stepped or paused) and terminal-episode behavior on `time` and
-`wait`.
+It has no `reset`. A simulator relays its own clock, wait, stop and reset; describe
+its pacing (realtime, stepped or paused) and terminal-episode behavior on `time`
+and `wait`.
 
 ### Profile
 
@@ -47,13 +47,18 @@ operations:
     type: rosgraph_msgs/msg/Clock
     qos: {depth: 1, reliability: reliable, durability: transient_local}
   wait:
-    description: Await duration_s seconds of system time (finite, nonnegative, under 120) with 10 ms granularity. Zero is an observation barrier. Returns time_s and waited_s.
+    description: Await duration_s seconds of system time (finite, nonnegative, under 120) with 10 ms granularity. Zero is an observation barrier. One wait at a time; returns time_s and waited_s.
     transport: service
     direction: input
     endpoint: /kinex/world/wait
     type: kinex_interfaces/srv/Wait
     timeout_s: 120
-    cancellation: {endpoint: /kinex/world/cancel_wait, type: kinex_interfaces/srv/CancelWait}
+  stop:
+    description: Cancel the pending wait.
+    transport: service
+    direction: input
+    endpoint: /kinex/world/stop
+    type: std_srvs/srv/Trigger
 bounds: null
 surfaces: []
 frames:

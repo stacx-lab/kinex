@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 
 export async function checkCorePackage(directory, env, pack) {
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/runtime.py'))
-  for (const file of ['srv/Wait.srv', 'srv/Stop.srv', 'msg/CommandStatus.msg', 'package.xml', 'CMakeLists.txt'])
+  for (const file of ['srv/Wait.srv', 'srv/Capture.srv', 'package.xml', 'CMakeLists.txt'])
     assert.ok(pack.files.some(entry => entry.path === `assets/ros/kinex_interfaces/${file}`))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/host/run.py'))

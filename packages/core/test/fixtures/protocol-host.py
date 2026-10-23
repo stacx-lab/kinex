@@ -37,7 +37,7 @@ def run(request):
         if action == 'load':
             profile = args['profile']
         if 'dispatch' in namespace:
-            result = namespace['dispatch'](action, args, request.get('owner'), event)
+            result = namespace['dispatch'](action, args, event)
         else:
             if event.wait(args.get('sleep', 0)):
                 raise InterruptedError('cancelled')

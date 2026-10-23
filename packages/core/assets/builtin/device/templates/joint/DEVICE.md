@@ -40,13 +40,11 @@ posture, so a stop before the first command never moves the joints.
 - `joint_state` (recommended): output topic `sensor_msgs/msg/JointState` with
   every commanded joint in URDF units, stamped at acquisition, with velocities
   when measured; Kinex publishes the links from it.
-- `joint_target` (recommended): managed input topic
-  `kinex_interfaces/msg/TrajectoryCommand` whose `trajectory` is a
-  `trajectory_msgs/msg/JointTrajectory` over commanded joints, timed from
-  acceptance. A new command replaces the active trajectory; acceptance is not
-  arrival. Serve acquire, owner-scoped stop and command status with
-  `kinex.node.motion_service`.
-- `stop` (recommended): service `kinex_interfaces/srv/Stop` that ends motion and
+- `joint_target` (recommended): input topic `trajectory_msgs/msg/JointTrajectory`
+  over commanded joints, timed from receipt. A new trajectory replaces the active
+  one; sending is not arrival. Serve it with `stop` through
+  `kinex.node.command_service`.
+- `stop` (recommended): service `std_srvs/srv/Trigger` that ends motion and
   holds the measured posture.
 
 ### Profile
@@ -68,18 +66,17 @@ operations:
     type: sensor_msgs/msg/JointState
     qos: {depth: 1, reliability: reliable, durability: transient_local}
   joint_target:
-    description: Joint trajectory over commanded joints in URDF units, timed from acceptance. A new command replaces the active one; acceptance is not arrival, so verify joint_state.
+    description: Joint trajectory over commanded joints in URDF units, timed from receipt. A new trajectory replaces the active one; verify arrival with joint_state.
     transport: topic
     direction: input
     endpoint: /kinex/arm/joint_target
-    type: kinex_interfaces/msg/TrajectoryCommand
-    motion: {acquire: /kinex/arm/acquire, stop: /kinex/arm/stop, status: /kinex/arm/command_status}
+    type: trajectory_msgs/msg/JointTrajectory
   stop:
-    description: Stop pending motion and hold the measured posture. An empty owner stops unconditionally.
+    description: Stop motion and hold the measured posture.
     transport: service
     direction: input
     endpoint: /kinex/arm/stop
-    type: kinex_interfaces/srv/Stop
+    type: std_srvs/srv/Trigger
 model: {format: urdf, path: ???, base_link: ???, tip_link: ???}
 home: ???
 limits: strict

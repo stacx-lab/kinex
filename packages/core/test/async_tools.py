@@ -51,10 +51,6 @@ class Protocol:
 
     async def publish(self, operation, fields):
         self.events.append(("publish", operation, fields))
-        return "accepted-command"
-
-    async def accepted(self, operation, identifier):
-        self.events.append(("accepted", operation, identifier))
 
 
 def profile(_):
@@ -92,8 +88,9 @@ class Tools(unittest.IsolatedAsyncioTestCase):
                                         "command": [{"device": "arm"}], "action_hz": 20}, io)
         self.assertEqual(result["actions_submitted"], 2)
         self.assertEqual(result["duration_s"], .1)
-        self.assertEqual(result["execution_ids"], {"arm": "accepted-command"})
-        self.assertEqual(io.events[-1][0], "accepted")
+        kind, operation, trajectory = io.events[-1]
+        self.assertEqual((kind, operation, trajectory["joint_names"]), ("publish", "arm.joint_target", ["j0", "j1"]))
+        self.assertEqual(len(trajectory["points"]), 2)
 
     async def test_scalar_policy_targets_are_persistent_and_paced_by_world(self):
         policy, io = tool("run_policy"), Protocol()
@@ -111,7 +108,7 @@ class Tools(unittest.IsolatedAsyncioTestCase):
                                        "command": [{"device": "gripper"}], "action_hz": 10}, io)
         self.assertEqual(result["actions_submitted"], 2)
         self.assertEqual([event[2] for event in io.events if event[0] == "publish"],
-                         [{"target": .04}, {"target": 0.}])
+                         [{"data": .04}, {"data": 0.}])
         self.assertEqual([event[2] for event in io.events if event[:2] == ("request", "world.wait")],
                          [{"duration_s": .1}, {"duration_s": .1}])
         self.assertFalse(any(event[1].endswith(".stop") for event in io.events))
@@ -256,9 +253,23 @@ class Transforms(unittest.IsolatedAsyncioTestCase):
             buffer.lookup_transform.assert_called_with("world/base", "arm/tool", time.Time.return_value)
 
 
+def scope(catalog):
+    """A Communication with its ROS teardown stubbed."""
+    from kinex.communication import Communication
+    io = Communication(catalog)
+    io.executor = NS(shutdown=lambda **kw: None)
+    io.node = NS(destroy_node=lambda: None)
+    io.context = NS(try_shutdown=lambda: None)
+    io.thread = NS(join=lambda _: None)
+    return io
+
+
+WAIT = {"world.wait": {"transport": "service", "direction": "input", "type": "kinex_interfaces/srv/Wait", "endpoint": "/wait"},
+        "world.stop": {"transport": "service", "direction": "input", "type": "std_srvs/srv/Trigger", "endpoint": "/world/stop"}}
+
+
 class Errors(unittest.IsolatedAsyncioTestCase):
-    async def test_service_rejection_retains_response_without_replaying_or_cancelling(self):
-        from kinex.communication import Communication
+    async def test_service_rejection_retains_response_without_replaying_or_stopping(self):
         from kinex.errors import OperationError
         response = NS(success=False, message="episode ended", time_s=1.5, waited_s=.1)
         convert = ModuleType("rosidl_runtime_py.convert")
@@ -267,12 +278,7 @@ class Errors(unittest.IsolatedAsyncioTestCase):
             error = OperationError("world.wait", "kinex_interfaces/srv/Wait", response)
         self.assertIs(error.response, response)
         self.assertEqual(error.payload()["details"]["response"]["time_s"], 1.5)
-        io = Communication({"world.wait": {
-            "transport": "service", "direction": "input",
-            "type": "kinex_interfaces/srv/Wait", "endpoint": "/wait",
-            "cancellation": {"type": "kinex_interfaces/srv/CancelWait", "endpoint": "/cancel"},
-        }})
-        calls = []
+        io, calls = scope(WAIT), []
 
         async def rejected(*args, **kwargs):
             calls.append((args, kwargs))
@@ -284,50 +290,63 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         self.assertIs(caught.exception, error)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1]["operation"], "world.wait")
-        self.assertFalse(io.waits)
+        self.assertEqual(io.enrolled, {"world"})
 
-    async def test_finish_inside_communication_preserves_motion_only_on_success(self):
-        import asyncio
-        from kinex.communication import Communication
-        for error, expected in ((None, False), (SystemExit(0), False), (SystemExit(None), False),
-                                (SystemExit(1), True), (RuntimeError("failure"), True),
-                                (asyncio.CancelledError(), True)):
-            io = Communication({})
-            calls = []
-            async def cleanup_owned(*, stop=True):
-                calls.append(stop)
-            async def cancel_waits():
-                calls.append(False)
-            io.cleanup_owned, io._cancel_waits = cleanup_owned, cancel_waits
-            io.executor = NS(shutdown=lambda **kw: None)
-            io.node = NS(destroy_node=lambda: None)
-            io.context = NS(try_shutdown=lambda: None)
-            io.thread = NS(join=lambda _: None)
+    async def test_abandoned_wait_stops_its_world(self):
+        for error in (TimeoutError(), asyncio.CancelledError()):
+            io, endpoints = scope(WAIT), []
+
+            async def request(spec, fields, timeout_s=None, **_):
+                endpoints.append(spec["endpoint"])
+                if spec["endpoint"] == "/wait":
+                    raise error
+                return NS(success=True)
+
+            io._request = request
+            with self.assertRaises(type(error)):
+                await io.request("world.wait", duration_s=60)
+            self.assertEqual(endpoints, ["/wait", "/world/stop"])
+
+    async def test_scope_failure_stops_commanded_devices_and_success_leaves_them(self):
+        for error, stopped in ((None, False), (SystemExit(0), False), (SystemExit(None), False),
+                               (SystemExit(1), True), (RuntimeError("failure"), True),
+                               (asyncio.CancelledError(), True)):
+            io, calls = scope({}), []
+            io.enrolled.update({"world", "arm"})
+
+            async def stop(devices):
+                calls.append(devices)
+
+            io._stop = stop
             await io.__aexit__(type(error), error, None)
-            self.assertEqual(calls, [expected])
+            self.assertEqual(calls, [["arm", "world"]] if stopped else [])
 
-    async def test_operations_sharing_motion_endpoints_acquire_and_stop_once(self):
-        import importlib
-        communication = importlib.import_module("kinex.communication")
-        motion = {"acquire": "/base/acquire", "stop": "/base/stop", "status": "/base/status"}
-        io = communication.Communication({f"base.{name}": {"motion": motion} for name in ("velocity", "posture", "mode_target")})
-        requests = []
+    async def test_unacknowledged_commands_fail_the_scope_and_stop_devices(self):
+        rclpy, duration = ModuleType("rclpy"), ModuleType("rclpy.duration")
+        duration.Duration = lambda **_: None
+        io, calls = scope({}), []
+        io.enrolled.add("arm")
+        io.publishers = {"arm.joint_target": NS(wait_for_all_acked=lambda timeout: False)}
+
+        async def stop(devices):
+            calls.append(devices)
+
+        io._stop = stop
+        with patch.dict(sys.modules, {"rclpy": rclpy, "rclpy.duration": duration}), \
+                self.assertRaisesRegex(TimeoutError, "arm.joint_target"):
+            await io.__aexit__(None, None, None)
+        self.assertEqual(calls, [["arm"]])
+
+    async def test_stop_calls_each_declared_stop_service(self):
+        io, endpoints = scope({**WAIT, "camera.capture": {"type": "kinex_interfaces/srv/Capture", "endpoint": "/capture"}}), []
+
         async def request(spec, fields, timeout_s=None, **_):
-            requests.append(spec["endpoint"])
-            return NS(generation=3)
-        io._request = request
-        with patch.object(communication, "Subscription", lambda *_: NS()), patch.object(io, "_acceptances", AsyncMock()):
-            await asyncio.gather(*(io._acquire(motion) for _ in range(3)))
-            await asyncio.gather(*io.acceptances)
-        io.enrolled.add("base")
-        await io.cleanup_owned()
-        self.assertEqual(requests, ["/base/acquire", "/base/stop"])
-        self.assertEqual((io.generations, len(io.acceptances)), ({"/base/acquire": 3}, 1))
+            endpoints.append((spec["endpoint"], fields))
+            return NS(success=True)
 
-    async def test_acceptance_signature_failure_is_actionable(self):
-        from kinex.communication import Communication
-        with self.assertRaisesRegex(ValueError, "requires \\(operation, command_id\\)"):
-            await Communication({}).accepted("ticket")
+        io._request = request
+        await io._stop(["camera", "world"])
+        self.assertEqual(endpoints, [("/world/stop", {})])
 
 
 if __name__ == "__main__":

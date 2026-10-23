@@ -97,7 +97,7 @@ class DeviceHost:
                 for client in clients:
                     self.io.node.destroy_client(client)
 
-    async def run(self, action, args, owner):
+    async def run(self, action, args):
         if action == "$frames":
             from kinex.host.frame_graph import FrameGraphNode
             self.io = await communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).__aenter__()
@@ -127,15 +127,8 @@ class DeviceHost:
         if action == "status":
             await self.ready()
             return {"ready": True}
-        if action == "$cleanup":
-            # Use a separate client scope: never change an owner's identity on
-            # a shared connection while other calls are in flight.
-            async with communication(self.io.catalog, owner=owner, domain_id=self.io.domain_id) as io:
-                io.enrolled.add(self.profile["name"])
-                await io.cleanup_owned(stop=args["failed"])
-            return {"cleaned": True}
         if action == "stop":
-            return await self.stop(owner or "")
+            return await self.stop()
         if action == "$sample":
             configured = self.profile["runtime"].get("observation")
             candidates = [(name, op) for name, op in self.profile["operations"].items()
@@ -147,24 +140,24 @@ class DeviceHost:
                 raise ValueError("declare runtime.observation for this device")
         reference = f"{self.profile['name']}.{action}"
         op = self.io.operation(reference)
-        async with communication(self.io.catalog, owner=owner, domain_id=self.io.domain_id) as io:
-            if op["transport"] == "service":
-                return observation(await io.request(reference, **args))
-            if op["direction"] == "input":
-                command_id = await io.publish(reference, args)
-                if command_id:
-                    await io.accepted(reference, command_id)
-                return {"published": True, "command_id": command_id}
-            stream = io.subscribe(reference)
-            value = await stream.next(timeout_s=op.get("timeout_s", 10))
-            return observation(value)
+        if op["direction"] == "output":
+            stream = self.io.subscribe(reference)
+            try:
+                return observation(await stream.next(timeout_s=op.get("timeout_s", 10)))
+            finally:
+                stream.close()
+        # Calls share the loaded connection; an abandoned wait stops its world.
+        if op["transport"] == "service":
+            return observation(await self.io.request(reference, **args))
+        await self.io.publish(reference, args)
+        return {"published": True}
 
-    async def stop(self, owner=""):
+    async def stop(self):
         op = self.profile["operations"].get("stop")
         if op:
-            return dict(plain(await self.io._request(op, {"owner": owner})))
+            return dict(plain(await self.io._request(op, {})))
         # Passive devices declare the built-in no-op stop.
-        return {"success": True, "stopped": False}
+        return {"success": True, "message": "no stop operation"}
 
 
 async def main():
@@ -177,7 +170,7 @@ async def main():
     async def handle(value):
         identifier = value["id"]
         try:
-            result = await host.run(value["action"], value.get("args", {}), value.get("owner"))
+            result = await host.run(value["action"], value.get("args", {}))
             reply({"id": identifier, "ok": True, "data": result})
         except BaseException as error:
             reply({"id": identifier, "ok": False, "error": str(error) or type(error).__name__})

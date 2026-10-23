@@ -182,7 +182,7 @@ test('dual-arm prerequisites bind both particular TCPs, with producer dependenci
 
 test('a usable base mode is not blocked by unknown facts it does not use', async t => {
   const { runtime, save, setup } = await fixture(t)
-  const velocity = { description: '', transport: 'topic', direction: 'input', endpoint: '/kinex/base/velocity', type: 'kinex_interfaces/msg/TwistCommand' }
+  const velocity = { description: '', transport: 'topic', direction: 'input', endpoint: '/kinex/base/velocity', type: 'geometry_msgs/msg/Twist' }
   await runtime.profiles.writeDevice({ description: '',
     name: 'base',
     type: 'locomotion',

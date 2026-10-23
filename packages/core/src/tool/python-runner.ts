@@ -1,5 +1,5 @@
-import { rosCatalog, rosReady, enrollRos, cleanupRos } from "../device/ros.ts"
-import { shortID } from "../util/id.ts"
+import { rosCatalog, rosReady } from "../device/ros.ts"
+import { enrollDevice, registerInvocation, releaseInvocation } from "../device/stop.ts"
 import { serveProcess, terminate } from "../device/serve-process.ts"
 import { spawnProcess } from "../util/process.ts"
 import { abortable } from "../util/abort.ts"
@@ -66,7 +66,7 @@ const missingDevicesError = (name: string, missing: string[]) =>
 // ROS payloads travel directly between Python nodes and devices.
 type Request = Record<string, unknown>
 type ExecutionContext = Context & { output?: (text: string) => void }
-type MotionContext = ExecutionContext & { motionOwner: string }
+type InvocationContext = ExecutionContext & { invocation: string }
 type PythonExecution = Pick<ToolManifest, "timeout_s"> & {
   directory: string
   entry: string[]
@@ -79,7 +79,7 @@ function execution(info: PyToolInfo): PythonExecution {
   return { timeout_s, directory: info.directory, entry: info.manifest.async ? ["-m", "kinex.host.run", "tool", path.join(info.directory, entry)] : [path.join(info.directory, entry)] }
 }
 
-async function dispatch(cwd: string, request: Request, ctx: MotionContext): Promise<Record<string, unknown>> {
+async function dispatch(cwd: string, request: Request, ctx: InvocationContext): Promise<Record<string, unknown>> {
   const call = request["call"]
   if (call === "runtime_devices") {
     const devices = await ProfileStore.listDevices(cwd)
@@ -102,16 +102,8 @@ async function dispatch(cwd: string, request: Request, ctx: MotionContext): Prom
     return { ok: true, result: device.operations }
   }
   if (call === "ros_enroll") {
-    await enrollRos(cwd, ctx.motionOwner, z.string().parse(request["device"]))
+    await enrollDevice(cwd, ctx.invocation, z.string().parse(request["device"]))
     return { ok: true }
-  }
-  if (call === "stop_owned") {
-    try {
-      await cleanupRos(cwd, ctx.motionOwner, true)
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, ...failure(error) }
-    }
   }
   const robot = await ProfileStore.readManifest(cwd)
   if (call === "robot") {
@@ -130,16 +122,29 @@ async function dispatch(cwd: string, request: Request, ctx: MotionContext): Prom
     const model = deviceTree(device)
     return { ok: true, profile: model ? { ...device, resolved_model: model } : device }
   }
-  return { ok: false, error: `unknown call "${String(call)}" — use runtime_devices, runtime_device, runtime_operations, ros_enroll, stop_owned, profile or robot` }
+  return { ok: false, error: `unknown call "${String(call)}" — use runtime_devices, runtime_device, runtime_operations, ros_enroll, profile or robot` }
 }
 
-// Run the dialog to completion; preserve the returned JSON value, including null.
+// Run the dialog to completion; a failure stops every device the invocation commanded.
 async function invoke(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: ExecutionContext): Promise<unknown> {
-  const motionOwner = shortID()
+  const cancel = new AbortController()
+  const invocation = registerInvocation(cancel)
+  let failed = true
+  try {
+    const result = await dialog(cwd, info, args, { ...ctx, invocation, abort: AbortSignal.any([ctx.abort, cancel.signal]) })
+    failed = false
+    return result
+  } finally {
+    await releaseInvocation(cwd, invocation, failed).catch(error => { log.warn(String(error)) })
+  }
+}
+
+// Preserve the returned JSON value, including null.
+async function dialog(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: InvocationContext): Promise<unknown> {
   const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(info.timeout_s * 1000))])
-  const scoped = { ...ctx, abort: signal, motionOwner }
+  const scoped = { ...ctx, abort: signal }
   signal.throwIfAborted()
-  const ros = await rosCatalog(cwd, motionOwner)
+  const ros = await rosCatalog(cwd)
   const runtime = await pythonLaunch(cwd, "tool", undefined, signal)
   signal.throwIfAborted()
   const request = JSON.stringify({ args, source: info.source, file: info.script?.file, argv: info.script?.argv, ros }) + "\n"
@@ -160,7 +165,7 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
   const source = served.source
   const deadline = Date.now() + info.timeout_s * 1000
 
-  const dialog = (async (): Promise<unknown> => {
+  const conversation = (async (): Promise<unknown> => {
     for (;;) {
       const line = await abortable(readLine(source, deadline), signal).catch((error: unknown) => {
         if (error instanceof LineTimeoutError || (error instanceof Error && error.name === "TimeoutError")) throw new PyToolError("tool timed out")
@@ -208,7 +213,7 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
     signal.throwIfAborted()
     throw new PyToolError(`cannot send tool request: ${error instanceof Error ? error.message : String(error)}`)
   })
-  const finished = await Promise.all([sent, dialog]).then(([, result]) => result).finally(async () => {
+  return Promise.all([sent, conversation]).then(([, result]) => result).finally(async () => {
     try {
       await terminate(served, !signal.aborted)
       await served.drained
@@ -220,13 +225,7 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
     signal.throwIfAborted()
     if (info.script && proc.exitCode !== 0) throw new PyToolError(`script exited with code ${proc.exitCode}`)
     return result
-  }).catch(async (error: unknown) => {
-    // Stop owned motion before reporting the failure.
-    await cleanupRos(cwd, motionOwner, true).catch(failure => { log.warn(String(failure)) })
-    throw error
   })
-  await cleanupRos(cwd, motionOwner, false)
-  return finished
 }
 
 interface ScriptInput {

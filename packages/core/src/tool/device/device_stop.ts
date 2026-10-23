@@ -11,7 +11,7 @@ export const DeviceStopTool = define("device_stop", {
   description: DESCRIPTION,
   recordingOrigin: "agent",
   parameters: z.object({
-    deviceID: z.string().optional().describe("device to stop; omit to stop every loaded actuated device"),
+    deviceID: z.string().optional().describe("device to stop; omit to stop every loaded device with a stop operation"),
     reason: z.string().optional().describe("why the stop was triggered"),
   }),
   execute: async (args, ctx) => {
@@ -21,12 +21,12 @@ export const DeviceStopTool = define("device_stop", {
     const targets = devices.filter((device) =>
       args.deviceID
         ? device.name === args.deviceID
-        : device.loaded && (device.operations.stop || Object.values(device.operations).some(op => op.motion)),
+        : device.loaded && !!device.operations.stop,
     )
     if (targets.length === 0)
       return {
         title: "nothing to stop",
-        output: args.deviceID ? `no device "${args.deviceID}"` : "no loaded actuated devices",
+        output: args.deviceID ? `no device "${args.deviceID}"` : "no loaded devices with a stop operation",
         isError: args.deviceID !== undefined,
       }
     const outcomes = await stopDevices(ctx.directory, targets)

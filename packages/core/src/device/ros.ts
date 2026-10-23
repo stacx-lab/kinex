@@ -24,18 +24,11 @@ interface Host extends ServeProcess {
 }
 const hosts = scoped(() => new Map<string, Host>())
 const frameHosts = scoped(() => new Map<string, Host & { endpoint: string }>())
-const enrolled = scoped(() => new Map<string, Map<string, Device>>())
 const transitions = scoped(() => new Map<string, Promise<void>>())
 
 function resolvedOperations(device: Device) {
   const endpoint = (value: string) => value.startsWith("/") ? value : path.posix.join("/", device.runtime?.namespace ?? "", value)
-  return Object.fromEntries(Object.entries(device.operations).map(([name, operation]) => [name, {
-    ...operation, endpoint: endpoint(operation.endpoint),
-    ...(operation.motion ? { motion: {
-      acquire: endpoint(operation.motion.acquire), stop: endpoint(operation.motion.stop), status: endpoint(operation.motion.status),
-    } } : {}),
-    ...(operation.cancellation ? { cancellation: { ...operation.cancellation, endpoint: endpoint(operation.cancellation.endpoint) } } : {}),
-  }]))
+  return Object.fromEntries(Object.entries(device.operations).map(([name, operation]) => [name, { ...operation, endpoint: endpoint(operation.endpoint) }]))
 }
 
 export async function rosLaunch(cwd: string, device: Device, signal?: AbortSignal) {
@@ -80,7 +73,7 @@ async function receive(host: Host) {
   }
 }
 
-async function request(host: Host, action: string, args: Record<string, unknown>, owner?: string, signal?: AbortSignal, timeout = 30_000) {
+async function request(host: Host, action: string, args: Record<string, unknown>, signal?: AbortSignal, timeout = 30_000) {
   signal?.throwIfAborted()
   const id = shortID()
   const pending = Promise.withResolvers<Record<string, unknown>>()
@@ -92,7 +85,7 @@ async function request(host: Host, action: string, args: Record<string, unknown>
   const timer = setTimeout(cancel, timeout)
   signal?.addEventListener("abort", cancel, { once: true })
   try {
-    host.proc.stdin.write(JSON.stringify({ id, action, args, owner }) + "\n")
+    host.proc.stdin.write(JSON.stringify({ id, action, args }) + "\n")
     await host.proc.stdin.flush()
     return await pending.promise
   } finally {
@@ -129,7 +122,7 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
       frameHosts().set(key, host)
       void receive(host)
       try {
-        await request(host, "$frames", { clock, domain_id: domain, endpoint }, undefined, signal)
+        await request(host, "$frames", { clock, domain_id: domain, endpoint }, signal)
         host.ready = true
       } catch (error) {
         await terminate(host)
@@ -137,7 +130,7 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
         throw error
       }
     }
-    await request(host, "$frame_device", { name: device.name, active: true }, undefined, signal)
+    await request(host, "$frame_device", { name: device.name, active: true }, signal)
     return clock
   })
 }
@@ -155,15 +148,15 @@ export async function rosReady(cwd: string, device: Device) {
   return !!host?.ready && host.proc.exitCode === null && host.definition === await definition(directory, device)
 }
 
-export async function rosDispatch(cwd: string, device: Device, action: string, args: Record<string, unknown>, owner?: string, signal?: AbortSignal): Promise<DeviceReading> {
+export async function rosDispatch(cwd: string, device: Device, action: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<DeviceReading> {
   const directory = await ProfileStore.deviceDir(cwd, device.name)
-  const run = () => dispatch(cwd, device, action, args, owner, signal)
+  const run = () => dispatch(cwd, device, action, args, signal)
   // Lifecycle actions hold the device's lane; other actions only wait for it.
   return action === "load" || action === "unload" ? serialize(transitions(), directory, run)
     : (transitions().get(directory) ?? Promise.resolve()).then(run)
 }
 
-async function dispatch(cwd: string, device: Device, action: string, args: Record<string, unknown>, owner?: string, signal?: AbortSignal): Promise<DeviceReading> {
+async function dispatch(cwd: string, device: Device, action: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<DeviceReading> {
   if (action === "load") await ProfileStore.validateFrames(cwd, device.name)
   const directory = await ProfileStore.deviceDir(cwd, device.name)
   let host = hosts().get(directory)
@@ -193,7 +186,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
     }
     try {
       const clock = await frames(cwd, device, signal)
-      await request(host, "load", { profile: { ...device, operations: resolvedOperations(device) }, clock }, undefined, signal, (device.runtime?.ready_timeout_s ?? 30) * 1000)
+      await request(host, "load", { profile: { ...device, operations: resolvedOperations(device) }, clock }, signal, (device.runtime?.ready_timeout_s ?? 30) * 1000)
       host.ready = true
     } catch (error) {
       await terminate(host)
@@ -204,16 +197,16 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
     }
     return { deviceID: device.name, data: { ready: true } }
   }
-  if (!host?.ready || (action !== "$cleanup" && action !== "stop" && host.definition !== await definition(directory, device)))
+  if (!host?.ready || (action !== "stop" && host.definition !== await definition(directory, device)))
     throw new NamedError("DeviceInactiveError", `${device.name} requires explicit load or unload/validate/reload`)
-  const data = await request(host, action, args, owner, signal,
+  const data = await request(host, action, args, signal,
     (device.operations[action]?.timeout_s ?? 30) * 1000)
   const { file, ...fields } = data
   return { deviceID: device.name, data: fields,
     ...(typeof file === "string" ? { filePath: file } : {}) }
 }
 
-export async function rosCatalog(cwd: string, owner?: string) {
+export async function rosCatalog(cwd: string) {
   const devices = (await ProfileStore.listDevices(cwd)).filter(device => device.loaded && device.runtime)
   const ready = []
   for (const device of devices) if (await rosReady(cwd, device)) ready.push(device)
@@ -221,31 +214,9 @@ export async function rosCatalog(cwd: string, owner?: string) {
   if (domains.size > 1) throw new NamedError("RosDomainError", "one invocation requires a shared ROS domain")
   const domain = ready[0]?.runtime?.domain_id ?? 0
   const frameHost = frameHosts().get(`${await ProfileStore.workspaceDir(cwd)}:frames:${domain}`)
-  return { owner, domain_id: domain,
+  return { domain_id: domain,
     ...(frameHost?.ready && frameHost.proc.exitCode === null ? { frames: { endpoint: frameHost.endpoint, type: "kinex_interfaces/srv/LookupTransform" } } : {}),
     catalog: Object.fromEntries(ready.flatMap(device => Object.entries(resolvedOperations(device)).map(([name, op]) => [`${device.name}.${name}`, op]))) }
-}
-
-export async function enrollRos(cwd: string, owner: string, name: string) {
-  const device = await ProfileStore.readDevice(cwd, name)
-  if (!device?.runtime || !await rosReady(cwd, device)) throw new NamedError("DeviceInactiveError", `${name} is not ready`)
-  const key = path.join(await ProfileStore.workspaceDir(cwd), owner)
-  let devices = enrolled().get(key)
-  if (!devices) { devices = new Map(); enrolled().set(key, devices) }
-  devices.set(name, device)
-}
-
-export async function cleanupRos(cwd: string, owner: string, failed: boolean) {
-  const key = path.join(await ProfileStore.workspaceDir(cwd), owner)
-  const devices = enrolled().get(key)
-  if (!devices) return
-  const results = await Promise.allSettled([...devices.values()].map(async device => {
-    try { await rosDispatch(cwd, device, "$cleanup", { failed }, owner) }
-    catch (error) { throw new NamedError("RosCleanupError", `${device.name}: ${error}`) }
-  }))
-  enrolled().delete(key)
-  const errors = results.filter(result => result.status === "rejected").map(result => result.reason)
-  if (errors.length) throw new AggregateError(errors, `ROS invocation cleanup failed: ${errors.map(String).join("; ")}`)
 }
 
 export async function closeRos() {

@@ -28,7 +28,7 @@ async function pythonSensor(runtime, directory, { fail = false, slowRead = false
   const marker = path.join(directory, 'unloading')
   await protocolDevice(runtime, directory, 'sensor', { loaded: true, handler: `import time
 from pathlib import Path
-def dispatch(action, args, owner, cancelled):
+def dispatch(action, args, cancelled):
     if action == 'unload':
         Path(${JSON.stringify(marker)}).touch()
         time.sleep(.15)

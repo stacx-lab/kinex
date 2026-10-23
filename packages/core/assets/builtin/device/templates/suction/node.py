@@ -14,7 +14,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 
 from kinex.communication import qos
-from kinex.node import motion_service, node_name
+from kinex.node import command_service, node_name
 
 SWITCH = "/vacuum_gripper/grip_cmd"
 DETECTED = "/vacuum_gripper/object_detected"
@@ -35,18 +35,18 @@ class Suction(Node):
             publisher = self.create_publisher(FluidPressure, pressure["endpoint"], qos(pressure))
             self.create_subscription(FluidPressure, PRESSURE, publisher.publish, qos_profile_sensor_data)
         # The vacuum state persists, so a stop has nothing to hold: it never releases an object.
-        motion_service(self, operations, {"target": self.apply}, hold=lambda: None)
+        command_service(self, operations, {"target": self.apply}, hold=lambda: None)
 
     def receive(self, message):
         self.detected = message.data
         self.grasped.publish(message)
 
     def apply(self, message):
-        if message.target not in (0., 1.):
+        if message.data not in (0., 1.):
             raise ValueError("binary suction targets are 0 (release) or 1 (full vacuum)")
         if not self.switch.service_is_ready():
             raise RuntimeError("the vacuum driver's switch service is unavailable")
-        self.switch.call_async(SetBool.Request(data=message.target == 1.))
+        self.switch.call_async(SetBool.Request(data=message.data == 1.))
 
     async def ready(self):
         while self.detected is None or not self.switch.service_is_ready():

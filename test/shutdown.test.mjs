@@ -26,7 +26,7 @@ for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]]) {
     await seed(core)
     const device = await protocolDevice(core, cwd, 'sensor', {handler: `import os
 from pathlib import Path
-def dispatch(action, args, owner, cancelled):
+def dispatch(action, args, cancelled):
     Path('pid').write_text(str(os.getpid()))
     return {'value':1}
 `})

@@ -39,7 +39,7 @@ frames: {...{base: {parent: null, translation_m: null, rotation_xyzw: null}}} })
   assert.deepEqual(await snapshot(), first)
   assert.deepEqual(Object.keys((await runtime.devices.operations()).find(d=>d.name==='world').operations), ['time'])
   assert.ok((await events()).some(event=>event.action==='$frame_device' && event.args.name==='sensor' && !event.args.active))
-  await protocolDevice(runtime, directory, 'broken', {handler:`def dispatch(action,args,owner,cancelled):
+  await protocolDevice(runtime, directory, 'broken', {handler:`def dispatch(action,args,cancelled):
     if action == 'load': raise RuntimeError('device startup failed')
     return {'ready': True}
 `})
@@ -66,7 +66,7 @@ type:'rosgraph_msgs/msg/Clock' }},
 frames: {...{base: {parent: null, translation_m: null, rotation_xyzw: null}}} })
   await writeFile(path.join(directory,'.kinex','handler.py'), `from pathlib import Path
 import os
-def dispatch(action, args, owner, cancelled):
+def dispatch(action, args, cancelled):
     Path('frame.pid').write_text(str(os.getpid()))
     if action == '$frames' and not Path('allow').exists():
         raise RuntimeError('frame startup failed')

@@ -14,17 +14,11 @@ export const Operation = z.strictObject({
     durability: z.enum(["volatile", "transient_local"]).default("volatile"),
   }).prefault({}),
   timeout_s: z.number().positive().default(10),
-  motion: z.strictObject({ acquire: endpoint, stop: endpoint, status: endpoint }).optional(),
-  cancellation: z.strictObject({ endpoint, type }).optional(),
 }).superRefine((op, ctx) => {
   if (op.transport === "service" && (op.direction !== "input" || !op.type.includes("/srv/")))
     ctx.addIssue({ code: "custom", message: "services are device inputs and require a srv type" })
   if (op.transport === "topic" && !op.type.includes("/msg/"))
     ctx.addIssue({ code: "custom", message: "topics require a msg type" })
-  if (op.cancellation && (op.transport !== "service" || !op.cancellation.type.includes("/srv/")))
-    ctx.addIssue({ code: "custom", message: "cancellation requires a service operation and srv type" })
-  if (op.motion && (op.transport !== "topic" || op.direction !== "input"))
-    ctx.addIssue({ code: "custom", message: "managed motion requires an input topic" })
 })
 export type Operation = z.infer<typeof Operation>
 

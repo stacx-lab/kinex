@@ -3,9 +3,9 @@
 Set CMD_VEL, BODY_POSE and ODOM to the driver's Twist, Pose and Odometry topics,
 MODE_STATE to its String mode topic with MODES mapping its mode names to the
 profile's, and ENTER to the std_srvs/Trigger service that enters each mode. The node
-accepts only what the current mode declares, re-sends velocity until a command's
-duration ends because drivers drop stale commands, and on stop sends zero velocity
-while keeping the mode and posture.
+accepts only what the current mode declares, re-sends the latest velocity because
+drivers drop stale commands, halts when none arrives within TIMEOUT_S of world
+time, and on stop sends zero velocity while keeping the mode and posture.
 """
 import asyncio
 
@@ -19,7 +19,7 @@ from std_srvs.srv import Trigger
 
 from kinex.communication import qos
 from kinex.lib.locomotion import accepted, posture, transition, velocity
-from kinex.node import motion_service, node_name
+from kinex.node import command_service, node_name
 
 CMD_VEL = "/cmd_vel"
 BODY_POSE = "/body_pose"
@@ -28,6 +28,7 @@ MODE_STATE = "/robot/mode"
 MODES = {"balance_stand": "standing", "lie_down": "crouched"}
 ENTER = {"standing": "/robot/stand_up", "crouched": "/robot/stand_down"}
 RATE_HZ = 20
+TIMEOUT_S = .5
 
 
 class Locomotion(Node):
@@ -44,7 +45,7 @@ class Locomotion(Node):
         self.create_subscription(Odometry, ODOM, self.receive_odometry, qos_profile_sensor_data)
         self.create_subscription(String, MODE_STATE, self.receive_mode, qos_profile_sensor_data)
         commands = {"velocity": self.drive, "posture": self.pose, "mode_target": self.change}
-        motion_service(self, operations, {name: apply for name, apply in commands.items() if name in operations}, self.halt)
+        command_service(self, operations, {name: apply for name, apply in commands.items() if name in operations}, self.halt)
         self.create_timer(1 / RATE_HZ, self.tick)
 
     def receive_odometry(self, message):
@@ -63,14 +64,12 @@ class Locomotion(Node):
             self.halt()
             self.mode_state.publish(String(data=mode))
 
-    def drive(self, message):
+    def drive(self, twist):
         accepted(self.profile, self.mode, "velocity")
-        velocity(self.profile, message.twist)
-        if not 0 < message.duration_s < float("inf"):
-            raise ValueError("duration_s must be positive and finite")
-        self.twist = message.twist
-        self.until = self.get_clock().now() + Duration(seconds=message.duration_s)
-        self.cmd_vel.publish(self.twist)
+        velocity(self.profile, twist)
+        # A watchdog: the body stops unless the caller keeps sending velocity.
+        self.twist, self.until = twist, self.get_clock().now() + Duration(seconds=TIMEOUT_S)
+        self.cmd_vel.publish(twist)
 
     def tick(self):
         if self.until is None:
@@ -84,16 +83,16 @@ class Locomotion(Node):
         self.until = None
         self.cmd_vel.publish(Twist())
 
-    def pose(self, message):
+    def pose(self, pose):
         accepted(self.profile, self.mode, "posture")
-        posture(self.profile, message.pose)
-        self.body_pose.publish(message.pose)
+        posture(self.profile, pose)
+        self.body_pose.publish(pose)
 
     def change(self, message):
-        transition(self.profile, self.mode, message.mode)
-        client = self.enter.get(message.mode)
+        transition(self.profile, self.mode, message.data)
+        client = self.enter.get(message.data)
         if client is None or not client.service_is_ready():
-            raise RuntimeError(f"the driver cannot enter {message.mode}")
+            raise RuntimeError(f"the driver cannot enter {message.data}")
         self.halt()
         client.call_async(Trigger.Request())
 
