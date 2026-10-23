@@ -31,7 +31,6 @@ export interface PlanItem {
 
 export interface ReadinessPlan {
   robotID?: string
-  platform?: "real" | "sim"
   items: PlanItem[]
   counts: Record<ItemStatus, number>
   next: PlanItem[]
@@ -176,7 +175,7 @@ function buildNodes(ctx: PlanContext): Node[] {
   const nodes: Node[] = [
     {
       id: "identity",
-      title: "Robot identity & platform",
+      title: "Robot identity",
       dependsOn: [],
       check: () => {
         if (!robot) return { done: false, detail: "no robot manifest" }

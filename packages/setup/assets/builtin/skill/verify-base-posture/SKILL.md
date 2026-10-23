@@ -29,7 +29,7 @@ Stop on faults, unexpected movement or operator interruption.
 Archive samples, independent references and selected acceptance criteria, then run
 calib_compute operation:verify-base using its documented measurement format.
 Report missing measurements as partial. Persist only verified reference/default
-facts; correct proven driver conversion errors through setup-device and reload.
+facts; correct proven node conversion errors through setup-device and reload.
 Do not infer safe limits from a handful of successful trials or tune the gait.
 Return to the task once its selected requirements are met.
 

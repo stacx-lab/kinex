@@ -24,6 +24,14 @@
   },
   "requires": [
     {
+      "role": "anchor",
+      "pointer": "/model"
+    },
+    {
+      "role": "second",
+      "pointer": "/model"
+    },
+    {
       "role": "anchor_tcp",
       "pointer": "/frames/base/translation_m"
     },

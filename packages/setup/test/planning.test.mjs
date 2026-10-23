@@ -41,7 +41,7 @@ test('planning is inert without a plan, even with URDF descriptions; operations 
 
 test('only task targets and ancestors advance; no global calibration gate', async t => {
   const { runtime, setup, directory, save, evidence, done } = await fixture(t)
-  await runtime.profiles.writeManifest({ identity: { id: 'robot', name: 'Robot', kind: 'arm', platform: 'real' } })
+  await runtime.profiles.writeManifest({ identity: { id: 'robot', name: 'Robot', kind: 'arm' } })
   await protocolDevice(runtime, directory, 'sensor')
   await runtime.profiles.writeDevice({ description: '',
     name: 'camera',
@@ -79,24 +79,6 @@ test('reject cycles, missing dependencies, wrong task targets and stale revision
   await assert.rejects(setup.plan.save({ version: 1, nodes: [], task: null }, 0), /Plan changed/)
   await setup.plan.select(null, 1)
   assert.deepEqual((await setup.plan.inspect()).next, [])
-})
-
-test('receipts omit hashes and existing receipts are cleaned on the next write', async t => {
-  const { directory, setup, save, evidence, done } = await fixture(t)
-  await evidence()
-  await save([node('check')], ['check'])
-  await done('check')
-  const file = path.join(directory, '.kinex/setup/plan.json')
-  const stored = JSON.parse(await readFile(file, 'utf8'))
-  const receipt = stored.receipts.check
-  assert.deepEqual(Object.keys(receipt).sort(), ['at', 'evidence', 'note', 'status'])
-  stored.receipts.check = { ...receipt, definition: 'old', inputs: 'old', outputs: 'old',
-    evidenceHash: 'old', dependencies: 'old' }
-  await writeFile(file, JSON.stringify(stored))
-  assert.equal((await setup.plan.inspect()).taskSatisfied, true)
-  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), stored)
-  await setup.plan.select(null, stored.revision)
-  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).receipts.check, receipt)
 })
 
 test('inspection ignores content changes but missing facts and dependencies still invalidate affected branches', async t => {
@@ -171,7 +153,7 @@ test('partial TCP facts can satisfy a task while rotation and section request re
     name: 'tool',
     type: 'gripper',
     needs_calibration: 'orientation unknown',
-    frames: { base: { parent: "arm:flange", translation_m: null, rotation_xyzw: null, translation_m: [0, 0, .1], rotation_xyzw: null } } })
+    frames: { base: { parent: "arm:flange", translation_m: [0, 0, .1], rotation_xyzw: null } } })
   await save([], [], [fact('tool', '/frames/base/translation_m')])
   assert.equal((await setup.plan.inspect()).taskSatisfied, true)
   await setup.plan.select({ objective: 'Full pose', targets: [], facts: [fact('tool', '/frames/base/rotation_xyzw')] }, 1)
@@ -260,7 +242,7 @@ test('reference compositions preserve moving attachments without forcing world c
   ]
   await evidence()
   for (const composition of compositions) {
-    await runtime.profiles.writeManifest({ identity: { id: composition.kind, name: composition.kind, platform: 'sim', kind: composition.kind } })
+    await runtime.profiles.writeManifest({ identity: { id: composition.kind, name: composition.kind, kind: composition.kind } })
     await runtime.profiles.writeDevice({ description: '',
       name: 'world',
       type: 'world',
@@ -283,7 +265,7 @@ test('reference compositions preserve moving attachments without forcing world c
       type: 'joint',
       frames: {
         flange: { parent: `${arm}:base`, translation_m: null, rotation_xyzw: null },
-        base: { parent: `${composition.parent}:${composition.frame}`, translation_m: null, rotation_xyzw: null, translation_m: null, rotation_xyzw: null }
+        base: { parent: `${composition.parent}:${composition.frame}`, translation_m: null, rotation_xyzw: null }
 } })
     for (const [index, tool] of composition.tools.entries()) await runtime.profiles.writeDevice({ description: '',
       name: tool,

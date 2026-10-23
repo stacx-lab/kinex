@@ -1,6 +1,6 @@
 ---
 name: calibrate-tcp-offset
-description: Measure flange-to-tool-tip translation by pivot touches when a task needs a TCP; orientation remains a separate fact.
+description: Measure the tool-tip translation in the gripper base by pivot touches when a task needs a TCP; orientation remains a separate fact.
 ---
 
 # Calibrate tcp offset

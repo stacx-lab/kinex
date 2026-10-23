@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Fit parent<-arm rigid transform from corresponding 3D points."""
+"""Fit the target<-source rigid transform from corresponding 3D points."""
 import argparse
 import json
 
 from kinex.lib.geometry import mat_to_quat
 
 
-def solve(path):
+def solve(path, source, target):
     import numpy as np
 
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    A = np.asarray(data.get("arm_points_m"), dtype=float)
-    B = np.asarray(data.get("parent_points_m"), dtype=float)
+    A = np.asarray(data.get(source), dtype=float)
+    B = np.asarray(data.get(target), dtype=float)
     if A.ndim != 2 or A.shape[1:] != (3,) or B.shape != A.shape:
-        raise ValueError("arm_points_m and parent_points_m must be matching Nx3 arrays")
+        raise ValueError(f"{source} and {target} must be matching Nx3 arrays")
     n = int(A.shape[0])
     if n < 3:
         raise ValueError("at least 3 point correspondences are required")
@@ -62,9 +62,11 @@ def solve(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--points", required=True)
+    parser.add_argument("--source", required=True, help="key of the points in the moving device's frame")
+    parser.add_argument("--target", required=True, help="key of the same points in the parent frame")
     args = parser.parse_args()
     try:
-        return solve(args.points)
+        return solve(args.points, args.source, args.target)
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 

@@ -35,7 +35,7 @@ def main() -> None:
         import cv2
         import numpy as np
     except ImportError:
-        fail('missing deps in the selected interpreter — for core Python use uv add --project <python.project> "opencv-python>=4.7" numpy')
+        fail("Kinex Python lacks opencv-python>=4.7 or numpy; add them to the Kinex Python project")
 
     image = cv2.imread(args.image, cv2.IMREAD_GRAYSCALE)
     if image is None:

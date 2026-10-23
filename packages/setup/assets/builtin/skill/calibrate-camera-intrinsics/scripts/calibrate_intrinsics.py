@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Solve camera intrinsics from calibration-target images (cv2.calibrateCamera).
 
-Input: a glob of images of a ChArUco board or checkerboard with KNOWN printed
-square size (measure it — printers rescale). Output: one JSON object on stdout:
+Input: ordered images of a ChArUco board or checkerboard with KNOWN printed square
+size (measure it — printers rescale). Output: one JSON object on stdout, where
+index is a position in --images:
 
   {"ok": true, "width": ..., "height": ...,
-   "projection": {model,fx,fy,cx,cy,skew}, "distortion": {model,k1,k2,p1,p2,k3}, "rms_px": ..., "frames_used": n,
-   "frames_rejected": m, "per_frame_errors": [...], "coverage_warnings": [...]}
+   "projection": {model,fx,fy,cx,cy,skew}, "distortion": {model,k1,k2,p1,p2,k3}, "rms_px": ...,
+   "frames_used": n, "frames": [{index, error_px}], "rejected": [{index, reason}], "coverage_warnings": [...]}
 """
 
 import argparse
-import glob
 import json
 import sys
 
@@ -22,7 +22,7 @@ def fail(message: str, **extra) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--images", required=True, help="glob, e.g. 'frames/*.png'")
+    parser.add_argument("--images", nargs="+", required=True, help="image files in capture order")
     parser.add_argument("--board", choices=["charuco", "checkerboard"], default="charuco")
     parser.add_argument("--squares-x", type=int, default=7)
     parser.add_argument("--squares-y", type=int, default=5)
@@ -38,17 +38,9 @@ def main() -> None:
         import cv2
         import numpy as np
     except ImportError:
-        fail('missing deps in the selected interpreter — for core Python use uv add --project <python.project> "opencv-python>=4.7" numpy')
-
-    paths = sorted(glob.glob(args.images))
-    if not paths:
-        fail(f"no images match {args.images}")
+        fail("Kinex Python lacks opencv-python>=4.7 or numpy; add them to the Kinex Python project")
 
     square_m = args.square_mm / 1000.0
-    size = None
-    object_points, image_points = [], []
-    rejected = 0
-
     if args.board == "charuco":
         marker_m = (args.marker_mm if args.marker_mm else args.square_mm * 0.75) / 1000.0
         try:
@@ -57,61 +49,61 @@ def main() -> None:
             fail(f"unknown aruco dictionary {args.dictionary}")
         board = cv2.aruco.CharucoBoard((args.squares_x, args.squares_y), square_m, marker_m, dictionary)
         detector = cv2.aruco.CharucoDetector(board)
-        for path in paths:
-            image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-            if image is None:
-                rejected += 1
-                continue
-            if size is None:
-                size = (image.shape[1], image.shape[0])
-            elif (image.shape[1], image.shape[0]) != size:
-                fail(f"{path} has a different resolution than the first frame — calibrate one stream at a time")
-            charuco_corners, charuco_ids, _, _ = detector.detectBoard(image)
-            if charuco_ids is None or len(charuco_ids) < 6:
-                rejected += 1
-                continue
-            obj, img = board.matchImagePoints(charuco_corners, charuco_ids)
+
+        def detect(image):
+            corners, ids, _, _ = detector.detectBoard(image)
+            if ids is None or len(ids) < 6:
+                return "fewer than 6 ChArUco corners detected"
+            obj, img = board.matchImagePoints(corners, ids)
             if obj is None or len(obj) < 6:
-                rejected += 1
-                continue
-            object_points.append(obj)
-            image_points.append(img)
+                return "fewer than 6 ChArUco corners matched the board"
+            return obj, img
     else:
         pattern = (args.corners_x, args.corners_y)
         template = np.zeros((pattern[0] * pattern[1], 1, 3), np.float32)
-        grid = np.mgrid[0 : pattern[0], 0 : pattern[1]].T.reshape(-1, 2)
-        template[:, 0, :2] = grid * square_m
+        template[:, 0, :2] = np.mgrid[0 : pattern[0], 0 : pattern[1]].T.reshape(-1, 2) * square_m
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3)
-        for path in paths:
-            image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-            if image is None:
-                rejected += 1
-                continue
-            if size is None:
-                size = (image.shape[1], image.shape[0])
+
+        def detect(image):
             found, corners = cv2.findChessboardCorners(image, pattern)
             if not found:
-                rejected += 1
-                continue
-            corners = cv2.cornerSubPix(image, corners, (11, 11), (-1, -1), criteria)
-            object_points.append(template.copy())
-            image_points.append(corners)
+                return "checkerboard not found"
+            return template.copy(), cv2.cornerSubPix(image, corners, (11, 11), (-1, -1), criteria)
+
+    size = None
+    object_points, image_points, used, rejected = [], [], [], []
+    for index, path in enumerate(args.images):
+        image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if image is None:
+            rejected.append({"index": index, "reason": "unreadable image"})
+            continue
+        if size is None:
+            size = (image.shape[1], image.shape[0])
+        elif (image.shape[1], image.shape[0]) != size:
+            fail(f"image {index} has a different resolution than the first image — calibrate one stream at a time")
+        points = detect(image)
+        if isinstance(points, str):
+            rejected.append({"index": index, "reason": points})
+            continue
+        object_points.append(points[0])
+        image_points.append(points[1])
+        used.append(index)
 
     if len(object_points) < args.min_frames:
         fail(
-            f"only {len(object_points)} usable detections out of {len(paths)} images (need >= {args.min_frames}) — "
+            f"only {len(object_points)} usable detections out of {len(args.images)} images (need >= {args.min_frames}) — "
             "recapture with the board sharp, fully visible, and matching the declared geometry",
             frames_used=len(object_points),
-            frames_rejected=rejected,
+            rejected=rejected,
         )
 
     rms, camera_matrix, dist, rvecs, tvecs = cv2.calibrateCamera(object_points, image_points, size, None, None)
 
-    per_frame = []
-    for i in range(len(object_points)):
-        projected, _ = cv2.projectPoints(object_points[i], rvecs[i], tvecs[i], camera_matrix, dist)
-        deltas = image_points[i].reshape(-1, 2) - projected.reshape(-1, 2)
-        per_frame.append(float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1)))))
+    frames = []
+    for index, obj, img, rvec, tvec in zip(used, object_points, image_points, rvecs, tvecs):
+        projected, _ = cv2.projectPoints(obj, rvec, tvec, camera_matrix, dist)
+        deltas = img.reshape(-1, 2) - projected.reshape(-1, 2)
+        frames.append({"index": index, "error_px": round(float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1)))), 3)})
 
     # Coverage: warn when no detections land in a quadrant of the image.
     warnings = []
@@ -136,9 +128,9 @@ def main() -> None:
                 "distortion": {"model": "opencv_brown_conrady",
                                **dict(zip(("k1", "k2", "p1", "p2", "k3"), map(float, dist.reshape(-1)[:5])))},
                 "rms_px": float(rms),
-                "frames_used": len(object_points),
-                "frames_rejected": rejected,
-                "per_frame_errors": [round(v, 3) for v in per_frame],
+                "frames_used": len(frames),
+                "frames": frames,
+                "rejected": rejected,
                 "coverage_warnings": warnings,
             }
         )

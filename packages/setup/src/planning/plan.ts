@@ -15,7 +15,7 @@ export async function readPlan(cwd: string): Promise<StoredPlan | undefined> {
   const text = await optionalText(await location(cwd, "setup/plan.json"))
   return text === undefined ? undefined : StoredPlan.parse(JSON.parse(text))
 }
-export function ordered(plan: Plan): PlanNode[] {
+function ordered(plan: Plan): PlanNode[] {
   const nodes = new Map(plan.nodes.map(node => [node.id, node]))
   if (nodes.size !== plan.nodes.length) fail("Duplicate node IDs")
   const order: PlanNode[] = [], visited = new Set<string>(), visiting: string[] = []
@@ -49,7 +49,7 @@ function covers(output: Fact, input: Fact) {
   return output.kind === "profile" && input.kind === "profile" && output.device === input.device &&
     (input.pointer === output.pointer || input.pointer.startsWith(output.pointer + "/"))
 }
-export async function validatePlan(cwd: string, plan: Plan) {
+async function validatePlan(cwd: string, plan: Plan) {
   ordered(plan)
   const catalog = await procedures(cwd)
   for (const node of plan.nodes) {
@@ -90,7 +90,7 @@ export async function selectTask(cwd: string, task: typeof Task._output | null, 
     return saved
   })
 }
-export type NodeStatus = "ready" | "blocked" | "needs-input" | "partial" | "done" | "failed" | "stale"
+type NodeStatus = "ready" | "blocked" | "needs-input" | "partial" | "done" | "failed" | "stale"
 export const dependencies = (plan: StoredPlan, node: PlanNode) => digest(node.dependsOn.map(id => [id, plan.receipts[id]]))
 async function inspectValidPlan(cwd: string) {
   const plan = await readPlan(cwd)

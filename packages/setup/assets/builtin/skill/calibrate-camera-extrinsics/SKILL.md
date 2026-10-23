@@ -20,9 +20,8 @@ Verify participating devices answer before physical preparation. Plan motion wit
 `kinex.helpers.trajectory` using `fraction <= 0.15`, submit through the device's
 declared command operation, wait on the world clock and verify measured arrival.
 Record the named attachment frame, without applying TCP offset.
-Use `calib_sample` for robot evidence and camera artifacts, passing
-`args: {output: "file"}` for every camera sample. Retain both sample IDs and
-timestamps. Sequential captures are not claimed to be synchronized.
+Use `calib_sample` for robot evidence and camera artifacts. Retain both sample
+IDs and timestamps. Sequential captures are not claimed to be synchronized.
 
 `scripts/detect_board.py` detects ChArUco/checkerboard observations. Archive selected
 pairs as `[{frame_pose:[x,y,z,qx,qy,qz,qw],rvec:[...],tvec:[...]}]` outside the

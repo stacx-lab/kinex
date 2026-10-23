@@ -3,27 +3,26 @@ import path from "node:path"
 import { readdir, mkdir, copyFile } from "node:fs/promises"
 import { z } from "zod"
 import { spawnProcess } from "@kinex/core/util/process"
-import { pythonRuntime } from "@kinex/core/python/environment"
-import { Assets as CoreAssets } from "@kinex/core/installation/assets"
+import { pythonLaunch } from "@kinex/core/python/launch"
 import { ProfileStore } from "@kinex/core/device/profile/store"
 import { deviceFrames } from "@kinex/core/device/profile/frames"
-import { getRoutine } from "./routines/index.ts"
-import { AttemptInput, attempt, archive, saveAttempt } from "./attempt.ts"
+import { deviceTree, modelErrors } from "@kinex/core/device/profile/urdf"
+import { AttemptInput, attempt, archive, saveAttempt, type Attempt } from "./attempt.ts"
 import { procedures } from "../planning/procedures.ts"
 import { atomicJSON, fail, location, inspectFacts } from "../planning/facts.ts"
 import { Assets } from "../assets.ts"
 import { serialized } from "../planning/plan.ts"
-import { withSignal } from "@kinex/core/scope"
 
-const common = { ...AttemptInput.shape, interpreter: z.string().optional(), timeout_s: z.number().positive().max(600).default(120) }
+const common = { ...AttemptInput.shape, timeout_s: z.number().positive().max(600).default(120) }
 const file = z.string().min(1).describe("Input file path, relative to invocation directory or absolute")
+const frame = z.string().min(1).describe("URDF link whose poses the samples hold")
 export const ComputeInput = z.discriminatedUnion("operation", [
   z.strictObject({ ...common, operation: z.literal("urdf-introspect") }),
   z.strictObject({ ...common, operation: z.literal("fit-mount"), points: file, parent_frame: z.string().min(1) }),
   z.strictObject({ ...common, operation: z.literal("fit-dual"), points: file }),
-  z.strictObject({ ...common, operation: z.literal("fit-tcp"), samples: file, frame: z.string().default("flange") }),
+  z.strictObject({ ...common, operation: z.literal("fit-tcp"), samples: file, frame }),
   z.strictObject({ ...common, operation: z.literal("camera-extrinsics"), samples: file,
-    mode: z.enum(["eye_in_hand", "eye_to_hand"]), frame: z.string().default("flange") }),
+    mode: z.enum(["eye_in_hand", "eye_to_hand"]), frame }),
   z.strictObject({ ...common, operation: z.literal("camera-intrinsics"), images: z.array(file).min(10),
     board: z.enum(["charuco", "checkerboard"]).default("charuco"), square_mm: z.number().positive(),
     marker_mm: z.number().positive().optional(), squares_x: z.number().int().min(2).default(7), squares_y: z.number().int().min(2).default(5),
@@ -31,34 +30,154 @@ export const ComputeInput = z.discriminatedUnion("operation", [
   z.strictObject({ ...common, operation: z.literal("verify-base"), measurements: file }),
 ])
 export type ComputeInput = z.infer<typeof ComputeInput>
-const scripts = {
-  "fit-mount": ["calibrate-fixed-arm-mount", "fit_mount.py"],
-  "fit-dual": ["calibrate-dual-arm", "fit_dual.py"],
-  "fit-tcp": ["calibrate-tcp-offset", "fit_tcp.py"],
-  "camera-extrinsics": ["calibrate-camera-extrinsics", "solve_extrinsics.py"],
-  "camera-intrinsics": ["calibrate-camera-intrinsics", "calibrate_intrinsics.py"],
-} as const
-const output = z.record(z.string(), z.unknown())
-const number = (data: Record<string, unknown>, key: string) => z.number().finite().parse(data[key])
-export function quality(operation: ComputeInput["operation"], data: Record<string, unknown>): "passed" | "warning" | "failed" | "not-evaluated" {
-  if (data.ok === false) return "failed"
-  if (operation === "urdf-introspect") return "not-evaluated"
-  if (operation === "fit-mount" || operation === "fit-dual" || operation === "verify-base")
-    return data.quality_pass === true ? "passed" : "failed"
-  if (operation === "fit-tcp") {
-    const residual = number(data, "residual_mm")
-    return number(data, "n") < 4 || residual > 10 ? "failed" : residual < 5 ? "passed" : "warning"
-  }
-  if (operation === "camera-extrinsics") return number(data, "pairs_used") >= 5 && number(data, "residual_rot_deg") <= 2 &&
-    number(data, "residual_trans_mm") <= 10 ? "passed" : "failed"
-  const rms = number(data, "rms_px")
-  if (rms > 1 || number(data, "frames_used") < 10) return "failed"
-  return rms >= .5 || z.array(z.string()).parse(data.coverage_warnings).length ? "warning" : "passed"
+type Operation = ComputeInput["operation"]
+type Inputs = { [O in Operation]: Extract<ComputeInput, { operation: O }> }
+type Data = Record<string, unknown>
+type Quality = "passed" | "warning" | "failed" | "not-evaluated"
+interface Context { cwd: string; run: Attempt; directory: string; signal: AbortSignal }
+// Calibrated facts a solve proposes for the bound target, with the pointers they resolve.
+interface Facts { method: string; patch: Data; resolved: [string, unknown][] }
+interface Solver<O extends Operation> {
+  solve(input: Inputs[O], context: Context): Promise<Data>
+  quality(data: Data): Quality
+  facts?(input: Inputs[O], data: Data, target: string, context: Context): Promise<Facts>
+  unresolved?: string[]
 }
+
+const output = z.record(z.string(), z.unknown())
+const number = (data: Data, key: string) => z.number().finite().parse(data[key])
+const passed = (data: Data): Quality => data.quality_pass === true ? "passed" : "failed"
+const skillScript = (skill: string, name: string) => path.join(Assets.builtin("skill"), skill, "scripts", name)
+const computeScript = (name: string) => path.join(Assets.root, "compute", name)
+const archived = (context: Context, file: string) => archive(context.cwd, context.run, path.resolve(context.cwd, file))
+
+// Only bundled, known offline programs execute here, in Kinex Python. Overriding
+// skill prose does not grant permission to execute replacement Python.
+async function script(file: string, argv: string[], { cwd, directory, signal }: Context): Promise<Data> {
+  const python = await pythonLaunch(cwd, "node", undefined, signal)
+  const proc = spawnProcess([...python.command, file, ...argv], { cwd: directory, signal, group: true, env: python.env })
+  proc.stdin.end()
+  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+  signal.throwIfAborted()
+  let data: Data
+  try { data = output.parse(JSON.parse(stdout)) } catch (error) {
+    if (code === 0) throw error
+    return { ok: false, error: stderr.trim() || `Solver exited ${code}` }
+  }
+  return code === 0 ? data : { ...data, ok: false }
+}
+
+const rigid = (source: string, target: string) => async (input: { points: string }, context: Context) =>
+  script(computeScript("fit_rigid.py"), ["--points", await archived(context, input.points), "--source", source, "--target", target], context)
+
+// A measured mount of the target in a frame of its bound parent.
+function mount(method: string, frame: string, data: Data, { run }: Context): Facts {
+  const parent = run.bindings.parent ?? run.bindings.anchor ?? run.bindings.arm ?? fail("Bind parent, anchor or arm")
+  const base = { parent: `${parent}:${frame}`, translation_m: data.translation_m, rotation_xyzw: data.rotation_xyzw }
+  return { method, patch: { frames: { base } }, resolved: Object.entries(base).map(([field, value]) => [`/frames/base/${field}`, value]) }
+}
+
+const SOLVERS: { [O in Operation]: Solver<O> } = {
+  "urdf-introspect": {
+    async solve(_, { cwd, run }) {
+      const device = await ProfileStore.readDevice(cwd, run.bindings.arm ?? fail("Bind arm"))
+      if (device?.type !== "joint" && device?.type !== "gripper") return { ok: false, notes: "URDF models belong to joint and gripper devices" }
+      const model = deviceTree(device)
+      if (!model) return { ok: false, notes: modelErrors.get(device) ?? "record this device's URDF path and base_link first" }
+      return { ok: true, model, notes: `resolved ${model.links.length} links and ${model.joints.length} joints; profile retains the URDF reference` }
+    },
+    quality: () => "not-evaluated",
+  },
+  "fit-mount": {
+    solve: rigid("arm_points_m", "parent_points_m"), quality: passed,
+    facts: async (input, data, _, context) => mount("survey", input.parent_frame, data, context),
+  },
+  "fit-dual": {
+    solve: rigid("second_points_m", "anchor_points_m"), quality: passed,
+    facts: async (_, data, __, context) => mount("survey", "base", data, context),
+  },
+  "fit-tcp": {
+    async solve(input, context) {
+      const target = await ProfileStore.readDevice(context.cwd, context.run.bindings.target ?? fail("Bind target"))
+      const base = target ? deviceFrames(target).base : undefined
+      if (!base || base.parent !== `${context.run.bindings.arm}:${input.frame}` ||
+          base.translation_m === null || base.rotation_xyzw === null) fail("TCP fitting requires a known mount in the sampled arm frame")
+      return script(skillScript("calibrate-tcp-offset", "fit_tcp.py"),
+        ["--samples", await archived(context, input.samples), "--frame", input.frame, "--mount", JSON.stringify(base)], context)
+    },
+    quality(data) {
+      const residual = number(data, "residual_mm")
+      return number(data, "n") < 4 || residual > 10 ? "failed" : residual < 5 ? "passed" : "warning"
+    },
+    async facts(_, data, target, { cwd }) {
+      const profile = await ProfileStore.readDevice(cwd, target)
+      const tcp = profile?.type === "gripper" || profile?.type === "suction" ? profile.frames.tcp : undefined
+      if (tcp && tcp.parent !== `${target}:base`) fail("TCP fitting requires tcp to be relative to the end-effector base")
+      const frame = { parent: `${target}:base`, translation_m: data.tcp_translation_m, rotation_xyzw: tcp?.rotation_xyzw ?? null }
+      return { method: "tcp_pivot", patch: { frames: { tcp: frame } }, resolved: [["/frames/tcp/translation_m", frame.translation_m]] }
+    },
+    unresolved: ["TCP orientation is not measured by pivot calibration"],
+  },
+  "camera-extrinsics": {
+    async solve(input, context) {
+      return script(skillScript("calibrate-camera-extrinsics", "solve_extrinsics.py"), ["--samples", await archived(context, input.samples),
+        "--mode", input.mode, "--device", context.run.bindings.arm ?? fail("Bind arm"), "--frame", input.frame], context)
+    },
+    quality: data => number(data, "pairs_used") >= 5 && number(data, "residual_rot_deg") <= 2 &&
+      number(data, "residual_trans_mm") <= 10 ? "passed" : "failed",
+    facts: async (input, data, _, context) => mount("hand_eye", input.mode === "eye_to_hand" ? "base" : input.frame, data, context),
+  },
+  "camera-intrinsics": {
+    async solve(input, context) {
+      // A distinct image directory keeps this solve's inputs apart from other artifacts.
+      const images = path.join(context.directory, "artifacts", shortID())
+      await mkdir(images)
+      const copies = await Promise.all(input.images.map(async (image, index) => {
+        const copy = path.join(images, `${index}${path.extname(image)}`)
+        await copyFile(path.resolve(context.cwd, image), copy)
+        return copy
+      }))
+      return script(skillScript("calibrate-camera-intrinsics", "calibrate_intrinsics.py"), ["--images", ...copies,
+        "--board", input.board, "--square-mm", String(input.square_mm), "--squares-x", String(input.squares_x),
+        "--squares-y", String(input.squares_y), "--corners-x", String(input.corners_x), "--corners-y", String(input.corners_y),
+        "--dict", input.dictionary, ...(input.marker_mm === undefined ? [] : ["--marker-mm", String(input.marker_mm)])], context)
+    },
+    quality(data) {
+      const rms = number(data, "rms_px")
+      if (rms > 1 || number(data, "frames_used") < 10) return "failed"
+      return rms >= .5 || z.array(z.string()).parse(data.coverage_warnings).length ? "warning" : "passed"
+    },
+    async facts(input, data) {
+      const color = { width: data.width, height: data.height, projection: data.projection, distortion: data.distortion }
+      return { method: input.board, patch: { color }, resolved: Object.entries(color).map(([field, value]) => [`/color/${field}`, value]) }
+    },
+  },
+  "verify-base": {
+    solve: async (input, context) => script(computeScript("verify_base.py"), ["--measurements", await archived(context, input.measurements)], context),
+    quality: passed,
+  },
+}
+
+export function quality(operation: Operation, data: Data): Quality {
+  return data.ok === false ? "failed" : SOLVERS[operation].quality(data)
+}
+
 export async function compute(cwd: string, input: ComputeInput, abort: AbortSignal) {
   const key = await location(cwd, `calib/${input.run ?? shortID()}`)
   return serialized(key, () => executeCompute(cwd, input, abort))
 }
+
+async function solve<O extends Operation>(operation: O, input: Inputs[O], context: Context) {
+  const solver: Solver<O> = SOLVERS[operation]
+  const data = await solver.solve(input, context)
+  context.signal.throwIfAborted()
+  if ((await inspectFacts(context.cwd, context.run.inputs)).hash !== context.run.fingerprint) fail("Inputs changed during computation; start a new attempt")
+  const assessment = data.ok === false ? "failed" : solver.quality(data)
+  const target = context.run.bindings.target ?? context.run.bindings.second
+  const facts = assessment !== "failed" && target && solver.facts ? await solver.facts(input, data, target, context) : undefined
+  return { data, assessment, target, facts, unresolved: solver.unresolved ?? [] }
+}
+
 async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSignal) {
   abort.throwIfAborted()
   const args = ComputeInput.parse(input)
@@ -67,88 +186,13 @@ async function executeCompute(cwd: string, input: ComputeInput, abort: AbortSign
   if (!descriptor?.computes.includes(args.operation)) fail(`${run.procedure} does not declare ${args.operation}; custom scripts use host tools`)
   const directory = await saveAttempt(cwd, run)
   const signal = AbortSignal.any([abort, AbortSignal.timeout(Math.ceil(args.timeout_s * 1000))])
-  let data: Record<string, unknown>
-  if (args.operation === "urdf-introspect") {
-    const robot = await ProfileStore.readManifest(cwd)
-    if (!robot) fail("Create the workspace manifest first")
-    const result = await withSignal(signal, () => getRoutine("urdf-introspect")!.run({ cwd, robot, deviceID: run.bindings.arm }))
-    data = { ok: result.status === "ok", model: result.data, notes: result.notes }
-  } else {
-    const archived = async (file: string) => archive(cwd, run, path.resolve(cwd, file))
-    const argv: string[] = []
-    if (args.operation === "fit-mount" || args.operation === "fit-dual") argv.push("--points", await archived(args.points))
-    if (args.operation === "fit-tcp") {
-      const target = await ProfileStore.readDevice(cwd, run.bindings.target ?? fail("Bind target"))
-      const mount = target ? deviceFrames(target).base : undefined
-      if (!mount || mount.parent !== `${run.bindings.arm}:${args.frame}` ||
-          mount.translation_m === null || mount.rotation_xyzw === null) fail("TCP fitting requires a known mount in the sampled arm frame")
-      argv.push("--samples", await archived(args.samples), "--frame", args.frame, "--mount", JSON.stringify(mount))
-    }
-    if (args.operation === "camera-extrinsics") argv.push("--samples", await archived(args.samples), "--mode", args.mode,
-      "--device", run.bindings.arm ?? fail("Bind arm"), "--frame", args.frame)
-    if (args.operation === "verify-base") argv.push("--measurements", await archived(args.measurements))
-    if (args.operation === "camera-intrinsics") {
-      // A distinct image directory avoids mixing previous solves or other artifacts.
-      const images = path.join(directory, "artifacts", shortID())
-      await mkdir(images)
-      for (const [index, image] of args.images.entries()) await copyFile(path.resolve(cwd, image), path.join(images, `${index}${path.extname(image)}`))
-      argv.push("--images", path.join(images, "*"), "--board", args.board, "--square-mm", String(args.square_mm),
-        "--squares-x", String(args.squares_x), "--squares-y", String(args.squares_y),
-        "--corners-x", String(args.corners_x), "--corners-y", String(args.corners_y), "--dict", args.dictionary)
-      if (args.marker_mm !== undefined) argv.push("--marker-mm", String(args.marker_mm))
-    }
-    // Only bundled, known offline programs execute here. Overriding skill prose
-    // does not grant permission to execute arbitrary replacement Python.
-    const script = args.operation === "verify-base" ? path.join(Assets.root, "compute", "verify_base.py") :
-      path.join(Assets.builtin("skill"), scripts[args.operation][0], "scripts", scripts[args.operation][1])
-    const python = await pythonRuntime(cwd, args.interpreter, signal)
-    const library = CoreAssets.python()
-    const proc = spawnProcess([python.executable, script, ...argv], { cwd: directory, signal, group: true,
-      env: { ...python.env, PYTHONPATH: [library, await location(cwd, "lib"), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter) } })
-    proc.stdin.end()
-    const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
-    signal.throwIfAborted()
-    try { data = output.parse(JSON.parse(stdout)) } catch (error) {
-      if (code === 0) throw error
-      data = { ok: false, error: stderr.trim() || `Solver exited ${code}` }
-    }
-    if (code !== 0) data = { ...data, ok: false }
-  }
-  signal.throwIfAborted()
-  if ((await inspectFacts(cwd, run.inputs)).hash !== run.fingerprint) fail("Inputs changed during computation; start a new attempt")
-  const assessment = quality(args.operation, data)
-  const patches: { kind: "device"; data: Record<string, unknown> }[] = []
-  const resolved: { device: string; pointer: string; value: unknown }[] = []
-  const target = run.bindings.target ?? run.bindings.second
-  if (assessment !== "failed" && target) {
-    const measured = { source: "calibration", calibrated_at: new Date().toISOString() }
-    if (args.operation === "camera-intrinsics") {
-      const color = { width: data.width, height: data.height, projection: data.projection, distortion: data.distortion }
-      patches.push({ kind: "device", data: { name: target, ...measured, method: args.board, color } })
-      for (const [field, value] of Object.entries(color)) resolved.push({ device: target, pointer: `/color/${field}`, value })
-    } else if (args.operation === "fit-tcp") {
-      const profile = await ProfileStore.readDevice(cwd, target)
-      const tcp = profile?.type === "gripper" ? profile.frames.tcp : undefined
-      const frame = { parent: `${target}:base`, translation_m: data.tcp_translation_m,
-        rotation_xyzw: tcp?.rotation_xyzw ?? null }
-      if (tcp && tcp.parent !== `${target}:base`) fail("TCP fitting requires tcp to be relative to the gripper base")
-      patches.push({ kind: "device", data: { name: target, ...measured,
-        method: "tcp_pivot", frames: { tcp: frame } } })
-      resolved.push({ device: target, pointer: "/frames/tcp/translation_m", value: frame.translation_m })
-    } else if (["fit-mount", "fit-dual", "camera-extrinsics"].includes(args.operation)) {
-      const parent = run.bindings.parent ?? run.bindings.anchor ?? run.bindings.arm ?? fail("Bind parent, anchor or arm")
-      const frame = args.operation === "fit-mount" ? args.parent_frame : args.operation === "fit-dual" ? "base" :
-        args.operation === "camera-extrinsics" && args.mode === "eye_to_hand" ? "base" : "frame" in args ? args.frame : "base"
-      const mount = { parent: `${parent}:${frame}`, translation_m: data.translation_m, rotation_xyzw: data.rotation_xyzw }
-      patches.push({ kind: "device", data: { name: target, ...measured,
-        method: args.operation === "camera-extrinsics" ? "hand_eye" : "survey", frames: { base: mount } } })
-      for (const [field, value] of Object.entries(mount)) resolved.push({ device: target, pointer: `/frames/base/${field}`, value })
-    }
-  }
+  const { data, assessment, target, facts, unresolved } = await solve(args.operation, args, { cwd, run, directory, signal })
+  const measured = { source: "calibration", calibrated_at: new Date().toISOString() }
   const result = { version: 1, run: run.id, node: run.node, procedure: run.procedure, operation: args.operation,
-    computation: data.ok === false ? "failed" : "succeeded", quality: assessment, data, resolved,
-    unresolved: args.operation === "fit-tcp" ? ["TCP orientation is not measured by pivot calibration"] : [],
-    proposedChanges: patches, inputs: run.inputs, fingerprint: run.fingerprint, dependencies: run.dependencies, createdAt: new Date().toISOString() }
+    computation: data.ok === false ? "failed" : "succeeded", quality: assessment, data,
+    resolved: facts ? facts.resolved.map(([pointer, value]) => ({ device: target, pointer, value })) : [], unresolved,
+    proposedChanges: facts ? [{ kind: "device", data: { name: target, ...measured, method: facts.method, ...facts.patch } }] : [],
+    inputs: run.inputs, fingerprint: run.fingerprint, dependencies: run.dependencies, createdAt: new Date().toISOString() }
   signal.throwIfAborted()
   // Keep each solve and its artifacts; result.json is only the latest view.
   const indexes = (await readdir(directory)).flatMap(name => {

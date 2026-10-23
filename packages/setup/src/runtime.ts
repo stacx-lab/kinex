@@ -1,9 +1,7 @@
 import type { KinexRuntime, ToolInvocation, Def } from "@kinex/core"
 import { toModelSchema } from "@kinex/core/tool/registry"
-import { inspectPlan, readPlan, savePlan, selectTask, recordOutcome } from "./planning/plan.ts"
+import { inspectPlan, savePlan, selectTask, recordOutcome } from "./planning/plan.ts"
 import type { Plan, Outcome } from "./planning/schema.ts"
-import { compute, type ComputeInput } from "./calibration/compute.ts"
-import { currentSignal } from "@kinex/core/scope"
 import { SetupPlanTool } from "./tool/setup_plan.ts"
 import { CalibSampleTool } from "./tool/calib_sample.ts"
 import { CalibComputeTool } from "./tool/calib_compute.ts"
@@ -18,12 +16,10 @@ export function createKinexSetup(runtime: KinexRuntime) {
   return {
     plan: {
       inspect: () => runtime.operation(() => inspectPlan(directory)),
-      read: () => runtime.operation(() => readPlan(directory)),
       save: (plan: Plan, revision: number) => runtime.operation(() => savePlan(directory, plan, revision)),
       select: (task: Plan["task"], revision: number) => runtime.operation(() => selectTask(directory, task, revision)),
       record: (node: string, outcome: Outcome, revision: number) => runtime.operation(() => recordOutcome(directory, node, outcome, revision)),
     },
-    calibration: { compute: (input: ComputeInput) => runtime.operation(() => compute(directory, input, currentSignal() ?? new AbortController().signal)) },
     tools: {
       list: () => runtime.operation(async () => ({ tools: tools.map(toModelSchema), problems: [] as string[] })),
       call(name: string, input: unknown, call: ToolInvocation) {

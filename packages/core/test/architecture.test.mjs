@@ -27,5 +27,5 @@ test('core source imports stay inside the package and have no host dependencies'
     }
   }
   await visit(path.join(root, 'src'))
-  for (const name of allowed) assert.doesNotMatch(name, /pi-coding-agent|opentui|anthropic|openai/)
+  for (const name of allowed) assert.doesNotMatch(name, /(^|\/)pi-|opentui|anthropic|openai/)
 })
