@@ -11,8 +11,8 @@ from omegaconf import OmegaConf
 from PIL import Image
 from rclpy.node import Node
 
-from kinex.communication import json_service
-from kinex.validation import vector
+from kinex.node import json_service
+from kinex.lib.geometry import vector
 
 HERE = Path(__file__).resolve().parent
 OPTIONAL_IDM = "libero_optional_idm_2cam224"

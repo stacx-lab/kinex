@@ -4,8 +4,7 @@ import math
 from pathlib import Path
 from xml.etree import ElementTree
 
-from kinex.geometry import compose_rt, quat_to_mat, xyzq_to_rt
-from kinex.motion import vector
+from kinex.lib.geometry import compose_rt, quat_to_mat, vector, xyzq_to_rt
 
 MOVABLE = {"revolute", "continuous", "prismatic"}
 
@@ -106,6 +105,18 @@ def read_tree(path, base_link, xml=None):
         if joint.get("mimic") and joint["mimic"]["joint"] not in independent:
             raise ValueError(f"{joint['name']} must mimic an independent movable joint below base_link")
     return {"base_link": base_link, "links": [base_link] + [joint["child"] for joint in joints], "joints": joints}
+
+
+def joint_target(value, joints, *, check_limits=True):
+    """Finite positions for the given joints, optionally within their URDF limits."""
+    if not joints:
+        raise ValueError("joint metadata is required")
+    vector(value, len(joints), "joint target")
+    for position, joint in zip(value, joints):
+        limits = joint.get("limits")
+        if check_limits and limits is not None and not limits["min"] <= position <= limits["max"]:
+            raise ValueError(f"target outside joint limits: {joint['name']}")
+    return value
 
 
 def commanded(tree):

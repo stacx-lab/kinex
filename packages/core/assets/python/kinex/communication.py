@@ -18,19 +18,10 @@ JSON = "kinex_interfaces/srv/Json"
 JSON_COMMAND = "kinex_interfaces/msg/JsonCommand"
 
 
-def json_service(node, operation, handler):
-    """Serve handler(**request) -> dict on an owned node's Json operation."""
-    from kinex_interfaces.srv import Json
-
-    def call(request, response):
-        # Handler failures are responses; they must not stop the node's executor.
-        try:
-            response.response = json.dumps(handler(**json.loads(request.request)), allow_nan=False)
-            response.success = True
-        except Exception as error:
-            response.message = f"{type(error).__name__}: {error}"
-        return response
-    return node.create_service(Json, operation["endpoint"], call)
+def duration(seconds):
+    """A builtin_interfaces Duration or Time payload from seconds."""
+    nanoseconds = round(seconds * 1e9)
+    return {"sec": nanoseconds // 1_000_000_000, "nanosec": nanoseconds % 1_000_000_000}
 
 
 def message_value(cls, value):
@@ -433,7 +424,7 @@ class Communication:
 
     def transforms(self):
         if self.tf is None:
-            from kinex.ros_frame_graph import listen
+            from kinex.host.frame_graph import listen
             self.tf, self.tf_listener = listen(self.node)
             if self.world_stamp is not None:
                 self.tf.observe_clock(self.world_stamp)

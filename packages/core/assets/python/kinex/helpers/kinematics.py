@@ -1,7 +1,7 @@
 """Joint device kinematics from the device's resolved URDF."""
 
 from kinex import profile
-from kinex.joints import JointModel
+from kinex.lib.joints import JointModel
 
 
 def joint_model(device):

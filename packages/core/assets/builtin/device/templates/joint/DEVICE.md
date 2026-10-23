@@ -19,7 +19,7 @@ a gripper base on `arm:flange`. Link names must not repeat profile frame names.
 use by default; set it to null for trees without one, such as a dexterous hand.
 `home` gives every commanded joint a position, or is null. With `limits: strict`,
 the node and Kinex tools reject targets outside the URDF limits, allowing only a
-bounded inward recovery toward home (`kinex.joints.recovery_targets`); use
+bounded inward recovery toward home (`kinex.lib.joints.recovery_targets`); use
 `native` when the device enforces or clamps its own limits and targets may reach
 them.
 
@@ -45,7 +45,7 @@ posture, so a stop before the first command never moves the joints.
   `trajectory_msgs/msg/JointTrajectory` over commanded joints, timed from
   acceptance. A new command replaces the active trajectory; acceptance is not
   arrival. Serve acquire, owner-scoped stop and command status with
-  `kinex.ownership.motion_service`.
+  `kinex.node.motion_service`.
 - `stop` (recommended): service `kinex_interfaces/srv/Stop` that ends motion and
   holds the measured posture.
 

@@ -29,7 +29,7 @@ def observation(message):
     if isinstance(message, dict):
         return message
     from sensor_msgs.msg import Image, JointState
-    from kinex.camera import save
+    from kinex.lib.camera import save
     if isinstance(getattr(message, "image", None), Image):
         depth = getattr(message, "depth_image", None)
         return {**observation(message.image), **({"depth_file": save(depth)} if depth is not None else {})}
@@ -67,7 +67,7 @@ class DeviceHost:
             node = getattr(module, definition.get("factory", "create"))(profile, self.io.context)
             self.io.extra_nodes.append(node)
             self.io.executor.add_node(node)
-        from kinex.ros_frames import publish_profile
+        from kinex.lib.frames import publish_profile
         self.resources.extend(publish_profile(self.io.node, profile))
         await self.ready()
         return {"ready": True}
@@ -100,7 +100,7 @@ class DeviceHost:
 
     async def run(self, action, args, owner):
         if action == "$frames":
-            from kinex.ros_frame_graph import FrameGraphNode
+            from kinex.host.frame_graph import FrameGraphNode
             self.io = await communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).__aenter__()
             self.io.frame_service = {"endpoint": args["endpoint"], "type": "kinex_interfaces/srv/LookupTransform"}
             self.graph = FrameGraphNode(args["clock"], args["endpoint"], self.io.context)

@@ -2,9 +2,9 @@
 import math
 import unittest
 
-from kinex.joints import JointModel
-from kinex.motion import pose_error
-from kinex.urdf import read_tree
+from kinex.lib.joints import JointModel
+from kinex.lib.geometry import pose_error
+from kinex.lib.urdf import read_tree
 
 ARM = """<robot name="arm">
   <link name="base_link"/><link name="upper"/><link name="flange"/><link name="tool"/>

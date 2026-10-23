@@ -33,7 +33,7 @@ from measured posture, so a stop before the first command never closes the finge
 - `target` (recommended): managed input topic `kinex_interfaces/msg/ScalarCommand`
   whose `target` is a grip joint position between open and closed. It persists
   until replaced or stopped, and acceptance is not arrival. Serve acquire,
-  owner-scoped stop and command status with `kinex.ownership.motion_service`.
+  owner-scoped stop and command status with `kinex.node.motion_service`.
 - `stop` (recommended): service `kinex_interfaces/srv/Stop` that holds the measured
   posture; a stop never opens or closes the fingers.
 - `grasped` (optional): output topic `std_msgs/msg/Bool`, true while the driver

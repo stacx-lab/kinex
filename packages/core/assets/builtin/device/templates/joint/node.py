@@ -15,8 +15,8 @@ from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from kinex.communication import qos
-from kinex.joints import JointModel, home_start_tolerance, recovery_targets
-from kinex.ownership import motion_service
+from kinex.lib.joints import JointModel, home_start_tolerance, recovery_targets
+from kinex.node import motion_service
 
 STATE = "/joint_states"
 TRAJECTORY = "/joint_trajectory_controller/joint_trajectory"

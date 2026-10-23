@@ -1,9 +1,9 @@
-"""Kinex invocation helpers.
+"""Kinex invocation API for exec scripts and Python tools.
 
-Use communication() for async pub/sub and request/response. The host dialog
-carries invocation metadata, profiles and selected results. The synchronous dialog helpers below
-call explicitly declared operations. One execution approval covers the
-invocation; Python calls cannot change device lifecycle.
+Use communication() for async pub/sub and request/response, runtime for discovery
+and helpers for reusable functions. The host dialog carries invocation metadata,
+profiles and selected results. One execution approval covers the invocation;
+Python calls cannot change device lifecycle.
 """
 
 import json
@@ -18,7 +18,7 @@ _rpc_lock = threading.Lock()
 # Protocol channel: the real stdout, captured only INSIDE a tool dialog (the
 # harness marks its spawns with KINEX_TOOL_DIALOG=1). Everything print()ed
 # afterwards lands on stderr, so debug output can never corrupt the dialog.
-# Outside a dialog (a skill script or driver importing kinex.geometry) the
+# Outside a dialog (a device node or skill script importing kinex.lib) the
 # import stays side-effect-free and any protocol call raises instead.
 _out = None
 _in = None
@@ -83,19 +83,8 @@ def args():
     return json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}
 
 
-def call(tool, **kwargs):
-    """Compose a Python tool using keyword arguments."""
-    result = _rpc({"call": "tool", "name": tool, "args": kwargs})["result"]
-    return result
-
-
-def inline(source, values):
-    """Call an inline lambda or main function with keyword arguments in values."""
-    return _rpc({"call": "inline", "python": source, "args": values})["result"]
-
-
 def stop_owned():
-    """Stop motion owned by this invocation and its composed tools."""
+    """Stop motion owned by this invocation."""
     _rpc({"call": "stop_owned"})
 
 

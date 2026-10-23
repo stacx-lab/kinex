@@ -1,7 +1,7 @@
 """Publish the device's URDF links on TF from measured joint states."""
 from pathlib import Path
 
-from kinex.ros_links import LinkPublisher
+from kinex.node import LinkPublisher
 
 
 def create(profile, context):

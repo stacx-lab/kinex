@@ -120,7 +120,7 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
     if (!host) {
       const launch = await pythonLaunch(cwd, "node", undefined, signal)
       const endpoint = `/kinex/internal/f_${shortID()}/lookup_transform`
-      host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.ros_host"], {
+      host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.host.device"], {
         cwd, env: launch.env, group: true,
       })), endpoint, definition: fingerprint, ready: false, pending: new Map() }
       frameHosts().set(key, host)
@@ -190,7 +190,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       if (host) await terminate(host)
       const launch = await rosLaunch(cwd, device, signal)
       signal?.throwIfAborted()
-      host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.ros_host"], {
+      host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.host.device"], {
         cwd: directory, env: launch.env, group: true,
       })), definition: fingerprint, ready: false, pending: new Map() }
       hosts().set(directory, host)

@@ -18,7 +18,7 @@ import { NamedError } from "../util/error.ts"
 import { readLine, LineTimeoutError } from "../util/lines.ts"
 import { create } from "../util/log.ts"
 import type { Context, Result } from "./tool.ts"
-import { listPyTools, type PyToolInfo, type ToolManifest } from "./python-catalog.ts"
+import type { PyToolInfo, ToolManifest } from "./python-catalog.ts"
 
 const log = create("python-tool")
 
@@ -28,11 +28,9 @@ class PyToolError extends NamedError {
   }
 }
 
-const MAX_DEPTH = 8
-
 // The manifest's `devices:` gate — device TYPES that must have a loaded
 // instance before the tool may run. Checked before the permission ask (never
-// prompt for a doomed run) and again on composed calls.
+// prompt for a doomed run).
 async function missingDeviceTypes(cwd: string, manifest: PyToolInfo["manifest"]): Promise<string[]> {
   if (manifest.devices.length === 0) return []
   const robot = await ProfileStore.readManifest(cwd)
@@ -78,25 +76,10 @@ type PythonExecution = Pick<ToolManifest, "name" | "timeout_s"> & {
 
 function execution(info: PyToolInfo): PythonExecution {
   const { name, timeout_s, entry } = info.manifest
-  return { name, timeout_s, directory: info.directory, entry: info.manifest.async ? ["-m", "kinex._tool", path.join(info.directory, entry)] : [path.join(info.directory, entry)] }
+  return { name, timeout_s, directory: info.directory, entry: info.manifest.async ? ["-m", "kinex.host.run", "tool", path.join(info.directory, entry)] : [path.join(info.directory, entry)] }
 }
 
-const InlineRequest = z.strictObject({
-  call: z.literal("inline"),
-  python: z.string().min(1),
-  args: z.record(z.string(), z.unknown()),
-})
-
-async function composed(result: Promise<unknown>): Promise<Record<string, unknown>> {
-  try {
-    return { ok: true, result: await result }
-  } catch (error) {
-    if (error instanceof PermissionDeniedError) throw error
-    return { ok: false, ...failure(error) }
-  }
-}
-
-async function dispatch(cwd: string, info: PythonExecution, request: Request, ctx: MotionContext, depth: number): Promise<Record<string, unknown>> {
+async function dispatch(cwd: string, request: Request, ctx: MotionContext): Promise<Record<string, unknown>> {
   const call = request["call"]
   if (call === "runtime_devices") {
     const devices = await ProfileStore.listDevices(cwd)
@@ -147,35 +130,19 @@ async function dispatch(cwd: string, info: PythonExecution, request: Request, ct
     const model = deviceTree(device)
     return { ok: true, profile: model ? { ...device, resolved_model: model } : device }
   }
-  if ((call === "tool" || call === "inline") && depth >= MAX_DEPTH)
-    return { ok: false, error: `tool composition deeper than ${MAX_DEPTH} — likely a cycle` }
-  if (call === "inline") {
-    const { python, args } = InlineRequest.parse(request)
-    return composed(invoke(cwd, { ...info, name: "inline", entry: ["-m", "kinex._inline"], source: python, script: undefined }, args, ctx, depth + 1, ctx.motionOwner))
-  }
-  if (call === "tool") {
-    const name = request["name"]
-    if (typeof name !== "string") return { ok: false, error: "tool call needs a name" }
-    const target = (await listPyTools(cwd)).tools.find((tool) => tool.manifest.name === name)
-    if (!target) return { ok: false, error: `unknown python tool "${name}"` }
-    const missing = await missingDeviceTypes(cwd, target.manifest)
-    if (missing.length > 0) return { ok: false, error: missingDevicesError(name, missing) }
-    const args = z.record(z.string(), z.unknown()).parse(request["args"])
-    return composed(validateInputs(cwd, target, args).then(() => invoke(cwd, execution(target), args, ctx, depth + 1, ctx.motionOwner)))
-  }
-  return { ok: false, error: `unknown call "${String(call)}" — use device, devices, tool, inline, profile, robot, or stop_owned` }
+  return { ok: false, error: `unknown call "${String(call)}" — use runtime_devices, runtime_device, runtime_operations, ros_enroll, stop_owned, profile or robot` }
 }
 
 // Run the dialog to completion; preserve the returned JSON value, including null.
-async function invoke(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: ExecutionContext, depth: number, motionOwner: string = shortID()): Promise<unknown> {
+async function invoke(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: ExecutionContext): Promise<unknown> {
+  const motionOwner = shortID()
   const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(info.timeout_s * 1000))])
   const scoped = { ...ctx, abort: signal, motionOwner }
   signal.throwIfAborted()
   const ros = await rosCatalog(cwd, motionOwner)
   const runtime = await pythonLaunch(cwd, "tool", undefined, signal)
   signal.throwIfAborted()
-  const tools = Object.fromEntries((await listPyTools(cwd)).tools.filter(tool => tool.manifest.async).map(tool => [tool.manifest.name, path.join(tool.directory, tool.manifest.entry)]))
-  const request = JSON.stringify({ tools, args, source: info.source, file: info.script?.file, argv: info.script?.argv, ros }) + "\n"
+  const request = JSON.stringify({ args, source: info.source, file: info.script?.file, argv: info.script?.argv, ros }) + "\n"
   const proc = spawnProcess([...runtime.command, ...info.entry], {
     cwd: info.directory,
     stdin: "pipe",
@@ -227,7 +194,7 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
       }
       if ("error" in parsed) throw new PyToolError(pythonDiagnostic(String(parsed["error"]), runtime.executable), failureMetadata(parsed))
       if ("call" in parsed) {
-        const response = await abortable(dispatch(cwd, info, parsed, scoped, depth), signal)
+        const response = await abortable(dispatch(cwd, parsed, scoped), signal)
         proc.stdin.write(JSON.stringify(response) + "\n")
         await abortable(Promise.resolve(proc.stdin.flush()), signal)
         continue
@@ -254,11 +221,11 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
     if (info.script && proc.exitCode !== 0) throw new PyToolError(`script exited with code ${proc.exitCode}`)
     return result
   }).catch(async (error: unknown) => {
-    // Stop before returning a failed controller to its caller, including a parent tool.
+    // Stop owned motion before reporting the failure.
     await cleanupRos(cwd, motionOwner, true).catch(failure => { log.warn(String(failure)) })
     throw error
   })
-  if (depth === 0) await cleanupRos(cwd, motionOwner, false)
+  await cleanupRos(cwd, motionOwner, false)
   return finished
 }
 
@@ -287,9 +254,9 @@ export async function runScript(input: ScriptInput, ctx: Context): Promise<Resul
   let result: unknown, error: ReturnType<typeof failure> | undefined
   try {
     result = await invoke(ctx.directory, {
-      name: "exec", directory: ctx.directory, entry: ["-u", "-m", "kinex._exec"],
+      name: "exec", directory: ctx.directory, entry: ["-u", "-m", "kinex.host.run", "exec"],
       timeout_s: input.timeout_s, source: input.python, script,
-    }, input.args, { ...ctx, output: capture }, 0)
+    }, input.args, { ...ctx, output: capture })
   } catch (caught) {
     if (caught instanceof PermissionDeniedError) throw caught
     error = failure(caught)
@@ -321,7 +288,7 @@ export async function runPyTool(cwd: string, info: PyToolInfo, args: Record<stri
   await validateInputs(cwd, info, args)
   await ctx.ask({ permission: "python_tool", description: `run Python tool ${name} ${JSON.stringify(args)}` })
   await validateInputs(cwd, info, args)
-  const returned = await invoke(cwd, execution(info), args, ctx, 0)
+  const returned = await invoke(cwd, execution(info), args, ctx)
   return {
     title: `${name} (Python tool)`,
     output: formatJSON(returned),

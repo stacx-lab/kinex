@@ -1,14 +1,61 @@
-"""Detection-region camera measurements, independent of SDKs and robot frames."""
+"""Object perception: locate detected objects in a stamped camera optical frame."""
 
 import numpy as np
 from PIL import Image
 
-from kinex.camera import array, project, ray
-from kinex.geometry import pose_to_rt
-from kinex.validation import number, vector
+from kinex import profile
+from kinex.lib.camera import array, project, ray, save
+from kinex.lib.geometry import number, pose_to_rt, vector
 
 
-def select_detection(results, min_score, instance):
+async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25, instance=0):
+    """Locate a detected object in the camera optical frame (+X right, +Y down, +Z forward).
+
+    camera is an rgb or rgbd device with calibrated color intrinsics; model serves a
+    Json detect taking an image path, prompt, min_score and max_results and returning
+    results with box, score, label and an optional mask. Samples depth inside a
+    supplied mask, otherwise the central half of the box; depth gives an explicit
+    optical Z in metres instead of RGBD depth. instance indexes detections sorted by
+    descending score. Returns point (metres), pixel, depth_samples, reference
+    (visible_surface or box_region), frame, label, detection_score, detections,
+    timestamp and the captured image file; rotation_xyzw is None.
+
+    Example: await helpers.locate_object_3d(io, "camera", "detector", "red mug")
+    """
+    cam = profile(camera)
+    color = cam["color"]
+    capture = await io.request(f"{camera}.capture")
+    image = capture.image
+    if (image.width, image.height) != (color["width"], color["height"]):
+        raise ValueError("image dimensions differ from calibration")
+    if depth is None and not hasattr(capture, "depth_image"):
+        raise ValueError("capture has no depth_image; supply optical depth in metres")
+    file = save(image)
+    detected = await io.request(f"{model}.detect", image=file, prompt=prompt,
+                                min_score=min_score, max_results=max(10, instance + 1))
+    detection, count = _select_detection(detected["results"], min_score, instance)
+    region, reference = _detection_region(detection, color)
+    if depth is not None:
+        measured = _locate(cam, region, depth=depth)
+    else:
+        relation = (await _depth_to_color(io, image, capture.depth_image)
+                    if cam["depth"]["registration"] == "native" else None)
+        measured = _locate(cam, region, depth_image=capture.depth_image, depth_to_color=relation)
+    return {**measured, "frame": image.header.frame_id, "reference": reference,
+            "rotation_xyzw": None, "label": detection.get("label", prompt),
+            "detection_score": detection["score"], "detections": count,
+            "timestamp": image.header.stamp.sec + image.header.stamp.nanosec / 1e9,
+            "file": file}
+
+
+async def _depth_to_color(io, image, depth_image):
+    from kinex.helpers.frames import lookup_transform
+    tf = await lookup_transform(io, image.header.frame_id, depth_image.header.frame_id, image.header.stamp)
+    t, q = tf.transform.translation, tf.transform.rotation
+    return {"translation_m": [t.x, t.y, t.z], "rotation_xyzw": [q.x, q.y, q.z, q.w]}
+
+
+def _select_detection(results, min_score, instance):
     if not isinstance(results, list):
         raise ValueError("detect must return a results array")
     for result in results:
@@ -27,7 +74,7 @@ def select_detection(results, min_score, instance):
     return matches[instance], len(matches)
 
 
-def load_mask(path, color):
+def _load_mask(path, color):
     with Image.open(path) as image:
         if image.format != "PNG" or image.mode not in ("1", "L"):
             raise ValueError("mask must be a single-channel binary or grayscale PNG")
@@ -39,9 +86,9 @@ def load_mask(path, color):
     return mask
 
 
-def detection_region(detection, color):
+def _detection_region(detection, color):
     if "mask" in detection:
-        return load_mask(detection["mask"], color), "visible_surface"
+        return _load_mask(detection["mask"], color), "visible_surface"
     # Integer pixel centers in the central half of the clipped box.
     bounds = np.asarray(detection["box"]).reshape(2, 2)
     bounds = np.clip(bounds, 0, [color["width"], color["height"]])
@@ -70,8 +117,8 @@ def _central(points):
     return np.argmin(np.sum((points - np.median(points, axis=0)) ** 2, axis=1))
 
 
-def locate(profile, region, *, depth_image=None, depth=None, depth_to_color=None):
-    color = profile["color"]
+def _locate(camera, region, *, depth_image=None, depth=None, depth_to_color=None):
+    color = camera["color"]
     if depth is not None:
         if number(depth, "depth") <= 0:
             raise ValueError("depth must be positive optical Z in metres")
@@ -79,7 +126,7 @@ def locate(profile, region, *, depth_image=None, depth=None, depth_to_color=None
         pixel = pixels[_central(pixels)]
         return {"point": (np.asarray(ray(color, *pixel)) * depth).tolist(), "pixel": pixel.tolist(), "depth_samples": 0}
 
-    meta = profile["depth"]
+    meta = camera["depth"]
     if depth_image.encoding != "16UC1":
         raise ValueError("depth_image must be 16UC1")
     raw = array(depth_image)

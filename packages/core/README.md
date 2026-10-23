@@ -265,5 +265,5 @@ ownership and acknowledgements without exposing acquisition as a device operatio
 Within `async with communication() as io`, use
 `await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)` for Kinex-owned
 persistent tf2 history. Transform lookup is independent of world operations and
-never advances world time. See [the helper index](assets/python/kinex/helpers.txt)
+never advances world time. See [the helper index](assets/python/kinex/helpers/helpers.txt)
 for available functions and their implementations.

@@ -13,10 +13,11 @@ import statistics
 from time import perf_counter
 from unittest.mock import patch
 
-from kinex import kinematics
-from kinex.ik_search import budget_options
-from kinex.joints import JointModel
-from kinex.motion import joint_target, pose_error
+from kinex.lib import kinematics
+from kinex.lib.geometry import pose_error
+from kinex.lib.joints import JointModel
+from kinex.lib.kinematics import budget_options
+from kinex.lib.urdf import joint_target
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ik"

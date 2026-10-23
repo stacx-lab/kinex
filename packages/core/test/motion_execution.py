@@ -6,9 +6,9 @@ import math
 import random
 import unittest
 
-from kinex.motion import pose, quaternion
+from kinex.lib.geometry import pose, quaternion
 from kinex.helpers import trajectory
-from kinex.helpers.trajectory import planning_limits
+from kinex.helpers.motion import planning_limits
 
 
 PROFILE = {"name": "arm", "type": "joint", "home": None, "limits": "strict"}
@@ -57,7 +57,7 @@ class QuaternionTests(unittest.TestCase):
                 pose(value)
 
     def test_full_precision_geometry_and_json_round_trips_remain_unit(self):
-        from kinex.geometry import mat_to_quat, quat_to_mat
+        from kinex.lib.geometry import mat_to_quat, quat_to_mat
 
         rng = random.Random(0)
         for _ in range(100):
@@ -77,7 +77,7 @@ class QuaternionTests(unittest.TestCase):
 
     def test_locomotion_commands_follow_modes_and_limits(self):
         from types import SimpleNamespace as NS
-        from kinex.locomotion import accepted, posture, transition, velocity
+        from kinex.lib.locomotion import accepted, posture, transition, velocity
 
         profile = {"limits": "strict", "velocity": {"units": "si", "axes": {"vx": {"min": -1, "max": 1}, "wz": None}},
                    "posture": {"height": {"min": -.1, "max": .05}, "pitch": {"min": -.3, "max": .3}},
@@ -110,7 +110,7 @@ class QuaternionTests(unittest.TestCase):
 class MotionTests(unittest.TestCase):
     def test_measured_positions_require_unique_complete_finite_joints(self):
         from types import SimpleNamespace
-        from kinex.joints import measured_positions
+        from kinex.lib.joints import measured_positions
 
         joints = [{"name": name, "type": "revolute", "limits": {"min": -1, "max": 1}}
                   for name in ("j0", "j1")]
@@ -122,7 +122,7 @@ class MotionTests(unittest.TestCase):
                 measured_positions(SimpleNamespace(name=names, position=values), joints)
 
     def test_joint_home_recovery(self):
-        from kinex.joints import command, home_start_tolerance
+        from kinex.lib.joints import command, home_start_tolerance
         profile = copy.deepcopy(PROFILE)
         profile.update(home={"j": 0})
         joints = copy.deepcopy(JOINTS)
@@ -130,47 +130,47 @@ class MotionTests(unittest.TestCase):
         self.assertEqual(tolerance, math.radians(1))
         for sign in (-1, 1):
             plan = trajectory(joints, [sign * (2 + tolerance)], [0], .01, start_tolerance=tolerance)
-            command(profile, {"actions": plan.actions, "duration_s": plan.duration_s}, joints)
+            command(profile, plan.actions, joints)
         for points in ([2.09, 0], [2.004, 2.005, 0], [2.004, 1.9, 2.001, 0], [2.004, .1], [2.004]):
             with self.assertRaises(ValueError):
-                command(profile, {"actions": [[q] for q in points], "duration_s": 1}, joints)
+                command(profile, [[q] for q in points], joints)
         for home in (None, "???"):
             profile["home"] = home
             self.assertEqual(home_start_tolerance(profile, joints, [0]), 0)
             with self.assertRaises(ValueError):
-                command(profile, {"actions": [[2.004], [0]], "duration_s": 1}, joints)
+                command(profile, [[2.004], [0]], joints)
         profile.update(home={"j": 0})
         with self.assertRaises(ValueError):
-            command(profile, {"actions": [[2 + math.radians(1.01)], [0]], "duration_s": 1}, joints)
+            command(profile, [[2 + math.radians(1.01)], [0]], joints)
         self.assertEqual(home_start_tolerance(profile, joints, [.1]), 0)
         joints[0]["type"] = "prismatic"
         with self.assertRaises(ValueError):
             trajectory(joints, [2.001], [0], .01, start_tolerance=tolerance)
 
     def test_native_commands_pass_raw_targets_and_still_validate_structure(self):
-        from kinex.joints import command
-        from kinex.scalar_control import command as scalar
+        from kinex.lib.joints import command
+        from kinex.helpers.policy import _grip, _vacuum
 
         profile, joints = copy.deepcopy(PROFILE), copy.deepcopy(JOINTS)
-        args = {"actions": [[100]], "duration_s": .1}
+        actions = [[100]]
         with self.assertRaises(ValueError):
-            command(profile, args, joints)
+            command(profile, actions, joints)
         profile["limits"] = "native"
-        self.assertEqual(command(profile, args, joints), args)
+        self.assertEqual(command(profile, actions, joints), actions)
         for target in ([True], [math.nan], [math.inf], [], [1, 2]):
             with self.assertRaises(ValueError):
-                command(profile, {**args, "actions": [[0], target]}, joints)
+                command(profile, [[0], target], joints)
         self.assertTrue(trajectory(joints, [2.001], [100], .01, check_limits=False).actions)
         gripper = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0}}
-        self.assertEqual(scalar(gripper, {"actions": [-1, 0, 1], "duration_s": .1})["actions"], [.04, .02, 0])
+        self.assertEqual([_grip(gripper, value) for value in (-1, 0, 1)], [.04, .02, 0])
         for value in (-1.001, 1.001, True, math.nan, math.inf):
             with self.assertRaises(ValueError):
-                scalar(gripper, {"actions": [0, value], "duration_s": .1})
-        policy = {"actions": [-1, 0, .1, 1], "duration_s": .1}
-        self.assertEqual(scalar({"type": "suction", "vacuum": "binary"}, policy)["actions"], [0, 0, 1, 1])
-        self.assertEqual(scalar({"type": "suction", "vacuum": "proportional"}, policy)["actions"], [0, .5, .55, 1])
+                _grip(gripper, value)
+        values = (-1, 0, .1, 1)
+        self.assertEqual([_vacuum({"vacuum": "binary"}, value) for value in values], [0, 0, 1, 1])
+        self.assertEqual([_vacuum({"vacuum": "proportional"}, value) for value in values], [0, .5, .55, 1])
         with self.assertRaisesRegex(ValueError, "no vacuum control"):
-            scalar({"type": "suction", "vacuum": "???"}, policy)
+            _vacuum({"vacuum": "???"}, 0)
 
     def test_full_plan_duration_endpoint_and_speed_scaling(self):
         joints = [{"type": "revolute", "limits": {"min": -3, "max": 3}}] * 2

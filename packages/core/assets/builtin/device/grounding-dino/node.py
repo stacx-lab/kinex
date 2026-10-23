@@ -6,7 +6,7 @@ from PIL import Image
 from rclpy.node import Node
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
-from kinex.communication import json_service
+from kinex.node import json_service
 
 HERE = Path(__file__).resolve().parent
 

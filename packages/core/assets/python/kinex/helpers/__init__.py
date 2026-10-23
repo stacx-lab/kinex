@@ -1,7 +1,18 @@
-"""Helpers for Kinex Python execution; see ../helpers.txt for the index."""
+"""Helpers for Kinex Python execution; helpers.txt in this package is the index.
 
-from .kinematics import joint_model
-from .trajectory import trajectory
-from .transform import lookup_transform
+Each helper loads its module on first use, so importing helpers stays cheap.
+"""
+from importlib import import_module
 
-__all__ = ["joint_model", "lookup_transform", "trajectory"]
+_MODULES = {
+    "lookup_transform": "frames", "transform_pose": "frames", "relative_pose": "frames",
+    "joint_model": "kinematics", "trajectory": "motion",
+    "run_policy": "policy", "locate_object_3d": "perception",
+}
+__all__ = sorted(_MODULES)
+
+
+def __getattr__(name):
+    if name not in _MODULES:
+        raise AttributeError(f"kinex.helpers has no helper {name!r}")
+    return getattr(import_module(f"{__name__}.{_MODULES[name]}"), name)

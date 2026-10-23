@@ -4,7 +4,7 @@ import os
 
 from kinex import helpers
 from kinex.communication import communication
-from kinex.ros_frames import publish_profile
+from kinex.lib.frames import publish_profile
 
 async def main():
     from rclpy.node import Node

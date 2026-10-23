@@ -2,7 +2,7 @@
 
 import math
 
-from kinex.validation import number
+from kinex.lib.geometry import number
 
 TWIST = {"vx": ("linear", "x"), "vy": ("linear", "y"), "vz": ("linear", "z"),
          "wx": ("angular", "x"), "wy": ("angular", "y"), "wz": ("angular", "z")}

@@ -67,7 +67,7 @@ service per mode; copy it into the device directory and set its constants.
   be services. The description is the whole contract.
 
 All managed operations share the device's acquire, stop and status endpoints;
-serve them together with `kinex.ownership.motion_service`. The node rejects an
+serve them together with `kinex.node.motion_service`. The node rejects an
 operation the current mode does not accept and a transition it does not list.
 
 ### Profile

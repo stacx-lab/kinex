@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from kinex.joints import JointModel
+from kinex.lib.joints import JointModel
 
 
 def estimate(file, count, percentile):

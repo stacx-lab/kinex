@@ -46,7 +46,7 @@ export async function protocolFramePython(runtime) {
   await rm(python, {force:true})
   await writeFile(python, `#!${real}
 import os, sys
-args = ['-u', ${JSON.stringify(host)}] if sys.argv[-1] == 'kinex.ros_host' else sys.argv[1:]
+args = ['-u', ${JSON.stringify(host)}] if sys.argv[-1] == 'kinex.host.device' else sys.argv[1:]
 os.execv(${JSON.stringify(real)}, [${JSON.stringify(real)}, *args])
 `, { mode: 0o755 })
 }
