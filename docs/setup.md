@@ -24,8 +24,8 @@ the sampler's own settling and evidence checks remain part of setup.
 Core owns ROS node supervision, communication helpers and interfaces. Setup owns
 onboarding and calibration procedures. New integrations declare explicit
 `runtime` and `operations` fields in device profiles; see
-[ROS communication](communication.md). Registration uses `onboard-ros2`, preferring
-compatible installed packages and binaries before source builds.
+[ROS communication](communication.md). Registration uses core's `setup-device`,
+preferring compatible installed packages and binaries before source builds.
 
 Device nodes and optional local sources live directly in the device directory.
 Use `profile_write` to register node factories; default nodes inherit Kinex
@@ -39,7 +39,7 @@ within owned subprocesses; shared host packages and overlays are never rolled ba
 
 Dependency installation uses the host's permission-checked shell;
 sudo-required commands go to the user with the target host. See the
-[ROS integration skill](../packages/setup/assets/builtin/skill/onboard-ros2/SKILL.md).
+[setup-device skill](../packages/core/assets/builtin/skill/setup-device/SKILL.md).
 
 See [project overview](overview.md) for the core/setup boundary and the
 [setup API](../packages/setup/README.md) for workflows and composition.

@@ -155,7 +155,7 @@ test('guided workflows wait for the SDK response and recordings reference persis
       .map(message => typeof message.content === 'string' ? message.content : message.content.map(block => block.text ?? '').join('\n'))
       .findLast(text => text.includes(objective))
     assert.match(prompt, /inspect the sensor/)
-    if (command === 'onboarding') assert.match(prompt, /onboard-ros2/)
+    if (command === 'onboarding') assert.match(prompt, /setup-device/)
   }
   const timing = app.host.session.sessionManager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'kinex-active-time')
   assert.ok(timing.length >= 3)
@@ -279,7 +279,7 @@ test('composition owns setup discovery and reservations across session and works
       const check = async () => {
         const core = app.owner.runtime
         const setup = kind !== 'core'
-        assert.equal((await core.skills.list()).some(skill => skill.name === 'onboard-ros2'), setup)
+        assert.equal((await core.skills.list()).some(skill => skill.name === 'calibrate-tcp-offset'), setup)
         assert.equal(app.host.session.getAllTools().some(tool => tool.name === 'calib_compute'), setup)
         assert.equal(Boolean(app.host.session.extensionRunner.getCommand('onboarding')), setup)
         for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2'])
