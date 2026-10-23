@@ -6,15 +6,13 @@ import { pythonEnvironment } from "../python/environment.ts"
 import { Recorder } from "../record/recorder.ts"
 import { listSkills, formatSkills } from "../skill/index.ts"
 import ROBOTICS from "./robotics.txt"
-import DEVICE_USE from "./device-use.txt"
-import PYTHON from "./python.txt"
 
 // Structured sections let each host place stable instructions ahead of live
 // state without importing the standalone agent's identity or system prompt.
 export async function roboticsContext(directory: string, enableRecording = false) {
   const [skills, roots, python] = await Promise.all([listSkills(directory), deviceContentRoots(directory), pythonEnvironment(directory)])
   return {
-    instructions: [ROBOTICS, PYTHON, DEVICE_USE].join("\n\n"),
+    instructions: ROBOTICS,
     guideRoots: `Device guide roots (nearest first): ${roots.join(", ")}.`,
     // Execution environments include inherited credentials; only paths/readiness
     // belong in model context. python.prepare()/status() retain the process env.

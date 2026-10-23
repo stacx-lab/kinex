@@ -1,3 +1,0 @@
-Read device and operation descriptions directly from each device's profile.yaml.
-
-ROS devices expose declared topic and service operations. Use the current operation catalog for each device; device type does not fix its operation names. Workflow scheduling belongs to the loaded world device. Persistent acquisition, control and model resources belong to device nodes; tool-created nodes, subscriptions and services are invocation-scoped. Python execution approval is shared by composed operations; lifecycle remains host-controlled and model recording remains opt-in.

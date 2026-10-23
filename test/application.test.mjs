@@ -19,8 +19,8 @@ test('headless context includes one short Python instruction without onboarding 
   await app.host.session.prompt('Describe the available Python environment without running tools')
   const request = fake.requests[0]
   const system = JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
-  assert.equal(system.match(/Kinex Python owns exec/g)?.length, 1)
-  assert.match(system, /Discover devices and operation/)
+  assert.equal(system.match(/exec runs Kinex Python/g)?.length, 1)
+  assert.match(system, /Discover devices with `kinex\.runtime`/)
   assert.doesNotMatch(system, /Default pyproject\.toml|\{\{PROJECT\}\}/)
   const context = await app.owner.runtime.context()
   assert.ok(JSON.stringify(request).includes(context.python.executable))

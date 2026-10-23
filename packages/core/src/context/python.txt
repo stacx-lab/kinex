@@ -1,5 +1,0 @@
-Kinex Python owns exec, helpers and ROS clients. Its environment is independent of
-world and device interpreters; device SDK environments belong only to device processes. Discover devices and operation
-contracts on demand through kinex.runtime; select only needed results for finish().
-Prepare missing ROS support and interface packages in Kinex Python through setup.
-Do not patch sys.path or borrow a simulator environment. Ordinary shells remain unchanged.
