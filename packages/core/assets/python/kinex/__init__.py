@@ -77,11 +77,6 @@ def args():
     return _request["args"]
 
 
-def stop_owned():
-    """Stop motion owned by this invocation."""
-    _rpc({"call": "stop_owned"})
-
-
 def profile(device, *, optional=False):
     """The device's parsed profile.yaml — the white-box read path for top-level
     calibrated facts (color projection, frames, URDF model and typed device facts).

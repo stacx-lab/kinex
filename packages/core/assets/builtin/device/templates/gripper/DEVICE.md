@@ -30,11 +30,11 @@ from measured posture, so a stop before the first command never closes the finge
 - `joint_state` (recommended): output topic `sensor_msgs/msg/JointState` with at
   least the grip joint in URDF units, stamped at acquisition; Kinex publishes the
   links from it.
-- `target` (recommended): managed input topic `kinex_interfaces/msg/ScalarCommand`
-  whose `target` is a grip joint position between open and closed. It persists
-  until replaced or stopped, and acceptance is not arrival. Serve acquire,
-  owner-scoped stop and command status with `kinex.node.motion_service`.
-- `stop` (recommended): service `kinex_interfaces/srv/Stop` that holds the measured
+- `target` (recommended): input topic `std_msgs/msg/Float64` whose `data` is a grip
+  joint position between open and closed. It persists until replaced or stopped,
+  and sending is not arrival. Serve it with `stop` through
+  `kinex.node.command_service`.
+- `stop` (recommended): service `std_srvs/srv/Trigger` that holds the measured
   posture; a stop never opens or closes the fingers.
 - `grasped` (optional): output topic `std_msgs/msg/Bool`, true while the driver
   detects a held object, for example fingers stalled short of closed.
@@ -58,18 +58,17 @@ operations:
     type: sensor_msgs/msg/JointState
     qos: {depth: 1, reliability: reliable, durability: transient_local}
   target:
-    description: Grip joint position between open and closed in URDF units. It persists until replaced or stopped; acceptance is not arrival, so verify joint_state.
+    description: Grip joint position (data) between open and closed in URDF units. It persists until replaced or stopped; verify arrival with joint_state.
     transport: topic
     direction: input
     endpoint: /kinex/gripper/target
-    type: kinex_interfaces/msg/ScalarCommand
-    motion: {acquire: /kinex/gripper/acquire, stop: /kinex/gripper/stop, status: /kinex/gripper/command_status}
+    type: std_msgs/msg/Float64
   stop:
-    description: Stop pending motion and hold the measured posture; the fingers neither open nor close. An empty owner stops unconditionally.
+    description: Stop motion and hold the measured posture; the fingers neither open nor close.
     transport: service
     direction: input
     endpoint: /kinex/gripper/stop
-    type: kinex_interfaces/srv/Stop
+    type: std_srvs/srv/Trigger
 model: {format: urdf, path: ???, base_link: ???}
 grip: ???
 stop: {behavior: hold, affected_devices: [gripper]}

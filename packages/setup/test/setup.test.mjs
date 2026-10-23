@@ -59,7 +59,7 @@ async function pythonSensor(runtime, directory, { fail = false, slowRead = false
   const marker = path.join(directory, 'unloading')
   await protocolDevice(runtime, directory, 'sensor', { loaded: true, handler: `import time
 from pathlib import Path
-def dispatch(action, args, owner, cancelled):
+def dispatch(action, args, cancelled):
     if action == 'unload':
         Path(${JSON.stringify(marker)}).touch()
         time.sleep(.15)
@@ -159,7 +159,7 @@ test('calibration settles joint devices and computes URDF link poses from the ca
 <joint name="flange_joint" type="fixed"><parent link="link"/><child link="flange"/><origin xyz="1 0 0"/></joint></robot>`)
   await protocolDevice(runtime, directory, 'arm', { type: 'joint', home: null, stop: { behavior: 'hold', affected_devices: ['arm'] },
     model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, handler: `stamp = 0
-def dispatch(action, args, owner, cancelled):
+def dispatch(action, args, cancelled):
     global stamp
     if action == '$sample':
         if not args.get('cached'): stamp += 1
@@ -202,7 +202,7 @@ test('calibration archives both RGBD files and never appends an incomplete sampl
   await mkdir(output, { recursive: true })
   await writeFile(path.join(output, 'color.png'), 'color evidence')
   await writeFile(path.join(output, 'depth.pgm'), 'depth evidence')
-  await protocolDevice(runtime, directory, 'camera', { ...(await runtime.devices.list()).find(d=>d.name==='camera'), operations: {capture: inputOperation('capture')}, handler: `def dispatch(action, args, owner, cancelled):
+  await protocolDevice(runtime, directory, 'camera', { ...(await runtime.devices.list()).find(d=>d.name==='camera'), operations: {capture: inputOperation('capture')}, handler: `def dispatch(action, args, cancelled):
     if action == '$sample':
         return {'file': ${JSON.stringify(path.join(output, 'color.png'))}, 'depth_file': ${JSON.stringify(path.join(output, 'depth.pgm'))}, 'timestamp': 1}
     return {'ok': True}

@@ -1,8 +1,8 @@
 Robotics continuity requirements for this summary:
 Preserve device and robot IDs, measured calibration values and their units/frames,
 loaded state, pending physical actions, and unverified outcomes. Distinguish
-commands that were accepted or sent from motion or effects confirmed by observation.
-Never turn command acceptance into a claim of motion completion. Preserve missing
+commands that were sent from motion or effects confirmed by observation. Never
+turn a sent command into a claim of motion completion. Preserve missing
 facts, failures and blockers rather than filling them in. Keep the user's task and
 remaining work clear. After compaction, the latest kinex_context supplies current
 runtime facts; a historical summary must not override those facts.

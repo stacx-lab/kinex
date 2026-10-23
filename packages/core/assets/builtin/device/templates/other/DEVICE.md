@@ -15,8 +15,8 @@ timing, preconditions and side effects.
 Prefer standard ROS interfaces: `std_srvs/srv/Trigger` or `SetBool` for actions,
 `std_msgs` for simple values, and `kinex_interfaces/srv/Json` for structured
 requests whose fields the description defines. A device that moves anything
-declares managed `motion` endpoints on its command topics and a `stop` service
-`kinex_interfaces/srv/Stop`, so stops reach it like any other actuator.
+declares a `stop` service `std_srvs/srv/Trigger`, so stops reach it like any other
+actuator.
 
 Frames are optional. Omit them for a device without spatial meaning, such as a
 PLC, a light or a web service; otherwise declare `frames.base` and calibrated

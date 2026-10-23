@@ -33,6 +33,7 @@ export const DeviceType = z.enum([
   "other",
 ])
 export type DeviceType = z.infer<typeof DeviceType>
+const ACTUATORS: readonly DeviceType[] = ["joint", "gripper", "suction", "locomotion"]
 
 // One device-local command dimension. Joint targets use model order; locomotion
 // velocity and posture axes are listed for capability display, not one command vector.
@@ -95,10 +96,13 @@ export const Device = z.discriminatedUnion("type", [
   for (const name of lifecycle)
     if (Object.hasOwn(device.operations, name))
       ctx.addIssue({ code: "custom", path: ["operations", name], message: "reserved host lifecycle operation" })
-  if (device.operations.stop && device.operations.stop.transport !== "service")
-    ctx.addIssue({ code: "custom", path: ["operations", "stop"], message: "stop must be a service" })
-  if (device.runtime && Object.values(device.operations).some(op => op.motion) && device.operations.stop?.type !== "kinex_interfaces/srv/Stop")
-    ctx.addIssue({ code: "custom", path: ["operations"], message: "managed motion requires a stop service" })
+  const { stop } = device.operations
+  if (stop && (stop.transport !== "service" || stop.type !== "std_srvs/srv/Trigger"))
+    ctx.addIssue({ code: "custom", path: ["operations", "stop"], message: "stop must be a std_srvs/srv/Trigger service" })
+  const operations = Object.values(device.operations)
+  const commanded = ACTUATORS.includes(device.type) && operations.some(op => op.transport === "topic" && op.direction === "input")
+  if (!stop && device.runtime && (commanded || operations.some(op => op.type === "kinex_interfaces/srv/Wait")))
+    ctx.addIssue({ code: "custom", path: ["operations"], message: "commanded actuators and world waits require a stop service" })
   if ("stop" in device && known(device.stop) && !device.stop.affected_devices.includes(device.name))
     ctx.addIssue({ code: "custom", path: ["stop"], message: "stop scope must include this device" })
   if (!("frames" in device) || !device.frames) return

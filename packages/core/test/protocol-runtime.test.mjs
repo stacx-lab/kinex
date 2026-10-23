@@ -114,10 +114,11 @@ test('batch preauthorization and validation precede dispatch',async t=>{
  assert.equal(results[0].ok,true);assert.equal(results[1].ok,false)
 })
 
-// io enrolls a device this way before managed motion or a cancellable request.
+// io enrolls a device this way before its first command.
 const enroll = "_rpc({'call':'ros_enroll','device':'sensor'})"
+const stops = async dir => (await events(dir)).filter(e=>e.action==='stop').length
 
-for(const mode of ['success','failure','cancel']) test(`enrolled devices are cleaned up on ${mode} under one exec approval`,async t=>{
+for(const mode of ['success','failure','cancel']) test(`a commanded device is stopped only when the invocation fails (${mode})`,async t=>{
  const approvals=[]
  const {runtime,directory}=await fixture(t,{host:{ask:async p=>approvals.push(p.permission)}})
  const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
@@ -125,9 +126,26 @@ for(const mode of ['success','failure','cancel']) test(`enrolled devices are cle
  const result=await exec(runtime,`from kinex import _rpc, finish\n${enroll}\n${tail}`,mode==='cancel'?{signal:AbortSignal.timeout(500)}:{})
  assert.equal(!!result.isError,mode!=='success',result.output)
  assert.deepEqual(approvals,['python_tool'])
- const cleanup=(await events(dir)).find(e=>e.action==='$cleanup')
- assert.ok(cleanup?.owner)
- assert.equal(cleanup.args.failed,mode!=='success')
+ assert.equal(await stops(dir),mode==='success'?0:1)
+})
+
+test('a device stop cancels only the invocations that commanded it',async t=>{
+ const {runtime,directory}=await fixture(t)
+ const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
+ await protocolDevice(runtime,directory,'idle',{loaded:true})
+ const marker=path.join(directory,'enrolled')
+ let finished=false
+ const running=exec(runtime,`from kinex import _rpc\n${enroll}\nopen(${JSON.stringify(marker)},'w').close()\nimport time;time.sleep(30)`)
+ void running.then(()=>{finished=true})
+ while(!await access(marker).then(()=>true,()=>false)) await delay(20)
+ const stop=deviceID=>runtime.tools.call('device_stop',{deviceID},{sessionID:'stop'})
+ assert.ok(!(await stop('idle')).isError)
+ await delay(200)
+ assert.equal(finished,false)
+ assert.ok(!(await stop('sensor')).isError)
+ const result=await running
+ assert.equal(result.isError,true);assert.match(result.output,/device stop cancelled this invocation/)
+ assert.equal(await stops(dir),2)
 })
 
 test('separate runtimes own separate node processes and disposal does not close the other',async t=>{
@@ -143,26 +161,24 @@ test('separate runtimes own separate node processes and disposal does not close 
  await b.dispose()
 })
 
-test('a timed-out invocation cleans up its enrolled device once',async t=>{
+test('a timed-out invocation stops its commanded device once',async t=>{
  const {runtime,directory}=await fixture(t)
  const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
  const result=await runtime.tools.call('exec',{timeout_s:1,python:`import kinex
 kinex.${enroll}
 import time; time.sleep(10)`},{sessionID:'timeout'})
  assert.equal(result.isError,true);assert.match(result.output,/timed out|timeout/i)
- const cleanups=(await events(dir)).filter(e=>e.action==='$cleanup')
- assert.equal(cleanups.length,1)
- assert.equal(cleanups[0].args.failed,true)
+ assert.equal(await stops(dir),1)
 })
 
 test('failed startup reports the device, rolls back its host and requires explicit reload',async t=>{
  const {runtime,directory}=await fixture(t)
- const dir=await protocolDevice(runtime,directory,'sensor',{handler:`def dispatch(action,args,owner,cancelled):\n    raise RuntimeError('startup fixture failure')\n`})
+ const dir=await protocolDevice(runtime,directory,'sensor',{handler:`def dispatch(action,args,cancelled):\n    raise RuntimeError('startup fixture failure')\n`})
  const activation=await runtime.devices.load('sensor')
  await assert.rejects(activation.ready,/startup fixture failure/)
  assert.equal((await runtime.devices.ping('sensor')).reading.data.ready,false)
  await assert.rejects(runtime.devices.dispatch('sensor','read'),/requires explicit load/)
- await writeFile(path.join(dir,'handler.py'),"def dispatch(action,args,owner,cancelled):\n    return {'ready':True}\n")
+ await writeFile(path.join(dir,'handler.py'),"def dispatch(action,args,cancelled):\n    return {'ready':True}\n")
  await (await runtime.devices.reload('sensor')).ready
  assert.equal((await runtime.devices.ping('sensor')).reading.data.ready,true)
 })
@@ -186,10 +202,10 @@ test('device reads attach PNG, JPEG, GIF and WebP captures in call order', async
  for (const [format,bytes] of Object.entries(images)) {
   const file=path.join(directory,`frame.${format}`)
   await writeFile(file,Buffer.from(bytes,'hex'))
-  await protocolDevice(runtime,directory,format,{loaded:true,handler:`def dispatch(action, args, owner, cancelled):\n    return {'file': ${JSON.stringify(file)}, 'ready': True}\n`})
+  await protocolDevice(runtime,directory,format,{loaded:true,handler:`def dispatch(action, args, cancelled):\n    return {'file': ${JSON.stringify(file)}, 'ready': True}\n`})
  }
  await writeFile(path.join(directory,'notes.txt'),'not an image')
- await protocolDevice(runtime,directory,'text',{loaded:true,handler:`def dispatch(action, args, owner, cancelled):\n    return {'file': ${JSON.stringify(path.join(directory,'notes.txt'))}, 'ready': True}\n`})
+ await protocolDevice(runtime,directory,'text',{loaded:true,handler:`def dispatch(action, args, cancelled):\n    return {'file': ${JSON.stringify(path.join(directory,'notes.txt'))}, 'ready': True}\n`})
  const single=await runtime.tools.call('device',{deviceID:'jpg',action:'read'},{sessionID:'images'})
  assert.deepEqual(single.attachments,[{mime:'image/jpeg',path:path.join(directory,'frame.jpg')}])
  const batch=await runtime.tools.call('devices',{calls:['webp','gif','png','text'].map(deviceID=>({deviceID,action:'read'}))},{sessionID:'images'})

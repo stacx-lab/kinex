@@ -15,7 +15,7 @@ from kinex.errors import RPCError, OperationError
 _active = contextvars.ContextVar("kinex_communication", default=None)
 # Free-form operations carry JSON objects; their descriptions define the fields.
 JSON = "kinex_interfaces/srv/Json"
-JSON_COMMAND = "kinex_interfaces/msg/JsonCommand"
+WAIT = "kinex_interfaces/srv/Wait"
 
 
 def duration(seconds):
@@ -101,8 +101,8 @@ class Subscription:
             while not self.buffer:
                 if self.closed:
                     raise RuntimeError("subscription closed")
-                if self.io.motion_error:
-                    raise self.io.motion_error
+                if self.io.spin_error:
+                    raise self.io.spin_error
                 self.event.clear()
                 await self.event.wait()
             return self.buffer.popleft()[0]
@@ -131,28 +131,22 @@ class Subscription:
 
 
 class Communication:
-    def __init__(self, catalog=None, *, owner=None, domain_id=None):
+    def __init__(self, catalog=None, *, domain_id=None):
         from kinex import _request
         startup = (_request or {}).get("ros", {})
         self.frame_service = startup.get("frames") if catalog is None else None
         self.catalog = catalog if catalog is not None else startup.get("catalog", {})
-        self.owner = owner or startup.get("owner") or uuid.uuid4().hex
-        self.namespace = "/kinex/invocations/i_" + self.owner.encode().hex()
+        self.namespace = "/kinex/invocations/i_" + uuid.uuid4().hex
         self.domain_id = domain_id if domain_id is not None else startup.get("domain_id", 0)
         self.supervised = catalog is None and bool(startup)
         self.subscriptions = []
         self.publishers = {}
         self.clients = {}
-        self.generations = {}
-        self.motion_locks = {}
-        self.acceptances = []
         self.enrolled = set()
         self.enroll_lock = asyncio.Lock()
         self.pending = set()
-        self.waits = {}
         self.handlers = set()
-        self.motion_pending = {}
-        self.motion_error = None
+        self.spin_error = None
         self.extra_nodes = []
         self.closed = False
         self.tf = None
@@ -236,7 +230,7 @@ class Communication:
     def _failed(self, error):
         if self.closed:
             return
-        self.motion_error = error
+        self.spin_error = error
         for stream in self.subscriptions:
             stream.event.set()
         for future in tuple(self.pending):
@@ -246,8 +240,8 @@ class Communication:
     def operation(self, reference, transport=None, direction=None):
         if self.closed:
             raise RuntimeError("communication scope closed")
-        if self.motion_error:
-            raise self.motion_error
+        if self.spin_error:
+            raise self.spin_error
         spec = self.catalog.get(reference)
         if spec is None:
             raise RPCError(f"unknown or unavailable operation {reference}; query runtime.operations(device) and runtime.devices()", code="operation_unavailable", details={"operation": reference})
@@ -263,6 +257,7 @@ class Communication:
         return stream
 
     async def _enroll(self, operation):
+        """Report a commanded device so the host stops it if this invocation fails."""
         device = operation.split(".", 1)[0]
         async with self.enroll_lock:
             if device in self.enrolled:
@@ -293,114 +288,88 @@ class Communication:
             if not ros_future.done():
                 ros_future.cancel()
 
-    async def _request(self, spec, fields, timeout_s=None, *, operation=None):
+    def _client(self, spec):
         from rosidl_runtime_py.utilities import get_service
-        cls = get_service(spec["type"])
         key = (spec["endpoint"], spec["type"])
-        client = self.clients.get(key)
-        if client is None:
-            client = self.node.create_client(cls, spec["endpoint"])
-            self.clients[key] = client
+        if key not in self.clients:
+            self.clients[key] = self.node.create_client(get_service(spec["type"]), spec["endpoint"])
+        return self.clients[key]
+
+    async def _discovered(self, client):
+        while not client.service_is_ready():
+            if self.closed:
+                raise asyncio.CancelledError()
+            await asyncio.sleep(.01)  # Transport discovery, never world scheduling.
+
+    async def _request(self, spec, fields, timeout_s=None, *, operation=None):
+        client = self._client(spec)
         timeout_s = spec.get("timeout_s", 10) if timeout_s is None else timeout_s
         async with asyncio.timeout(timeout_s):
-            while not client.service_is_ready():
-                if self.closed:
-                    raise asyncio.CancelledError()
-                await asyncio.sleep(.01)  # Transport discovery, never world scheduling.
-            result = await self._future(client.call_async(message_value(cls.Request, fields)), timeout_s)
+            await self._discovered(client)
+            result = await self._future(client.call_async(message_value(client.srv_type.Request, fields)), timeout_s)
         if hasattr(result, "success") and not result.success:
             raise OperationError(operation or spec["endpoint"], spec["type"], result)
         return result
 
     async def request(self, operation, *, timeout_s=None, **fields):
         spec = self.operation(operation, "service", "input")
-        cancellation = spec.get("cancellation")
-        if cancellation:
-            await self._enroll(operation)
-            fields = {**fields, "owner": self.owner, "request_id": uuid.uuid4().hex}
-            self.waits[fields["request_id"]] = cancellation
+        await self._enroll(operation)
         try:
             if spec["type"] != JSON:
                 return await self._request(spec, fields, timeout_s, operation=operation)
             result = await self._request(spec, {"request": json.dumps(fields, allow_nan=False)}, timeout_s, operation=operation)
             return json.loads(result.response)
         except BaseException as error:
-            if cancellation and not isinstance(error, OperationError):
+            # An abandoned wait would keep advancing a stepped world.
+            if spec["type"] == WAIT and not isinstance(error, OperationError):
                 try:
-                    await self._request(cancellation, {"owner": self.owner, "request_id": fields["request_id"]}, 2)
+                    await self._stop([operation.split(".", 1)[0]])
                 except Exception as cleanup:
                     error.add_note(f"wait cleanup failed: {cleanup}")
             raise
-        finally:
-            if cancellation:
-                self.waits.pop(fields["request_id"], None)
 
     async def publish(self, operation, message):
         from rosidl_runtime_py.utilities import get_message
         spec = self.operation(operation, "topic", "input")
-        if spec["type"] == JSON_COMMAND:
-            message = {"data": json.dumps(message, allow_nan=False)}
         value = message_value(get_message(spec["type"]), message)
-        motion = spec.get("motion")
-        if motion:
-            await self._enroll(operation)
-            await self._acquire(motion)
-            value.owner, value.generation, value.command_id = (
-                self.owner, self.generations[motion["acquire"]], uuid.uuid4().hex)
-            pending = self.motion_pending.setdefault(operation, {})
-            if len(pending) >= 32:
-                await self.accepted(operation, next(iter(pending)))
-            pending[value.command_id] = self.loop.create_future()
+        await self._enroll(operation)
         publisher = self.publishers.get(operation)
         if publisher is None:
             publisher = self.node.create_publisher(type(value), spec["endpoint"], qos(spec))
             self.publishers[operation] = publisher
+        stop = self.catalog.get(operation.split(".", 1)[0] + ".stop")
         async with asyncio.timeout(spec.get("timeout_s", 10)):
+            # Nodes serve stop after their command subscriptions: once it is discovered,
+            # the command reaches the device itself, not only another subscriber.
+            if stop:
+                await self._discovered(self._client(stop))
             while publisher.get_subscription_count() == 0:
                 await asyncio.sleep(.01)
         publisher.publish(value)
-        return value.command_id if motion else None
 
-    async def _acquire(self, motion):
-        """One generation and status stream per motion endpoint set, shared by its operations."""
-        key = motion["acquire"]
-        async with self.motion_locks.setdefault(key, asyncio.Lock()):
-            if key in self.generations:
-                return
-            result = await self._request({"endpoint": key, "type": "kinex_interfaces/srv/Acquire"}, {"owner": self.owner})
-            self.generations[key] = result.generation
-            status = {"endpoint": motion["status"], "type": "kinex_interfaces/msg/CommandStatus",
-                      "qos": {"depth": 64, "durability": "transient_local"}}
-            stream = Subscription(self, status, 64)
-            self.subscriptions.append(stream)
-            self.acceptances.append(asyncio.create_task(self._acceptances(stream)))
+    async def _flush(self):
+        """Wait until reliable subscribers acknowledge every command; teardown would drop it."""
+        if not self.publishers:
+            return
+        from rclpy.duration import Duration
+        unacknowledged = [operation for operation, publisher in self.publishers.items()
+                          if not await asyncio.to_thread(publisher.wait_for_all_acked, Duration(seconds=2))]
+        if unacknowledged:
+            raise TimeoutError(f"commands were not acknowledged: {', '.join(unacknowledged)}")
 
-    async def _acceptances(self, stream):
-        try:
-            while True:
-                status = await stream.next()
-                if status.owner != self.owner:
-                    continue
-                for futures in self.motion_pending.values():
-                    future = futures.get(status.command_id)
-                    if future and not future.done():
-                        future.set_result(status)
-        except asyncio.CancelledError:
-            pass
-
-    async def accepted(self, operation, command_id=None):
-        """Managed-motion protocol: acceptance does not establish arrival."""
-        if command_id is None:
-            raise ValueError("accepted requires (operation, command_id); use the ID returned by publish(operation, payload)")
-        pending = self.motion_pending.get(operation, {})
-        if command_id not in pending:
-            raise ValueError(f"no pending command {command_id} for {operation} in this invocation")
-        async with asyncio.timeout(self.catalog[operation].get("timeout_s", 10)):
-            result = await asyncio.shield(pending[command_id])
-        pending.pop(command_id, None)
-        if not result.accepted:
-            raise RuntimeError(result.message)
-        return result
+    async def _stop(self, devices):
+        """Call each device's declared stop service once; devices without one are skipped."""
+        failures = []
+        for device in devices:
+            spec = self.catalog.get(f"{device}.stop")
+            if spec is None:
+                continue
+            try:
+                await self._request(spec, {}, 2, operation=f"{device}.stop")
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            raise ExceptionGroup("device stop failed", failures)
 
     def serve(self, interface, handler):
         from rosidl_runtime_py.utilities import get_service
@@ -437,50 +406,23 @@ class Communication:
                 self.tf.observe_clock(self.world_stamp)
         return self.tf
 
-    async def _cancel_waits(self):
-        for request_id, cancellation in list(self.waits.items()):
-            await self._request(cancellation, {"owner": self.owner, "request_id": request_id}, 2)
-
-    async def cleanup_owned(self, *, stop=True):
-        """Cancel the owner's waits on enrolled devices and, with stop, its motion; each endpoint once."""
-        failures, sent = [], set()
-        for name, spec in self.catalog.items():
-            if name.split(".", 1)[0] not in self.enrolled:
-                continue
-            motion, cancellation = spec.get("motion"), spec.get("cancellation")
-            requests = [({"endpoint": motion["stop"], "type": "kinex_interfaces/srv/Stop"}, {"owner": self.owner})] if stop and motion else []
-            if cancellation:
-                requests.append((cancellation, {"owner": self.owner, "request_id": ""}))
-            for target, fields in requests:
-                if target["endpoint"] in sent:
-                    continue
-                sent.add(target["endpoint"])
-                try:
-                    await self._request(target, fields, 2)
-                except Exception as error:
-                    failures.append(error)
-        if failures:
-            raise ExceptionGroup("owned resource cleanup failed", failures)
-
     async def __aexit__(self, kind, error, traceback):
         succeeded = error is None or isinstance(error, SystemExit) and error.code in (None, 0)
+        failure = self.spin_error if succeeded else error
         try:
-            if succeeded:
-                for operation, pending in self.motion_pending.items():
-                    for command_id in list(pending):
-                        await self.accepted(operation, command_id)
-                if self.motion_error:
-                    raise self.motion_error
-                await self._cancel_waits()
-            else:
+            if failure is None:
                 try:
-                    await self.cleanup_owned()
+                    await self._flush()
+                except Exception as unsent:
+                    failure = unsent
+            # Failure stops every device this scope commanded; success leaves motion running.
+            if failure is not None:
+                try:
+                    await self._stop(sorted(self.enrolled))
                 except Exception as cleanup:
-                    error.add_note(f"motion cleanup failed: {cleanup}")
-        except BaseException:
-            if succeeded:
-                await self.cleanup_owned()
-            raise
+                    failure.add_note(f"device stop failed: {cleanup}")
+                if succeeded:
+                    raise failure
         finally:
             self.closed = True
             for future in tuple(self.pending):
@@ -489,9 +431,6 @@ class Communication:
             for handler in handlers:
                 handler.cancel()
             await asyncio.gather(*(asyncio.wrap_future(handler) for handler in handlers), return_exceptions=True)
-            for task in self.acceptances:
-                task.cancel()
-            await asyncio.gather(*self.acceptances, return_exceptions=True)
             for stream in tuple(self.subscriptions):
                 stream.close()
             if self.tf is not None:
@@ -506,5 +445,5 @@ class Communication:
                 _active.reset(self.token)
 
 
-def communication(catalog=None, *, owner=None, domain_id=None):
-    return Communication(catalog, owner=owner, domain_id=domain_id)
+def communication(catalog=None, *, domain_id=None):
+    return Communication(catalog, domain_id=domain_id)

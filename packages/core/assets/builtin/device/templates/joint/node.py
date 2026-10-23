@@ -2,7 +2,7 @@
 
 Set STATE to the driver's JointState topic and TRAJECTORY to the controller's
 joint_trajectory topic, both in URDF joint units. This node republishes measured
-joints, forwards owned trajectories, rejects points outside the URDF limits when
+joints, forwards trajectories, rejects points outside the URDF limits when
 the profile's limits are strict, and holds the measured posture on stop.
 """
 import asyncio
@@ -16,7 +16,7 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from kinex.communication import qos
 from kinex.lib.joints import JointModel, command
-from kinex.node import motion_service, node_name
+from kinex.node import command_service, node_name
 
 STATE = "/joint_states"
 TRAJECTORY = "/joint_trajectory_controller/joint_trajectory"
@@ -35,7 +35,7 @@ class Joints(Node):
         self.state = self.create_publisher(JointState, state["endpoint"], qos(state))
         self.create_subscription(JointState, STATE, self.receive, qos_profile_sensor_data)
         self.trajectory = self.create_publisher(JointTrajectory, TRAJECTORY, 10)
-        motion_service(self, operations, {"joint_target": self.apply}, self.hold)
+        command_service(self, operations, {"joint_target": self.apply}, self.hold)
 
     def receive(self, message):
         values = dict(zip(message.name, message.position))
@@ -43,8 +43,7 @@ class Joints(Node):
             self.position = [values[name] for name in self.names]
         self.state.publish(message)
 
-    def apply(self, message):
-        trajectory = message.trajectory
+    def apply(self, trajectory):
         if not set(trajectory.joint_names) <= set(self.names):
             raise ValueError("trajectory names joints this device does not command")
         command(self.profile, [list(point.positions) for point in trajectory.points],

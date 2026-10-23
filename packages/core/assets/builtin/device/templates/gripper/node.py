@@ -2,7 +2,7 @@
 
 Set STATE to the driver's JointState topic and COMMAND to its Float64 grip position
 topic, both in URDF joint units, and GRASPED to its object-detection topic when it
-has one. This node republishes measured joints, serves owned grip targets and
+has one. This node republishes measured joints, forwards grip targets and
 holds the measured posture on stop.
 """
 import asyncio
@@ -13,7 +13,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Float64
 
 from kinex.communication import qos
-from kinex.node import motion_service, node_name
+from kinex.node import command_service, node_name
 
 STATE = "/gripper/joint_states"
 COMMAND = "/gripper/position_command"
@@ -31,7 +31,7 @@ class Gripper(Node):
         self.state = self.create_publisher(JointState, state["endpoint"], qos(state))
         self.create_subscription(JointState, STATE, self.receive, qos_profile_sensor_data)
         self.command = self.create_publisher(Float64, COMMAND, 10)
-        motion_service(self, operations, {"target": self.apply}, self.hold)
+        command_service(self, operations, {"target": self.apply}, self.hold)
         if "grasped" in operations:
             grasped = self.create_publisher(Bool, operations["grasped"]["endpoint"], qos(operations["grasped"]))
             self.create_subscription(Bool, GRASPED, grasped.publish, qos_profile_sensor_data)
@@ -41,9 +41,9 @@ class Gripper(Node):
         self.state.publish(message)
 
     def apply(self, message):
-        if not self.range[0] <= message.target <= self.range[1]:
+        if not self.range[0] <= message.data <= self.range[1]:
             raise ValueError(f"target must lie between open and closed {self.range}")
-        self.command.publish(Float64(data=message.target))
+        self.command.publish(message)
 
     def hold(self):
         # Hold the measured posture: a stop never opens or closes the fingers.

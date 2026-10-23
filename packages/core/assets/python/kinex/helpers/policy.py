@@ -22,8 +22,8 @@ async def run_policy(io, model, observation, command, task=None, world="world", 
     tip_link, frozen at the observation stamp. max_actions caps the horizon and
     action_hz paces actions on the world clock. Joint trajectories submit
     asynchronously; end-effector targets are paced by world waits before
-    returning. Returns actions_submitted, duration_s, execution_ids and
-    ik_failure (device, action_index, error) or None.
+    returning. Returns actions_submitted, duration_s and ik_failure
+    (device, action_index, error) or None.
 
     Example: await helpers.run_policy(io, "policy", obs, [{"device": "arm"}, {"device": "gripper"}])
     """
@@ -87,7 +87,7 @@ async def run_policy(io, model, observation, command, task=None, world="world", 
             count = min(count, len(samples))
         sequences[name] = samples
     if count == 0:
-        return {"actions_submitted": 0, "duration_s": 0, "execution_ids": {}, "ik_failure": failure}
+        return {"actions_submitted": 0, "duration_s": 0, "ik_failure": failure}
     seconds = count / number(action_hz, "action_hz")
     prepared, scalars = [], []
     for entry in plans:
@@ -95,33 +95,27 @@ async def run_policy(io, model, observation, command, task=None, world="world", 
         samples = sequences[name][:count]
         if entry["model"]:
             joint_command(prof, samples, entry["model"].joints)
-            fields = {"trajectory": {"joint_names": entry["model"].names,
+            fields = {"joint_names": entry["model"].names,
                       "points": [{"positions": value, "time_from_start": duration((index + 1) * seconds / count)}
-                                 for index, value in enumerate(samples)]}}
+                                 for index, value in enumerate(samples)]}
             operation = f"{name}.joint_target"
         else:
             target = _grip if prof["type"] == "gripper" else _vacuum
             targets = [target(prof, value[0]) for value in samples]
-            fields, operation = {"target": targets[0]}, f"{name}.target"
-            scalars.append((name, operation, targets))
-        prepared.append((name, operation, fields))
+            fields, operation = {"data": targets[0]}, f"{name}.target"
+            scalars.append((operation, targets))
+        prepared.append((operation, fields))
 
-    async def submit(name, operation, fields):
-        identifier = await io.publish(operation, fields)
-        if identifier:
-            await io.accepted(operation, identifier)
-        return name, identifier
-
-    results = await asyncio.gather(*(submit(*entry) for entry in prepared))
+    await asyncio.gather(*(io.publish(operation, fields) for operation, fields in prepared))
     # End-effector targets persist. Timing belongs to this workflow and the world,
-    # never a device-side duration or an unowned background worker.
+    # never a device-side duration or a background worker.
     if scalars:
         for index in range(count):
             if index:
-                results.extend(await asyncio.gather(*(submit(name, operation, {"target": values[index]})
-                                                     for name, operation, values in scalars)))
+                await asyncio.gather(*(io.publish(operation, {"data": values[index]})
+                                       for operation, values in scalars))
             await io.request(wait, duration_s=seconds / count)
-    return {"actions_submitted": count, "duration_s": seconds, "execution_ids": dict(results), "ik_failure": failure}
+    return {"actions_submitted": count, "duration_s": seconds, "ik_failure": failure}
 
 
 def _commanded(entry):

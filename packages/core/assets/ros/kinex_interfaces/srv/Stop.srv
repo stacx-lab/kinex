@@ -1,5 +1,0 @@
-string owner
----
-bool success
-string message
-bool stopped

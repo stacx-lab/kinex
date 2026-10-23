@@ -1,3 +1,4 @@
-Stop the named device, or all loaded actuators when deviceID is omitted. Stops use
+Stop the named device, or every loaded device with a stop operation when deviceID
+is omitted, and cancel running scripts that commanded a stopped device. Stops use
 each node's declared behavior and affected-device scope. No approval is required.
 Results report each device's acknowledgment or failure; inspect failures before resuming.

@@ -24,7 +24,7 @@ export async function dispatchDevice(cwd: string, device: Device, action: string
   const workspace = await ProfileStore.workspaceDir(cwd)
   const wall = Date.now()
   try {
-    const reading = await rosDispatch(workspace, device, action, args, origin, signal)
+    const reading = await rosDispatch(workspace, device, action, args, signal)
     notifyDevice({ workspace, device, action, args, origin, reading, wall, latencyMs: Date.now() - wall })
     return reading
   } catch (error) {

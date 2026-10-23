@@ -5,24 +5,13 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
-find_package(trajectory_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/ScalarCommand.msg"
-  "msg/TrajectoryCommand.msg"
-  "msg/TwistCommand.msg"
-  "msg/PoseCommand.msg"
-  "msg/ModeCommand.msg"
-  "msg/JsonCommand.msg"
-  "msg/CommandStatus.msg"
-  "srv/Acquire.srv"
-  "srv/Stop.srv"
   "srv/Capture.srv"
   "srv/CaptureRGBD.srv"
   "srv/Json.srv"
   "srv/Wait.srv"
-  "srv/CancelWait.srv"
   "srv/LookupTransform.srv"
-  DEPENDENCIES sensor_msgs geometry_msgs builtin_interfaces trajectory_msgs
+  DEPENDENCIES sensor_msgs geometry_msgs builtin_interfaces
 )
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

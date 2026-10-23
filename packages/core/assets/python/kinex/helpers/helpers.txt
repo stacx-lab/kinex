@@ -3,7 +3,7 @@ Kinex Python helpers
 Import with: from kinex import helpers
 Implementation paths below are relative to this index; see their docstrings for
 details. The builtin Python tools are interfaces to these same functions; call the
-helpers directly inside exec to share its communication and motion ownership.
+helpers directly inside exec to share its communication and cleanup.
 Workspace-specific helpers belong in .kinex/lib, which exec and tools can import.
 
 Frames

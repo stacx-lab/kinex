@@ -32,7 +32,7 @@ export async function protocolCamera(runtime, directory, name = 'camera') {
   await writeFile(file, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'))
   await protocolDevice(runtime, directory, name, { type:'rgb',
     loaded:true,
-    handler:`def dispatch(action, args, owner, cancelled):\n    return {'file': ${JSON.stringify(file)}, 'timestamp': 1} if action in ('read', '$sample') else {'ready':True}\n`,
+    handler:`def dispatch(action, args, cancelled):\n    return {'file': ${JSON.stringify(file)}, 'timestamp': 1} if action in ('read', '$sample') else {'ready':True}\n`,
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   return file
 }

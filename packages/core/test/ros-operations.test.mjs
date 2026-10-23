@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { createKinexRuntime } from "../dist/index.js"
 import { Operation, RosRuntime } from "../dist/device/profile/operations.js"
+import { Device } from "../dist/device/profile/schema.js"
 
 const output = {
   description: "Arbitrary scalar stream", transport: "topic", direction: "output",
@@ -18,8 +19,16 @@ test("ROS operation declarations validate protocol direction, types and bounded 
   assert.throws(() => Operation.parse({ ...output, upstream: "/implementation/detail" }))
   assert.throws(() => RosRuntime.parse({ interpreter: "/python", publish_frames: false }))
   assert.throws(() => Operation.parse({ ...output, transport: "service", type: "std_srvs/srv/Trigger" }))
-  assert.throws(() => Operation.parse({ ...output, motion: { acquire: "/a", stop: "/s", status: "/c" } }))
   assert.ok(Operation.parse({ ...output, transport: "service", direction: "input", type: "std_srvs/srv/Trigger" }))
+})
+
+test("stops are Trigger services, and world waits require one", () => {
+  const service = (type, endpoint) => ({ description: "", transport: "service", direction: "input", endpoint, type })
+  const world = { name: "world", type: "world", description: "", meta: { created_at: "", updated_at: "" }, runtime: { nodes: [] },
+    operations: { wait: service("kinex_interfaces/srv/Wait", "/wait") }, frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } }
+  assert.throws(() => Device.parse(world), /require a stop service/)
+  assert.ok(Device.parse({ ...world, operations: { ...world.operations, stop: service("std_srvs/srv/Trigger", "/stop") } }))
+  assert.throws(() => Device.parse({ ...world, operations: { ...world.operations, stop: service("std_srvs/srv/Empty", "/stop") } }), /std_srvs\/srv\/Trigger/)
 })
 
 test("operation discovery is inert and loaded runtime edits require unload", async t => {

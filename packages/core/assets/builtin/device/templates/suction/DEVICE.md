@@ -19,12 +19,11 @@ constants.
 
 ### Operations
 
-- `target` (recommended): managed input topic `kinex_interfaces/msg/ScalarCommand`
-  whose `target` is a vacuum level from 0 (release, venting) to 1 (full vacuum);
-  binary devices accept only 0 or 1. It persists until replaced, and acceptance is
-  not arrival. Serve acquire, owner-scoped stop and command status with
-  `kinex.node.motion_service`.
-- `stop` (recommended): service `kinex_interfaces/srv/Stop` that ends pending
+- `target` (recommended): input topic `std_msgs/msg/Float64` whose `data` is a
+  vacuum level from 0 (release, venting) to 1 (full vacuum); binary devices accept
+  only 0 or 1. It persists until replaced, and sending is not a grasp. Serve it with
+  `stop` through `kinex.node.command_service`.
+- `stop` (recommended): service `std_srvs/srv/Trigger` that ends pending
   commands and keeps the current vacuum; a stop never releases a held object.
 - `grasped` (recommended): output topic `std_msgs/msg/Bool`, true while an object
   is held, for example vacuum reached or an object detected.
@@ -43,18 +42,17 @@ runtime:
   nodes: [{entry: node.py, factory: create}]
 operations:
   target:
-    description: Vacuum level from 0 (release) to 1 (full vacuum); binary devices accept only 0 or 1. It persists until replaced; acceptance is not arrival, so verify grasped.
+    description: Vacuum level (data) from 0 (release) to 1 (full vacuum); binary devices accept only 0 or 1. It persists until replaced; verify the grasp with grasped.
     transport: topic
     direction: input
     endpoint: /kinex/suction/target
-    type: kinex_interfaces/msg/ScalarCommand
-    motion: {acquire: /kinex/suction/acquire, stop: /kinex/suction/stop, status: /kinex/suction/command_status}
+    type: std_msgs/msg/Float64
   stop:
-    description: Stop pending commands and keep the current vacuum; a held object is never released. An empty owner stops unconditionally.
+    description: Stop pending commands and keep the current vacuum; a held object is never released.
     transport: service
     direction: input
     endpoint: /kinex/suction/stop
-    type: kinex_interfaces/srv/Stop
+    type: std_srvs/srv/Trigger
   grasped:
     description: True while the driver detects a held object.
     transport: topic

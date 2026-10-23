@@ -6,14 +6,13 @@ Discover interfaces on demand, without starting devices:
   # runtime.describe(operation) resolves ROS payload schemas when needed.
   finish({"devices": [{"name": d["name"], "loaded": d["loaded"]} for d in devices]})
 Use actual operation names from these queries, not names inferred from device types. Catalogs remain in Python until you explicitly return selected fields. Load required devices through the host before communication.
-For async protocol work, import communication, args, finish from kinex. For example, where args supplies a discovered managed-motion operation and its payload:
+For async protocol work, import communication, args, finish from kinex. For example, where args supplies a discovered command topic and its ROS payload:
   async def main():
       a = args()
       async with communication() as io:
-          identifier = await io.publish(a["operation"], a["payload"])
-          await io.accepted(a["operation"], identifier)
-      finish({"accepted": True})
-  # Execute with asyncio.run(main()). Acceptance is not measured arrival.
-Use io.subscribe(operation, depth=1) and await stream.next(timeout_s=...) for output topics; await io.request(operation, **fields) for services. World wait operations own scheduling. Observations and tf2 queries never advance world time. Bound work, inspect fresh measured feedback, and stop on terminal task status. Service rejections raise kinex.OperationError with operation, response and structured details; inspect the response and relevant feedback before deciding how to recover. Timeouts/cancellation retain owned cleanup.
-Import helpers with from kinex import helpers. Read kinex/helpers/helpers.txt under the Python library directory in runtime context for available functions and implementation paths. Builtin Python tools are interfaces to these helpers; call them directly to share this invocation's communication and ownership. Put workspace-specific helpers in .kinex/lib, which exec can import.
-Failure stops only motion still owned by this invocation; success preserves accepted motion. finish(value, file=paths) returns selected summaries and images after leaving the communication scope. Do not print entire catalogs or raw streams unless requested.
+          await io.publish(a["operation"], a["payload"])
+      finish({"sent": True})
+  # Execute with asyncio.run(main()). Sending is not measured arrival.
+Use io.subscribe(operation, depth=1) and await stream.next(timeout_s=...) for output topics; await io.request(operation, **fields) for services. World wait operations own scheduling, one wait at a time. Observations and tf2 queries never advance world time. Bound work, inspect fresh measured feedback, and stop on terminal task status. Service rejections raise kinex.OperationError with operation, response and structured details; inspect the response and relevant feedback before deciding how to recover.
+Import helpers with from kinex import helpers. Read kinex/helpers/helpers.txt under the Python library directory in runtime context for available functions and implementation paths. Builtin Python tools are interfaces to these helpers; call them directly to share this invocation's communication and cleanup. Put workspace-specific helpers in .kinex/lib, which exec can import.
+Failure, timeout or cancellation stops every device this invocation commanded; success leaves their motion running. finish(value, file=paths) returns selected summaries and images after leaving the communication scope. Do not print entire catalogs or raw streams unless requested.
