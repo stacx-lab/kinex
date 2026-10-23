@@ -146,7 +146,7 @@ function assertSnapshot(app) {
   assert.equal(snapshots.length, 1)
   const snapshot = snapshots[0]
   for (const section of ['core.python', 'core.guides', 'core.skills', 'core.recording', 'problems']) assert.ok(snapshot.content.includes(`${section}:\n`), section)
-  for (const section of ['core.devices', 'core.readiness', 'setup.plan']) assert.ok(!Object.hasOwn(snapshot.details, section), section)
+  assert.ok(!Object.hasOwn(snapshot.details, 'setup.plan'))
   assert.ok(app.host.session.agent.state.messages.some(message => message.role === 'custom' && message.content === snapshot.content))
   return snapshot
 }

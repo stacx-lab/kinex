@@ -94,9 +94,6 @@ export function createKinexRuntime(options: RuntimeOptions) {
   }, call.signal)
   return {
     directory,
-    // Composition bridge for the standalone app's existing low-level consumers.
-    // Extension hosts should use the bound methods below.
-    run,
     operation: scopedOperation,
     subscribe(listener: (event: RuntimeEvent) => void) {
       return run(() => { listeners.add(listener); return () => { listeners.delete(listener) } })
@@ -158,7 +155,6 @@ export function createKinexRuntime(options: RuntimeOptions) {
       }),
     },
     profiles: {
-      snapshot: () => operation(() => ProfileStore.snapshot(directory)),
       writeManifest: (patch: Record<string, unknown>) => operation(() => ProfileStore.writeManifest(directory, patch)),
       writeDevice: (patch: Record<string, unknown> & { name: string }) => operation(() => ProfileStore.writeDevice(directory, patch)),
     },

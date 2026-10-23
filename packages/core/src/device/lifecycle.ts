@@ -71,5 +71,5 @@ export async function lifecycleAction(cwd: string, device: Device, action: "load
   signal?.throwIfAborted()
   if (action === "load") return (await loadDevice(cwd, device.name, signal)).ready
   await unloadDevice(cwd, device.name)
-  return { deviceID: device.name, kind: device.type, data: { unloaded: true } }
+  return { deviceID: device.name, data: { unloaded: true } }
 }

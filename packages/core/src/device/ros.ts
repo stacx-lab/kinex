@@ -180,10 +180,10 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       finally { await terminate(host, true); hosts().delete(directory) }
     }
     await forgetFrames(cwd, device)
-    return { deviceID: device.name, kind: device.type, data: { unloaded: true } }
+    return { deviceID: device.name, data: { unloaded: true } }
   }
   if (action === "status" && (!host || host.proc.exitCode !== null))
-    return { deviceID: device.name, kind: device.type, data: { ready: false } }
+    return { deviceID: device.name, data: { ready: false } }
   if (action === "load") {
     const fingerprint = await definition(directory, device)
     if (host && host.definition !== fingerprint)
@@ -209,14 +209,14 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       catch (cleanup) { throw new AggregateError([error, cleanup], "Device load and frame cleanup failed") }
       throw error
     }
-    return { deviceID: device.name, kind: device.type, data: { ready: true } }
+    return { deviceID: device.name, data: { ready: true } }
   }
   if (!host?.ready || (action !== "$cleanup" && action !== "stop" && host.definition !== await definition(directory, device)))
     throw new NamedError("DeviceInactiveError", `${device.name} requires explicit load or unload/validate/reload`)
   const data = await request(host, action, args, owner, signal,
     (device.operations[action]?.timeout_s ?? 30) * 1000)
   const { file, ...fields } = data
-  return { deviceID: device.name, kind: device.type, data: fields,
+  return { deviceID: device.name, data: fields,
     ...(typeof file === "string" ? { filePath: file } : {}) }
 }
 

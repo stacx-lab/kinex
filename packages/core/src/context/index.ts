@@ -1,8 +1,6 @@
 import path from "node:path"
 import { Assets } from "../installation/assets.ts"
 import { ProfileStore } from "../device/profile/store.ts"
-import { readinessPlan } from "../device/profile/readiness.ts"
-import { renderRobotSummary } from "./robot.ts"
 import { deviceContentRoots } from "../device/templates.ts"
 import { pythonEnvironment } from "../python/environment.ts"
 import { Recorder } from "../record/recorder.ts"
@@ -10,18 +8,12 @@ import { listSkills, formatSkills } from "../skill/index.ts"
 import ROBOTICS from "./robotics.txt"
 import DEVICE_USE from "./device-use.txt"
 import PYTHON from "./python.txt"
-export { DEVICE_USE, PYTHON }
+export { DEVICE_USE }
 
 // Structured sections let each host place stable instructions ahead of live
 // state without importing the standalone agent's identity or system prompt.
 export async function roboticsContext(directory: string, enableRecording = false) {
-  const [snapshot, skills, roots, python] = await Promise.all([
-    ProfileStore.snapshot(directory), listSkills(directory), deviceContentRoots(directory), pythonEnvironment(directory),
-  ])
-  const [robotics, readiness] = await Promise.all([
-    renderRobotSummary(directory, snapshot),
-    readinessPlan(directory, snapshot),
-  ])
+  const [skills, roots, python] = await Promise.all([listSkills(directory), deviceContentRoots(directory), pythonEnvironment(directory)])
   return {
     instructions: [ROBOTICS, PYTHON, DEVICE_USE].join("\n\n"),
     guideRoots: `Device guide roots (nearest first): ${roots.join(", ")}.`,
@@ -31,8 +23,6 @@ export async function roboticsContext(directory: string, enableRecording = false
       provider: python.provider, project: python.project, venv: python.venv, executable: python.executable, present: python.present,
       library: Assets.python(), workspaceLibrary: path.join(await ProfileStore.workspaceDir(directory), "lib"),
     },
-    robotics,
-    readiness: readiness.items.map(item => `${item.id}: ${item.status} — ${item.detail}${item.dependsOn.length ? ` (requires: ${item.dependsOn.join(", ")})` : ""}`).join("\n"),
     skills: skills.length ? formatSkills(skills) : undefined,
     recording: enableRecording ? Recorder.render() : undefined,
   }
