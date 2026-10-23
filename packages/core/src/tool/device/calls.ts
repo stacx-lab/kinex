@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { readFile } from "node:fs/promises"
 import { ProfileStore } from "../../device/profile/store.ts"
-import { dispatchDevice } from "../../device/dispatch.ts"
+import { checkDeviceCall, dispatchDevice } from "../../device/dispatch.ts"
 import { lifecycleAction } from "../../device/lifecycle.ts"
 import { isCommandAction } from "../../device/interface.ts"
 import { NamedError } from "../../util/error.ts"
@@ -35,13 +35,8 @@ export async function callDevices(calls: Call[], ctx: Context): Promise<CallResu
     try {
       const device = await ProfileStore.readDevice(ctx.directory, call.deviceID)
       if (!device) throw new DeviceCallError(`no device "${call.deviceID}" in this workspace`)
-      if (!["load", "unload", "status", "stop"].includes(call.action) && !device.operations[call.action])
-        throw new DeviceCallError(`unknown operation "${device.name}.${call.action}"; available: ${Object.keys(device.operations).join(", ")}; inspect runtime.describe() inside exec`)
-      const lifecycle = call.action === "load" || call.action === "unload"
-      if (!lifecycle && call.action !== "status" && !device.loaded) throw new DeviceCallError(`device "${device.name}" is unloaded`)
-      if (lifecycle && Object.keys(call.args).length) throw new DeviceCallError("load/unload accept no arguments")
-      const command = lifecycle || isCommandAction(device, call.action)
-      return { call, device, command }
+      checkDeviceCall(device, call.action, call.args)
+      return { call, device, command: call.action === "load" || call.action === "unload" || isCommandAction(device, call.action) }
     } catch (error) { return { call, failure: failure(error) } }
   }))
   for (const item of prepared) {

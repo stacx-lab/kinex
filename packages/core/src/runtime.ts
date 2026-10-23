@@ -7,7 +7,7 @@ import type { CoreSettings } from "./config/config.ts"
 import { ProfileStore } from "./device/profile/store.ts"
 import { readinessPlan } from "./device/profile/readiness.ts"
 import { roboticsContext } from "./context/index.ts"
-import { dispatchDevice, deactivateDevice } from "./device/dispatch.ts"
+import { checkDeviceCall, dispatchDevice, deactivateDevice } from "./device/dispatch.ts"
 import { listDeviceTemplates } from "./device/templates.ts"
 import { removeDevice } from "./device/remove.ts"
 import { warmLoadedDevices, type Activation, loadDevice, unloadDevice, reloadDevice, pingDevice, lifecycleAction, deviceTransition } from "./device/lifecycle.ts"
@@ -150,12 +150,11 @@ export function createKinexRuntime(options: RuntimeOptions) {
       dispatch: (name: string, action: string, args: Record<string, unknown> = {}, signal?: AbortSignal) => operation(async () => {
         const device = await ProfileStore.readDevice(directory, name)
         if (!device) throw new Error(`unknown device "${name}"`)
-        if (action === "load" || action === "unload") {
-          if (Object.keys(args).length) throw new Error("load/unload accept no arguments")
-          return lifecycleAction(directory, device, action, AbortSignal.any([abort.signal, ...(signal ? [signal] : [])]))
-        }
-        if (!device.loaded && action !== "status") throw new Error(`device "${name}" is not loaded`)
-        return dispatchDevice(directory, device, action, args, undefined, AbortSignal.any([abort.signal, ...(signal ? [signal] : [])]))
+        checkDeviceCall(device, action, args)
+        const combined = AbortSignal.any([abort.signal, ...(signal ? [signal] : [])])
+        return action === "load" || action === "unload"
+          ? lifecycleAction(directory, device, action, combined)
+          : dispatchDevice(directory, device, action, args, undefined, combined)
       }),
     },
     profiles: {

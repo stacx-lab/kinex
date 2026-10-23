@@ -79,3 +79,18 @@ def dispatch(action, args, owner, cancelled):
   await (await runtime.devices.reload('world')).ready
   assert.equal((await runtime.devices.ping('world')).serving,true)
 })
+
+test('a device loads with the world clock of its own ROS domain', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'kinex-frames-domain-'))
+  const runtime = createKinexRuntime({directory})
+  t.after(async () => {await runtime.dispose(); await rm(directory,{recursive:true,force:true})})
+  await runtime.profiles.writeManifest({identity:{id:'frames',name:'Frames',kind:'other'}})
+  await protocolFramePython(runtime)
+  const world = endpoint => ({type:'world', operations:{time:{description:'Clock', transport:'topic', direction:'output', endpoint, type:'rosgraph_msgs/msg/Clock'}}})
+  await protocolDevice(runtime, directory, 'alpha', world('/other/clock'))
+  await runtime.profiles.writeDevice({name:'alpha', runtime:{domain_id:7}})
+  await protocolDevice(runtime, directory, 'zeta', world('/clock'))
+  await protocolDevice(runtime, directory, 'sensor', {loaded:true})
+  const events = (await readFile(path.join(directory,'.kinex/devices/sensor/events.jsonl'),'utf8')).trim().split('\n').map(JSON.parse)
+  assert.equal(events.find(event => event.action === 'load').args.clock.endpoint, '/clock')
+})

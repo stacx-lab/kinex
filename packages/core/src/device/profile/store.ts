@@ -4,6 +4,7 @@ import { z } from "zod"
 import { resolveDeviceModel } from "../device-model.ts"
 import path from "node:path"
 import fs from "node:fs/promises"
+import { isDeepStrictEqual } from "node:util"
 import { ConfigPaths } from "../../config/paths.ts"
 import { exists } from "../../util/filesystem.ts"
 import { toYaml } from "../../util/yaml.ts"
@@ -110,16 +111,17 @@ function deepMerge(target: Record<string, unknown>, patch: Record<string, unknow
 
 async function readYaml(file: string): Promise<Record<string, unknown> | undefined> {
   if (!(await exists(file))) return undefined
-  const text = await fs.readFile(file, "utf-8")
-  const parsed = (() => {
-    try {
-      return parseYaml(text)
-    } catch {
-      return undefined
-    }
-  })()
-  if (typeof parsed !== "object" || parsed === null) return undefined
-  return parsed as Record<string, unknown>
+  let document: unknown
+  try { document = parseYaml(await fs.readFile(file, "utf-8")) }
+  catch (error) { throw new NamedError("ProfileFileError", `${file}: ${error instanceof Error ? error.message : String(error)}`) }
+  const parsed = object.safeParse(document)
+  if (!parsed.success) throw new NamedError("ProfileFileError", `${file}: expected a YAML mapping`)
+  return parsed.data
+}
+
+// What a loaded device's host was started from; it changes only across unload.
+function definition({ type, runtime, operations }: Device) {
+  return { type, runtime, operations }
 }
 
 async function writeYaml(file: string, value: unknown): Promise<void> {
@@ -170,8 +172,6 @@ export const ProfileStore = {
     if (typeof patch.name !== "string" || patch.name === "") throw new Error("device patch needs a non-empty name")
     const file = await ProfileStore.deviceFile(cwd, patch.name)
     const existing = (await readYaml(file)) ?? {}
-    if (existing.loaded && existing.runtime && ["runtime", "operations"].some(key => key in patch && JSON.stringify(patch[key]) !== JSON.stringify(existing[key])))
-      throw new Error("unload before changing runtime definitions or operations")
     // Merging across union variants would interleave unrelated fact shapes —
     // a retype replaces the file wholesale instead.
     const retyped = typeof existing["type"] === "string" && typeof patch["type"] === "string" && existing["type"] !== patch["type"]
@@ -179,7 +179,10 @@ export const ProfileStore = {
     const now = new Date().toISOString()
     const meta = (retyped ? undefined : (merged["meta"] as Record<string, unknown> | undefined)) ?? { created_at: now }
     merged["meta"] = { ...meta, updated_at: now }
-    const device = await resolveDeviceModel(Device.parse(merged), path.dirname(file), retyped || ["model", "grip", "home", "frames"].some(key => key in patch))
+    const parsed = Device.parse(merged)
+    if (existing.loaded && existing.runtime && !isDeepStrictEqual(definition(Device.parse(existing)), definition(parsed)))
+      throw new Error("unload before changing the device type, runtime or operations")
+    const device = await resolveDeviceModel(parsed, path.dirname(file), retyped || ["model", "grip", "home", "frames"].some(key => key in patch))
     if (patch.needs_calibration === null || Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null)) {
       const snapshot = await ProfileStore.snapshot(cwd)
       await validateClears(cwd, patch, { ...snapshot, devices: [...snapshot.devices.filter((entry) => entry.name !== device.name), device] }, device.name)

@@ -101,6 +101,7 @@ async function request(host: Host, action: string, args: Record<string, unknown>
   }
 }
 
+/** Joins the device to its domain's frame host and returns the domain's world clock, if any. */
 async function frames(cwd: string, device: Device, signal?: AbortSignal) {
   const domain = device.runtime?.domain_id ?? 0
   const workspace = await ProfileStore.workspaceDir(cwd)
@@ -110,7 +111,8 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
     const clocks = worlds.flatMap(world => Object.values(resolvedOperations(world)).filter(op => op.type === "rosgraph_msgs/msg/Clock" && op.direction === "output"))
     if (!clocks.length) return undefined
     if (clocks.length !== 1) throw new NamedError("RosClockError", "one world clock is required per ROS domain")
-    const fingerprint = JSON.stringify(clocks[0])
+    const [clock] = clocks
+    const fingerprint = JSON.stringify(clock)
     let host = frameHosts().get(key)
     if (host && (!host.ready || host.proc.exitCode !== null || host.definition !== fingerprint)) {
       await terminate(host)
@@ -126,7 +128,7 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
       frameHosts().set(key, host)
       void receive(host)
       try {
-        await request(host, "$frames", { clock: clocks[0], domain_id: domain, endpoint }, undefined, signal)
+        await request(host, "$frames", { clock, domain_id: domain, endpoint }, undefined, signal)
         host.ready = true
       } catch (error) {
         await terminate(host)
@@ -135,7 +137,7 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
       }
     }
     await request(host, "$frame_device", { name: device.name, active: true }, undefined, signal)
-    return host
+    return clock
   })
   const tail = result.then(() => {}, () => {})
   transitions().set(key, tail)
@@ -197,9 +199,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       void receive(host)
     }
     try {
-      await frames(cwd, device, signal)
-      const world = (await ProfileStore.listDevices(cwd)).find(value => value.type === "world" && value.runtime)
-      const clock = world && Object.values(resolvedOperations(world)).find(op => op.type === "rosgraph_msgs/msg/Clock" && op.direction === "output")
+      const clock = await frames(cwd, device, signal)
       await request(host, "load", { profile: { ...device, operations: resolvedOperations(device) }, clock }, undefined, signal, (device.runtime?.ready_timeout_s ?? 30) * 1000)
       host.ready = true
     } catch (error) {

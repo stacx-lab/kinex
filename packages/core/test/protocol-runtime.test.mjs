@@ -67,14 +67,15 @@ finish({'device':one,'ops':runtime.operations('two'),'devices':runtime.devices()
  await assert.rejects(access(path.join(directory,'.kinex/devices/one/events.jsonl')))
 })
 
-test('legacy profiles fail with actionable migration diagnostics',async t=>{
+test('devices without a runtime and invalid profiles fail with actionable diagnostics',async t=>{
  const {runtime,directory}=await fixture(t)
  await runtime.profiles.writeDevice({ name:'old',
    type:'other',
    description:'',
    loaded:true,
    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
- await assert.rejects(runtime.devices.dispatch('old','read'),/legacy.*no longer supported/)
+ await assert.rejects(runtime.devices.dispatch('old','status'),/configure runtime.nodes and operations/)
+ await assert.rejects(runtime.devices.dispatch('old','read'),/unknown operation old.read/)
  const file=path.join(directory,'.kinex/devices/old/profile.yaml')
  await writeFile(file,"name: old\ntype: other\naccess: {driver: {entry: driver.py}}\n")
  await assert.rejects(runtime.devices.list(),/top-level facts and frames.base/)
