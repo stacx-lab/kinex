@@ -13,8 +13,8 @@ from tf2_ros import StaticTransformBroadcaster
 import rosbag2_py
 
 from kinex.communication import communication, qos
-from kinex.ros_recording import Recording
-from kinex.ros_tools import relative_pose, transform_pose
+from kinex.host.recording import Recording
+from kinex.helpers.frames import relative_pose, transform_pose
 
 CATALOG = {
     "environment.time": {"transport": "topic", "direction": "output", "endpoint": "/recording_test/clock",
@@ -109,13 +109,13 @@ class RecordingTests(unittest.IsolatedAsyncioTestCase):
         relation.transform.rotation.w = 2 ** -.5
         child = [1, 0, 0, 0, 0, 0, 1]
         parent = [0, 1, 0, 0, 0, 0, 1]
-        result = relative_pose(relation, child, parent)
-        for actual, expected in zip(result[:3], [1, 0, 0]):
-            self.assertAlmostEqual(actual, expected)
         from unittest.mock import patch
         async def lookup(*args):
             return relation
-        with patch('kinex.helpers.lookup_transform', lookup):
+        with patch('kinex.helpers.frames.lookup_transform', lookup):
+            result = (await relative_pose(None, {'frame': 'camera', 'pose': child}, {'frame': 'world', 'pose': parent}))['pose']
+            for actual, expected in zip(result[:3], [1, 0, 0]):
+                self.assertAlmostEqual(actual, expected)
             result = await transform_pose(None, child, 'camera', 'world')
         for actual, expected in zip(result[:3], [1, 1, 0]):
             self.assertAlmostEqual(actual, expected)

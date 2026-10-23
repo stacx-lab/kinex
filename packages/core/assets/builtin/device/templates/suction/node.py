@@ -14,7 +14,7 @@ from std_msgs.msg import Bool
 from std_srvs.srv import SetBool
 
 from kinex.communication import qos
-from kinex.ownership import motion_service
+from kinex.node import motion_service
 
 SWITCH = "/vacuum_gripper/grip_cmd"
 DETECTED = "/vacuum_gripper/object_detected"

@@ -18,8 +18,8 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 from kinex.communication import qos
-from kinex.locomotion import accepted, posture, transition, velocity
-from kinex.ownership import motion_service
+from kinex.lib.locomotion import accepted, posture, transition, velocity
+from kinex.node import motion_service
 
 CMD_VEL = "/cmd_vel"
 BODY_POSE = "/body_pose"

@@ -23,7 +23,7 @@ constants.
   whose `target` is a vacuum level from 0 (release, venting) to 1 (full vacuum);
   binary devices accept only 0 or 1. It persists until replaced, and acceptance is
   not arrival. Serve acquire, owner-scoped stop and command status with
-  `kinex.ownership.motion_service`.
+  `kinex.node.motion_service`.
 - `stop` (recommended): service `kinex_interfaces/srv/Stop` that ends pending
   commands and keeps the current vacuum; a stop never releases a held object.
 - `grasped` (recommended): output topic `std_msgs/msg/Bool`, true while an object

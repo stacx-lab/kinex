@@ -125,12 +125,9 @@ test('exec preserves optional results and image attachments, and reports exit an
     assert.equal(JSON.parse(multiple.output).result.value, 0)
   }
   await pythonTool(directory, 'images', 'from kinex import finish\nfinish(file=["second.png", "frame.png"])')
-  const composed = await execScript(runtime, { python: 'from kinex import call, finish\nfinish(call("images"))' })
   const direct = await runtime.tools.call('images', {}, { sessionID: 's' })
-  for (const result of [direct, composed]) {
-    assert.ok(!result.isError, result.output)
-    assert.deepEqual(result.attachments, [second, image].map(path => ({ mime: 'image/png', path })))
-  }
+  assert.ok(!direct.isError, direct.output)
+  assert.deepEqual(direct.attachments, [second, image].map(path => ({ mime: 'image/png', path })))
   for (const [python, code, error] of [
     ['print("before failure"); raise ValueError("broken script")', 1, /broken script/],
     ['import sys; print("before failure"); sys.exit(7)', 7, /code 7/],
@@ -167,27 +164,6 @@ test('exec validates before approval and denial does not prepare Python or run c
   assert.ok(!(await readdir(path.join(directory, '.kinex'))).includes('python'))
 })
 
-test('inline Python retains fresh globals and argument validation inside exec', async t => {
-  const { runtime } = await fixture(t, {host})
-  const success = await execScript(runtime, { python: `from kinex import inline, finish
-source = 'count = 0\\ndef main(value):\\n    global count\\n    count += 1\\n    return {"count": count, "value": value}\\n'
-finish({'results': [inline(source, {'value': i}) for i in range(2)]})
-` })
-  assert.ok(!success.isError, success.output)
-  assert.deepEqual(JSON.parse(success.output).result.results, [{ count: 1, value: 0 }, { count: 1, value: 1 }])
-  for (const [source, error] of [
-    ['lambda value:', /SyntaxError/],
-    ['value = 1', /must be a lambda or define main/],
-    ['lambda value: {1, 2}', /not JSON serializable/],
-    ['lambda missing: {}', /unexpected keyword argument/],
-  ]) {
-    const result = await execScript(runtime, { args: { source }, python: 'from kinex import args, inline\ninline(args()["source"], {"value": 1})' })
-    assert.equal(result.isError, true)
-    assert.match(result.output, error)
-  }
-
-})
-
 test('exec reaps owned children even when they retain output pipes', { timeout: 20000 }, async t => {
   const { runtime, directory } = await fixture(t, {host})
   for (const python of [
@@ -210,7 +186,7 @@ ${python}
   }
 })
 
-test('Python startup carries large Unicode arguments and inline source through nested calls', async t => {
+test('Python startup carries large Unicode arguments', async t => {
   const { runtime, directory } = await fixture(t, {host})
   await pythonTool(directory, 'digest', `import hashlib, os, subprocess, sys
 from kinex import args, finish, robot
@@ -223,19 +199,12 @@ child = subprocess.run([sys.executable, '-c', 'import kinex; print("ordinary imp
 assert child.stdout.strip() == 'ordinary import'
 finish({'length': len(a['value']), 'sha256': hashlib.sha256(a['value'].encode()).hexdigest()})
 `)
-  await pythonTool(directory, 'nested', `from kinex import args, inline, finish
-a = args()
-finish(inline(a['source'], {'value': a['value']}))
-`)
-  const source = `# ${'large source '.repeat(15000)}\nfrom kinex import call\ndef main(value):\n    return call('digest', value=value)\n`
   for (const value of ['small', 'x'.repeat(3 * 1024 * 1024), '🦾画像'.repeat(100000)]) {
-    for (const name of ['digest', 'nested']) {
-      const response = await runtime.tools.call(name, name === 'nested' ? { value, source } : { value }, { sessionID: 's' })
-      assert.ok(!response.isError, response.output)
-      assert.deepEqual(JSON.parse(response.output), {
-        length: [...value].length, sha256: createHash('sha256').update(value).digest('hex'),
-      })
-    }
+    const response = await runtime.tools.call('digest', { value }, { sessionID: 's' })
+    assert.ok(!response.isError, response.output)
+    assert.deepEqual(JSON.parse(response.output), {
+      length: [...value].length, sha256: createHash('sha256').update(value).digest('hex'),
+    })
   }
 })
 

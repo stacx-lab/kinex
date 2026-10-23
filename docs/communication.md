@@ -123,7 +123,7 @@ asyncio.run(main())
 `image_path` and `target_message` above are application inputs. A
 `kinex_interfaces/srv/Json` operation encodes keyword arguments as one JSON object
 and returns the decoded response object; owned nodes serve it with
-`json_service(node, operation, handler)`. `publish`, `subscribe`,
+`kinex.node.json_service(node, operation, handler)`. `publish`, `subscribe`,
 `request` and `serve` are protocol primitives; the helpers do not prescribe
 control flow. Use ordinary functions, branching and asyncio task groups.
 Messages may be native ROS messages or field mappings. Subscriptions expose
@@ -136,10 +136,16 @@ must be under `io.namespace + "/"`. Handlers and communication resources
 are removed when the scope closes. Persistent services belong to device nodes.
 
 Async tools declare `async: true` in `tool.yaml` and export
-`async def main(args, io)`. Compose them using
-`from kinex.ros_tools import call` and `await call(tool_name, **arguments)`.
-Composed tools share the invocation context. Standard script tools still use a
-script entrypoint. Neither form has a persistent lifecycle.
+`async def main(args, io)`. Builtin tools are interfaces to `kinex.helpers`
+functions of the same name and parameters; exec calls those helpers directly to
+share its communication and ownership. Workspace helpers live in `.kinex/lib`.
+Standard script tools still use a script entrypoint. Neither form has a persistent
+lifecycle.
+
+The `kinex` package separates audiences. The root and `kinex.helpers` (indexed by
+`kinex/helpers/helpers.txt`) are the exec API; `kinex.node` serves device node
+authors; `kinex.lib` holds shared internals and `kinex.host` the processes the
+runtime launches.
 
 ## World time
 
@@ -168,7 +174,7 @@ A motion input topic declares `motion: {acquire, stop, status}` endpoints using
 the core `Acquire`, `Stop` and `CommandStatus` interfaces. The command type must
 carry `owner`, `generation` and `command_id` fields. Kinex supplies these fields.
 The accepting endpoint validates and atomically replaces ownership; owned nodes
-serve all three endpoints with `kinex.ownership.motion_service(node, operations,
+serve all three endpoints with `kinex.node.motion_service(node, operations,
 commands, hold)`, where `commands` maps each managed operation to the function that
 admits its messages. Several command topics of one device share one ownership and
 its endpoints. A stop invalidates every issued generation, so commanding again
@@ -205,7 +211,7 @@ including `arm/base`, `arm/flange` and `gripper/tcp`. Kinex lookup accepts eithe
 qualified profile references (`arm:base`) or native ROS IDs (`arm/base`).
 
 A joint or gripper device's `links.py` factory creates a persistent
-`kinex.ros_links.LinkPublisher`. It reads the profile's URDF once, subscribes to
+`kinex.node.LinkPublisher`. It reads the profile's URDF once, subscribes to
 measured `joint_state`, and publishes every link below the base link as
 `<device>/<link>`: fixed joints once on `/tf_static`, movable and mimic joints on
 `/tf`. Measurements are never clamped to command limits, and each publication
@@ -235,7 +241,7 @@ transform. Kinex retains the tf2 service across exec calls, so a new
 invocation can query a paused world without waiting for another physics tick.
 Missing relationships and unavailable timestamps are errors.
 
-Images stay as ROS payloads in Python. `kinex.camera.array` converts them for
+Images stay as ROS payloads in Python. `kinex.lib.camera.array` converts them for
 computation; `save` writes a selected image. Return paths with
 `finish(result, file=...)` after leaving the scope to attach images to the model.
 

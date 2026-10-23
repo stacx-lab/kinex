@@ -13,7 +13,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Float64
 
 from kinex.communication import qos
-from kinex.ownership import motion_service
+from kinex.node import motion_service
 
 STATE = "/gripper/joint_states"
 COMMAND = "/gripper/position_command"

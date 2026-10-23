@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from kinex.camera import array, save
-from kinex.object_location import locate
+from kinex.lib.camera import array, save
+from kinex.helpers.perception import _locate as locate
 
 
 def message(encoding, values, bigendian=False, pad=0):

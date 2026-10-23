@@ -1,4 +1,4 @@
-"""Publish calibrated rigid transforms; tf2 owns live frame composition."""
+"""Kinex frame IDs, TransformStamped construction and static profile frames; tf2 owns live composition."""
 
 def frame_id(device, frame=None):
     return f"{device}/{frame or 'base'}"
@@ -22,7 +22,7 @@ def dynamic_qos():
 
 def transform(parent, child, pose, stamp=None):
     from geometry_msgs.msg import TransformStamped
-    from kinex.motion import pose as validate_pose
+    from kinex.lib.geometry import pose as validate_pose
     values = list(map(float, validate_pose(list(pose))))
     value = TransformStamped()
     value.header.frame_id, value.child_frame_id = parent, child

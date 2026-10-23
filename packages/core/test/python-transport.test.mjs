@@ -23,9 +23,6 @@ test('tool startup rejects missing, malformed and non-object arguments', () => {
     assert.equal(result.status, 1, result.stderr)
     assert.match(result.stderr, error)
   }
-  const inline = run('import runpy; runpy.run_module("kinex._inline", run_name="__main__")', '{"args":{}}\n', true)
-  assert.equal(inline.status, 1, inline.stderr)
-  assert.match(inline.stderr, /inline startup request requires source/)
 })
 
 test('ordinary Python imports leave stdin and stdout available to the caller', () => {

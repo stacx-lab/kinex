@@ -1,13 +1,25 @@
-"""Pose math shared by tools, drivers, and calibration scripts.
+"""Finite-number checks, quaternions, poses and rigid transforms; standard library only.
 
-Pure python + math, no protocol imports, no side effects — safe to import from
-any script the harness spawns. Conventions match the profile schema
-(see camera DEVICE.md#use): a pose is child-in-parent (p_parent = R·p_child + t), a
-quaternion is [x, y, z, w] scalar-LAST, and an (R, t) pair is a 3x3 row-major
-rotation with a 3-vector translation.
+A pose is [x, y, z, qx, qy, qz, qw], child in parent (p_parent = R p_child + t),
+with the quaternion scalar-last. An (R, t) pair is a 3x3 row-major rotation with a
+3-vector translation.
 """
 
 import math
+
+
+def number(value, name="value"):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{name} must be a finite number")
+    return value
+
+
+def vector(value, size, name="components"):
+    if not isinstance(value, list) or len(value) != size:
+        raise ValueError(f"{name} needs {size} numbers")
+    for entry in value:
+        number(entry, name)
+    return value
 
 
 def quat_to_mat(q):
@@ -64,14 +76,6 @@ def pose_to_rt(pose):
     return quat_to_mat(pose["rotation"]), list(pose["translation"])
 
 
-def mount_to_rt(mount):
-    """Read the rigid transform of a typed device mount."""
-    translation, rotation = mount["translation_m"], mount["rotation_xyzw"]
-    if not isinstance(translation, list) or not isinstance(rotation, list):
-        raise ValueError("mount transform has not been calibrated")
-    return pose_to_rt({"translation": translation, "rotation": rotation})
-
-
 def rt_to_pose(rt):
     R, t = rt
     return {"translation": [float(v) for v in t], "rotation": mat_to_quat(R)}
@@ -80,3 +84,35 @@ def rt_to_pose(rt):
 def xyzq_to_rt(flat):
     """[x, y, z, qx, qy, qz, qw] (named-frame pose) -> (R, t)."""
     return quat_to_mat(flat[3:7]), list(flat[0:3])
+
+
+# Four components rounded to three decimals can change the norm by up to 0.001.
+QUATERNION_NORM_TOLERANCE = 1e-3
+
+
+def quaternion(value, name="quaternion"):
+    """Return a near-unit [qx, qy, qz, qw] quaternion scaled to unit norm."""
+    vector(value, 4, name)
+    norm = math.hypot(*value)
+    # Compare bounds directly so the endpoints survive floating-point rounding.
+    if not 1 - QUATERNION_NORM_TOLERANCE <= norm <= 1 + QUATERNION_NORM_TOLERANCE:
+        raise ValueError(f"{name} requires a unit quaternion [qx, qy, qz, qw] (xyzw); got norm {norm!r} "
+                         f"(norms within {QUATERNION_NORM_TOLERANCE:g} of 1 are normalized)")
+    return [component / norm for component in value]
+
+
+def pose(value, name="pose"):
+    """Return [x, y, z, qx, qy, qz, qw] with a normalized near-unit quaternion."""
+    vector(value, 7, name)
+    return value[:3] + quaternion(value[3:], name)
+
+
+def flat(rt):
+    return list(rt[1]) + mat_to_quat(rt[0])
+
+
+def pose_error(goal, current):
+    relative = compose_rt(xyzq_to_rt(goal), invert_rt(xyzq_to_rt(current)))
+    q = mat_to_quat(relative[0])
+    return {"position_m": math.hypot(*(a - b for a, b in zip(goal[:3], current[:3]))),
+            "rotation_rad": 2 * math.atan2(math.hypot(*q[:3]), abs(q[3]))}

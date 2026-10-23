@@ -10,7 +10,7 @@ The model type prescribes no operations or payloads. Name each operation after
 what the model computes and declare it as a `kinex_interfaces/srv/Json` service:
 callers send a JSON object and receive one, and the operation description is the
 only contract for their fields. Pass images and other large data as file paths.
-Serve each operation with `kinex.communication.json_service(node, operation,
+Serve each operation with `kinex.node.json_service(node, operation,
 handler)`; `handler(**request)` returns the response object and its exceptions
 become failed responses. The sibling `node.py` serves a TorchScript image model as
 `infer` from an artifact named `weights`; the grounding-dino, sam3 and fastwam

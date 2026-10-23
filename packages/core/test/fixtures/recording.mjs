@@ -8,7 +8,7 @@ export async function recordingDevices(runtime, directory) {
   const interpreter = path.join(directory, 'recording-runtime')
   await writeFile(interpreter, `#!${real}
 import json, pathlib, sys
-capture = sys.argv[-1] == 'kinex.ros_recording'
+capture = sys.argv[-1] == 'kinex.host.recording'
 count = 0
 for line in sys.stdin:
     request = json.loads(line)
@@ -36,7 +36,7 @@ for line in sys.stdin:
   await rm(python, {force:true})
   await writeFile(python, `#!${real}
 import os, sys
-executable = ${JSON.stringify(interpreter)} if sys.argv[-1] in ('kinex.ros_recording', 'kinex.ros_host') else ${JSON.stringify(real)}
+executable = ${JSON.stringify(interpreter)} if sys.argv[-1] in ('kinex.host.recording', 'kinex.host.device') else ${JSON.stringify(real)}
 os.execv(executable, [executable, *sys.argv[1:]])
 `, {mode:0o755})
   for (const [name, type, operations] of [

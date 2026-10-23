@@ -3,7 +3,7 @@
 import argparse
 import json
 
-from kinex.geometry import mat_to_quat
+from kinex.lib.geometry import mat_to_quat
 
 
 def solve(path):

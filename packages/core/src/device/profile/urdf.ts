@@ -8,7 +8,7 @@ const rate = z.number().positive().nullable()
 // Geometry lives in the URDF: every link below base_link is a TF frame of the device.
 export const UrdfModel = z.strictObject({ format: z.literal("urdf"), path: field(name), base_link: field(name) })
 
-// A URDF tree below its base link, as kinex.urdf.read_tree resolves it in document order.
+// A URDF tree below its base link, as kinex.lib.urdf.read_tree resolves it in document order.
 export const UrdfJoint = z.discriminatedUnion("type", [
   z.strictObject({ name, type: z.literal("fixed"), parent: name, child: name, origin: z.array(z.number()).length(7) }),
   z.strictObject({

@@ -3,9 +3,9 @@
 import math
 from dataclasses import dataclass
 
-from kinex.joints import recovery_targets
-from kinex.motion import joint_target, vector
-from kinex.validation import number
+from kinex.lib.geometry import number, vector
+from kinex.lib.joints import recovery_targets
+from kinex.lib.urdf import joint_target
 
 
 @dataclass(frozen=True)

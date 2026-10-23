@@ -16,10 +16,11 @@ import { UrdfTree, deviceTree, modelErrors, resolvedTrees, urdfSpec } from "./pr
 
 const trees = scoped(() => new Map<string, Promise<UrdfTree>>())
 
-// Run a bundled model script in Kinex Python; it reads input on stdin and prints JSON.
-async function script(directory: string, name: string, args: string[], input: string, signal?: AbortSignal): Promise<unknown> {
+// Run a kinex.host.urdf command in Kinex Python; it reads input on stdin and prints JSON.
+async function urdf(directory: string, args: string[], input: string, signal?: AbortSignal): Promise<unknown> {
   const runtime = await pythonRuntime(directory, undefined, signal)
-  const proc = spawnProcess([runtime.executable, Assets.python(name), ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: runtime.env, signal })
+  const env = { ...runtime.env, PYTHONPATH: [Assets.python(), runtime.env.PYTHONPATH].filter(Boolean).join(path.delimiter) }
+  const proc = spawnProcess([runtime.executable, "-m", "kinex.host.urdf", ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env, signal })
   proc.stdin.write(input)
   proc.stdin.end()
   const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
@@ -39,7 +40,7 @@ export async function urdfTree(directory: string, file: string, base: string): P
   // Parsing is shared by callers in this runtime. Only disposal cancels the
   // shared work; an invocation's cancellation releases its own waiter.
   const ownerSignal = currentScope().signal ?? new AbortController().signal
-  const pending = script(directory, "introspect_urdf.py", [base], xml, ownerSignal).then(tree => UrdfTree.parse(tree))
+  const pending = urdf(directory, ["tree", base], xml, ownerSignal).then(tree => UrdfTree.parse(tree))
   trees().set(key, pending)
   void pending.catch(() => {
     if (trees().get(key) === pending) trees().delete(key)
@@ -55,7 +56,7 @@ export async function urdfTree(directory: string, file: string, base: string): P
 export async function linkPose(directory: string, device: Device, link: string, positions: Record<string, number>, signal = currentSignal()): Promise<number[]> {
   const tree = deviceTree(device)
   if (!tree) throw new NamedError("DeviceModelError", modelErrors.get(device) ?? `${device.name} has no resolved URDF`)
-  return z.array(z.number()).length(7).parse(await script(directory, "link_pose.py", [], JSON.stringify({ tree, link, positions }), signal))
+  return z.array(z.number()).length(7).parse(await urdf(directory, ["pose"], JSON.stringify({ tree, link, positions }), signal))
 }
 
 // A resolved tree also completes frame validation: parents may name URDF links.

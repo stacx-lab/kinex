@@ -142,12 +142,11 @@ test('separate runtimes own separate node processes and disposal does not close 
  await b.dispose()
 })
 
-test('composed inline enrollment keeps the parent owner and timeout cleans it',async t=>{
+test('a timed-out invocation cleans up its enrolled device once',async t=>{
  const {runtime,directory}=await fixture(t)
  const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
- // Only the inline call enrolls, so the parent's cleanup reaches it only under one owner.
- const result=await runtime.tools.call('exec',{timeout_s:1,python:`from kinex import inline
-inline("lambda: __import__('kinex').${enroll}", {})
+ const result=await runtime.tools.call('exec',{timeout_s:1,python:`import kinex
+kinex.${enroll}
 import time; time.sleep(10)`},{sessionID:'timeout'})
  assert.equal(result.isError,true);assert.match(result.output,/timed out|timeout/i)
  const cleanups=(await events(dir)).filter(e=>e.action==='$cleanup')

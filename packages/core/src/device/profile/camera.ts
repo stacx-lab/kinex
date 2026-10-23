@@ -16,7 +16,7 @@ const Projection = z.strictObject({
 export type CameraProjection = z.infer<typeof Projection>
 
 // Newton inversion of the supported Brown-Conrady model. FOV uses the same
-// pixel-center convention as kinex.camera.ray (outer edges are -0.5 and size-0.5).
+// pixel-center convention as kinex.lib.camera.ray (outer edges are -0.5 and size-0.5).
 export function cameraRay(projection: CameraProjection, distortion: CameraDistortion, u: number, v: number): [number, number, number] | undefined {
   const yd = (v - projection.cy) / projection.fy
   const xd = (u - projection.cx - projection.skew * yd) / projection.fx

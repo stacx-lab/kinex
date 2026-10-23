@@ -20,13 +20,17 @@ async function fixture(t) {
   await symlink(executable, python.executable)
   const started = path.join(directory, 'started')
   const release = path.join(directory, 'release')
-  const parser = fileURLToPath(new URL('../assets/python/introspect_urdf.py', import.meta.url))
-  await mkdir(path.join(assetsRoot, 'python'), { recursive: true })
-  await writeFile(path.join(assetsRoot, 'python/introspect_urdf.py'), `import os, pathlib, runpy, sys, time
-sys.path.insert(0, ${JSON.stringify(path.dirname(parser))})
+  // Shadow only kinex.host.urdf with a parser that waits for release; the rest of
+  // the package resolves to the real one.
+  const real = fileURLToPath(new URL('../assets/python/kinex', import.meta.url))
+  const shim = path.join(assetsRoot, 'python/kinex')
+  await mkdir(path.join(shim, 'host'), { recursive: true })
+  await writeFile(path.join(shim, '__init__.py'), `__path__.append(${JSON.stringify(real)})\n`)
+  await writeFile(path.join(shim, 'host/__init__.py'), `__path__.append(${JSON.stringify(path.join(real, 'host'))})\n`)
+  await writeFile(path.join(shim, 'host/urdf.py'), `import os, pathlib, runpy, time
 with open(${JSON.stringify(started)}, 'a') as output: output.write(str(os.getpid()) + '\\n')
 while not pathlib.Path(${JSON.stringify(release)}).exists(): time.sleep(.005)
-runpy.run_path(${JSON.stringify(parser)}, run_name='__main__')
+runpy.run_path(${JSON.stringify(path.join(real, 'host/urdf.py'))}, run_name='__main__')
 `)
   const file = path.join(directory, 'arm.urdf')
   await writeFile(file, '<robot name="arm"><link name="base"/><link name="tip"/><joint name="j" type="revolute"><parent link="base"/><child link="tip"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="10" velocity="1"/></joint></robot>')

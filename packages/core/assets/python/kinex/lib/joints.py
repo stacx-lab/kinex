@@ -3,10 +3,10 @@
 import math
 from pathlib import Path
 
-from kinex import urdf
-from kinex.kinematics import DEFAULTS, Chain
-from kinex.motion import flat, joint_target, pose, vector
-from kinex.validation import segment
+from kinex.lib import urdf
+from kinex.lib.geometry import flat, pose, vector
+from kinex.lib.kinematics import DEFAULTS, Chain
+from kinex.lib.urdf import joint_target
 
 HOME_RECOVERY_TOLERANCE = math.radians(1)
 
@@ -82,18 +82,15 @@ def recovery_targets(actions, joints, tolerance):
         previous = target
 
 
-def command(profile, args, joints):
-    """Validate a timed joint buffer; strict limits reject targets outside the URDF limits."""
-    if not isinstance(args, dict) or set(args) != {"actions", "duration_s"}:
-        raise ValueError("joint command requires actions and duration_s")
-    actions = args["actions"]
+def command(profile, actions, joints):
+    """Validate a sequence of joint targets; strict limits reject targets outside the URDF limits."""
     if not isinstance(actions, list) or not actions:
         raise ValueError("actions must be a nonempty sequence")
     for target in actions:
         joint_target(target, joints, check_limits=False)
     if profile["limits"] == "strict":
         recovery_targets(actions, joints, home_start_tolerance(profile, joints, actions[-1]))
-    return segment(args, {"actions": actions})
+    return actions
 
 
 def project_seed(value, joints):

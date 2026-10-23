@@ -17,8 +17,8 @@ import itertools
 import json
 import sys
 
-from kinex.geometry import quat_to_mat
-from kinex.motion import pose as validate_pose
+from kinex.lib.geometry import quat_to_mat
+from kinex.lib.geometry import pose as validate_pose
 
 
 def fail(message: str) -> None:

@@ -13,16 +13,13 @@ export async function checkCorePackage(directory, env, pack) {
   for (const file of ['srv/Wait.srv', 'srv/Stop.srv', 'msg/CommandStatus.msg', 'package.xml', 'CMakeLists.txt'])
     assert.ok(pack.files.some(entry => entry.path === `assets/ros/kinex_interfaces/${file}`))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
-  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/_exec.py'))
+  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/host/run.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
   for (const name of ['node.py', 'env.sh', 'setup.sh', 'provision.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
     assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
-  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/policy.py'))
-  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/ik_search.py'))
-  for (const file of ['helpers.txt', 'helpers/__init__.py', 'helpers/transform.py', 'helpers/trajectory.py'])
+  for (const file of ['helpers/helpers.txt', 'helpers/__init__.py', 'helpers/frames.py', 'helpers/motion.py', 'helpers/policy.py', 'lib/kinematics.py', 'node.py', 'host/urdf.py'])
     assert.ok(pack.files.some(entry => entry.path === `assets/python/kinex/${file}`))
-  assert.ok(!pack.files.some(file => file.path === 'assets/python/kinex/trajectory.py'))
   assert.ok(!pack.files.some(file => file.path.startsWith('assets/builtin/tool/servo/')))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
   await writeFile(path.join(directory, 'consumer.mts'), `
@@ -88,12 +85,11 @@ export async function checkCorePackage(directory, env, pack) {
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
-      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.camera; import kinex.policy; import kinex.kinematics'], {
+      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.lib.camera; import kinex.helpers.policy; import kinex.lib.kinematics'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
       execFileSync('python3', ['-c', [
-        'from kinex.ik_search import budget_options',
-        'from kinex.kinematics import DEFAULTS, Chain',
+        'from kinex.lib.kinematics import DEFAULTS, Chain, budget_options',
         'import sys',
         'from kinex.helpers import trajectory, lookup_transform',
         'assert callable(lookup_transform) and "rclpy" not in sys.modules',

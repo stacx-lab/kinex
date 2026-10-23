@@ -58,7 +58,7 @@ class Protocol:
 
 
 def profile(_):
-    from kinex.urdf import read_tree
+    from kinex.lib.urdf import read_tree
     return {
         "name": "arm", "type": "joint", "loaded": True, "runtime": {}, "home": None, "limits": "strict",
         "model": {"format": "urdf", "path": "arm.urdf", "base_link": "base_link", "tip_link": "flange"},
@@ -75,10 +75,10 @@ def profile(_):
 
 class Tools(unittest.IsolatedAsyncioTestCase):
     async def test_policy_validates_chunk_before_publishing(self):
-        policy, io = tool("run-policy"), Protocol()
+        policy, io = tool("run_policy"), Protocol()
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = lambda value: value
-        with patch.object(policy, "profile", profile), patch.dict(sys.modules, {
+        with patch("kinex.helpers.policy.profile", profile), patch.dict(sys.modules, {
             "rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
             "rosidl_runtime_py.convert": convert,
         }):
@@ -90,7 +90,7 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(io.events[-1][0], "accepted")
 
     async def test_scalar_policy_targets_are_persistent_and_paced_by_world(self):
-        policy, io = tool("run-policy"), Protocol()
+        policy, io = tool("run_policy"), Protocol()
         async def request(operation, **fields):
             io.events.append(("request", operation, fields))
             return {"actions": [[-1.], [1.]]} if operation == "model.infer" else NS(success=True)
@@ -98,7 +98,7 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = lambda value: value
         facts = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0.}}
-        with patch.object(policy, "profile", return_value=facts), patch.dict(sys.modules, {
+        with patch("kinex.helpers.policy.profile", return_value=facts), patch.dict(sys.modules, {
             "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
         }):
             result = await policy.main({"model": "model", "observation": {},
@@ -111,22 +111,20 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(event[1].endswith(".stop") for event in io.events))
 
     async def test_relative_pose_uses_tf2_relation_and_local_offsets(self):
-        relative = tool("relative-pose")
+        relative = tool("relative_pose")
         async def lookup(io, target, source, stamp):
             self.assertEqual((target, source), ("base", "camera"))
             return NS(transform=NS(translation=NS(x=1., y=0., z=0.),
                                    rotation=NS(x=0., y=0., z=0., w=1.)),
                       header=NS(stamp=NS(sec=2, nanosec=500000000)))
-        with patch("kinex.helpers.lookup_transform", lookup), patch("kinex.ros_tools.relative_pose",
-            return_value=[1., 0., .2, 0., 0., 0., 1.]) as offsets:
-            result = await relative.main({"parent": {"frame": "base"},
+        with patch("kinex.helpers.frames.lookup_transform", lookup):
+            result = await relative.main({"parent": {"frame": "base", "pose": [0, 0, .1, 0, 0, 0, 1]},
                                           "child": {"frame": "camera", "pose": [0, 0, .2, 0, 0, 0, 1]}}, Protocol())
-        self.assertEqual(result["pose"], [1., 0., .2, 0., 0., 0., 1.])
+        self.assertEqual(result["pose"], [1., 0., .1, 0., 0., 0., 1.])
         self.assertEqual(result["timestamp"], 2.5)
-        self.assertEqual(offsets.call_args.args[1:], ([0., 0., .2, 0., 0., 0., 1.], [0., 0., 0., 0., 0., 0., 1.]))
 
     async def test_policy_cartesian_chunk_uses_scoped_frames_and_typed_ik(self):
-        policy = tool("run-policy")
+        policy = tool("run_policy")
 
         class Cartesian(Protocol):
             async def request(self, operation, **fields):
@@ -142,10 +140,10 @@ class Tools(unittest.IsolatedAsyncioTestCase):
 
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = lambda value: value
-        with patch.object(policy, "profile", profile), patch("kinex.ros_tools.transform_pose", transform), patch.dict(sys.modules, {
+        with patch("kinex.helpers.policy.profile", profile), patch("kinex.helpers.frames.transform_pose", transform), patch.dict(sys.modules, {
             "rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
             "rosidl_runtime_py.convert": convert,
-        }), patch("kinex.joints.JointModel.ik", autospec=True, return_value=[.2, .3]) as ik:
+        }), patch("kinex.lib.joints.JointModel.ik", autospec=True, return_value=[.2, .3]) as ik:
             result = await policy.main({"model": "model", "observation": {},
                                         "command": [{"device": "arm", "space": "pose"}], "action_hz": 20}, io)
         self.assertEqual(frames, [("arm/flange", "arm/flange"), ("arm/base", "arm/base"), ("arm/base", "arm/base")])
@@ -153,20 +151,20 @@ class Tools(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["actions_submitted"], 1)
 
     async def test_policy_invalid_later_joint_target_never_publishes(self):
-        policy, io = tool("run-policy"), Protocol()
+        policy, io = tool("run_policy"), Protocol()
         async def request(*args, **kwargs):
             return {"actions": [[0., 0.], [5., 0.]]}
         io.request = request
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = lambda value: value
-        with patch.object(policy, "profile", profile), patch.dict(sys.modules, {
+        with patch("kinex.helpers.policy.profile", profile), patch.dict(sys.modules, {
             "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
         }), self.assertRaises(ValueError):
             await policy.main({"model": "model", "observation": {}, "command": [{"device": "arm"}]}, io)
         self.assertFalse(any(event[0] == "publish" for event in io.events))
 
     async def test_policy_malformed_ik_truncates_all_buffers_and_seeds_from_predecessor(self):
-        policy = tool("run-policy")
+        policy = tool("run_policy")
         for failure_at in (0, 1):
             io, seeds = Protocol(), []
             async def request(operation, **fields):
@@ -181,9 +179,9 @@ class Tools(unittest.IsolatedAsyncioTestCase):
             io.request = request
             convert = ModuleType("rosidl_runtime_py.convert")
             convert.message_to_ordereddict = lambda value: value
-            with patch.object(policy, "profile", profile), patch("kinex.ros_tools.transform_pose", transform), patch.dict(sys.modules, {
+            with patch("kinex.helpers.policy.profile", profile), patch("kinex.helpers.frames.transform_pose", transform), patch.dict(sys.modules, {
                 "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
-            }), patch("kinex.joints.JointModel.ik", autospec=True, side_effect=solve):
+            }), patch("kinex.lib.joints.JointModel.ik", autospec=True, side_effect=solve):
                 result = await policy.main({"model": "model", "observation": {}, "action_hz": 20,
                     "command": [{"device": "arm", "space": "pose"}, {"device": "other"}]}, io)
             self.assertEqual(result["actions_submitted"], failure_at)

@@ -41,7 +41,7 @@ def main() -> None:
     if image is None:
         fail(f"could not read {args.image}")
     import yaml
-    from kinex.camera import ray
+    from kinex.lib.camera import ray
     with open(args.profile) as handle:
         color = yaml.safe_load(handle)["color"]
     if (image.shape[1], image.shape[0]) != (color["width"], color["height"]):
@@ -73,7 +73,7 @@ def main() -> None:
     if not ok:
         fail("solvePnP failed on the detected corners")
     projected, _ = cv2.projectPoints(obj, rvec, tvec, camera_matrix, dist)
-    from kinex.camera import project
+    from kinex.lib.camera import project
     projected_pixels = np.array([project(color, [x, y, 1]) for x, y in projected.reshape(-1, 2)])
     deltas = np.asarray(img).reshape(-1, 2) - projected_pixels
     reproj = float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1))))

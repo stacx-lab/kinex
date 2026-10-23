@@ -103,7 +103,7 @@ export function createStreams(input: { cwd: string; dir: string }): Streams {
           return [name, op] as const
         }), ...clocks])
         const launch = await pythonLaunch(input.cwd, "node")
-        entry.proc = spawnProcess([...launch.command, "-u", "-m", "kinex.ros_recording"], {
+        entry.proc = spawnProcess([...launch.command, "-u", "-m", "kinex.host.recording"], {
           cwd: input.cwd, env: { ...launch.env, ROS_DOMAIN_ID: String(ros.domain_id) }, group: true,
         })
         entry.lines = lineSource(entry.proc.stdout)
