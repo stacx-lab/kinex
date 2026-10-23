@@ -11,10 +11,10 @@ import { deviceInputSchema } from "./device-input.ts"
 
 // Python-defined tools: pieces of function whose execution involves NO agent.
 // One DIRECTORY per tool: <root>/tools/<name>/{tool.yaml,tool.py}, discovered
-// like skills (contentRoots: robot → project → global → builtin/tool/),
+// like skills (contentRoots: project → global → builtin/tool/),
 // first-seen-wins by manifest name. The agent sees each as a first-class tool; the yaml's
 // `parameters` (raw JSON Schema) is sent verbatim as the input schema.
-export const ToolManifest = z.object({
+export const ToolManifest = z.strictObject({
   name: z.string().regex(/^[a-z][a-z0-9_]*$/, "tool name: lowercase snake_case"),
   description: z.string(),
   parameters: z
@@ -30,7 +30,7 @@ export const ToolManifest = z.object({
     .describe("device TYPES that must have a loaded instance at execute time — the harness refuses the run otherwise"),
   device_inputs: z.record(z.string(), z.strictObject({ types: z.array(DeviceType).min(1), frame: z.literal(true).optional() })).default({}),
   requires: z.string().optional().describe("comma-separated calibration selectors, e.g. profile:rgb,access:model"),
-}).passthrough().refine(manifest => !("interpreter" in manifest), "Python tools use Kinex Python; declare separate interpreters on devices").superRefine((manifest, ctx) => {
+}).superRefine((manifest, ctx) => {
   try {
     z.fromJSONSchema(manifest.parameters)
   } catch (error) {

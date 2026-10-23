@@ -83,16 +83,3 @@ export const CameraDepth = z.discriminatedUnion("registration", [
   if (depth.valid_range_m.max > 65535 * depth.scale_m_per_unit)
     ctx.addIssue({ code: "custom", path: ["valid_range_m", "max"], message: "valid range exceeds the uint16 representation" })
 })
-
-export const CameraCalibration = {
-  method: z.enum(["unknown", "factory", "introspection", "checkerboard", "charuco", "hand_eye", "survey", "manual"]).default("unknown"),
-  calibrated_at: z.iso.datetime().nullable().default(null),
-  needs_calibration: section.needs_calibration,
-}
-
-export function cameraMissing(value: unknown): boolean {
-  if (value === "???") return true
-  if (!value || typeof value !== "object") return false
-  return Object.entries(value).some(([key, entry]) =>
-    !["fov", "reliable_range_m"].includes(key) && cameraMissing(entry))
-}

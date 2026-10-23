@@ -31,9 +31,3 @@ export async function imageMime(file: string): Promise<string | undefined> {
   await handle.read(head, 0, 16, 0).finally(() => handle.close())
   return imageMimeBytes(head) ?? IMAGE_MIMES[path.extname(file).toLowerCase()]
 }
-
-// True when the bytes look like text (no NUL in the sample) — used to refuse
-// binary files that are not images instead of returning mojibake.
-export function looksBinary(sample: Uint8Array): boolean {
-  return sample.includes(0)
-}

@@ -44,7 +44,7 @@ export async function probeDevice(cwd: string, device: Device): Promise<ProbeRes
 export async function queueActivation(cwd: string, device: Device, signal?: AbortSignal) {
   const ready = dispatchDevice(cwd, device, "load", {}, undefined, signal)
   void ready.catch(() => {})
-  return { ready, activating: true }
+  return { ready }
 }
 
 export async function deactivateDevice(cwd: string, device: Device): Promise<void> {

@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from "node:util"
 import { ConfigPaths } from "../../config/paths.ts"
 import { exists } from "../../util/filesystem.ts"
 import { toYaml } from "../../util/yaml.ts"
+import { deepMerge } from "../../util/json.ts"
 import { deviceFrames, frameErrors } from "./frames.ts"
 import { RobotManifest, Device } from "./schema.ts"
 import { create } from "../../util/log.ts"
@@ -34,17 +35,17 @@ function mergeSections(existing: Record<string, unknown>, patch: Record<string, 
   return merged
 }
 
-async function validateClears(cwd: string, patch: Record<string, unknown>, snapshot: ProfileSnapshot, name?: string) {
+async function validateClears(patch: Record<string, unknown>, snapshot: ProfileSnapshot, name?: string) {
   const { checkReadinessItem } = await import("./readiness.ts")
   if (name && patch.needs_calibration === null) {
-    const check = await checkReadinessItem(cwd, snapshot, `profile:${name}`)
+    const check = checkReadinessItem(snapshot, `profile:${name}`)
     if (!check.done) throw new Error(`cannot clear profile:${name}: ${check.detail}`)
   }
   for (const [key, value] of Object.entries(patch)) {
     if (object.safeParse(value).data?.needs_calibration !== null) continue
     const item = name ? `${key}:${name}` : Object.entries(ROBOT_ITEMS).find(([, section]) => section === key)?.[0]
     if (!item) throw new Error(`no calibration item for section ${key}`)
-    const check = await checkReadinessItem(cwd, snapshot, item)
+    const check = checkReadinessItem(snapshot, item)
     if (!check.done) throw new Error(`cannot clear ${item}: ${check.detail}`)
   }
 }
@@ -87,26 +88,6 @@ function resolveItem(itemID: string): ResolvedItem {
   const section = (ROBOT_ITEMS as Record<string, string>)[itemID]
   if (!section) throw new Error(`unknown calibration item "${itemID}"`)
   return { kind: "robot", section }
-}
-
-function deepMerge(target: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...target }
-  for (const [key, value] of Object.entries(patch)) {
-    const existing = result[key]
-    if (
-      value &&
-      existing &&
-      typeof value === "object" &&
-      typeof existing === "object" &&
-      !Array.isArray(value) &&
-      !Array.isArray(existing)
-    ) {
-      result[key] = deepMerge(existing as Record<string, unknown>, value as Record<string, unknown>)
-      continue
-    }
-    result[key] = value
-  }
-  return result
 }
 
 async function readYaml(file: string): Promise<Record<string, unknown> | undefined> {
@@ -152,7 +133,7 @@ export const ProfileStore = {
     merged["meta"] = { ...meta, updated_at: now }
     const manifest = RobotManifest.parse(merged)
     if (Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null))
-      await validateClears(cwd, patch, { robot: manifest, devices: await ProfileStore.listDevices(cwd) })
+      await validateClears(patch, { robot: manifest, devices: await ProfileStore.listDevices(cwd) })
     await writeYaml(file, manifest)
     return manifest
   },
@@ -185,7 +166,7 @@ export const ProfileStore = {
     const device = await resolveDeviceModel(parsed, path.dirname(file), retyped || ["model", "grip", "home", "frames"].some(key => key in patch))
     if (patch.needs_calibration === null || Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null)) {
       const snapshot = await ProfileStore.snapshot(cwd)
-      await validateClears(cwd, patch, { ...snapshot, devices: [...snapshot.devices.filter((entry) => entry.name !== device.name), device] }, device.name)
+      await validateClears(patch, { ...snapshot, devices: [...snapshot.devices.filter((entry) => entry.name !== device.name), device] }, device.name)
     }
     await writeYaml(file, device)
     return device
@@ -196,7 +177,7 @@ export const ProfileStore = {
     if (!raw) return undefined
     const parsed = Device.safeParse(raw)
     if (!parsed.success) {
-      throw new NamedError("DeviceProfileError", `${name}: invalid profile; use top-level facts and frames.base with explicit device:frame parents (null for roots); intrinsics/extrinsics wrappers are no longer supported. ${parsed.error.message}`)
+      throw new NamedError("DeviceProfileError", `${name}: invalid profile; use top-level facts and frames.base with explicit device:frame parents (null for roots). ${parsed.error.message}`)
     }
     return resolveDeviceModel(parsed.data, await ProfileStore.deviceDir(cwd, name))
   },
@@ -263,21 +244,12 @@ export const ProfileStore = {
       const device = await ProfileStore.readDevice(cwd, resolved.name)
       if (!device) throw new Error(`unknown device "${resolved.name}" — declare it first`)
       const { checkReadinessItem } = await import("./readiness.ts")
-      await checkReadinessItem(cwd, await ProfileStore.snapshot(cwd), itemID)
+      checkReadinessItem(await ProfileStore.snapshot(cwd), itemID)
       await ProfileStore.writeDevice(cwd, { name: resolved.name, ...(resolved.section === "profile" ? { needs_calibration: fix } : { access: { needs_calibration: fix } }) })
       return
     }
     await ProfileStore.writeManifest(cwd, {
       [resolved.section]: { needs_calibration: fix },
     })
-  },
-
-  async clearNeeded(cwd: string, itemID: string): Promise<void> {
-    const resolved = resolveItem(itemID)
-    if (resolved.kind === "device") {
-      await ProfileStore.writeDevice(cwd, { name: resolved.name, ...(resolved.section === "profile" ? { needs_calibration: null } : { access: { needs_calibration: null } }) })
-      return
-    }
-    await ProfileStore.writeManifest(cwd, { [resolved.section]: { needs_calibration: null } })
   },
 }

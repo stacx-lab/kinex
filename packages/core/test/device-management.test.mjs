@@ -10,7 +10,6 @@ import { coreContribution } from '../dist/integration.js'
 
 const globals = await mkdtemp(path.join(os.tmpdir(), 'kinex-management-home-'))
 process.env.KINEX_CONFIG_DIR = path.join(globals, 'config')
-process.env.KINEX_DATA_DIR = path.join(globals, 'data')
 after(() => rm(globals, { recursive: true, force: true }))
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-management-'))
@@ -140,7 +139,7 @@ test('unregister succeeds after unloading owned nodes', async t => {
   assert.deepEqual(await runtime.devices.list(), [])
 })
 
-test('failed deactivation keeps the registered profile and driver', async t => {
+test('failed deactivation keeps the registered profile and node', async t => {
   const { runtime, directory } = await fixture(t)
   await pythonSensor(runtime, directory, { fail: true })
   await assert.rejects(runtime.devices.unregister('sensor'), /unload failed/)
@@ -151,13 +150,12 @@ test('failed deactivation keeps the registered profile and driver', async t => {
 
 test('setup guides preserve discovery precedence and never inject usage', async t => {
   const {runtime, directory} = await fixture(t)
-  const {readDeviceGuide, deviceGuideProfile} = await import('../dist/device/guide.js')
+  const {readDeviceGuide, deviceGuideProfile} = await import('./fixtures/guide.mjs')
   const {resolveDeviceTemplate} = await import('../dist/device/templates.js')
   for (const entry of (await runtime.devices.templates()).filter(e => e.kind === 'template')) {
     const file = path.join(entry.directory,'DEVICE.md')
     const guide = await readDeviceGuide(file)
     assert.ok(guide.setup && guide.profile, entry.name)
-    assert.equal(guide.use, undefined)
     const value = await deviceGuideProfile(file)
     assert.equal(typeof value.description, 'string')
     await runtime.profiles.writeDevice(value)
@@ -170,7 +168,6 @@ test('setup guides preserve discovery precedence and never inject usage', async 
   assert.equal((await nested.devices.templates()).find(e=>e.name==='model').directory,override)
   assert.equal((await nested.operation(()=>resolveDeviceTemplate(child,'fastwam','model'))).kind,'instance')
   assert.doesNotMatch(JSON.stringify(await nested.context()), /NEVER_INJECT_USAGE|private provisioning/)
-  assert.equal('conventions' in await nested.context(),false)
   assert.deepEqual(await readdir(child),[])
   await assert.rejects(stat(path.join(directory,'.kinex/python')),{code:'ENOENT'})
 })

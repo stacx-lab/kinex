@@ -40,7 +40,7 @@ export const DeviceStopTool = define("device_stop", {
     return {
       title: `stop${args.reason ? ` (${args.reason})` : ""}`,
       output: lines.join("\n"),
-      isError: lines.some((line) => line.includes("NO STOP PATH") || line.includes("STOP FAILED")),
+      isError: outcomes.some((outcome) => "error" in outcome),
     }
   },
 })

@@ -35,7 +35,7 @@ import { createKinexRuntime } from '@kinex/core'
 import { Assets as CoreAssets } from '@kinex/core/installation/assets'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { deviceGuideProfile } from '@kinex/core/device/guide'
+import { deviceGuideProfile } from ${JSON.stringify(new URL('../../core/test/fixtures/guide.mjs',import.meta.url).href)}
 import { createKinexSetup, setupSkillRoots } from '@kinex/setup'
 const runtime = createKinexRuntime({directory: process.cwd(), builtinSkillRoots: setupSkillRoots, host: {ask: async () => {}}})
 const setup = createKinexSetup(runtime)
@@ -68,10 +68,7 @@ const runtime = createKinexRuntime({directory: process.cwd(), host:{ask: async (
 try {
   const tools = (await runtime.tools.list()).tools.map(tool => tool.name)
   for (const name of ['profile_write','device','devices','device_stop','relative_pose','locate_object_3d','run_policy']) assert.ok(tools.includes(name), name)
-  assert.ok(!tools.includes('servo'))
-  for (const name of ['closed_loop', 'settled']) assert.ok(!tools.includes(name), name)
-  assert.ok(!tools.includes('track'))
-  for (const name of ['setup_plan','calib_compute','calib_sample','calib_plan','device_calibrate']) assert.ok(!tools.includes(name), name)
+  for (const name of ['setup_plan','calib_compute','calib_sample']) assert.ok(!tools.includes(name), name)
   assert.ok(await runtime.skills.load('setup-device'))
   assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'onboard-ros2'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))

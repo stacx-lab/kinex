@@ -1,7 +1,6 @@
 import { deviceFrames, frameErrors } from "./frames.ts"
-import { hasMissing } from "./common.ts"
+import { anyMissing, hasMissing } from "./common.ts"
 import { commandedJoints, deviceTree, modelErrors } from "./urdf.ts"
-import { cameraMissing } from "./camera.ts"
 import { ProfileStore, type ProfileSnapshot, type NeededEntry } from "./store.ts"
 import {
   known,
@@ -65,35 +64,35 @@ function factsCheck(device: Device): Check {
   switch (device.type) {
     case "locomotion": {
       const { modes } = device
-      if (!known(modes) || [device.velocity, device.posture, device.stop].some(hasMissing)) return { done: false, detail: "velocity, posture, modes or stop is incomplete" }
+      if (!known(modes) || anyMissing(device.velocity, device.posture, device.stop)) return { done: false, detail: "velocity, posture, modes or stop is incomplete" }
       const listed = Object.entries(modes).map(([mode, { accepts }]) => accepts.length ? `${mode} (${accepts.join(", ")})` : mode)
       return { done: true, detail: `modes ${listed.join(", ")}; ${deviceActions(device).length} command axes` }
     }
     case "rgb":
     case "rgbd": {
       const color = device.color
-      if (!known(color) || cameraMissing(color)) return { done: false, detail: "color is incomplete" }
+      if (!known(color) || hasMissing(color, ["fov", "reliable_range_m"])) return { done: false, detail: "color is incomplete" }
       if (device.type === "rgb") return { done: true, detail: `color ${color.width}x${color.height} (${device.source})` }
       const depth = device.depth
-      if (!known(depth) || cameraMissing(depth)) return { done: false, detail: "depth is incomplete" }
+      if (!known(depth) || hasMissing(depth, ["fov", "reliable_range_m"])) return { done: false, detail: "depth is incomplete" }
       return { done: true, detail: `color ${color.width}x${color.height}, depth ${depth.scale_m_per_unit} m/unit ${depth.registration} (${device.source})` }
     }
     case "joint": {
-      if ([device.model, device.home, device.stop].some(hasMissing)) return { done: false, detail: "URDF model, home or stop is incomplete" }
+      if (anyMissing(device.model, device.home, device.stop)) return { done: false, detail: "URDF model, home or stop is incomplete" }
       const tree = deviceTree(device)
       if (!tree) return { done: false, detail: modelErrors.get(device) ?? "joint URDF is unresolved" }
       const tip = known(device.model) ? device.model.tip_link : null
       return { done: true, detail: `${commandedJoints(tree).length} joints, ${device.limits} limits${tip ? `, tip ${tip}` : ""}` }
     }
     case "gripper": {
-      if ([device.model, device.grip, device.stop].some(hasMissing)) return { done: false, detail: "URDF model, grip or stop is incomplete" }
+      if (anyMissing(device.model, device.grip, device.stop)) return { done: false, detail: "URDF model, grip or stop is incomplete" }
       const tree = deviceTree(device)
       if (!tree) return { done: false, detail: modelErrors.get(device) ?? "gripper URDF is unresolved" }
       if (!device.frames.tcp) return { done: false, detail: "declare frames.tcp, the grasp point with +z approach" }
       return { done: true, detail: `${tree.links.length} URDF links, grip ${known(device.grip) ? device.grip.joint : ""}` }
     }
     case "suction": {
-      if ([device.vacuum, device.stop].some(hasMissing)) return { done: false, detail: "vacuum or stop is incomplete" }
+      if (anyMissing(device.vacuum, device.stop)) return { done: false, detail: "vacuum or stop is incomplete" }
       if (!device.frames.tcp) return { done: false, detail: "declare frames.tcp, the cup contact centre with +z approach" }
       return { done: true, detail: `${device.vacuum} suction` }
     }
@@ -104,9 +103,8 @@ function factsCheck(device: Device): Check {
       return { done: true, detail: `IMU channels: ${Object.entries(measurement).filter(([, value]) => value !== null).map(([key]) => key).join(", ")}${acceleration && known(acceleration) ? `; ${acceleration.quantity}` : ""}` }
     }
     case "force_torque": {
-      if (hasMissing(Object.fromEntries(Object.entries(device).filter(([key]) => !["access", "frames", "runtime", "operations"].includes(key))))) return { done: false, detail: "force/torque measurement is incomplete" }
       const measurement = device.measurement
-      if (!known(measurement)) return { done: false, detail: "measurement is ???" }
+      if (!known(measurement) || hasMissing(measurement)) return { done: false, detail: "force/torque measurement is incomplete" }
       return { done: true, detail: `${measurement.quantity}; force: ${measurement.force && known(measurement.force) ? measurement.force.axes.join(",") : "none"}; torque: ${measurement.torque && known(measurement.torque) ? measurement.torque.axes.join(",") : "none"}` }
     }
     case "world": {
@@ -151,7 +149,7 @@ function profileCheck(device: Device, devices: Device[]): Check {
 
 function accessCheck(device: Device): Check {
   if (device.runtime) return { done: true, detail: `${Object.keys(device.operations).length} declared ROS operations; load checks live readiness` }
-  return { done: false, detail: "configure runtime.nodes and operations; legacy drivers and in-memory mocks are unsupported" }
+  return { done: false, detail: "configure runtime.nodes and operations" }
 }
 
 function deviceNodes(device: Device): Node[] {
@@ -263,7 +261,7 @@ function planContext(snapshot: ProfileSnapshot): PlanContext {
 }
 
 // Raw completeness check used before an explicit marker clear is committed.
-export async function checkReadinessItem(cwd: string, snapshot: ProfileSnapshot, item: string): Promise<Check> {
+export function checkReadinessItem(snapshot: ProfileSnapshot, item: string): Check {
   const ctx = planContext(snapshot)
   const node = buildNodes(ctx).find((node) => node.id === item && node.id !== "task-ready")
   if (!node) throw new Error(`unknown calibration item "${item}"`)

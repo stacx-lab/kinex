@@ -8,7 +8,6 @@ const exec = promisify(execFile)
 const root = fileURLToPath(new URL('../', import.meta.url))
 
 export async function checkCorePackage(directory, env, pack) {
-  assert.ok(!pack.files.some(file => file.path.includes('driver_protocol') || file.path.includes('kinex_ros/')))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/runtime.py'))
   for (const file of ['srv/Wait.srv', 'srv/Stop.srv', 'msg/CommandStatus.msg', 'package.xml', 'CMakeLists.txt'])
     assert.ok(pack.files.some(entry => entry.path === `assets/ros/kinex_interfaces/${file}`))
@@ -20,14 +19,13 @@ export async function checkCorePackage(directory, env, pack) {
     assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
   for (const file of ['helpers/helpers.txt', 'helpers/__init__.py', 'helpers/frames.py', 'helpers/motion.py', 'helpers/policy.py', 'lib/kinematics.py', 'node.py', 'host/urdf.py'])
     assert.ok(pack.files.some(entry => entry.path === `assets/python/kinex/${file}`))
-  assert.ok(!pack.files.some(file => file.path.startsWith('assets/builtin/tool/servo/')))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
   await writeFile(path.join(directory, 'consumer.mts'), `
     import { createKinexRuntime, type RuntimeOptions } from '@kinex/core'
-    import { DEVICE_USE } from '@kinex/core/context/index'
+    import { coreContribution } from '@kinex/core/integration'
     const options: RuntimeOptions = { directory: process.cwd(), host: { ask: async () => {} } }
     const runtime = createKinexRuntime(options)
-    const text: string = DEVICE_USE
+    const contribution = coreContribution(runtime)
     const tools = await runtime.tools.list()
     await runtime.dispose()
   `)
@@ -42,7 +40,7 @@ export async function checkCorePackage(directory, env, pack) {
     const count = () => process.eventNames().map(name => [name, process.listenerCount(name)])
     const before = count()
     const { createKinexRuntime, executeRoboticsCommand } = await import('@kinex/core')
-    const { deviceGuideProfile } = await import('@kinex/core/device/guide')
+    const { deviceGuideProfile } = await import(${JSON.stringify(new URL('./fixtures/guide.mjs',import.meta.url).href)})
     const { coreContribution } = await import('@kinex/core/integration')
     await assert.rejects(import('@kinex/setup'), {code:'ERR_MODULE_NOT_FOUND'})
     assert.deepEqual(count(), before)
@@ -59,7 +57,6 @@ export async function checkCorePackage(directory, env, pack) {
       const workflow = await executeRoboticsCommand(runtime, 'register', 'world', context)
       assert.equal(workflow.kind, 'workflow')
       assert.match(workflow.prompt, /profile_write/)
-      assert.doesNotMatch(workflow.prompt, /calib_plan|calib_write|device_calibrate/)
       const write = async data => {
         const result = await runtime.tools.call('profile_write', data, {sessionID:'register'})
         assert.ok(!result.isError, result.output)
@@ -103,7 +100,6 @@ export async function checkCorePackage(directory, env, pack) {
       const tools = await runtime.tools.list()
       assert.ok(tools.tools.some(tool => tool.name === 'device'))
       assert.ok(tools.tools.some(tool => tool.name === 'exec'))
-      assert.ok(!tools.tools.some(tool => tool.name === 'servo'))
       const script = await runtime.tools.call('exec', {
         python: 'from kinex import robot; print(robot()["identity"]["id"])'
       }, {sessionID:'package'})

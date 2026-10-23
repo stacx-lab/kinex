@@ -81,10 +81,7 @@ export function createKinexRuntime(options: RuntimeOptions) {
     observe({ type: "tool", name: def.id, callID, status: "running", origin: def.recordingOrigin })
     const ctx: Context = {
       directory, sessionID: call.sessionID, abort: signal,
-      ask: call.ask ?? options.host?.ask ?? (async ({ permission }) => {
-        if (permission === "device_stop") return
-        throw new PermissionDeniedError(permission)
-      }),
+      ask: call.ask ?? options.host?.ask ?? (async ({ permission }) => { throw new PermissionDeniedError(permission) }),
       questions: call.questions ?? options.host?.questions ?? (async () => { throw new QuestionDeclinedError() }),
     }
     return execute(def, input, ctx).then((result) => {

@@ -6,8 +6,8 @@ import { Device } from '../dist/device/profile/schema.js'
 import { recordingOutput } from '../dist/record/output.js'
 
 test('JSON indents only two levels and retains JSON serialization semantics', () => {
-  const value = { state: { positions: [0, 1, 2], details: { source: 'driver', values: [1, 2] } } }
-  assert.equal(formatJSON(value), '{\n  "state": {\n    "positions": [0,1,2],\n    "details": {"source":"driver","values":[1,2]}\n  }\n}')
+  const value = { state: { positions: [0, 1, 2], details: { source: 'node', values: [1, 2] } } }
+  assert.equal(formatJSON(value), '{\n  "state": {\n    "positions": [0,1,2],\n    "details": {"source":"node","values":[1,2]}\n  }\n}')
   assert.equal(formatJSON(value, true), JSON.stringify(value))
   for (const item of [value, [value], { empty: {}, list: [], omitted: undefined, quote: '\n"\\' }, [undefined, null], null]) {
     assert.deepEqual(JSON.parse(formatJSON(item)), JSON.parse(JSON.stringify(item)))
@@ -32,7 +32,7 @@ test('device output keeps every reading field and appends the captured file', ()
 })
 
 test('recording output cleans only optional empty annotations and bookkeeping', () => {
-  const manifest = { id: 'recording', devices: {}, passive: {}, messageRange: {}, labels: [], task: '', bytes: 0, quotaHit: false, error: '' }
+  const manifest = { id: 'recording', devices: {}, passive: {}, messageRange: {}, task: '', bytes: 0, quotaHit: false, error: '' }
   const value = { manifest, applied: {}, refusals: {}, readings: { arm: { data: { faults: [] } } } }
   assert.deepEqual(JSON.parse(recordingOutput(value)), value)
   assert.deepEqual(JSON.parse(recordingOutput(value, false)), {

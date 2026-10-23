@@ -9,7 +9,6 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { createHash } from 'node:crypto'
 const globals = await mkdtemp(path.join(os.tmpdir(), 'kinex-node-home-'))
 process.env.KINEX_CONFIG_DIR = path.join(globals, 'config')
-process.env.KINEX_DATA_DIR = path.join(globals, 'data')
 after(() => rm(globals, { recursive: true, force: true }))
 const { createKinexRuntime, PermissionDeniedError } = await import('../dist/index.js')
 
@@ -32,10 +31,10 @@ async function fixture(t, { preparePython = true, ...options } = {}) {
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   return { runtime, directory }
 }
-async function pythonTool(directory, name, code, kind = 'perception', timeout = 10) {
+async function pythonTool(directory, name, code, timeout = 10) {
   const dir = path.join(directory, '.kinex/tools', name)
   await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'tool.yaml'), `name: ${name}\nkind: ${kind}\ndescription: test\ntimeout_s: ${timeout}\nparameters: {type: object}\n`)
+  await writeFile(path.join(dir, 'tool.yaml'), `name: ${name}\ndescription: test\ntimeout_s: ${timeout}\nparameters: {type: object}\n`)
   await writeFile(path.join(dir, 'tool.py'), code)
   return dir
 }
@@ -142,7 +141,7 @@ test('exec preserves optional results and image attachments, and reports exit an
     assert.match(value.error, error)
     if (python.includes('before failure')) assert.match(value.output, /before failure/)
   }
-  const rpc = await execScript(runtime, { python: 'from kinex import RPCError\nraise RPCError("driver failed", code="fault", details={"joint": 0})' })
+  const rpc = await execScript(runtime, { python: 'from kinex import RPCError\nraise RPCError("node failed", code="fault", details={"joint": 0})' })
   assert.equal(rpc.isError, true)
   assert.equal(JSON.parse(rpc.output).code, 'fault')
   assert.deepEqual(JSON.parse(rpc.output).details, { joint: 0 })
@@ -231,7 +230,7 @@ test('blocked startup writes respect cancellation and deadlines', { timeout: 200
   for (const mode of ['cancel', 'timeout']) await t.test(mode, async t => {
     const { runtime, directory } = await fixture(t, {host})
     const code = 'import time\ntime.sleep(30)\n'
-    await pythonTool(directory, 'blocked', code, 'perception', 1)
+    await pythonTool(directory, 'blocked', code, 1)
     const args = { value: 'x'.repeat(3 * 1024 * 1024) }
     const start = Date.now()
     const result = await runtime.tools.call('blocked', args, { sessionID: 's',
@@ -248,7 +247,7 @@ test('core discovery and context contain robotics tools and packaged assets', as
   const { tools, problems } = await runtime.tools.list()
   assert.deepEqual(problems, [])
   assert.ok(tools.some(tool => tool.name === 'device'))
-  for (const name of ['shell', 'read', 'write', 'edit', 'todo', 'record', 'calib_plan', 'calib_write', 'calib_sample', 'device_calibrate', 'settled', 'closed_loop']) assert.ok(!tools.some(tool => tool.name === name))
+  for (const name of ['shell', 'read', 'write', 'edit', 'todo', 'record', 'calib_sample']) assert.ok(!tools.some(tool => tool.name === name))
   assert.ok(await runtime.skills.load('setup-device'))
   assert.ok(tools.some(tool => tool.name === 'profile_write'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'world'))
@@ -285,7 +284,7 @@ test('recording works concurrently in two runtimes and finalizes on disposal', a
   for (const [dir, manifest] of [[dirA, first.manifest], [dirB, second.manifest]]) {
     const saved = JSON.parse(await readFile(path.join(dir, '.kinex', 'recordings', manifest.id, 'recording.json'), 'utf8'))
     assert.equal(saved.status, 'stopped'); assert.equal(saved.endedBy, 'exit')
-    assert.ok(saved.devices.telemetry.samples > 0)
+    assert.ok(saved.devices.telemetry.stream.samples > 0)
     assert.deepEqual(saved.sampling.devices.telemetry.operations, ["temperature", "health"])
   }
 })
@@ -350,7 +349,7 @@ finish({"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operat
   assert.equal(value.python,path.join(directory,'.kinex/python/.venv/bin/python3'))
   assert.deepEqual(value.devices.find(d=>d.name==='clock'),{name:'clock',type:'world',loaded:false,ready:false})
   assert.equal(value.ops.time.type,'rosgraph_msgs/msg/Clock')
-  const override = await runtime.tools.call('exec',{python:'raise Exception("must not run")',interpreter:'/must/not/run'},{sessionID:'migration'})
+  const override = await runtime.tools.call('exec',{python:'raise Exception("must not run")',interpreter:'/must/not/run'},{sessionID:'override'})
   assert.equal(override.isError,true)
   const noDevices = await execScript(runtime,{python:'import asyncio\nfrom kinex import communication\nasync def main():\n async with communication(): pass\nasyncio.run(main())'})
   assert.equal(JSON.parse(noDevices.output).code,'devices_not_ready')

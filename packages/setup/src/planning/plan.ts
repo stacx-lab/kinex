@@ -1,16 +1,13 @@
 import { currentSignal } from "@kinex/core/scope"
 import { NamedError } from "@kinex/core/util/error"
+import { serialize } from "@kinex/core/util/serialize"
 import { z } from "zod"
 import { Plan, StoredPlan, Outcome, Task, Fact, ID, Pointer, type PlanNode } from "./schema.ts"
 import { atomicJSON, digest, fail, inspectFacts, location, missingFacts, optionalText } from "./facts.ts"
 import { procedures, requirements } from "./procedures.ts"
 
-const writes = new Map<string, Promise<unknown>>()
-export async function serialized<T>(key: string, action: () => Promise<T>): Promise<T> {
-  const pending = (writes.get(key) ?? Promise.resolve()).catch(() => {}).then(action)
-  writes.set(key, pending)
-  try { return await pending } finally { if (writes.get(key) === pending) writes.delete(key) }
-}
+const writes = new Map<string, Promise<void>>()
+export const serialized = <T>(key: string, action: () => Promise<T>) => serialize(writes, key, action)
 export async function readPlan(cwd: string): Promise<StoredPlan | undefined> {
   const text = await optionalText(await location(cwd, "setup/plan.json"))
   return text === undefined ? undefined : StoredPlan.parse(JSON.parse(text))

@@ -3,7 +3,6 @@ import { define, type Def } from "./tool.ts"
 import { runPyTool } from "./python-runner.ts"
 import { listPyTools, type ToolManifest } from "./python-catalog.ts"
 
-export { ToolManifest, listPyTools, toolRoots, type PyToolInfo } from "./python-catalog.ts"
 
 const requiresNote = (manifest: ToolManifest) => {
   const parts: string[] = []

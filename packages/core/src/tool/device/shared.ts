@@ -3,9 +3,6 @@ import type { DeviceReading } from "../../device/reading.ts"
 import type { Result } from "../tool.ts"
 import { formatJSON } from "../../util/json.ts"
 
-// Device routing lives in the device engine; the tool family re-exports it.
-export { dispatchDevice } from "../../device/dispatch.ts"
-
 export function noRobot(): Result {
   return {
     title: "no robot configured",

@@ -49,9 +49,9 @@ export interface Loaded {
 // Rescanned every loop step: a tool written mid-task is callable at the next
 // step. Discovered tools are sorted so the schema list is byte-stable (prompt
 // cache) unless the set actually changed.
-export interface ToolOptions { additionalTools?: Def[]; enableRecording?: boolean; reservedToolNames?: readonly string[] }
+export interface ToolOptions { enableRecording?: boolean; reservedToolNames?: readonly string[] }
 export async function loadTools(cwd: string, options: ToolOptions = {}): Promise<Loaded> {
-  const builtins: Def[] = [...(options.additionalTools ?? []), SkillTool, ...DeviceTools, RecordTool, ProfileWriteTool, ExecTool]
+  const builtins: Def[] = [SkillTool, ...DeviceTools, RecordTool, ProfileWriteTool, ExecTool]
   const [custom, python] = await Promise.all([customTools(cwd), pythonTools(cwd)])
   const discovered = [...custom.tools, ...python.tools].sort((a, b) => a.id.localeCompare(b.id))
   const tools = new Map<string, Def>()

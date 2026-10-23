@@ -13,8 +13,8 @@ export interface DeviceEvent {
   device: Device
   action: string
   args: Record<string, unknown>
-  // Who dispatched: "sampler" / "stream" for the recorder's own traffic;
-  // undefined for the agent, tools, and lifecycle helpers.
+  // Who dispatched: "snap" for the recorder's own reads; undefined for the
+  // agent, tools and lifecycle helpers.
   origin?: string
   reading?: DeviceReading
   error?: string
