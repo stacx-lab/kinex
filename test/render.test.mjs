@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { stripTerminalSequences, truncateToWidth, visibleWidth, getCapabilities, setCapabilities } from '@earendil-works/pi-tui'
 import { initTheme } from '@earendil-works/pi-coding-agent'
 import { toolRenderers } from '../dist/integration/render.js'
-import { toolBridge, piResult } from '../dist/integration/tools.js'
+import { piResult } from '../dist/integration/tools.js'
 import { footerIndicator, kinexFooter } from '../dist/integration/footer.js'
 
 const theme = { fg: (_color, text) => text, bold: text => text }
@@ -30,19 +30,13 @@ test('important tools show action and target, including streamed arguments and a
   for (const args of [undefined, null, {}, { devices: { arm: null } }]) {
     assert.doesNotThrow(() => plain(toolRenderers('record').renderCall(args, theme, context)))
   }
-  const registered = []
-  const bridge = toolBridge({
-    getAllTools: () => [{ name: 'device' }], registerTool: tool => registered.push(tool),
-  }, { tools: { list: async () => ({ problems: [], tools: [{ name: 'device', description: '', inputSchema: {} }] }) } }, {}, true)
-  await bridge.refresh(true)
-  assert.equal(plain(registered[0].renderCall({ deviceID: 'arm' }, theme, context)), 'kinex_device read arm')
   assert.equal(plain(toolRenderers('unknown_custom_tool').renderCall({}, theme, context)), 'unknown_custom_tool')
 })
 
-test('exec labels preserve aliases, sanitize text and truncate without hiding expanded source', () => {
-  const renderers = toolRenderers('exec', 'kinex_exec')
+test('exec labels sanitize text and truncate without hiding expanded source', () => {
+  const renderers = toolRenderers('exec')
   const args = { description: '\x1b[2Jinspect\narm state', python: 'from kinex import runtime\nprint(runtime.devices())' }
-  assert.equal(plain(renderers.renderCall(args, theme, context)), 'kinex_exec inspect arm state')
+  assert.equal(plain(renderers.renderCall(args, theme, context)), 'exec inspect arm state')
   const narrow = renderers.renderCall(args, theme, context).render(20)
   assert.equal(narrow.length, 1)
   assert.ok(visibleWidth(narrow[0]) <= 20)

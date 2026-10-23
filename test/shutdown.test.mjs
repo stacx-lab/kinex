@@ -16,7 +16,7 @@ const { createKinexRuntime } = await import('@kinex/core')
 const entry = fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url))
 
 for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]]) {
-  test(`${signal} closes live drivers and finalizes recording during an active model request`, { timeout: 15000 }, async t => {
+  test(`${signal} closes live device nodes and finalizes recording during an active model request`, { timeout: 15000 }, async t => {
     const cwd = await workspace(t)
     const fake = await fakeProvider(t, isolation.root)
     let release
