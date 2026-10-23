@@ -29,11 +29,14 @@ async def run_policy(io, model, observation, command, task=None, world="world", 
     """
     import asyncio
     from kinex.communication import duration
-    from kinex.helpers.frames import transform_pose
+    from kinex.helpers.frames import IDENTITY, transform_pose
     from kinex.lib.geometry import invert_rt, rt_to_pose
     plans = [_commanded(entry) for entry in command]
     if len({entry["name"] for entry in plans}) != len(plans):
         raise ValueError("command must name each device once")
+    wait = f"{world}.wait"
+    if any(entry["model"] is None for entry in plans) and wait not in io.catalog:
+        raise ValueError("end-effector policy sequences require a loaded world wait operation")
     options = inference_args or {}
     if set(options) & {"obs", "task"}:
         raise ValueError("inference_args cannot override obs or task")
@@ -59,11 +62,10 @@ async def run_policy(io, model, observation, command, task=None, world="world", 
             ik_frame = f"{name}/{joints.tip}"
             target_frame = spec.get("target_frame", ik_frame)
             reference = spec.get("frame", base)
-            identity = [0, 0, 0, 0, 0, 0, 1]
             # target_frame is an attached tool frame. Freeze its offset at the
             # observation stamp while resolving the policy's Cartesian chunk;
             # URDF FK of the measured joints places the tip.
-            offset = await transform_pose(io, identity, ik_frame, target_frame, state.header.stamp)
+            offset = await transform_pose(io, IDENTITY, ik_frame, target_frame, state.header.stamp)
             tool = rt_to_pose(compose_rt(xyzq_to_rt(joints.fk(seed)), invert_rt(xyzq_to_rt(offset))))
             current = await transform_pose(io, tool["translation"] + tool["rotation"], base, reference, state.header.stamp)
             converted = []
@@ -88,9 +90,6 @@ async def run_policy(io, model, observation, command, task=None, world="world", 
         return {"actions_submitted": 0, "duration_s": 0, "execution_ids": {}, "ik_failure": failure}
     seconds = count / number(action_hz, "action_hz")
     prepared, scalars = [], []
-    wait = f"{world}.wait"
-    if any(entry["model"] is None for entry in plans) and wait not in io.catalog:
-        raise ValueError("end-effector policy sequences require a loaded world wait operation")
     for entry in plans:
         name, prof = entry["name"], entry["profile"]
         samples = sequences[name][:count]

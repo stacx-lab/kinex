@@ -12,13 +12,14 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
 from kinex.communication import qos
+from kinex.node import node_name
 
 SOURCE = "/camera/image_raw"
 
 
 class Camera(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"], context=context)
+        super().__init__(node_name(profile), context=context)
         self.frame = profile["name"] + "/base"
         self.latest = None
         image = profile["operations"]["image"]

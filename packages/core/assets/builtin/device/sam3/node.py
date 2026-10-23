@@ -9,19 +9,9 @@ from rclpy.node import Node
 from sam3.model.sam3_image_processor import Sam3Processor
 from sam3.model_builder import build_sam3_image_model
 
-from kinex.node import json_service
+from kinex.node import json_service, node_name, placement
 
 HERE = Path(__file__).resolve().parent
-
-
-def placement(compute):
-    if compute["kind"] == "cuda":
-        torch.cuda.set_device(compute["index"])
-        torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = True
-        return torch.device("cuda", compute["index"])
-    if compute["kind"] == "cpu":
-        return torch.device("cpu")
-    raise ValueError("SAM3 runs on cpu or cuda")
 
 
 def numeric(value):
@@ -46,11 +36,14 @@ def results(masks, boxes, scores, label, min_score, max_results):
 
 class Sam3(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"].replace("-", "_"), context=context)
+        super().__init__(node_name(profile), context=context)
         checkpoint = HERE / next(item for item in profile["artifacts"] if item["name"] == "checkpoint")["path"]
         if not checkpoint.is_file():
             raise FileNotFoundError(f"checkpoint not provisioned: {checkpoint}; run setup.sh")
-        self.device = placement(profile["compute"])
+        self.device = torch.device(placement(profile["compute"], ("cpu", "cuda")))
+        if self.device.type == "cuda":
+            torch.cuda.set_device(self.device)
+            torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = True
         self.model = build_sam3_image_model(
             checkpoint_path=str(checkpoint), load_from_HF=False, device="cpu", enable_inst_interactivity=True,
         ).to(self.device)

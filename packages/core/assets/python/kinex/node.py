@@ -1,6 +1,7 @@
-"""Building blocks for device nodes: managed motion, JSON services and URDF link frames."""
+"""Building blocks for device nodes: names, placement, managed motion, JSON services and URDF link frames."""
 import asyncio
 import json
+import re
 from collections import OrderedDict
 from pathlib import Path
 
@@ -12,6 +13,18 @@ from kinex.communication import qos
 from kinex.lib.frames import dynamic_qos, frame_id, transform
 from kinex.lib.geometry import flat
 from kinex.lib.urdf import joint_transform, positions, read_tree
+
+
+def node_name(profile, suffix=""):
+    """A legal ROS node name for the device: kinex_<name>[_<suffix>] with other characters as _."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", "_".join(filter(None, ("kinex", profile["name"], suffix))))
+
+
+def placement(compute, supported=("cpu", "cuda", "mps")):
+    """The torch device string for a model's declared compute."""
+    if compute["kind"] not in supported:
+        raise ValueError(f"this model runs on {' or '.join(supported)}, not {compute['kind']}")
+    return f"cuda:{compute['index']}" if compute["kind"] == "cuda" else compute["kind"]
 
 
 class Ownership:
@@ -91,9 +104,9 @@ def motion_service(node, operations, commands, hold):
             ownership.validate(message.owner, message.generation)
             apply(message)
             ownership.accept(message.owner, message.generation)
-            result.accepted, result.state, result.message = True, "accepted", "reference accepted; verify measured feedback"
+            result.accepted, result.message = True, "reference accepted; verify measured feedback"
         except Exception as error:
-            result.state, result.message = "rejected", str(error)
+            result.message = str(error)
         status.publish(result)
 
     def stop(request, response):
@@ -110,7 +123,6 @@ def motion_service(node, operations, commands, hold):
                                  lambda message, apply=apply: submit(message, apply), qos(operation))
     node.create_service(Acquire, motion["acquire"], acquire)
     node.create_service(Stop, motion["stop"], stop)
-    return ownership
 
 
 def json_service(node, operation, handler):
@@ -132,7 +144,7 @@ class LinkPublisher(Node):
     """Publish every URDF link below the device base from measured joints, mimics included."""
 
     def __init__(self, profile, context, directory):
-        super().__init__(profile["name"].replace("-", "_") + "_links", context=context)
+        super().__init__(node_name(profile, "links"), context=context)
         model = profile["model"]
         self.tree = read_tree(Path(directory) / model["path"], model["base_link"])
         self.device, self.base = profile["name"], model["base_link"]

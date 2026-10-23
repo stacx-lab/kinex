@@ -5,7 +5,7 @@ import json
 import math
 import sys
 
-from kinex.communication import communication
+from kinex.communication import communication, seconds
 
 
 def plain(message):
@@ -34,12 +34,12 @@ def observation(message):
         depth = getattr(message, "depth_image", None)
         return {**observation(message.image), **({"depth_file": save(depth)} if depth is not None else {})}
     if isinstance(message, Image):
-        return {"file": save(message), "timestamp": message.header.stamp.sec + message.header.stamp.nanosec / 1e9,
+        return {"file": save(message), "timestamp": seconds(message.header.stamp),
                 "frame_id": message.header.frame_id, "width": message.width, "height": message.height}
     if isinstance(message, JointState):
         return finite({"positions": list(message.position), "velocities": list(message.velocity),
-                       "joint_names": list(message.name), "faults": [],
-                       "timestamp": message.header.stamp.sec + message.header.stamp.nanosec / 1e9})
+                       "joint_names": list(message.name),
+                       "timestamp": seconds(message.header.stamp)})
     return finite(dict(plain(message)))
 
 
@@ -47,7 +47,6 @@ class DeviceHost:
     def __init__(self):
         self.profile = None
         self.io = None
-        self.resources = []
         self.tasks = {}
 
     async def load(self, profile, clock=None):
@@ -68,7 +67,7 @@ class DeviceHost:
             self.io.extra_nodes.append(node)
             self.io.executor.add_node(node)
         from kinex.lib.frames import publish_profile
-        self.resources.extend(publish_profile(self.io.node, profile))
+        publish_profile(self.io.node, profile)
         await self.ready()
         return {"ready": True}
 
@@ -133,12 +132,7 @@ class DeviceHost:
             # a shared connection while other calls are in flight.
             async with communication(self.io.catalog, owner=owner, domain_id=self.io.domain_id) as io:
                 io.enrolled.add(self.profile["name"])
-                if args["failed"]:
-                    await io.cleanup_owned()
-                else:
-                    for op in self.profile["operations"].values():
-                        if op.get("cancellation"):
-                            await io._request(op["cancellation"], {"owner": owner, "request_id": ""}, 2)
+                await io.cleanup_owned(stop=args["failed"])
             return {"cleaned": True}
         if action == "stop":
             return await self.stop(owner or "")

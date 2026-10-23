@@ -19,7 +19,7 @@ from std_srvs.srv import Trigger
 
 from kinex.communication import qos
 from kinex.lib.locomotion import accepted, posture, transition, velocity
-from kinex.node import motion_service
+from kinex.node import motion_service, node_name
 
 CMD_VEL = "/cmd_vel"
 BODY_POSE = "/body_pose"
@@ -32,7 +32,7 @@ RATE_HZ = 20
 
 class Locomotion(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"], context=context)
+        super().__init__(node_name(profile), context=context)
         self.profile, self.mode, self.odometry = profile, None, None
         self.twist, self.until = Twist(), None
         operations = profile["operations"]

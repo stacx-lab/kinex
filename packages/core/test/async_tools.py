@@ -110,6 +110,15 @@ class Tools(unittest.IsolatedAsyncioTestCase):
                          [{"duration_s": .1}, {"duration_s": .1}])
         self.assertFalse(any(event[1].endswith(".stop") for event in io.events))
 
+    async def test_end_effector_policy_without_world_wait_never_infers(self):
+        policy, io = tool("run_policy"), Protocol()
+        io.catalog = {}
+        facts = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0.}}
+        with patch("kinex.helpers.policy.profile", return_value=facts):
+            with self.assertRaisesRegex(ValueError, "world wait"):
+                await policy.main({"model": "model", "observation": {}, "command": [{"device": "gripper"}]}, io)
+        self.assertEqual(io.events, [])
+
     async def test_relative_pose_uses_tf2_relation_and_local_offsets(self):
         relative = tool("relative_pose")
         async def lookup(io, target, source, stamp):
@@ -279,15 +288,35 @@ class Errors(unittest.IsolatedAsyncioTestCase):
                                 (asyncio.CancelledError(), True)):
             io = Communication({})
             calls = []
-            async def cleanup_owned(*, failed=True):
-                calls.append(failed)
-            io.cleanup_owned = cleanup_owned
+            async def cleanup_owned(*, stop=True):
+                calls.append(stop)
+            async def cancel_waits():
+                calls.append(False)
+            io.cleanup_owned, io._cancel_waits = cleanup_owned, cancel_waits
             io.executor = NS(shutdown=lambda **kw: None)
             io.node = NS(destroy_node=lambda: None)
             io.context = NS(try_shutdown=lambda: None)
             io.thread = NS(join=lambda _: None)
             await io.__aexit__(type(error), error, None)
             self.assertEqual(calls, [expected])
+
+    async def test_operations_sharing_motion_endpoints_acquire_and_stop_once(self):
+        import importlib
+        communication = importlib.import_module("kinex.communication")
+        motion = {"acquire": "/base/acquire", "stop": "/base/stop", "status": "/base/status"}
+        io = communication.Communication({f"base.{name}": {"motion": motion} for name in ("velocity", "posture", "mode_target")})
+        requests = []
+        async def request(spec, fields, timeout_s=None, **_):
+            requests.append(spec["endpoint"])
+            return NS(generation=3)
+        io._request = request
+        with patch.object(communication, "Subscription", lambda *_: NS()), patch.object(io, "_acceptances", AsyncMock()):
+            await asyncio.gather(*(io._acquire(motion) for _ in range(3)))
+            await asyncio.gather(*io.acceptances)
+        io.enrolled.add("base")
+        await io.cleanup_owned()
+        self.assertEqual(requests, ["/base/acquire", "/base/stop"])
+        self.assertEqual((io.generations, len(io.acceptances)), ({"/base/acquire": 3}, 1))
 
     async def test_acceptance_signature_failure_is_actionable(self):
         from kinex.communication import Communication

@@ -10,20 +10,14 @@ import torch
 from PIL import Image
 from rclpy.node import Node
 
-from kinex.node import json_service
+from kinex.node import json_service, node_name, placement
 
 HERE = Path(__file__).resolve().parent
 
 
-def placement(compute):
-    if compute["kind"] == "remote":
-        raise ValueError("a remote model calls its service instead of loading weights")
-    return f"cuda:{compute['index']}" if compute["kind"] == "cuda" else compute["kind"]
-
-
 class Model(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"].replace("-", "_"), context=context)
+        super().__init__(node_name(profile), context=context)
         weights = HERE / next(item for item in profile["artifacts"] if item["name"] == "weights")["path"]
         if not weights.is_file():
             raise FileNotFoundError(f"weights not provisioned: {weights}")

@@ -7,9 +7,8 @@ description: Authoritative world clock, waits and optional scene geometry.
 ## Setup
 
 Every workspace requires a world device: exactly one per ROS domain. Its clock is
-world time for every device node, tf2 lookup and recording. Kinex supplies tf2
-lookup; do not register frame-graph nodes or lookup operations. Keep task
-instructions and benchmark judging outside device operations.
+world time for every device node, tf2 lookup and recording. Kinex owns tf2
+lookup. Keep task instructions and benchmark judging outside device operations.
 
 ### Operations
 

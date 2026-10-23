@@ -9,6 +9,7 @@ from rclpy.task import Future
 from rosgraph_msgs.msg import Clock
 
 from kinex.communication import qos
+from kinex.node import node_name
 
 PERIOD_S = .01  # World time resolution and wait completion granularity.
 
@@ -16,7 +17,7 @@ PERIOD_S = .01  # World time resolution and wait completion granularity.
 class WallClock(Node):
     def __init__(self, profile, context):
         # The world clock is the source of the global /clock remap, never its consumer.
-        super().__init__("kinex_" + profile["name"], context=context, use_global_arguments=False)
+        super().__init__(node_name(profile), context=context, use_global_arguments=False)
         time, wait = profile["operations"]["time"], profile["operations"]["wait"]
         self.waits = {}
         self.cancelled = deque(maxlen=4096)

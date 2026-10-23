@@ -31,12 +31,12 @@ semantics on that operation, including replacement and expiry behavior.
 
 For owned ROS implementations, register factories in `runtime.nodes`, each with
 `entry` and `factory`. Factories receive `(profile, context)` and return an owned
-rclpy node. A device may have several nodes or expose a subset of a shared node's
+rclpy node named with `kinex.node.node_name(profile)`, since device names may hold
+characters ROS rejects. A device may have several nodes or expose a subset of a shared node's
 endpoints. For borrowed nodes use `runtime.nodes: []`; never stop their processes.
 Keep reads and stop responsive and make cleanup release every owned resource even
 when another cleanup step fails. Lifecycle belongs to the host; Python tools
-cannot load or unload devices. Legacy JSONL drivers and implicit mocks are not
-supported, including the old shipped driver scaffolds.
+cannot load or unload devices.
 
 Nodes that adapt a vendor driver read its topics with sensor-data QoS, which
 matches publishers of any reliability and durability; Kinex operations keep their
@@ -50,8 +50,8 @@ their documentation.
 Use `profile_write` to validate and preserve typed facts/provenance. Leave unknown
 facts as `???`, mark missing calibration and clear resolved requests with
 `needs_calibration: null`. New devices stay unloaded. Kinex publishes known static
-frames; URDF link publishers publish measured moving frames. Use world time and the `kinex.helpers.lookup_transform` helper; do not expose
-transform lookup as a device operation or register a world frame-graph factory.
+frames; URDF link publishers publish measured moving frames. Kinex owns tf2 lookup
+(`kinex.helpers.lookup_transform`); devices never serve it.
 When a simulator has a robot catalog, export that catalog as the source of truth
 for its nodes and operation descriptions; type guides do not reproduce a
 particular simulator.

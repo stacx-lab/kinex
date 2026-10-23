@@ -48,10 +48,16 @@ description: ''
 runtime:
   nodes: [{entry: node.py, factory: create}]
   ready_timeout_s: 120
-operations: {}
+operations:
+  infer:
+    description: Run the model on image, an image file path, and return outputs, the model's output values.
+    transport: service
+    direction: input
+    endpoint: /kinex/model/infer
+    type: kinex_interfaces/srv/Json
 family: ???
 variant: null
 implementation: null
-artifacts: ???
+artifacts: [{name: weights, path: weights/model.pt, source: {kind: local}}]
 compute: ???
 ```

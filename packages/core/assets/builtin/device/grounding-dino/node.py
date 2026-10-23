@@ -6,29 +6,21 @@ from PIL import Image
 from rclpy.node import Node
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
-from kinex.node import json_service
+from kinex.node import json_service, node_name, placement
 
 HERE = Path(__file__).resolve().parent
 
 
-def placement(compute):
-    if compute["kind"] == "cuda":
-        return f"cuda:{compute['index']}"
-    if compute["kind"] == "cpu":
-        return "cpu"
-    raise ValueError("Grounding DINO runs on cpu or cuda")
-
-
 class GroundingDino(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"].replace("-", "_"), context=context)
+        super().__init__(node_name(profile), context=context)
         weights = HERE / next(item for item in profile["artifacts"] if item["name"] == "checkpoint")["path"]
         if not (weights / "model.safetensors").is_file():
             raise FileNotFoundError(f"checkpoint not provisioned: {weights}; run setup.sh")
         self.processor = AutoProcessor.from_pretrained(weights, local_files_only=True, use_fast=False)
         self.model = AutoModelForZeroShotObjectDetection.from_pretrained(
             weights, local_files_only=True, use_safetensors=True, disable_custom_kernels=True,
-        ).to(placement(profile["compute"])).eval()
+        ).to(placement(profile["compute"], ("cpu", "cuda"))).eval()
         json_service(self, profile["operations"]["detect"], self.detect)
 
     def detect(self, image, prompt, min_score=0.25, max_results=10):

@@ -13,7 +13,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Float64
 
 from kinex.communication import qos
-from kinex.node import motion_service
+from kinex.node import motion_service, node_name
 
 STATE = "/gripper/joint_states"
 COMMAND = "/gripper/position_command"
@@ -22,7 +22,7 @@ GRASPED = "/gripper/object_detected"
 
 class Gripper(Node):
     def __init__(self, profile, context):
-        super().__init__("kinex_" + profile["name"], context=context)
+        super().__init__(node_name(profile), context=context)
         grip = profile["grip"]
         self.joint, self.range = grip["joint"], sorted((grip["open"], grip["closed"]))
         self.position = None

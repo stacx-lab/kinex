@@ -1,6 +1,5 @@
 """Camera projection from profile intrinsics and ROS image conversion."""
 
-import math
 import tempfile
 
 import numpy as np
@@ -20,27 +19,31 @@ def _distort(distortion, x, y):
     return x*radial + 2*p1*x*y + p2*(r2 + 2*x*x), y*radial + p1*(r2 + 2*y*y) + 2*p2*x*y
 
 
-def ray(stream, u, v):
+def rays(stream, u, v):
+    """Optical rays [x, y, 1] for pixel coordinates (scalars or arrays), inverting distortion."""
     p, d = stream["projection"], stream["distortion"]
-    yd = (v - p["cy"]) / p["fy"]
-    xd = (u - p["cx"] - p["skew"] * yd) / p["fx"]
-    if d["model"] == "none":
-        return [xd, yd, 1.0]
+    yd = (np.asarray(v, dtype=float) - p["cy"]) / p["fy"]
+    xd = (np.asarray(u, dtype=float) - p["cx"] - p["skew"] * yd) / p["fx"]
     x, y = xd, yd
     for _ in range(30):
         px, py = _distort(d, x, y)
         ex, ey = px-xd, py-yd
-        if math.hypot(ex, ey) < 1e-10:
-            return [x, y, 1.0]
+        if np.all(np.hypot(ex, ey) < 1e-10):
+            return np.stack((x, y, np.ones_like(x)), axis=-1)
         h = 1e-6
         hx, hy = _distort(d, x+h, y)
         vx, vy = _distort(d, x, y+h)
         a, b, c, e = (hx-px)/h, (vx-px)/h, (hy-py)/h, (vy-py)/h
         det = a*e-b*c
-        if abs(det) < 1e-12:
+        if np.any(np.abs(det) < 1e-12):
             raise ValueError("singular camera distortion")
         x, y = x-(e*ex-b*ey)/det, y-(a*ey-c*ex)/det
     raise ValueError("camera distortion inversion did not converge")
+
+
+def ray(stream, u, v):
+    """The optical ray [x, y, 1] through one pixel."""
+    return rays(stream, u, v).tolist()
 
 
 def project(stream, point):

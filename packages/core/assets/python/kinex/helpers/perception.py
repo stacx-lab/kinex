@@ -4,8 +4,9 @@ import numpy as np
 from PIL import Image
 
 from kinex import profile
-from kinex.lib.camera import array, project, ray, save
-from kinex.lib.geometry import number, pose_to_rt, vector
+from kinex.communication import seconds
+from kinex.lib.camera import array, project, ray, rays, save
+from kinex.lib.geometry import number, vector, xyzq_to_rt
 
 
 async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25, instance=0):
@@ -44,15 +45,16 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     return {**measured, "frame": image.header.frame_id, "reference": reference,
             "rotation_xyzw": None, "label": detection.get("label", prompt),
             "detection_score": detection["score"], "detections": count,
-            "timestamp": image.header.stamp.sec + image.header.stamp.nanosec / 1e9,
+            "timestamp": seconds(image.header.stamp),
             "file": file}
 
 
 async def _depth_to_color(io, image, depth_image):
+    """The depth-to-color optical transform at the image stamp as (R, t)."""
     from kinex.helpers.frames import lookup_transform
     tf = await lookup_transform(io, image.header.frame_id, depth_image.header.frame_id, image.header.stamp)
     t, q = tf.transform.translation, tf.transform.rotation
-    return {"translation_m": [t.x, t.y, t.z], "rotation_xyzw": [q.x, q.y, q.z, q.w]}
+    return xyzq_to_rt([t.x, t.y, t.z, q.x, q.y, q.z, q.w])
 
 
 def _select_detection(results, min_score, instance):
@@ -101,18 +103,6 @@ def _detection_region(detection, color):
     return region, "box_region"
 
 
-def _rays(stream, pixels):
-    # Pinhole is vectorized; distorted cameras retain the shared calibrated solver.
-    if not len(pixels):
-        return np.empty((0, 3))
-    if stream["distortion"]["model"] != "none":
-        return np.asarray([ray(stream, u, v) for u, v in pixels])
-    p = stream["projection"]
-    y = (pixels[:, 1] - p["cy"]) / p["fy"]
-    x = (pixels[:, 0] - p["cx"] - p["skew"] * y) / p["fx"]
-    return np.column_stack((x, y, np.ones(len(pixels))))
-
-
 def _central(points):
     return np.argmin(np.sum((points - np.median(points, axis=0)) ** 2, axis=1))
 
@@ -143,14 +133,11 @@ def _locate(camera, region, *, depth_image=None, depth=None, depth_to_color=None
     y, x = np.nonzero(valid)
     distances = distances[y, x]
     pixels = np.column_stack((x, y))
-    rays = _rays(meta if native else color, pixels)
-    scale = distances / np.linalg.norm(rays, axis=1) if meta["quantity"] == "range" else distances
-    points = rays * scale[:, None]
+    directions = rays(meta if native else color, x, y).reshape(-1, 3)
+    scale = distances / np.linalg.norm(directions, axis=1) if meta["quantity"] == "range" else distances
+    points = directions * scale[:, None]
     if native:
-        transform = depth_to_color
-        if not isinstance(transform, dict) or any(transform.get(key) in (None, "???") for key in ("translation_m", "rotation_xyzw")):
-            raise ValueError("native depth needs calibrated depth_to_color")
-        rotation, translation = pose_to_rt({"translation": transform["translation_m"], "rotation": transform["rotation_xyzw"]})
+        rotation, translation = depth_to_color
         points = points @ np.asarray(rotation).T + translation
         keep = points[:, 2] > 0
         points, distances = points[keep], distances[keep]
