@@ -46,7 +46,7 @@ Catalogs and descriptions stay in Python until selected for output.
 The model `device` tool accepts `{deviceID, action, args}`. Action is explicit.
 `devices` accepts `{calls: [...]}` and preauthorizes all valid calls before
 concurrent dispatch; results preserve order and per-entry failures. Image
-results attach PNGs for the model. Python reaches devices only through
+results attach PNG, JPEG, GIF or WebP files for the model. Python reaches devices only through
 `communication()`.
 
 For workflows use `communication()` async pub/sub and request/response helpers.

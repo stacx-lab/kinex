@@ -18,8 +18,12 @@ as approximate estimates.
 Apply accepted proposedChanges with core profile_write, preserving unrelated facts.
 Proposed patches never clear calibration requests automatically. A pivot solve
 measures translation only; RGB-D color calibration does not measure depth facts.
-URDF introspection is offline and does not require activation. Base verification
-uses explicit measured checks and tolerances, without controller tuning.
+URDF introspection of the bound arm or target is offline and does not require
+activation. Base verification uses explicit measured checks and tolerances,
+without controller tuning. Sensor bias averages calib_sample readings of a static,
+unloaded imu or force_torque target and proposes the current bias plus each axis's
+mean residual; specific-force accelerometers need gravity_m_s2, the expected
+static reading in the IMU frame.
 
 Archive manual/factory facts or external solver results as evidence for setup_plan
 record. Reuse valid evidence and stop as soon as the current task is supported.

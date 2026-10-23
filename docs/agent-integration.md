@@ -17,7 +17,7 @@ The host's shell and file tools retain their own execution paths and permissions
 
 Tool results can carry image attachments as `{mime, data}` (base64) or
 `{mime, path}`. Hosts must forward both as image content in attachment order.
-Direct camera reads attach RGB images automatically; Python results attach
+Direct camera reads attach their PNG, JPEG, GIF or WebP image automatically; Python results attach
 selected image files returned through `finish`. A partially successful `devices`
 batch retains successful images and per-call errors, with the top-level error
 flag set only when every call failed. Hosts must inspect individual results

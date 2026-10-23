@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "roles": {
+    "target": {
+      "types": [
+        "imu",
+        "force_torque"
+      ]
+    }
+  },
+  "requires": [
+    {
+      "role": "target",
+      "pointer": "/measurement"
+    }
+  ],
+  "produces": [
+    {
+      "role": "target",
+      "pointer": "/measurement"
+    }
+  ],
+  "computes": [
+    "sensor-bias"
+  ],
+  "quality": "At least 20 static readings; review per-axis spread against the residual. Specific-force accelerometers need the expected gravity reading from an independent orientation."
+}
