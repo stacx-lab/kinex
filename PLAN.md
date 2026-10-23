@@ -160,13 +160,13 @@ Keep trusted lifecycle commands separate from permission-checked model tools.
 Python tools cannot load or unload devices. Explicit device stop remains available
 without approval, and model-controlled recording remains opt-in.
 
-Successful execution preserves accepted device motion. If stopping is intended,
+Successful execution preserves sent device motion. If stopping is intended,
 the agent explicitly calls device stop, including stop-all. Removing temporary
 workflow resources does not itself stop motion successfully submitted to a device.
 
-Failure, timeout, and cancellation retain cleanup of motion still owned by the
-failed execution. Cleanup must not stop a newer invocation's replacement command.
-Device unload and runtime disposal retain their resource and shutdown obligations.
+Failure, timeout, and cancellation stop every device the failed execution
+commanded, and a device stop cancels executions that commanded it. Device unload
+and runtime disposal retain their resource and shutdown obligations.
 
 ### Package ownership and implementation scope
 
@@ -201,7 +201,7 @@ is not required.
 
 Validate stepped and realtime execution, camera fan-out with bounded queues,
 service failures and timeouts, successful-motion preservation, explicit stop-all,
-owned-motion cleanup after failure or cancellation, and preservation of borrowed
+commanded-device cleanup after failure or cancellation, and preservation of borrowed
 services. Keep validation for permissions, recording ownership, calibration
 evidence, and package independence as the implementation changes.
 

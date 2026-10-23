@@ -25,8 +25,7 @@ strings are allowed; absent descriptions are invalid. Do not invent unknown fact
 
 `runtime` declares domain, namespace, optional SDK interpreter/overlays, owned
 node factories and readiness timeout. `operations` declares topic/service
-transport, direction, endpoint, ROS type, QoS and any ownership/cancellation
-metadata. Physical facts (`model`, `limits`, `color`, `frames`, etc.) are top-level
+transport, direction, endpoint, ROS type and QoS. Physical facts (`model`, `limits`, `color`, `frames`, etc.) are top-level
 fields with typed validation. One device-level `source`, `method`, `calibrated_at`
 and `needs_calibration` record covers calibration. `loaded` is lifecycle intent; status reports live
 readiness. Unknown facts use `???`; null has only the schema-defined meaning.
@@ -94,12 +93,12 @@ services.
 
 ### Motion and stop
 
-Managed motion declares Acquire/Stop/CommandStatus endpoints. Publications carry
-owner, generation and command ID. Validate before replacing commands; delayed
-older generations cannot take back ownership. Acceptance is distinct from measured
-arrival. Abort, timeout and failure clean up only the invocation's owned commands
-and requests; successful completion need not stop motion. `stop_owned()` explicitly
-stops owned motion. Unconditional host stop is available without approval.
+Commands are standard ROS messages; a node validates each before replacing the
+active command and logs rejections. Sending is distinct from measured arrival.
+Anything that moves declares a `std_srvs/srv/Trigger` `stop`. Abort, timeout and
+failure stop the devices an invocation commanded; successful completion need not
+stop motion, and scripts call a device's `stop` explicitly when it should. Host
+stop is available without approval and cancels invocations commanding the device.
 Physical stop behavior and scope must be documented on the device's stop operation.
 
 ### Observations and capture
@@ -126,7 +125,6 @@ operations are `kinex_interfaces/srv/Json` services exchanging JSON objects, and
 each operation description defines their fields, coordinates and limitations.
 Images pass as file paths. Profiles record family, artifacts and `compute`
 placement. Load places the model and unload releases it with the device process.
-Declare cancellation for long-running owner-scoped services.
 
 ## Joints and end effectors
 
@@ -145,8 +143,8 @@ No typed fact implies a mandatory operation or supplies a default payload.
 A locomotion device declares its commandable body `velocity` axes, optional
 `posture` offsets from the nominal stance, `strict` or `native` limits and its
 `modes`: a state machine in which each mode lists the operations it accepts and
-the modes it can be commanded to. Velocity commands hold for a duration of world
-time, posture and mode commands persist, and all share one ownership; a stop
-zeroes velocity without leaving the mode. Mode-specific inputs are ordinary
-operations, managed `JsonCommand` topics when they move the body. Devices remain
-unlocalized roots: odometry drifts and is never a global pose.
+the modes it can be commanded to. Velocity follows the latest twist until a
+watchdog timeout in world time, so callers re-send it; posture and mode commands
+persist; a stop zeroes velocity without leaving the mode. Mode-specific inputs are
+ordinary operations, JSON `std_msgs/msg/String` topics when they move the body.
+Devices remain unlocalized roots: odometry drifts and is never a global pose.

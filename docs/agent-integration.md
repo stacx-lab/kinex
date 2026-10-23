@@ -35,7 +35,7 @@ calls without rolling back completed work. Pure coding batches remain parallel.
 `exec` requests `python_tool` approval once per invocation; its device reads and
 commands share that approval, and Python cannot change device lifecycle or control
 recording. Manifest tools keep their own permission when invoked outside `exec`.
-Ownership and cleanup follow [motion and supervision](communication.md#motion-and-supervision);
+Cleanup follows [commands and cleanup](communication.md#commands-and-cleanup);
 hosts route `exec` through core's tool API so the shared Python runner applies them.
 
 ## Recording

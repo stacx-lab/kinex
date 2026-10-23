@@ -3,7 +3,7 @@
 Host-independent device management, ROS operations, Python execution and recording.
 Setup procedures live in `@kinex/setup`; host/UI policy belongs to integrations.
 See [ROS communication](../../docs/communication.md) for node factories, world
-time, tf2, interface provisioning and invocation ownership.
+time, tf2, interface provisioning and invocation cleanup.
 
 ## Shared user commands
 
@@ -50,8 +50,8 @@ results attach PNG, JPEG, GIF or WebP files for the model. Python reaches device
 `communication()`.
 
 For workflows use `communication()` async pub/sub and request/response helpers.
-Managed commands carry invocation ownership and generation; acceptance is not
-arrival. Measure feedback to verify results. Use the world for time and tf2 for
+Commands are standard ROS messages; sending is not arrival. Measure feedback to
+verify results. Use the world for time and tf2 for
 stamped transforms. Helper-specific operation requirements are explicit helper
 contracts, never requirements of the device type. Device type guides recommend ROS
 patterns; workspace descriptions define the actual interface.
@@ -64,8 +64,8 @@ and their implementations.
 
 ### Feedback control with `exec`
 
-Use bounded Python loops and return only selected results; ownership and cleanup
-follow [motion and supervision](../../docs/communication.md#motion-and-supervision).
+Use bounded Python loops and return only selected results; cleanup follows
+[commands and cleanup](../../docs/communication.md#commands-and-cleanup).
 For example, wait until an arm settles, then return two camera images:
 
 ```python
@@ -132,7 +132,7 @@ asyncio.run(main())
   workspace switch/shutdown. Custom tools must honor their abort signal.
 
 Construction/import does not connect to hardware, write files, or install process
-handlers. Each runtime owns its ROS hosts, invocation ownership,
+handlers. Each runtime owns its ROS hosts, running invocations,
 observers, model cache and recorder. Separate runtime instances isolate in-memory
 state even when device names match. Disk profiles remain shared when the directory
 is shared; use separate workspaces for independent persistent state.
@@ -220,10 +220,10 @@ validation error result; permission denial propagates to the host.
 
 One `python_tool` approval covers an invocation. Scripts use `communication`,
 `helpers`, `profile`, `robot` and `runtime` from `kinex`; they cannot change device
-lifecycle or control recording. Ownership and cleanup follow
-[motion and supervision](../../docs/communication.md#motion-and-supervision). Use
-`kinex.stop_owned()` to request a stop and receive cleanup errors, including in a
-`finally` block around a control loop. `exec` and manifest tools share the
+lifecycle or control recording. Cleanup follows
+[commands and cleanup](../../docs/communication.md#commands-and-cleanup). Request a
+device's `stop` operation, for example in a `finally` block around a control loop,
+when successful completion must stop motion. `exec` and manifest tools share the
 execution runner.
 
 Python startup uses a separate host RPC channel; ordinary script stdout/stderr
@@ -246,7 +246,7 @@ plan = helpers.trajectory(arm.joints, start, target, period_s=0.01, fraction=0.1
 `plan.actions` contains synchronized joint references and `plan.duration_s` their
 planned duration. The helpers perform no device I/O. Scripts obtain measured
 positions, encode and submit the plan through the declared command operation,
-such as a `TrajectoryCommand` on `joint_target`, wait on the world clock and
+such as a `JointTrajectory` on `joint_target`, wait on the world clock and
 verify arrival. For timestamped
 points, sample `i` (starting at 1) occurs at `i * plan.duration_s / len(plan.actions)`.
 
