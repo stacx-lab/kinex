@@ -20,7 +20,6 @@ test('core alone validates calibration clears and reports readiness without proc
   const before = await readFile(file, 'utf8')
   const readiness = await runtime.readiness()
   assert.equal(readiness.items.find(item => item.id === 'access:sensor').status, 'needs-calibration')
-  assert.ok(readiness.items.every(item => !('how' in item)))
   assert.match(readiness.items.find(item => item.id === 'devices-declared').detail, /no world device/)
   await assert.rejects(runtime.profiles.writeDevice({ description: '', name: 'sensor', access: { needs_calibration: null } }), /cannot clear/)
   assert.equal(await readFile(file, 'utf8'), before)
@@ -30,10 +29,10 @@ test('core alone validates calibration clears and reports readiness without proc
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'devices-declared').status, 'done')
   const context = await runtime.context()
-  assert.doesNotMatch(context.instructions + context.guideRoots, /calib_plan|calib_write|\/onboarding|\/calibrate/)
+  assert.doesNotMatch(context.instructions + context.guideRoots, /setup_plan|calib_compute|\/onboarding|\/calibrate/)
 })
 
-test('model readiness requires compute placement; detection is a model, not a type', async t => {
+test('model readiness requires compute placement', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-model-readiness-'))
   const runtime = createKinexRuntime({ directory })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
@@ -46,7 +45,6 @@ test('model readiness requires compute placement; detection is a model, not a ty
   assert.equal(await detail(), 'compute is ???')
   await runtime.profiles.writeDevice({ description: '', name: 'detector', compute: { kind: 'cuda', index: 1 } })
   assert.equal(await detail(), 'grounding_dino on cuda:1: detect')
-  await assert.rejects(runtime.profiles.writeDevice({ ...model, name: 'legacy', type: 'detection' }))
 })
 
 test('suction readiness requires vacuum control, stop scope and a contact TCP', async t => {

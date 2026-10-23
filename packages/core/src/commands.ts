@@ -63,7 +63,7 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
     if (name === "unload") { await runtime.devices.unload(target); return `${target} unloaded` }
     if (name === "ping") return `${target}: ${JSON.stringify(await runtime.devices.ping(target))}`
     const activation = await runtime.devices.load(target, context.signal)
-    if (activation.activating) context.notify?.(`${target}: activating`)
+    context.notify?.(`${target}: activating`)
     await activation.ready
     return `${target} loaded`
   }))

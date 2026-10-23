@@ -67,7 +67,7 @@ const missingDevicesError = (name: string, missing: string[]) =>
 type Request = Record<string, unknown>
 type ExecutionContext = Context & { output?: (text: string) => void }
 type MotionContext = ExecutionContext & { motionOwner: string }
-type PythonExecution = Pick<ToolManifest, "name" | "timeout_s"> & {
+type PythonExecution = Pick<ToolManifest, "timeout_s"> & {
   directory: string
   entry: string[]
   source?: string
@@ -75,8 +75,8 @@ type PythonExecution = Pick<ToolManifest, "name" | "timeout_s"> & {
 }
 
 function execution(info: PyToolInfo): PythonExecution {
-  const { name, timeout_s, entry } = info.manifest
-  return { name, timeout_s, directory: info.directory, entry: info.manifest.async ? ["-m", "kinex.host.run", "tool", path.join(info.directory, entry)] : [path.join(info.directory, entry)] }
+  const { timeout_s, entry } = info.manifest
+  return { timeout_s, directory: info.directory, entry: info.manifest.async ? ["-m", "kinex.host.run", "tool", path.join(info.directory, entry)] : [path.join(info.directory, entry)] }
 }
 
 async function dispatch(cwd: string, request: Request, ctx: MotionContext): Promise<Record<string, unknown>> {
@@ -148,7 +148,7 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...runtime.env, KINEX_TOOL_DIALOG: "1" },
+    env: runtime.env,
     group: true,
   })
   // A script may leave children holding output pipes open after it exits.
@@ -254,7 +254,7 @@ export async function runScript(input: ScriptInput, ctx: Context): Promise<Resul
   let result: unknown, error: ReturnType<typeof failure> | undefined
   try {
     result = await invoke(ctx.directory, {
-      name: "exec", directory: ctx.directory, entry: ["-u", "-m", "kinex.host.run", "exec"],
+      directory: ctx.directory, entry: ["-u", "-m", "kinex.host.run", "exec"],
       timeout_s: input.timeout_s, source: input.python, script,
     }, input.args, { ...ctx, output: capture })
   } catch (caught) {
@@ -269,7 +269,7 @@ export async function runScript(input: ScriptInput, ctx: Context): Promise<Resul
   }
 }
 
-async function resultAttachments(returned: unknown, directory = process.cwd()) {
+async function resultAttachments(returned: unknown, directory: string) {
   const value = z.record(z.string(), z.unknown()).safeParse(returned).data
   const file = value?.["file"]
   const files = z.array(z.string()).safeParse(typeof file === "string" ? [file] : file).data ?? []

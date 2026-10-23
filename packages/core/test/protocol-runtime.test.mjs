@@ -35,7 +35,7 @@ test('device and operation descriptions are required strings and accept empty te
  const op=outputOperation();delete op.description
  assert.throws(()=>Operation.parse(op),/description/)
  assert.equal(Operation.parse({...op,description:''}).description,'')
- assert.throws(()=>Device.parse({...base,description:'',access:{driver:{entry:'driver.py'}}}),/driver/)
+ assert.throws(()=>Device.parse({...base,description:'',access:{extra:true}}),/extra/)
 })
 
 test('descriptions are discovered unloaded without ROS imports; type does not determine operations',async t=>{
@@ -63,7 +63,7 @@ finish({'device':one,'ops':runtime.operations('two'),'devices':runtime.devices()
  await runtime.profiles.writeDevice({name:'one',description:'Changed description'})
  const after=await coreContribution(runtime).context()
  assert.deepEqual(after,before)
- assert.doesNotMatch(JSON.stringify(after),/General one|Operation one|Changed description|core.conventions/)
+ assert.doesNotMatch(JSON.stringify(after),/General one|Operation one|Changed description/)
  await assert.rejects(access(path.join(directory,'.kinex/devices/one/events.jsonl')))
 })
 
@@ -77,7 +77,7 @@ test('devices without a runtime and invalid profiles fail with actionable diagno
  await assert.rejects(runtime.devices.dispatch('old','status'),/configure runtime.nodes and operations/)
  await assert.rejects(runtime.devices.dispatch('old','read'),/unknown operation old.read/)
  const file=path.join(directory,'.kinex/devices/old/profile.yaml')
- await writeFile(file,"name: old\ntype: other\naccess: {driver: {entry: driver.py}}\n")
+ await writeFile(file,"name: old\ntype: other\naccess: {extra: true}\n")
  await assert.rejects(runtime.devices.list(),/top-level facts and frames.base/)
 })
 

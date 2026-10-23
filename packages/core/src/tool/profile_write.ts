@@ -62,13 +62,12 @@ export const ProfileWriteTool = define("profile_write", {
         const existing = args.kind === "device" && typeof patch.name === "string"
           ? await ProfileStore.readDevice(ctx.directory, patch.name) : undefined
         const type = typeof patch["type"] === "string" ? patch["type"] : existing?.type
-        const guide = type ? await resolveDeviceTemplate(ctx.directory, "", type) : undefined
+        const guide = type ? await resolveDeviceTemplate(ctx.directory, patch.name ?? "", type) : undefined
         const reference = guide ? ` Field reference: ${guide.directory}/DEVICE.md (Setup).` : " Inspect the existing profile and fix the indicated fields."
         return {
           error: `validation failed: ${detail}.${reference}`,
         }
       }
-      if (error instanceof Error && /needs a non-empty|patch needs/.test(error.message)) return { error: error.message }
       throw error
     })
 

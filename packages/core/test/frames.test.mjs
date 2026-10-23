@@ -7,11 +7,10 @@ const root = () => ({ parent: null, translation_m: null, rotation_xyzw: null })
 const frame = parent => ({ parent, translation_m: [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] })
 const profile = (frames = {}, name = 'sensor') => ({ description: '', name, type: 'other', frames: { base: root(), ...frames }, meta: { created_at: '', updated_at: '' } })
 
-test('profiles flatten facts and reject legacy wrappers', () => {
+test('profiles flatten facts', () => {
   const parsed = Device.parse({ ...profile(), type: 'gripper', source: 'user' })
   assert.equal(parsed.source, 'user')
   assert.equal(parsed.grip, '???')
-  for (const key of ['intrinsics', 'extrinsics']) assert.equal(Device.safeParse({ ...profile(), [key]: {} }).success, false)
 })
 
 test('every frame has an explicit parent; null declares a root regardless of transform', () => {
@@ -81,7 +80,7 @@ test('flat calibration patches retain requests, validate clears and protect requ
   assert.equal(tool.needs_calibration, null)
   await runtime.operation(async () => {
     await assert.rejects(ProfileStore.writeDevice(directory, { name: 'tool', frames: null }, ['frames']), /cannot remove required/)
-    await assert.rejects(ProfileStore.markNeeded(directory, 'extrinsics:tool'), /unknown calibration item/)
+    await assert.rejects(ProfileStore.markNeeded(directory, 'mount:tool'), /unknown calibration item/)
   })
   // An unrelated unloaded declaration cannot block this device's valid graph.
   await runtime.profiles.writeDevice({ ...profile({ base: frame('missing:base') }, 'unrelated'), loaded: false })

@@ -112,9 +112,7 @@ class Recording:
         return {
             "status": "error" if self.error else "stopped" if self.closed else "recording",
             "bag": str(self.directory / "bag"), "timestamps": str(self.directory / "samples.jsonl"),
-            "samples": self.samples, "frames": self.frames, "capture_samples": self.samples,
-            "capture_missed": 0, "capture_errors": int(self.error is not None),
-            "filtered": self.skipped, "transport_dropped": sum(stream.dropped for stream in self.streams),
+            "samples": self.samples, "frames": self.frames, "filtered": self.skipped, "transport_dropped": sum(stream.dropped for stream in self.streams),
             "operations": self.counts,
             **({"started_ns": self.started, "ended_ns": self.ended} if self.started is not None else {}),
             **({"error": self.error} if self.error else {}),

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { Device, deviceActions, deviceHome, deviceJoints } from '../dist/device/profile/schema.js'
+import { Device, deviceActions, deviceJoints } from '../dist/device/profile/schema.js'
 import { jointErrors } from '../dist/device/profile/joint.js'
 import { resolvedTrees } from '../dist/device/profile/urdf.js'
 
@@ -30,6 +30,5 @@ test('the URDF tree defines commanded joints, home and tip_link', () => {
   assert.deepEqual(deviceJoints(device), [])
   resolvedTrees.set(device.model, tree)
   assert.deepEqual(deviceJoints(device).map(item => item.name), ['j'])
-  assert.deepEqual(deviceHome(device), [0])
   assert.deepEqual(deviceActions(device), [{ joint: 'j', units: 'rad', bounds: { min: -1, max: 1 } }])
 })

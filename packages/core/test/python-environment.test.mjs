@@ -8,7 +8,6 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 const home = await mkdtemp(path.join(os.tmpdir(), 'kinex-python-home-'))
 process.env.KINEX_CONFIG_DIR = path.join(home, 'config')
-process.env.KINEX_DATA_DIR = path.join(home, 'data')
 after(() => rm(home, { recursive: true, force: true }))
 const { createKinexRuntime } = await import('../dist/index.js')
 const { pythonRuntime } = await import('../dist/python/environment.js')
@@ -78,7 +77,7 @@ finish();
     tool: async (source = 'import sys\nfrom kinex import finish\nfinish({"python": sys.executable})\n', interpreter) => {
       const tool = path.join(directory, '.kinex/tools/probe')
       await mkdir(tool, { recursive: true })
-      await writeFile(path.join(tool, 'tool.yaml'), JSON.stringify({ name: 'probe', kind: 'perception', description: 'Python environment probe', ...(interpreter ? { interpreter } : {}) }))
+      await writeFile(path.join(tool, 'tool.yaml'), JSON.stringify({ name: 'probe', description: 'Python environment probe', ...(interpreter ? { interpreter } : {}) }))
       await writeFile(path.join(tool, 'tool.py'), source)
       return tool
     },
@@ -217,7 +216,7 @@ test('tool interpreter overrides are rejected without preparing another environm
   const f = await fixture(t)
   await f.tool(undefined, python)
   const catalog = await f.runtime.tools.list()
-  assert.ok(catalog.problems.some(problem => /interpreters on devices/.test(problem)))
+  assert.ok(catalog.problems.some(problem => /interpreter/.test(problem)))
   assert.ok(!catalog.tools.some(tool => tool.name === 'probe'))
   await assert.rejects(stat(f.status.project), { code: 'ENOENT' })
   assert.deepEqual(await f.calls(), [])

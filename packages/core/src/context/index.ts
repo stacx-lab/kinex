@@ -8,7 +8,6 @@ import { listSkills, formatSkills } from "../skill/index.ts"
 import ROBOTICS from "./robotics.txt"
 import DEVICE_USE from "./device-use.txt"
 import PYTHON from "./python.txt"
-export { DEVICE_USE }
 
 // Structured sections let each host place stable instructions ahead of live
 // state without importing the standalone agent's identity or system prompt.

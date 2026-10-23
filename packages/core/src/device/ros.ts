@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { z } from "zod"
 import { scoped } from "../scope.ts"
+import { serialize } from "../util/serialize.ts"
 import { spawnProcess } from "../util/process.ts"
 import { shortID } from "../util/id.ts"
 import { NamedError } from "../util/error.ts"
@@ -106,7 +107,7 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
   const domain = device.runtime?.domain_id ?? 0
   const workspace = await ProfileStore.workspaceDir(cwd)
   const key = `${workspace}:frames:${domain}`
-  const result = (transitions().get(key) ?? Promise.resolve()).then(async () => {
+  return serialize(transitions(), key, async () => {
     const worlds = (await ProfileStore.listDevices(cwd)).filter(value => value.type === "world" && value.runtime?.domain_id === domain)
     const clocks = worlds.flatMap(world => Object.values(resolvedOperations(world)).filter(op => op.type === "rosgraph_msgs/msg/Clock" && op.direction === "output"))
     if (!clocks.length) return undefined
@@ -139,10 +140,6 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
     await request(host, "$frame_device", { name: device.name, active: true }, undefined, signal)
     return clock
   })
-  const tail = result.then(() => {}, () => {})
-  transitions().set(key, tail)
-  void tail.then(() => { if (transitions().get(key) === tail) transitions().delete(key) })
-  return result
 }
 
 async function forgetFrames(cwd: string, device: Device) {
@@ -160,14 +157,10 @@ export async function rosReady(cwd: string, device: Device) {
 
 export async function rosDispatch(cwd: string, device: Device, action: string, args: Record<string, unknown>, owner?: string, signal?: AbortSignal): Promise<DeviceReading> {
   const directory = await ProfileStore.deviceDir(cwd, device.name)
-  const before = transitions().get(directory) ?? Promise.resolve()
-  const result = before.then(() => dispatch(cwd, device, action, args, owner, signal))
-  if (action === "load" || action === "unload") {
-    const tail = result.then(() => {}, () => {})
-    transitions().set(directory, tail)
-    void tail.then(() => { if (transitions().get(directory) === tail) transitions().delete(directory) })
-  }
-  return result
+  const run = () => dispatch(cwd, device, action, args, owner, signal)
+  // Lifecycle actions hold the device's lane; other actions only wait for it.
+  return action === "load" || action === "unload" ? serialize(transitions(), directory, run)
+    : (transitions().get(directory) ?? Promise.resolve()).then(run)
 }
 
 async function dispatch(cwd: string, device: Device, action: string, args: Record<string, unknown>, owner?: string, signal?: AbortSignal): Promise<DeviceReading> {

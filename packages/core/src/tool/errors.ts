@@ -25,16 +25,8 @@ export function renderFailure(value: Failure): string {
 }
 
 export class PermissionDeniedError extends NamedError {
-  constructor(
-    permission: string,
-    public feedback?: string,
-  ) {
-    super(
-      "PermissionDeniedError",
-      feedback
-        ? `The user rejected permission "${permission}" with feedback: ${feedback}`
-        : `The user rejected permission "${permission}". Do not retry the same action; ask the user how to proceed instead.`,
-    )
+  constructor(permission: string) {
+    super("PermissionDeniedError", `The user rejected permission "${permission}". Do not retry the same action; ask the user how to proceed instead.`)
   }
 }
 

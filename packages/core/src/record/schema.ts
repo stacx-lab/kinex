@@ -7,7 +7,6 @@ import { z } from "zod"
 // Capture configuration is fixed at start; every source records continuously.
 export const DeviceSampling = z.object({
   rate: z.number().positive(),
-  source: z.literal("topics"),
   operations: z.array(z.string()).min(1),
 })
 export type DeviceSampling = z.infer<typeof DeviceSampling>
@@ -27,9 +26,6 @@ export const StreamStats = z.object({
   frames: z.number().default(0),
   samples: z.number().default(0),
   transport_dropped: z.number().default(0),
-  capture_samples: z.number().default(0),
-  capture_missed: z.number().default(0),
-  capture_errors: z.number().default(0),
   error: z.string().optional(),
 })
 export type StreamStats = z.infer<typeof StreamStats>
@@ -39,11 +35,7 @@ export const DeviceStats = z.object({
   events: z.number().default(0),
   frames: z.number().default(0),
   bytes: z.number().default(0),
-  skipped: z.number().default(0),
-  samples: z.number().default(0),
-  readErrors: z.number().default(0),
   warning: z.string().optional(),
-  effectiveHz: z.number().optional(),
   stream: StreamStats.optional(),
 })
 export type DeviceStats = z.infer<typeof DeviceStats>
@@ -64,7 +56,6 @@ export const RecordingManifest = z.object({
   error: z.string().optional(),
   outcome: z.enum(["success", "failure", "partial"]).optional(),
   summary: z.string().optional(),
-  labels: z.array(z.string()).optional(),
   sampling: Sampling,
   wallMs: z.number().default(0),
   // Designated devices (stream rates / snap lists) live under devices/; every

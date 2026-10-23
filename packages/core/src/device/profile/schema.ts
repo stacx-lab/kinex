@@ -1,11 +1,9 @@
-import { LocalFrame, lifecycle } from "./common.ts"
 import { modelShape } from "./model.ts"
 import { imuShape } from "./imu.ts"
 import { z } from "zod"
 import { Operation, RosRuntime } from "./operations.ts"
 import { forceTorqueShape } from "./force-torque.ts"
 import { worldShape, type WorkspaceBounds } from "./world.ts"
-export { WorkspaceBounds, Surface } from "./world.ts"
 import { locomotionShape, refineLocomotion } from "./locomotion.ts"
 import { gripperShape } from "./gripper.ts"
 import { suctionShape } from "./suction.ts"
@@ -13,17 +11,13 @@ import { commandedJoints, deviceTree } from "./urdf.ts"
 import { jointShape } from "./joint.ts"
 import { deviceFrames, frameErrors } from "./frames.ts"
 import { CameraColor, CameraDepth } from "./camera.ts"
-
-import { MISSING, may, known, section, measured } from "./common.ts"
-export { MISSING, known, Source } from "./common.ts"
+import { LocalFrame, field, known, lifecycle, measured, section, xyz } from "./common.ts"
+export { known } from "./common.ts"
 
 // Device profiles own access, intrinsic facts and parent-relative SI mounts.
 // Explicit calibration requests persist until cleared by a validated write.
 
-const Aabb = z.object({
-  min: z.tuple([z.number(), z.number(), z.number()]),
-  max: z.tuple([z.number(), z.number(), z.number()]),
-})
+const Aabb = z.object({ min: xyz, max: xyz })
 
 export const DeviceType = z.enum([
   "locomotion",
@@ -73,7 +67,7 @@ const deviceBase = {
   meta: z.strictObject({ created_at: z.string(), updated_at: z.string() }),
 }
 const spatial = { ...deviceBase, ...localFrames }
-const camera = { ...spatial, color: may(CameraColor).default(MISSING) }
+const camera = { ...spatial, color: field(CameraColor) }
 
 export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...spatial, ...locomotionShape, type: z.literal("locomotion") }).superRefine(refineLocomotion),
@@ -81,7 +75,7 @@ export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...spatial, ...gripperShape, type: z.literal("gripper") }),
   z.strictObject({ ...spatial, ...suctionShape, type: z.literal("suction") }),
   z.strictObject({ ...camera, type: z.literal("rgb") }),
-  z.strictObject({ ...camera, type: z.literal("rgbd"), depth: may(CameraDepth).default(MISSING) }).superRefine((device, ctx) => {
+  z.strictObject({ ...camera, type: z.literal("rgbd"), depth: field(CameraDepth) }).superRefine((device, ctx) => {
     const { color, depth } = device
     if (!known(depth)) return
     if (depth.registration === "native" && (!device.frames.color || !device.frames.depth))
@@ -124,7 +118,7 @@ export const RobotManifest = z.strictObject({
     id: z.string(),
     name: z.string(),
     kind: z.enum(["arm", "mobile", "quadruped", "humanoid", "other"]),
-    model: may(z.string()).default(MISSING).describe("make/model, e.g. UR5e, Panda"),
+    model: field(z.string()).describe("make/model, e.g. UR5e, Panda"),
   }),
   // [devices-declared] — inventory marker only; devices/*/profile.yaml are ground truth.
   devices: z.object({ ...section }).prefault({}),
@@ -132,8 +126,8 @@ export const RobotManifest = z.strictObject({
   safety: z
     .object({
       ...section,
-      max_cartesian_velocity: may(z.number().nullable()).default(MISSING).describe("m/s; null = no additional cap; ??? = unspecified"),
-      max_joint_velocity: may(z.number().nullable()).default(MISSING).describe("rad/s; null = no additional cap; ??? = unspecified"),
+      max_cartesian_velocity: field(z.number().nullable()).describe("m/s; null = no additional cap; ??? = unspecified"),
+      max_joint_velocity: field(z.number().nullable()).describe("rad/s; null = no additional cap; ??? = unspecified"),
       keep_out_zones: z.array(Aabb).default([]),
     })
     .prefault({}),
@@ -170,10 +164,6 @@ export function matchesDeviceType(actual: DeviceType, required: DeviceType): boo
   return actual === required || (required === "rgb" && isCameraType(actual))
 }
 
-// Control contracts determine actuation.
-export function isActuated(device: Device): boolean {
-  return ["joint", "locomotion", "gripper", "suction"].includes(device.type)
-}
 export function isJoint(device: Device): device is Extract<Device, { type: "joint" }> { return device.type === "joint" }
 export function deviceJoints(device: Device) { return isJoint(device) ? commandedJoints(deviceTree(device)) : [] }
 
@@ -204,19 +194,6 @@ export function deviceActions(device: Device): DeviceAction[] {
   if (device.type === "suction")
     return known(device.vacuum) ? [{ component: "vacuum", units: "normalized", bounds: { min: 0, max: 1 } }] : []
   return []
-}
-
-// A device's home configuration, aligned with deviceJoints(); undefined while
-// unknown or explicitly unavailable.
-export function deviceHome(device: Device): number[] | undefined {
-  const joints = deviceJoints(device)
-  if (joints.length === 0) return []
-  if (isJoint(device)) {
-    const home = device.home
-    if (!known(home) || home === null) return undefined
-    return joints.map((j) => home[j.name]!)
-  }
-  return undefined
 }
 
 // A mount is simply the device's declared base edge.

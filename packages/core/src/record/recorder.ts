@@ -132,7 +132,7 @@ function deviceStats(active: Active, device: Device, passive = false): DeviceSta
   const table = passive ? active.manifest.passive : active.manifest.devices
   const existing = table[device.name]
   if (existing) return existing
-  const created = { type: device.type, events: 0, frames: 0, bytes: 0, skipped: 0, samples: 0, readErrors: 0 }
+  const created = { type: device.type, events: 0, frames: 0, bytes: 0 }
   table[device.name] = created
   return created
 }
@@ -214,13 +214,8 @@ function syncManifest(active: Active) {
   const streams = active.streams.stats()
   for (const [name, stats] of Object.entries(active.manifest.devices)) {
     const stream = streams[name]
-    if (stream) {
-      stats.stream = stream
-      stats.samples = stream.capture_samples
-      stats.skipped = stream.capture_missed
-      stats.readErrors = stream.capture_errors
-    }
-    if (!stats.warning && (stats.skipped || stats.readErrors || stream?.transport_dropped)) {
+    if (stream) stats.stream = stream
+    if (!stats.warning && (stream?.error || stream?.transport_dropped)) {
       stats.warning = `${name}: recording shortfall; inspect capture errors and subscription queue losses. Available data is still being recorded.`
       state().host.emit?.({ type: "recording.warning", message: stats.warning })
       timeline(active, { kind: "note", text: stats.warning })
@@ -287,7 +282,6 @@ export interface SnapInput {
 export interface StopInput {
   outcome?: RecordingManifest["outcome"]
   summary?: string
-  labels?: string[]
   endedBy?: RecordingManifest["endedBy"]
   // The stop comes from inside a tool call: the step's final assistant message
   // is saved only after the tool returns, so the trace export waits for it.
@@ -316,10 +310,7 @@ export interface SnapResult {
 
 // Every device that produced events; rate/source only for configured ones.
 export interface DeviceStatus extends Partial<DeviceSampling> {
-  effectiveHz?: number
-  skipped: number
   samples: number
-  readErrors: number
   warning?: string
   transportDropped: number
   events: number
@@ -388,7 +379,7 @@ async function configure(active: Active, specs: Record<string, DeviceSpec>): Pro
       report.refusals[name] = "continuous recording requires declared topics; select operations or expose an observation topic"
       continue
     }
-    const sampling = { rate: spec.rate, source: "topics", operations } satisfies DeviceSampling
+    const sampling = { rate: spec.rate, operations } satisfies DeviceSampling
     active.designated.add(name)
     deviceStats(active, device)
     const error = await active.streams.start(device, sampling)
@@ -533,10 +524,6 @@ export const Recorder = {
     await Promise.all([...state().exporting])
   },
 
-  active(): boolean {
-    return state().active !== undefined
-  },
-
   async start(cwd: string, input: StartInput): Promise<{ manifest: RecordingManifest } & Configured> {
     if (!Object.keys(input.specs).length) throw new RecordError("start needs at least one device rate")
     const { active, result: report } = await initialize(cwd, "stream", input.sessionID, input.instruction, async (active) => {
@@ -583,10 +570,7 @@ export const Recorder = {
     for (const [name, stats] of Object.entries(manifest.devices)) {
       devices[name] = {
         ...(manifest.sampling.devices[name] ?? {}),
-        ...(stats.effectiveHz !== undefined ? { effectiveHz: stats.effectiveHz } : {}),
-        skipped: stats.skipped,
-        samples: stats.samples,
-        readErrors: stats.readErrors,
+        samples: streams[name]?.samples ?? 0,
         warning: stats.warning,
         transportDropped: streams[name]?.transport_dropped ?? 0,
         events: stats.events,
@@ -642,7 +626,6 @@ export const Recorder = {
       manifest.status = "stopped"
       if (input.outcome) manifest.outcome = input.outcome
       if (input.summary) manifest.summary = input.summary
-      if (input.labels) manifest.labels = input.labels
       timeline(active, { kind: "record.stop", reason: manifest.endedBy })
       await active.writer.flush().catch((error: unknown) => {
         manifest.error = error instanceof Error ? error.message : String(error)
@@ -685,11 +668,11 @@ export const Recorder = {
     if (!status) return undefined
     const devices = Object.entries(status.devices).sort(([a], [b]) => a.localeCompare(b))
       .filter(([, entry]) => entry.rate !== undefined)
-      .map(([name, entry]) => `${name}@${entry.rate}Hz(${entry.source})`)
+      .map(([name, entry]) => `${name}@${entry.rate}Hz`)
       .join(", ")
     return [
       `<recording id="${status.id}" name="${status.name}" status="${status.status}" devices="${devices || "none"}"${status.quotaHit ? ' quota="hit"' : ""}>`,
-      "A background recording is running and continues across turns until `record stop`. The listed devices observe declared topics, with output sampling capped in world time; every other device read/write lands under passive/. Mark decision points with `record snap <devices> <what is happening>`; `record status` flushes to disk and returns the recording directory.",
+      "A background recording is running and continues across turns until `record stop`. The listed devices observe declared topics, with output sampling capped in world time; every other device call lands under passive/. Mark decision points with `record snap <devices> <what is happening>`; `record status` flushes to disk and returns the recording directory.",
       ...Object.values(status.devices).flatMap((d) => d.warning ? [d.warning] : []).sort(),
       "</recording>",
     ].join("\n")

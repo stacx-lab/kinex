@@ -23,7 +23,7 @@ for line in sys.stdin:
             result = {'done': True, 'status': 'stopped'}
         else:
             result = {'status': 'recording'}
-        result.update(capture_samples=count, samples=count, bag=str(directory / 'bag'))
+        result.update(samples=count, bag=str(directory / 'bag'))
     else:
         result = {'id': request['id'], 'ok': True, 'data': {'ready': True}}
     print(json.dumps(result), flush=True)

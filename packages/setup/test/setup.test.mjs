@@ -12,7 +12,6 @@ import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } 
 
 const globals = await mkdtemp(path.join(os.tmpdir(), 'kinex-setup-home-'))
 process.env.KINEX_CONFIG_DIR = path.join(globals, 'config')
-process.env.KINEX_DATA_DIR = path.join(globals, 'data')
 after(() => rm(globals, { recursive: true, force: true }))
 const allow = { ask: async () => {} }
 async function fixture(t, host = allow) {
@@ -51,7 +50,6 @@ test('construction, catalogs and planning are inert and compose without duplicat
   assert.deepEqual(setupContribution(setup).commands.map(command => command.name).sort(), ['calibrate', 'onboarding'])
   assert.deepEqual(setupToolNames, ['setup_plan', 'calib_sample', 'calib_compute'])
   assert.equal(tools.tools.filter(tool => tool.name === 'profile_write').length, 1)
-  assert.ok(!tools.tools.some(tool => tool.name === 'calib_write'))
   assert.equal(context.sections['setup.guides'], undefined)
   assert.equal(context.sections['core.readiness'], undefined)
 })
@@ -145,7 +143,6 @@ test('onboarding and calibration share core profile writes and preserve planning
   for (const command of setupContribution(setup).commands) {
     const result = await command.execute('', { ...call, confirm: async () => false })
     assert.match(result.prompt, /profile_write/)
-    assert.doesNotMatch(result.prompt, /calib_write/)
   }
 })
 

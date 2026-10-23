@@ -18,9 +18,5 @@ function ascending(prefix: string): string {
 }
 
 export const Identifier = {
-  session: () => ascending("ses"),
-  message: () => ascending("msg"),
-  part: () => ascending("prt"),
-  request: () => ascending("req"),
   recording: () => ascending("rec"),
 }

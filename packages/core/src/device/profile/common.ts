@@ -12,9 +12,6 @@ export const measured = { ...section, calibrated_at: z.iso.datetime().nullable()
 export const xyz = z.tuple([z.number(), z.number(), z.number()])
 export const quaternion = z.tuple([z.number(), z.number(), z.number(), z.number()])
   .refine((q) => Math.abs(Math.hypot(...q) - 1) < 1e-6, "unit quaternion xyzw required")
-export const Pose = z.tuple([z.number(), z.number(), z.number(), z.number(), z.number(), z.number(), z.number()])
-  .refine((v) => Math.abs(Math.hypot(...v.slice(3)) - 1) < 1e-6, "unit quaternion required")
-export const Transform = z.strictObject({ translation_m: field(xyz), rotation_xyzw: field(quaternion) })
 export const LocalFrame = z.strictObject({
   parent: z.string().regex(/^[^:/]+:[^:/]+$/, "expected device:frame").nullable(),
   translation_m: xyz.nullable(),
@@ -27,11 +24,13 @@ export const ActuatorStop = z.strictObject({
   affected_devices: z.array(z.string().min(1)).min(1).refine((v) => new Set(v).size === v.length, "affected_devices must be unique"),
 })
 
-export function hasMissing(value: unknown): boolean {
+// Whether any nested fact is still ???, ignoring the optional keys at any depth.
+export function hasMissing(value: unknown, optional: readonly string[] = []): boolean {
   if (value === MISSING) return true
   if (!value || typeof value !== "object") return false
-  return Object.values(value).some(hasMissing)
+  return Object.entries(value).some(([key, entry]) => !optional.includes(key) && hasMissing(entry, optional))
 }
+export const anyMissing = (...values: unknown[]) => values.some(value => hasMissing(value))
 
 /** Host lifecycle actions every device has; they are never declared operations. */
 export const lifecycle: readonly string[] = ["load", "unload", "status"]
