@@ -67,7 +67,7 @@ finish();
   const status = await runtime.python.status()
   return {
     directory, runtime, status, create,
-    launch: (signal, owner = runtime) => owner.run(() => pythonRuntime(directory, undefined, signal)),
+    launch: (signal, owner = runtime) => owner.operation(() => pythonRuntime(directory, undefined, signal)),
     configure: value => writeFile(config, JSON.stringify(value)),
     release: () => writeFile(release, ''),
     calls: async () => (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)),

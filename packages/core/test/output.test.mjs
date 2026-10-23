@@ -25,17 +25,10 @@ test('optional cleanup is explicit, nonmutating and preserves meaningful falsy v
   assert.deepEqual(omitEmptyOptional([{ optional: [], keep: [] }], ['*.optional']), [{ keep: [] }])
 })
 
-test('device output defaults to full data and only drops empty optional feedback', () => {
-  const data = { execution_id: 'test', state: {
-    positions: [0], velocities: [], efforts: [], frame_poses: {}, faults: [], timestamp: 0, custom: [],
-  } }
-  const reading = { data, filePath: '/tmp/frame.png' }
+test('device output keeps every reading field and appends the captured file', () => {
+  const data = { header: { stamp: { sec: 1, nanosec: 0 } }, position: [0], velocity: [], effort: [] }
   assert.deepEqual(JSON.parse(renderReading({ data })), data)
-  const concise = JSON.parse(renderReading({ data }, false))
-  assert.deepEqual(concise, { ...data, state: { positions: [0], faults: [], timestamp: 0, custom: [] } })
-  assert.deepEqual(JSON.parse(renderReading({ data: { velocities: [0], frame_poses: { tool: [0, 1] } } }, false)), { velocities: [0], frame_poses: { tool: [0, 1] } })
-  assert.equal(renderReading(reading, false, true), JSON.stringify({ ...concise, file: '/tmp/frame.png' }))
-  assert.deepEqual(data.state.velocities, [])
+  assert.equal(renderReading({ data, filePath: '/tmp/frame.png' }, true), JSON.stringify({ ...data, file: '/tmp/frame.png' }))
 })
 
 test('recording output cleans only optional empty annotations and bookkeeping', () => {

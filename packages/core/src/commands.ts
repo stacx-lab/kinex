@@ -23,7 +23,7 @@ export interface CommandContext {
   notify?(message: string): void
 }
 
-export function isRoboticsCommand(name: string): name is RoboticsCommand {
+function isRoboticsCommand(name: string): name is RoboticsCommand {
   return roboticsCommands.some(command => command.name === name)
 }
 

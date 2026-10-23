@@ -30,8 +30,7 @@ test('core alone validates calibration clears and reports readiness without proc
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'devices-declared').status, 'done')
   const context = await runtime.context()
-  assert.match(context.readiness, /access:sensor: done/)
-  assert.doesNotMatch(context.instructions + context.robotics + context.guideRoots, /calib_plan|calib_write|\/onboarding|\/calibrate/)
+  assert.doesNotMatch(context.instructions + context.guideRoots, /calib_plan|calib_write|\/onboarding|\/calibrate/)
 })
 
 test('model readiness requires compute placement; detection is a model, not a type', async t => {

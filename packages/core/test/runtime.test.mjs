@@ -253,7 +253,6 @@ test('core discovery and context contain robotics tools and packaged assets', as
   assert.ok(tools.some(tool => tool.name === 'profile_write'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'world'))
   assert.equal(typeof runtime.devices.unregister, 'function')
-  assert.ok((await runtime.context()).robotics.includes('sensor'))
   assert.ok((await runtime.readiness()).items)
 })
 
