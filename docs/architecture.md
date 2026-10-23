@@ -39,8 +39,8 @@ these contracts.
 
 Examples include:
 
-- A camera supplies images; a joint device accepts motion commands and returns
-  measured state. Command acceptance does not establish arrival: verify feedback.
+- A camera supplies images; a joint device takes motion commands and returns
+  measured state. A sent command does not establish arrival: verify feedback.
 - A detection or policy model exposes inference as a device. Controller tools
   decide how to apply its output to the robot.
 - A `world` device exposes environment time through its clock topic and wait services.
@@ -66,9 +66,10 @@ communication resources end with the invocation; model state persists in devices
 
 `relative_pose` queries tf2; camera intrinsics are profile facts.
 
-Python tools and `exec` preserve permissions, cancellation and motion ownership;
-they cannot load or unload devices. Scripts own their stopping conditions and
-must explicitly stop owned motion when successful completion requires it.
+Python tools and `exec` preserve permissions and cancellation, and a failed
+invocation stops the devices it commanded; they cannot load or unload devices.
+Scripts own their stopping conditions and must explicitly stop motion when
+successful completion requires it.
 The agent-facing `device` tool and trusted user commands provide lifecycle
 control. Other tools support profile updates and calibration. See
 [tools and skills](tools-and-skills.md) for execution guidance and

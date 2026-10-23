@@ -42,7 +42,7 @@ Scripts reach devices through `communication()`: `io.request`, `io.publish` and
 `io.subscribe` on declared operations, concurrently with asyncio when needed.
 `kinex.helpers`, indexed by `kinex/helpers/helpers.txt`, supplies frame,
 kinematics, policy, perception and image functions; calling them inside exec
-shares its communication and motion ownership. Host coding tools are outside this
+shares its communication and cleanup. Host coding tools are outside this
 Python API.
 
 Use bounded Python loops for feedback control and settling checks; their control
@@ -54,7 +54,7 @@ flow, state and stopping conditions belong in the script. A typical sequence is:
 3. Check fresh feedback, faults and the task's tolerances. Bound retries and
    elapsed time; position agreement alone does not establish stability or task
    success. Cached observations do not supply new evidence.
-4. Stop owned motion with `kinex.stop_owned()` when the loop's exit requires it.
+4. Call the device's `stop` operation when the loop's exit requires it.
 5. Save selected camera images with `helpers.save_image` and return their paths
    through `kinex.finish(result, file=[...])` when the next decision needs visual
    input.
@@ -66,8 +66,8 @@ them. Direct `device`/`devices` camera reads attach images automatically.
 
 One execution approval covers an invocation's reads and commands; scripts cannot
 load/unload devices or control recording. See
-[motion and supervision](communication.md#motion-and-supervision) for ownership and
-cleanup. Each invocation uses a fresh process with a default 120-second wall-clock
+[commands and cleanup](communication.md#commands-and-cleanup) for failure cleanup
+and stops. Each invocation uses a fresh process with a default 120-second wall-clock
 timeout and returns an exit code, bounded stdout/stderr and an optional JSON result.
 
 See [Python scripting](../packages/core/README.md#python-scripting) for all inputs,

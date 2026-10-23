@@ -58,9 +58,10 @@ arguments so `/clock` keeps its literal source name and cannot be remapped into
 its own output. Other nodes normally inherit the world clock configuration.
 
 `load`, `unload` and `status` are host lifecycle operations, not declared ROS
-operations. `stop` calls the declared service, or is a no-op for a passive
-device. Profiles with managed motion must declare a stop service. Loading checks
-interface readiness; normal calls never restart failed nodes.
+operations. `stop` calls the declared `std_srvs/srv/Trigger` service, or is a
+no-op for a passive device. Actuators with command topics and worlds with `wait`
+must declare one. Loading checks interface readiness; normal calls never restart
+failed nodes.
 
 Unload before changing definitions. Core fingerprints runtime fields, profile
 facts and node entrypoint source; changed definitions require explicit reload.
@@ -138,7 +139,7 @@ are removed when the scope closes. Persistent services belong to device nodes.
 Async tools declare `async: true` in `tool.yaml` and export
 `async def main(args, io)`. Builtin tools are interfaces to `kinex.helpers`
 functions of the same name and parameters; exec calls those helpers directly to
-share its communication and ownership. Workspace helpers live in `.kinex/lib`.
+share its communication and cleanup. Workspace helpers live in `.kinex/lib`.
 Standard script tools still use a script entrypoint. Neither form has a persistent
 lifecycle.
 
@@ -149,10 +150,11 @@ runtime launches.
 
 ## World time
 
-The recommended world interface provides `time`, relative `wait(duration_s)` and
-optional `reset`. Cancellation is protocol metadata, not a public operation. Realtime waits observe progress; stepped waits authorize
-shared world advancement. Concurrent waits do not sum their durations. A periodic loop must skip missed
-deadlines, and must not assume an expired wait produces a fresh observation.
+The recommended world interface provides `time`, relative `wait(duration_s)`,
+`stop` and optional `reset`. Waits are sequential: the world rejects a wait while
+another is pending, and `stop` cancels the pending one. Realtime waits observe
+progress; stepped waits authorize world advancement. A periodic loop must skip
+missed deadlines, and must not assume an expired wait produces a fresh observation.
 
 Subscriptions, TF lookup and calibration sampling never advance the world.
 Host watchdogs use monotonic wall time so timeouts and cancellation still work
@@ -168,35 +170,33 @@ alone does not establish success. Other failures must propagate. Create and
 validate all subscriptions before creating their `next()` coroutines so a missing
 operation cannot leave unawaited coroutines.
 
-## Motion and supervision
+## Commands and cleanup
 
-A motion input topic declares `motion: {acquire, stop, status}` endpoints using
-the core `Acquire`, `Stop` and `CommandStatus` interfaces. The command type must
-carry `owner`, `generation` and `command_id` fields. Kinex supplies these fields.
-The accepting endpoint validates and atomically replaces ownership; owned nodes
-serve all three endpoints with `kinex.node.motion_service(node, operations,
-commands, hold)`, where `commands` maps each managed operation to the function that
-admits its messages. Several command topics of one device share one ownership and
-its endpoints. A stop invalidates every issued generation, so commanding again
-requires a new invocation. `kinex_interfaces/msg/JsonCommand` is the managed
-counterpart of `Json`: `publish` encodes its fields as one JSON object, whose
-contract is the operation description.
-
-`publish` returns a command ID for managed motion. `await io.accepted(operation,
-command_id)` observes its correlated acceptance. Acceptance does not establish
-physical arrival. Ignored acceptance results are checked before scope completion.
-Invalid commands do not replace previously accepted references.
+Command topics use standard ROS message types, such as
+`trajectory_msgs/msg/JointTrajectory`, `std_msgs/msg/Float64`,
+`geometry_msgs/msg/Twist` and `std_msgs/msg/String` (JSON for free-form
+commands); the operation description is their contract. `publish` sends one
+message once a subscriber is matched; sending does not establish physical arrival.
+Device nodes validate each command and log rejections. Owned nodes serve their
+inputs and the Trigger `stop` with `kinex.node.command_service(node, operations,
+commands, hold)`, where `commands` maps each operation to the function that
+forwards its messages. A node serves `stop` after its command subscriptions:
+`publish` discovers the device's `stop` first, so a command reaches the device
+rather than only another subscriber such as a recorder.
 
 One host approval covers a Python invocation and composed operations. Python
 cannot load/unload devices. Explicit stop remains approval-free; model recording
 is opt-in. This API is not a sandbox for arbitrary Python.
 
-Successful scope completion preserves accepted motion. Failure, cancellation or
-timeout conditionally stops remaining owned motion; newer replacements survive.
-The host enrolls ownership before dispatch and cleans up after Python process
-failure. Uncertain commands are not retried. Unload releases owned nodes and
-stops according to the declared device contract, without terminating borrowed
-services.
+Before its first command to a device, a publish or a service request, an
+invocation reports the device to the host. Successful completion leaves motion
+running. Failure, cancellation or timeout stops every device the invocation
+commanded, from the communication scope and again from the host after the Python
+process ends; a wait abandoned inside a scope stops its world. A stop through
+`device_stop`, `/stop` or the runtime API also cancels running invocations that
+commanded a stopped device. Uncertain commands are not retried. Unload releases
+owned nodes and stops according to the declared device contract, without
+terminating borrowed services.
 
 ## Frames and images
 
