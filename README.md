@@ -88,16 +88,19 @@ for in-session commands.
 ## Use Kinex with Simulators
 
 Kinex 2.0 uses typed ROS topics and services. The sibling `rosbridge` checkout
-provides a LIBERO simulator node and an offline device catalog. Start rosbridge
-separately, then export `libero/panda` into a workspace and load its forwarding
-devices. The workspace profile contains device facts and endpoints; execution
-mode belongs to the externally launched world.
+runs LIBERO as a ROS graph that speaks the Kinex device contract and exports
+workspaces for its robots, such as `rosbridge setup libero/libero-panda-tabletop`.
+The exported profiles carry their calibration and borrow the simulator's
+endpoints directly. Start rosbridge separately; execution mode belongs to the
+externally launched world.
+
+```sh
+rosbridge setup libero/libero-panda-tabletop --directory ../workspace_libero --domain-id 83
+rosbridge launch libero/libero-spatial-01 --execution-mode stepped --domain-id 83
+```
 
 See [ROS communication](docs/communication.md) for the operation and Python
-contracts. The sibling `workspace_libero/README.md` provides build, launch and
-validation commands, including stepped and realtime runs. Its finite demo uses
-a persistent deterministic model device, two cameras and independent control
-and inference loops.
+contracts.
 
 ## Use Kinex with Real-World Robots
 

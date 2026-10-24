@@ -251,13 +251,11 @@ computation; `helpers.save_image` writes a selected image. Return paths with
 ## Native validation
 
 Build the shared interface package from `packages/core/assets/ros` in the selected
-ROS environment. For sibling rosbridge, set `KINEX_ROS_PACKAGES` to that directory
-before `pixi run -e libero build`.
+ROS environment. Sibling rosbridge requires `KINEX_ROS_PACKAGES` set to that
+directory when preparing a simulator.
 
-The sibling `workspace_libero` contains `demo.py`, `validate.py` and
-`validate-host.mjs`, with external startup instructions in its README. The demo
-uses a persistent deterministic model fixture and is a control demonstration,
-not a trained policy or benchmark task solution.
+A workspace exported with `rosbridge setup` borrows the running graph's endpoints;
+load its devices after `rosbridge launch` on the same ROS domain.
 
 ## Recording
 
