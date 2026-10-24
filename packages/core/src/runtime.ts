@@ -1,4 +1,5 @@
 import { shortID } from "./util/id.ts"
+import { closeRos } from "./device/ros.ts"
 import path from "node:path"
 import { pythonEnvironment, initializePython, preparePython } from "./python/environment.ts"
 import { createScope, inScope, withSignal } from "./scope.ts"
@@ -6,8 +7,7 @@ import type { CoreSettings } from "./config/config.ts"
 import { ProfileStore } from "./device/profile/store.ts"
 import { readinessPlan } from "./device/profile/readiness.ts"
 import { roboticsContext } from "./context/index.ts"
-import { closeDrivers } from "./device/driver.ts"
-import { dispatchDevice, deactivateDevice } from "./device/dispatch.ts"
+import { checkDeviceCall, dispatchDevice, deactivateDevice } from "./device/dispatch.ts"
 import { listDeviceTemplates } from "./device/templates.ts"
 import { removeDevice } from "./device/remove.ts"
 import { warmLoadedDevices, type Activation, loadDevice, unloadDevice, reloadDevice, pingDevice, lifecycleAction, deviceTransition } from "./device/lifecycle.ts"
@@ -37,7 +37,7 @@ export interface ToolInvocation {
   questions?: Context["questions"]
 }
 
-// Construction is inert: no discovery, drivers, signal handlers or filesystem writes.
+// Construction is inert: no discovery, nodes, signal handlers or filesystem writes.
 export function createKinexRuntime(options: RuntimeOptions) {
   const directory = path.resolve(options.directory)
   const scope = createScope(options)
@@ -81,10 +81,7 @@ export function createKinexRuntime(options: RuntimeOptions) {
     observe({ type: "tool", name: def.id, callID, status: "running", origin: def.recordingOrigin })
     const ctx: Context = {
       directory, sessionID: call.sessionID, abort: signal,
-      ask: call.ask ?? options.host?.ask ?? (async ({ permission }) => {
-        if (permission === "device_stop") return
-        throw new PermissionDeniedError(permission)
-      }),
+      ask: call.ask ?? options.host?.ask ?? (async ({ permission }) => { throw new PermissionDeniedError(permission) }),
       questions: call.questions ?? options.host?.questions ?? (async () => { throw new QuestionDeclinedError() }),
     }
     return execute(def, input, ctx).then((result) => {
@@ -94,9 +91,6 @@ export function createKinexRuntime(options: RuntimeOptions) {
   }, call.signal)
   return {
     directory,
-    // Composition bridge for the standalone app's existing low-level consumers.
-    // Extension hosts should use the bound methods below.
-    run,
     operation: scopedOperation,
     subscribe(listener: (event: RuntimeEvent) => void) {
       return run(() => { listeners.add(listener); return () => { listeners.delete(listener) } })
@@ -126,6 +120,9 @@ export function createKinexRuntime(options: RuntimeOptions) {
       load: (name: string) => operation(() => loadSkill(directory, name)),
     },
     devices: {
+      operations: () => operation(async () => (await ProfileStore.listDevices(directory)).map(device => ({
+        name: device.name, loaded: device.loaded, operations: device.operations,
+      }))),
       warmLoaded: () => run(() => state.warm ??= operation(async () => {
         const values = await warmLoadedDevices(directory, abort.signal)
         return Promise.all(values.map(value => activation(Promise.resolve(value))))
@@ -147,16 +144,14 @@ export function createKinexRuntime(options: RuntimeOptions) {
       dispatch: (name: string, action: string, args: Record<string, unknown> = {}, signal?: AbortSignal) => operation(async () => {
         const device = await ProfileStore.readDevice(directory, name)
         if (!device) throw new Error(`unknown device "${name}"`)
-        if (action === "load" || action === "unload") {
-          if (Object.keys(args).length) throw new Error("load/unload accept no arguments")
-          return lifecycleAction(directory, device, action, AbortSignal.any([abort.signal, ...(signal ? [signal] : [])]))
-        }
-        if (!device.loaded && action !== "status") throw new Error(`device "${name}" is not loaded`)
-        return dispatchDevice(directory, device, action, args, undefined, AbortSignal.any([abort.signal, ...(signal ? [signal] : [])]))
+        checkDeviceCall(device, action, args)
+        const combined = AbortSignal.any([abort.signal, ...(signal ? [signal] : [])])
+        return action === "load" || action === "unload"
+          ? lifecycleAction(directory, device, action, combined)
+          : dispatchDevice(directory, device, action, args, undefined, combined)
       }),
     },
     profiles: {
-      snapshot: () => operation(() => ProfileStore.snapshot(directory)),
       writeManifest: (patch: Record<string, unknown>) => operation(() => ProfileStore.writeManifest(directory, patch)),
       writeDevice: (patch: Record<string, unknown> & { name: string }) => operation(() => ProfileStore.writeDevice(directory, patch)),
     },
@@ -179,10 +174,13 @@ export function createKinexRuntime(options: RuntimeOptions) {
           unobserve()
           listeners.clear()
           scope.closed = true
-          await closeDrivers()
-          const processes = [...scope.processes]
-          for (const proc of processes) proc.kill()
-          await Promise.allSettled(processes.map((proc) => proc.exited))
+          try {
+            await closeRos()
+          } finally {
+            const processes = [...scope.processes]
+            for (const proc of processes) proc.kill()
+            await Promise.allSettled(processes.map((proc) => proc.exited))
+          }
         }
       })
       return state.disposed

@@ -25,7 +25,9 @@
     "assets/**/*.sh",
     "assets/**/*.yaml",
     "assets/**/*.json",
+    "assets/**/*.urdf",
     "assets/**/*.txt",
+    "assets/ros/**",
     "README.md",
     "LICENSE"
   ],

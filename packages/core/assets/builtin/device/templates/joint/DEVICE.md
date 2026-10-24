@@ -1,95 +1,86 @@
 ---
 name: joint
 type: joint
-description: joint control and observation contract.
+description: Joint-controlled arm, hand or other mechanism whose geometry is a URDF.
 ---
 
 ## Setup
 
-Follow setup-device for registration and lifecycle ownership. Load waits for
-readiness; status only observes; unload stops motion and releases owned resources.
-Use `???` for unresolved facts and `null` only where the schema permits it.
+Geometry lives in a URDF, not in profile fields. Use the vendor's description
+(expand xacro to plain URDF) and set `model` to its path and base link. The device
+commands every independent movable joint below the base link in URDF document
+order; mimic joints follow their sources. Remove links owned by other devices,
+such as a separately registered gripper, so the tree holds only this device.
+The sibling `links.py` node publishes every link on TF as `<device>/<link>`, with
+the base link as `<device>/base`; other devices mount on these links, for example
+a gripper base on `arm:flange`. Link names must not repeat profile frame names.
 
-intrinsics.model is {format:joints,joints:[...]} for arbitrary joint sets, {format:serial_chain,joints,chain}, or {format:urdf,path,base_link,tip_link}. Each joint declares name, type (revolute/continuous/prismatic), limits (null only for continuous), max_velocity and max_effort (nullable); max_acceleration is optional. Geometry is optional.
+`model.tip_link` names the end-effector link that FK, IK and Cartesian policies
+use by default; set it to null for trees without one, such as a dexterous hand.
+`home` gives every commanded joint a position, or is null. With `limits: strict`,
+the node and Kinex tools reject targets outside the URDF limits, allowing only a
+bounded inward recovery toward home (`kinex.lib.joints.recovery_targets`); use
+`native` when the device enforces or clamps its own limits and targets may reach
+them.
 
-kinematics:null needs no solver. Otherwise declare frame, fk (numerical/driver/null), ik (numerical DLS/driver/null), and frame_to_reported. Driver IK supplies frame_to_solver and residual tolerances. kinematics.frame declares the computed endpoint; do not repeat it in intrinsics.frames. Numerical solvers require a serial model; IK requires FK verification.
+Agents read the resolved tree as `profile(name)["resolved_model"]` and compute
+FK and IK from it with `helpers.joint_model(name)`, so a device need not serve
+kinematics. A controller with its own kinematics may declare `fk` or `ik` as
+ordinary optional operations, for example MoveIt's
+`moveit_msgs/srv/GetPositionFK` and `GetPositionIK`, stating links, frames and
+units in their descriptions.
 
-Numerical `ik.budget` optionally sets `max_attempts` (5 total), `attempt_time_s`
-(0.02) and `max_time_s` (0.1). Existing profiles inherit these defaults;
-`max_iterations` also limits each attempt. The original seed is tried first,
-then deterministic nearby seeds (within 0.35 rad or 5% of the prismatic range
-around the original seed, clamped to limits); selection prefers the verified
-configuration nearest the seed. Tolerances remain strict. Budgets are cooperative
-and apply per target; nearest preference is not a hard waypoint-step limit.
+The sibling `node.py` adapts a ros2_control `JointTrajectoryController`; copy it
+with `links.py` into the device directory and set its topic constants. A node
+that commands hardware directly must still initialize its hold from measured
+posture, so a stop before the first command never moves the joints.
 
-feedback declares velocities and efforts. stop declares behavior and affected_devices. intrinsics.frames declares additional references as {parent_frame, translation_m, rotation_xyzw}. A null parent means the device base; either transform component may be null when unknown. extrinsics supplies only a mount or measured pose_frame.
+### Operations
 
-home names every joint or is null. Revolute joints may start up to 1° outside
-limits when returning to declared home; out-of-limit references must move inward
-and the final target must satisfy the limits. This fixed margin is not a profile
-field. Prismatic joints retain strict limits.
-
-### Frame feedback
-
-Reads and write states omit `frame_poses`; resolve live frames through FK from
-measured joint positions. FK must preserve measured limit overshoot, while IK
-solutions and explicit seeds satisfy limits. Return the selected `frame` and
-`reference_frame` with FK/IK results; fail on unknown required transforms.
+- `joint_state` (recommended): output topic `sensor_msgs/msg/JointState` with
+  every commanded joint in URDF units, stamped at acquisition, with velocities
+  when measured; Kinex publishes the links from it.
+- `joint_target` (recommended): input topic `trajectory_msgs/msg/JointTrajectory`
+  over commanded joints, timed from receipt. A new trajectory replaces the active
+  one; sending is not arrival. Serve it with `stop` through
+  `kinex.node.command_service`.
+- `stop` (recommended): service `std_srvs/srv/Trigger` that ends motion and
+  holds the measured posture.
 
 ### Profile
 
 ```yaml
-name: joint
+name: arm
 type: joint
 loaded: false
-access:
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  connection: ???
-  driver:
-    entry: driver.py
-    actions:
-    - read
-    - write
-    - stop
-    - load
-    - unload
-    - status
-    persistent: true
-    timeout_s: 30
-intrinsics:
-  frames: {}
-  source: unknown
-  method: unknown
-  calibrated_at: null
-  model: ???
-  kinematics: null
-  home: ???
-  control: ???
-  feedback: ???
-  stop: ???
-extrinsics:
-  source: unknown
-  mount: ???
+description: ''
+runtime:
+  observation: joint_state
+  nodes: [{entry: node.py, factory: create}, {entry: links.py, factory: create}]
+operations:
+  joint_state:
+    description: Measured joint positions and velocities in URDF units, stamped at acquisition; Kinex publishes the URDF links from them.
+    transport: topic
+    direction: output
+    endpoint: /kinex/arm/joint_state
+    type: sensor_msgs/msg/JointState
+    qos: {depth: 1, reliability: reliable, durability: transient_local}
+  joint_target:
+    description: Joint trajectory over commanded joints in URDF units, timed from receipt. A new trajectory replaces the active one; verify arrival with joint_state.
+    transport: topic
+    direction: input
+    endpoint: /kinex/arm/joint_target
+    type: trajectory_msgs/msg/JointTrajectory
+  stop:
+    description: Stop motion and hold the measured posture.
+    transport: service
+    direction: input
+    endpoint: /kinex/arm/stop
+    type: std_srvs/srv/Trigger
+model: {format: urdf, path: ???, base_link: ???, tip_link: ???}
+home: ???
+limits: strict
+stop: {behavior: hold, affected_devices: [arm]}
+frames:
+  base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```
-
-## Use
-
-`servo` plans a joint trajectory and waits its duration on a loaded world clock.
-Set `block=false` to return immediately. Verify arrival with measured feedback.
-
-`write({actions, duration_s})` takes a sequence of absolute joint vectors in
-model order (radians/metres); the final reference remains active.
-`read()` returns positions, velocities, efforts, faults and timestamp.
-Unsupported velocity/effort channels are empty arrays; poses come from FK.
-
-FK takes `joints`; IK takes `pose` and optional `seed`.
-Both name `frame` (default `kinematics.frame`) and `reference_frame` (null means
-device base).
-Targets are the modeled endpoint or fixed descendants; references must be fixed
-to the base. FK preserves measured limit overshoot; IK enforces limits.
-`seed` is the initial joint guess; omission uses measured joints projected into
-limits. Numerical IK prefers the verified configuration nearest the seed;
-profile `ik.budget` controls its search limits.
-Convert external-frame targets into a declared reference frame before calling IK.

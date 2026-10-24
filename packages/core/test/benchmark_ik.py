@@ -4,7 +4,6 @@ PYTHONPATH=packages/core/assets/python python3 packages/core/test/benchmark_ik.p
 """
 
 import argparse
-import copy
 import json
 import math
 from pathlib import Path
@@ -14,10 +13,11 @@ import statistics
 from time import perf_counter
 from unittest.mock import patch
 
-from kinex import kinematics
-from kinex.ik_search import budget_options
-from kinex.joints import JointDevice
-from kinex.motion import joint_target, pose_error
+from kinex.lib import kinematics
+from kinex.lib.geometry import pose_error
+from kinex.lib.joints import JointModel
+from kinex.lib.kinematics import budget_options
+from kinex.lib.urdf import joint_target
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ik"
@@ -34,18 +34,18 @@ def summarize(rows):
             "mean_attempts": round(statistics.mean(row["attempts"] for row in rows), 2)}
 
 
-def measure(model, goal, seed):
+def measure(model, options, goal, seed):
     progress = []
-    attempt = kinematics.solve_attempt
+    attempt = kinematics.Chain.attempt
 
     def recorded(*args):
         progress.append(args[-1])
         return attempt(*args)
 
-    with patch.object(kinematics, "solve_attempt", side_effect=recorded):
+    with patch.object(kinematics.Chain, "attempt", side_effect=recorded, autospec=True):
         start = perf_counter()
         try:
-            q = model.ik(goal, seed)["joints"]
+            q = model.ik(goal, seed, **options)
             error = None
         except ValueError as failure:
             if "IK search exhausted" not in str(failure):
@@ -55,18 +55,18 @@ def measure(model, goal, seed):
     residual = None
     if q is not None:
         joint_target(q, model.joints)
-        residual = pose_error(goal, model.fk(q)["pose"])
-        assert residual["position_m"] <= model.options["position_tolerance_m"]
-        assert residual["rotation_rad"] <= model.options["rotation_tolerance_rad"]
+        residual = pose_error(goal, model.fk(q))
+        assert residual["position_m"] <= kinematics.DEFAULTS["position_tolerance_m"]
+        assert residual["rotation_rad"] <= kinematics.DEFAULTS["rotation_tolerance_rad"]
     return {"ok": q is not None, "joints": q, "elapsed_ms": elapsed, "error": error,
             "residual": residual, "attempts": len(progress),
             "iterations": progress[-1].iterations if progress else 0}
 
 
-def chunk(model, sample):
+def chunk(model, options, sample):
     seed, rows, steps = sample["initial"], [], []
     for goal in sample["goals"]:
-        row = measure(model, goal, seed)
+        row = measure(model, options, goal, seed)
         rows.append(row)
         if not row["ok"]:
             break
@@ -80,32 +80,30 @@ def chunk(model, sample):
 
 
 def benchmark():
-    profile = json.loads((FIXTURES / "panda.json").read_text())
+    model = JointModel(json.loads((FIXTURES / "panda.json").read_text()), FIXTURES)
     corpus = json.loads((FIXTURES / "corpus.json").read_text())
-    baseline = copy.deepcopy(profile)
-    baseline["intrinsics"]["kinematics"]["ik"]["budget"] = {
-        "max_attempts": 1, "attempt_time_s": 1, "max_time_s": 1}
-    models = {"single_seed": JointDevice(baseline), "bounded_restarts": JointDevice(profile)}
+    budgets = {"single_seed": {"budget": {"max_attempts": 1, "attempt_time_s": 1, "max_time_s": 1}},
+               "bounded_restarts": {}}
     rng = random.Random(44)
-    rows, chunks, negatives = ({name: [] for name in models} for _ in range(3))
-    for model in models.values():
+    rows, chunks, negatives = ({name: [] for name in budgets} for _ in range(3))
+    for options in budgets.values():
         for case in corpus["cases"][:3]:
-            measure(model, case["goal"], case["seed"])
+            measure(model, options, case["goal"], case["seed"])
     for case in corpus["cases"]:
-        order = list(models)
+        order = list(budgets)
         rng.shuffle(order)
         for name in order:
             rows[name].append({"id": case["id"], "group": case["group"],
-                               **measure(models[name], case["goal"], case["seed"])})
+                               **measure(model, budgets[name], case["goal"], case["seed"])})
     for repeat in range(3):
         for index, sample in enumerate(corpus["chunks"]):
-            order = list(models)
+            order = list(budgets)
             rng.shuffle(order)
             for name in order:
-                chunks[name].append({"id": index, "repeat": repeat, **chunk(models[name], sample)})
-    for name, model in models.items():
+                chunks[name].append({"id": index, "repeat": repeat, **chunk(model, budgets[name], sample)})
+    for name, options in budgets.items():
         for case in corpus["cases"][:10]:
-            row = measure(model, [10, *case["goal"][1:]], case["seed"])
+            row = measure(model, options, [10, *case["goal"][1:]], case["seed"])
             assert not row["ok"], "accepted an out-of-reach target"
             negatives[name].append(row)
     summary = {name: {
@@ -116,12 +114,12 @@ def benchmark():
         "complete_chunks": summarize([row for row in chunks[name] if row["ok"]]),
         "max_chunk_joint_step_rad": max(row["max_joint_step_rad"] for row in chunks[name]),
         "negative_controls": summarize(negatives[name]),
-    } for name in models}
+    } for name in budgets}
     return {"metadata": {"python": platform.python_version(), "platform": platform.platform(),
-                         "timing": "warm in-process IK including final JointDevice FK verification; randomized method order",
+                         "timing": "warm in-process URDF IK including FK verification; randomized method order",
                          "baseline": "single seed, original 200-iteration DLS step, one-second guard",
-                         "budget": budget_options(models["bounded_restarts"].options),
-                         "tolerances": {key: models["bounded_restarts"].options[key]
+                         "budget": budget_options(kinematics.DEFAULTS),
+                         "tolerances": {key: kinematics.DEFAULTS[key]
                                         for key in ("position_tolerance_m", "rotation_tolerance_rad")}},
             "summary": summary, "poses": rows, "chunks": chunks, "negative_controls": negatives}
 

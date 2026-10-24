@@ -7,7 +7,7 @@ import path from 'node:path'
 test('setup imports only core package exports, Node APIs and declared dependencies', async () => {
   const root = fileURLToPath(new URL('../', import.meta.url))
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
-  for (const name of Object.keys(manifest.dependencies)) assert.doesNotMatch(name, /pi-coding-agent|opentui|anthropic|openai/)
+  for (const name of Object.keys(manifest.dependencies)) assert.doesNotMatch(name, /(^|\/)pi-|opentui|anthropic|openai/)
   for (const entry of await readdir(path.join(root, 'src'), { recursive: true })) {
     if (!entry.endsWith('.ts')) continue
     const file = path.join(root, 'src', entry)

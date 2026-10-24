@@ -9,7 +9,7 @@
     "parent": {
       "types": [
         "world",
-        "velocity",
+        "locomotion",
         "joint",
         "other"
       ]
@@ -19,7 +19,7 @@
   "produces": [
     {
       "role": "target",
-      "pointer": "/extrinsics/mount"
+      "pointer": "/frames/base"
     }
   ],
   "computes": [

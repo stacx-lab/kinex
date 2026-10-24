@@ -2,7 +2,7 @@ import { z } from "zod"
 import { define } from "./tool.ts"
 import { Recorder, type DeviceSpec } from "../record/recorder.ts"
 import { parseSpec } from "../record/spec.ts"
-import { recordingOutput } from "../record/output.ts"
+import { recordingOutput, recordingSummary } from "../record/output.ts"
 import DESCRIPTION from "./record.txt"
 
 // The agent's handle on the recorder: start | snap | stop | status. Starting
@@ -14,10 +14,13 @@ export const RecordTool = define("record", {
     action: z.enum(["snap", "start", "stop", "status"]),
     verbose: z.boolean().default(true).describe("keep all result fields; false omits empty optional annotations and bookkeeping"),
     devices: z
-      .union([z.array(z.string()), z.record(z.string(), z.number().positive())])
+      .union([z.array(z.string()), z.record(z.string(), z.union([
+        z.number().positive(),
+        z.strictObject({ rate: z.number().positive(), operations: z.array(z.string().min(1)).min(1).optional() }),
+      ]))])
       .optional()
       .describe(
-        'snap: device names ["arm", "wrist_cam"]; start: device → sampling rate in Hz {"arm": 10, "scene_cam": 2}',
+        'snap: device names; start: device → maximum Hz, or {rate, operations?}. Defaults to all declared topics.',
       ),
     instruction: z.string().optional().describe("snap: label for the moment; start: the task being attempted"),
     outcome: z.enum(["success", "failure", "partial"]).optional().describe("stop: how the task ended"),
@@ -38,7 +41,7 @@ export const RecordTool = define("record", {
         return { title: "start needs rates", output: 'give each device a rate in Hz, e.g. {"arm": 10, "wrist_cam": 2}', isError: true }
       const specs: Record<string, DeviceSpec> = {}
       for (const [name, raw] of Object.entries(requested)) {
-        const spec = parseSpec(raw)
+        const spec = typeof raw === "number" ? parseSpec(raw) : raw
         if (typeof spec === "string") return { title: "bad device spec", output: `${name}: ${spec}`, isError: true }
         specs[name] = spec
       }
@@ -64,22 +67,7 @@ export const RecordTool = define("record", {
       }
     }
     const status = await Recorder.status()
-    const recent = (await Recorder.recent(ctx.directory)).map((entry) => ({
-      id: entry.id,
-      kind: entry.kind,
-      name: entry.name,
-      task: entry.task,
-      dir: entry.dir,
-      started: entry.started,
-      ended: entry.ended,
-      outcome: entry.outcome,
-      status: entry.status,
-      endedBy: entry.endedBy,
-      error: entry.error,
-      elapsedS: Math.round(entry.wallMs / 1000),
-      devices: entry.devices,
-      mb: Math.round((entry.bytes / 1024 / 1024) * 10) / 10,
-    }))
+    const recent = (await Recorder.recent(ctx.directory)).filter(entry => entry.id !== status?.id).map(recordingSummary)
     return { title: status ? `recording ${status.id} running` : "no recording running", output: json({ running: status ?? null, recent }) }
   },
 })

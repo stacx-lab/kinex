@@ -1,8 +1,7 @@
 import { shortID } from "@kinex/core/util/id"
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { readFile, mkdir, rename, writeFile, stat } from "node:fs/promises"
-import { isDeepStrictEqual } from "node:util"
+import { readFile, mkdir, rename, writeFile } from "node:fs/promises"
 import { ProfileStore } from "@kinex/core/device/profile/store"
 import { parse as parseYaml } from "yaml"
 import { NamedError } from "@kinex/core/util/error"
@@ -17,11 +16,12 @@ export function digest(value: unknown): string {
 export async function location(cwd: string, relative: string) {
   return path.join(await ProfileStore.workspaceDir(cwd), RelativePath.parse(relative))
 }
+function absent(error: unknown): undefined {
+  if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined
+  throw error
+}
 export async function optionalText(file: string): Promise<string | undefined> {
-  return readFile(file, "utf8").catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined
-    throw error
-  })
+  return readFile(file, "utf8").catch(absent)
 }
 export async function atomicJSON(file: string, value: unknown) {
   await mkdir(path.dirname(file), { recursive: true })
@@ -37,10 +37,26 @@ export function pointer(value: unknown, selector: string): unknown {
   }
   return selected
 }
-export function known(value: unknown): boolean {
+function known(value: unknown): boolean {
   if (value === undefined || value === "???") return false
   if (value && typeof value === "object") return Object.values(value).every(known)
   return true
+}
+// Null frame components are unknown; null parents declare independent roots.
+function knownProfileFact(data: unknown, selector: string): boolean {
+  const value = pointer(data, selector)
+  if (!selector.startsWith("/frames")) return known(value)
+  const parts = selector.split("/")
+  const complete = (frame: unknown): boolean => {
+    if (!frame || typeof frame !== "object") return false
+    const parent = Reflect.get(frame, "parent")
+    return parent === null || (known(parent) && Reflect.get(frame, "translation_m") != null && Reflect.get(frame, "rotation_xyzw") != null && known(frame))
+  }
+  if (parts.length === 2) return !!value && typeof value === "object" && Object.values(value).every(complete)
+  if (parts.length === 3) return complete(value)
+  if (["translation_m", "rotation_xyzw"].includes(parts[3]!))
+    return value != null && pointer(data, `/frames/${parts[2]}/parent`) !== null && known(value)
+  return known(value)
 }
 /** Raw descriptions only: inspecting a plan must never resolve URDFs or prepare Python. */
 export async function profile(cwd: string, device?: string): Promise<unknown> {
@@ -48,32 +64,19 @@ export async function profile(cwd: string, device?: string): Promise<unknown> {
   const text = await optionalText(file)
   return text === undefined ? undefined : parseYaml(text)
 }
-export async function missingFacts(cwd: string, facts: Fact[]) {
-  const available = await Promise.all(facts.map(async fact => {
-    if (fact.kind === "file") {
-      const file = path.isAbsolute(fact.path) ? fact.path : await location(cwd, fact.path)
-      return stat(file).then(info => info.isFile()).catch((error: unknown) => {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") return false
-        throw error
-      })
-    }
-    const value = pointer(await profile(cwd, fact.device), fact.pointer)
-    return known(value) && (!Object.hasOwn(fact, "value") || isDeepStrictEqual(value, fact.value))
-  }))
-  return facts.filter((_fact, index) => !available[index])
-}
 export async function inspectFacts(cwd: string, facts: Fact[]) {
   const values = await Promise.all(facts.map(async fact => {
     if (fact.kind === "file") {
       const file = path.isAbsolute(fact.path) ? fact.path : await location(cwd, fact.path)
-      const bytes = await readFile(file).catch((error: unknown) => {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined
-        throw error
-      })
+      const bytes = await readFile(file).catch(absent)
       return { fact, value: bytes ? createHash("sha256").update(bytes).digest("hex") : undefined, available: bytes !== undefined }
     }
-    const value = pointer(await profile(cwd, fact.device), fact.pointer)
-    return { fact, value, available: known(value) && (!Object.hasOwn(fact, "value") || digest(value) === digest(fact.value)) }
+    const data = await profile(cwd, fact.device)
+    const value = pointer(data, fact.pointer)
+    return { fact, value, available: knownProfileFact(data, fact.pointer) && (!Object.hasOwn(fact, "value") || digest(value) === digest(fact.value)) }
   }))
   return { hash: digest(values), missing: values.filter(value => !value.available).map(value => value.fact), values }
+}
+export async function missingFacts(cwd: string, facts: Fact[]) {
+  return (await inspectFacts(cwd, facts)).missing
 }

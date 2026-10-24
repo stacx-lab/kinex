@@ -1,9 +1,12 @@
+import { sampleDevice } from "@kinex/core/device/sample"
 import { setTimeout as delay } from "node:timers/promises"
-import { deviceJoints, isJoint, known } from "@kinex/core/device/profile/schema"
+import { deviceJoints, isJoint, known, type Device } from "@kinex/core/device/profile/schema"
+import { linkPose } from "@kinex/core/device/device-model"
+import { deviceTree, modelErrors } from "@kinex/core/device/profile/urdf"
 import path from "node:path"
 import { z } from "zod"
 import { define } from "@kinex/core/tool/tool"
-import { noRobot, unknownDevice, unloadedDevice, dispatchDevice } from "@kinex/core/tool/device/shared"
+import { unknownDevice, unloadedDevice } from "@kinex/core/tool/device/shared"
 import { ProfileStore } from "@kinex/core/device/profile/store"
 import { readJson } from "@kinex/core/util/filesystem"
 import { AttemptInput, attempt, saveAttempt, archive } from "../calibration/attempt.ts"
@@ -12,14 +15,54 @@ import { fail, atomicJSON } from "../planning/facts.ts"
 import { formatJSON } from "@kinex/core/util/json"
 import DESCRIPTION from "./calib_sample.txt"
 
+type Reading = Record<string, unknown> | undefined
+
+// A joint-state reading's values by joint name.
+function measured(data: Reading, key: "positions" | "velocities") {
+  const names = z.array(z.string()).parse(data?.joint_names)
+  const values = z.array(z.number()).parse(data?.[key])
+  if (values.length !== names.length) throw new Error(`joint state ${key} must match its joint names`)
+  return Object.fromEntries(names.map((name, index) => [name, values[index]!]))
+}
+
+const xyz = z.object({ x: z.number(), y: z.number(), z: z.number() })
+const Odometry = z.object({
+  header: z.object({ stamp: z.object({ sec: z.number(), nanosec: z.number() }) }),
+  twist: z.object({ twist: z.object({ linear: xyz, angular: xyz }) }),
+})
+const TWIST = { vx: ["linear", "x"], vy: ["linear", "y"], vz: ["linear", "z"], wx: ["angular", "x"], wy: ["angular", "y"], wz: ["angular", "z"] } as const
+
+// Settling motion: a joint device's commanded joints, or a locomotion device's
+// declared velocity axes measured by odometry.
+function motionReader(device: Device): (data: Reading) => { velocities: number[], stamp: number } {
+  if (device.type === "locomotion") {
+    const declared = known(device.velocity) && device.velocity ? device.velocity.axes : {}
+    const paths = Object.entries(TWIST).flatMap(([axis, path]) => Object.hasOwn(declared, axis) ? [path] : [])
+    if (!paths.length) throw new Error("settling requires declared velocity axes")
+    return data => {
+      const { header: { stamp }, twist: { twist } } = Odometry.parse(data)
+      return { stamp: stamp.sec + stamp.nanosec / 1e9, velocities: paths.map(([part, axis]) => twist[part][axis]) }
+    }
+  }
+  if (!isJoint(device)) throw new Error("settling requires measured velocities")
+  const names = deviceJoints(device).map(joint => joint.name)
+  return data => {
+    const velocities = measured(data, "velocities")
+    return {
+      stamp: z.number().parse(data?.timestamp),
+      velocities: names.map(name => velocities[name] ?? fail(`settling requires a measured velocity for ${name}`)),
+    }
+  }
+}
+
 export const CalibSampleTool = define("calib_sample", {
   description: DESCRIPTION,
   recordingOrigin: "agent",
   parameters: z.strictObject({
     deviceID: z.string().describe("device to sample, e.g. arm"),
     ...AttemptInput.shape,
-    args: z.record(z.string(), z.unknown()).optional().describe("arguments for the driver action"),
-    frame: z.string().min(1).optional().describe("joint-device frame to compute through FK from this sample"),
+    args: z.record(z.string(), z.unknown()).optional().describe("arguments for the observation operation"),
+    frame: z.string().min(1).optional().describe("joint-device URDF link whose pose to compute through FK from this sample"),
     settle: z
       .object({
         velocity_threshold: z.number().nonnegative().default(0.005).describe("max |joint velocity| that counts as settled"),
@@ -31,36 +74,24 @@ export const CalibSampleTool = define("calib_sample", {
     note: z.string().optional().describe("label stored with the sample, e.g. 'touch 3, rolled +45deg'"),
   }),
   execute: async (args, ctx) => {
-    const robot = await ProfileStore.readManifest(ctx.directory)
-    if (!robot) return noRobot()
     const device = await ProfileStore.readDevice(ctx.directory, args.deviceID)
     if (!device) return unknownDevice(args.deviceID)
     if (!device.loaded) return unloadedDevice(device)
-    if (args.frame !== undefined && device.type !== "joint" && device.type !== "dexterous_hand") fail("frame requires a joint device")
-    if (device.access?.driver)
+    if (args.frame !== undefined && !(isJoint(device) && deviceTree(device)?.links.includes(args.frame)))
+      fail(modelErrors.get(device) ?? `frame must name a URDF link of joint device ${device.name}`)
+    const settle = args.settle && { ...args.settle, motion: motionReader(device) }
+    if (device.runtime)
       await ctx.ask({ permission: "device_read", description: `sample read from ${device.name} (${args.run ?? args.procedure ?? args.node})` })
 
     const run = await attempt(ctx.directory, args)
     if (!Object.values(run.bindings).includes(args.deviceID)) fail("Sample device must be a bound attempt participant")
-    const settle = args.settle
-    const count = (() => {
-      if (!settle) return 0
-      if (isJoint(device) && known(device.intrinsics.feedback) && device.intrinsics.feedback.velocities) return deviceJoints(device).length
-      if (device.type === "velocity" && known(device.intrinsics.feedback) && known(device.intrinsics.feedback.velocity_components)) return device.intrinsics.feedback.velocity_components.length
-      return 0
-    })()
-    if (settle && !count) throw new Error("settling requires declared measured velocities")
     const timer = settle ? AbortSignal.timeout(Math.ceil(settle.timeout_s * 1000)) : undefined
     const signal = timer ? AbortSignal.any([ctx.abort, timer]) : ctx.abort
-    const read = () => dispatchDevice(ctx.directory, device, "read", args.args ?? {}, undefined, signal)
+    const read = () => sampleDevice(ctx.directory, device, args.args ?? {}, undefined, signal)
     const state = { reading: await read(), settled: false, stable: 0, stamp: -Infinity }
     if (settle) for (;;) {
       ctx.abort.throwIfAborted()
-      const data = state.reading.data
-      const faults = z.array(z.unknown()).parse(data?.faults)
-      if (faults.length) throw new Error(`cannot settle with faults: ${JSON.stringify(faults)}`)
-      const velocities = z.array(z.number()).length(count).parse(data?.velocities)
-      const stamp = z.number().parse(data?.timestamp)
+      const { velocities, stamp } = settle.motion(state.reading.data)
       if (stamp < state.stamp) throw new Error("sample clock moved backwards")
       if (stamp > state.stamp) {
         state.stable = velocities.every((v) => Math.abs(v) <= settle.velocity_threshold) ? state.stable + 1 : 0
@@ -77,9 +108,9 @@ export const CalibSampleTool = define("calib_sample", {
     }
     ctx.abort.throwIfAborted()
     const { reading, settled } = state
-    const kinematics = args.frame === undefined ? undefined : (await dispatchDevice(ctx.directory, device, "fk", {
-      joints: reading.data?.positions, frame: args.frame, reference_frame: null,
-    }, undefined, ctx.abort)).data
+    const kinematics = args.frame === undefined ? undefined : {
+      frame: args.frame, pose: await linkPose(ctx.directory, device, args.frame, measured(reading.data, "positions"), ctx.abort),
+    }
 
     const dir = await saveAttempt(ctx.directory, run)
     return serialized(dir, async () => {
@@ -93,7 +124,6 @@ export const CalibSampleTool = define("calib_sample", {
         index: samples.length,
         recorded_at: new Date().toISOString(),
         device: device.name,
-        action: "read",
         // Only claim settledness when it was actually checked.
         ...(settle ? { settled } : {}),
         ...(args.note ? { note: args.note } : {}),

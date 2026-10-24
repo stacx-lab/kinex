@@ -3,7 +3,7 @@
   "roles": {
     "base": {
       "types": [
-        "velocity"
+        "locomotion"
       ]
     }
   },

@@ -1,7 +1,6 @@
 import { field } from "./common.ts"
 import { z } from "zod"
 import { SensorChannel as ForceTorqueChannel } from "./sensor.ts"
-export { SensorChannel as ForceTorqueChannel, SensorConnection as ForceTorqueConnection } from "./sensor.ts"
 
 export const ForceTorqueMeasurement = z.strictObject({
   quantity: field(z.enum(["transmitted", "external", "contact_normal", "contact_total", "actuation"])),

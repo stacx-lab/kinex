@@ -1,11 +1,15 @@
 import { parse as parseYaml } from "yaml"
+import { NamedError } from "../../util/error.ts"
 import { z } from "zod"
 import { resolveDeviceModel } from "../device-model.ts"
 import path from "node:path"
 import fs from "node:fs/promises"
+import { isDeepStrictEqual } from "node:util"
 import { ConfigPaths } from "../../config/paths.ts"
 import { exists } from "../../util/filesystem.ts"
 import { toYaml } from "../../util/yaml.ts"
+import { deepMerge } from "../../util/json.ts"
+import { deviceFrames, frameErrors } from "./frames.ts"
 import { RobotManifest, Device } from "./schema.ts"
 import { create } from "../../util/log.ts"
 
@@ -14,12 +18,12 @@ const object = z.record(z.string(), z.unknown())
 export interface ProfileSnapshot { robot?: RobotManifest; devices: Device[] }
 
 // Explicit replacement applies only to supplied top-level sections.
-function mergeSections(existing: Record<string, unknown>, patch: Record<string, unknown>, replace: readonly string[], allowed: readonly string[]) {
+function mergeSections(existing: Record<string, unknown>, patch: Record<string, unknown>, replace: readonly string[], allowed: readonly string[], removable: readonly string[] = ["access"]) {
   const merged = deepMerge(existing, patch)
   for (const key of replace) {
     if (!allowed.includes(key) || !Object.hasOwn(patch, key)) throw new Error(`replace needs a supplied section: ${key}`)
     if (patch[key] === null) {
-      if (!["access", "extrinsics", "sim"].includes(key)) throw new Error(`cannot remove required section ${key}`)
+      if (!removable.includes(key)) throw new Error(`cannot remove required section ${key}`)
       delete merged[key]
       continue
     }
@@ -31,20 +35,24 @@ function mergeSections(existing: Record<string, unknown>, patch: Record<string, 
   return merged
 }
 
-async function validateClears(cwd: string, patch: Record<string, unknown>, snapshot: ProfileSnapshot, name?: string) {
+async function validateClears(patch: Record<string, unknown>, snapshot: ProfileSnapshot, name?: string) {
   const { checkReadinessItem } = await import("./readiness.ts")
+  if (name && patch.needs_calibration === null) {
+    const check = checkReadinessItem(snapshot, `profile:${name}`)
+    if (!check.done) throw new Error(`cannot clear profile:${name}: ${check.detail}`)
+  }
   for (const [key, value] of Object.entries(patch)) {
     if (object.safeParse(value).data?.needs_calibration !== null) continue
     const item = name ? `${key}:${name}` : Object.entries(ROBOT_ITEMS).find(([, section]) => section === key)?.[0]
     if (!item) throw new Error(`no calibration item for section ${key}`)
-    const check = await checkReadinessItem(cwd, snapshot, item)
+    const check = checkReadinessItem(snapshot, item)
     if (!check.done) throw new Error(`cannot clear ${item}: ${check.detail}`)
   }
 }
 
 
 // One robot configuration per workspace, under .kinex/:
-//   workspace.yaml, devices/<name>/{profile.yaml,driver.py}, lib/, skill/,
+//   workspace.yaml, devices/<name>/{profile.yaml,node.py}, lib/, skill/,
 //   docs/, calib/<routine>[-<device>].json, recordings/<id>/.
 
 // A derived view of the needs-calibration queue (markers live IN the profile
@@ -61,7 +69,7 @@ const ROBOT_ITEMS = {
   "devices-declared": "devices",
   safety: "safety",
 } as const
-const DEVICE_SECTIONS = ["access", "intrinsics", "extrinsics"] as const
+const DEVICE_SECTIONS = ["access", "profile"] as const
 type DeviceSection = (typeof DEVICE_SECTIONS)[number]
 
 type ResolvedItem = { kind: "robot"; section: string } | { kind: "device"; section: DeviceSection; name: string }
@@ -73,7 +81,7 @@ function resolveItem(itemID: string): ResolvedItem {
     const name = itemID.slice(colon + 1)
     const section = DEVICE_SECTIONS.find((entry) => entry === head)
     if (!section)
-      throw new Error(`unknown calibration item "${itemID}" — device items are access:<device>, intrinsics:<device>, extrinsics:<device>`)
+      throw new Error(`unknown calibration item "${itemID}" — device items are access:<device>, profile:<device>`)
     if (!name) throw new Error(`device item "${itemID}" needs a device name suffix, e.g. ${head}:wrist_cam`)
     return { kind: "device", section, name }
   }
@@ -82,38 +90,19 @@ function resolveItem(itemID: string): ResolvedItem {
   return { kind: "robot", section }
 }
 
-function deepMerge(target: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...target }
-  for (const [key, value] of Object.entries(patch)) {
-    const existing = result[key]
-    if (
-      value &&
-      existing &&
-      typeof value === "object" &&
-      typeof existing === "object" &&
-      !Array.isArray(value) &&
-      !Array.isArray(existing)
-    ) {
-      result[key] = deepMerge(existing as Record<string, unknown>, value as Record<string, unknown>)
-      continue
-    }
-    result[key] = value
-  }
-  return result
-}
-
 async function readYaml(file: string): Promise<Record<string, unknown> | undefined> {
   if (!(await exists(file))) return undefined
-  const text = await fs.readFile(file, "utf-8")
-  const parsed = (() => {
-    try {
-      return parseYaml(text)
-    } catch {
-      return undefined
-    }
-  })()
-  if (typeof parsed !== "object" || parsed === null) return undefined
-  return parsed as Record<string, unknown>
+  let document: unknown
+  try { document = parseYaml(await fs.readFile(file, "utf-8")) }
+  catch (error) { throw new NamedError("ProfileFileError", `${file}: ${error instanceof Error ? error.message : String(error)}`) }
+  const parsed = object.safeParse(document)
+  if (!parsed.success) throw new NamedError("ProfileFileError", `${file}: expected a YAML mapping`)
+  return parsed.data
+}
+
+// What a loaded device's host was started from; it changes only across unload.
+function definition({ type, runtime, operations }: Device) {
+  return { type, runtime, operations }
 }
 
 async function writeYaml(file: string, value: unknown): Promise<void> {
@@ -138,13 +127,13 @@ export const ProfileStore = {
   async writeManifest(cwd: string, patch: Record<string, unknown>, replace: readonly string[] = []): Promise<RobotManifest> {
     const file = path.join(await ProfileStore.workspaceDir(cwd), "workspace.yaml")
     const existing = (await readYaml(file)) ?? {}
-    const merged = mergeSections(existing, patch, replace, ["identity", "sim", "devices", "safety"])
+    const merged = mergeSections(existing, patch, replace, ["identity", "devices", "safety"])
     const now = new Date().toISOString()
     const meta = (merged["meta"] as Record<string, unknown> | undefined) ?? { created_at: now }
     merged["meta"] = { ...meta, updated_at: now }
     const manifest = RobotManifest.parse(merged)
     if (Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null))
-      await validateClears(cwd, patch, { robot: manifest, devices: await ProfileStore.listDevices(cwd) })
+      await validateClears(patch, { robot: manifest, devices: await ProfileStore.listDevices(cwd) })
     await writeYaml(file, manifest)
     return manifest
   },
@@ -164,19 +153,20 @@ export const ProfileStore = {
     if (typeof patch.name !== "string" || patch.name === "") throw new Error("device patch needs a non-empty name")
     const file = await ProfileStore.deviceFile(cwd, patch.name)
     const existing = (await readYaml(file)) ?? {}
-    // Merging across union variants would interleave two intrinsics shapes —
+    // Merging across union variants would interleave unrelated fact shapes —
     // a retype replaces the file wholesale instead.
     const retyped = typeof existing["type"] === "string" && typeof patch["type"] === "string" && existing["type"] !== patch["type"]
-    if (replace.includes("extrinsics") && patch.extrinsics === null && !["model", "detection", "segmentation", "world"].includes(String(patch.type ?? existing.type)))
-      throw new Error("cannot remove required section extrinsics")
-    const merged = mergeSections(retyped ? {} : existing, patch, replace, DEVICE_SECTIONS)
+    const merged = mergeSections(retyped ? {} : existing, patch, replace, Object.keys(patch), ["access", "runtime"])
     const now = new Date().toISOString()
     const meta = (retyped ? undefined : (merged["meta"] as Record<string, unknown> | undefined)) ?? { created_at: now }
     merged["meta"] = { ...meta, updated_at: now }
-    const device = await resolveDeviceModel(Device.parse(merged), path.dirname(file), retyped || Object.keys(object.safeParse(patch.intrinsics).data ?? {}).some((key) => key !== "needs_calibration"))
-    if (Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null)) {
+    const parsed = Device.parse(merged)
+    if (existing.loaded && existing.runtime && !isDeepStrictEqual(definition(Device.parse(existing)), definition(parsed)))
+      throw new Error("unload before changing the device type, runtime or operations")
+    const device = await resolveDeviceModel(parsed, path.dirname(file), retyped || ["model", "grip", "home", "frames"].some(key => key in patch))
+    if (patch.needs_calibration === null || Object.values(patch).some((value) => object.safeParse(value).data?.needs_calibration === null)) {
       const snapshot = await ProfileStore.snapshot(cwd)
-      await validateClears(cwd, patch, { ...snapshot, devices: [...snapshot.devices.filter((entry) => entry.name !== device.name), device] }, device.name)
+      await validateClears(patch, { ...snapshot, devices: [...snapshot.devices.filter((entry) => entry.name !== device.name), device] }, device.name)
     }
     await writeYaml(file, device)
     return device
@@ -187,8 +177,7 @@ export const ProfileStore = {
     if (!raw) return undefined
     const parsed = Device.safeParse(raw)
     if (!parsed.success) {
-      log.warn(`invalid device profile ${name}`, { issues: parsed.error.issues.length })
-      return undefined
+      throw new NamedError("DeviceProfileError", `${name}: invalid profile; use top-level facts and frames.base with explicit device:frame parents (null for roots). ${parsed.error.message}`)
     }
     return resolveDeviceModel(parsed.data, await ProfileStore.deviceDir(cwd, name))
   },
@@ -199,10 +188,22 @@ export const ProfileStore = {
     const devices: Device[] = []
     for (const entry of (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       if (!entry.isDirectory()) continue
-      const parsed = Device.safeParse(await readYaml(path.join(dir, entry.name, "profile.yaml")))
-      if (parsed.success) devices.push(await resolveDeviceModel(parsed.data, path.join(dir, entry.name)))
+      const device = await ProfileStore.readDevice(cwd, entry.name)
+      if (device) devices.push(device)
     }
     return devices
+  },
+
+  async validateFrames(cwd: string, name: string): Promise<void> {
+    const devices = await ProfileStore.listDevices(cwd)
+    const required = new Set([name])
+    for (const current of required) {
+      const device = devices.find(device => device.name === current)
+      for (const frame of Object.values(device ? deviceFrames(device) : {}))
+        if (frame.parent !== null) required.add(frame.parent.split(":")[0]!)
+    }
+    const errors = frameErrors(devices.filter(device => required.has(device.name)))
+    if (errors.length) throw new NamedError("DeviceFrameError", errors.join("; "))
   },
 
   // The /load and /unload switch: whether the agent may read from the device.
@@ -226,7 +227,7 @@ export const ProfileStore = {
       if (note) entries.push({ item, note })
     }
     for (const device of devices) for (const section of DEVICE_SECTIONS) {
-      const note = device[section]?.needs_calibration
+      const note = (section === "profile" ? device : device.access)?.needs_calibration
       if (note) entries.push({ item: `${section}:${device.name}`, note })
     }
     return entries
@@ -243,21 +244,12 @@ export const ProfileStore = {
       const device = await ProfileStore.readDevice(cwd, resolved.name)
       if (!device) throw new Error(`unknown device "${resolved.name}" — declare it first`)
       const { checkReadinessItem } = await import("./readiness.ts")
-      await checkReadinessItem(cwd, await ProfileStore.snapshot(cwd), itemID)
-      await ProfileStore.writeDevice(cwd, { name: resolved.name, [resolved.section]: { needs_calibration: fix } })
+      checkReadinessItem(await ProfileStore.snapshot(cwd), itemID)
+      await ProfileStore.writeDevice(cwd, { name: resolved.name, ...(resolved.section === "profile" ? { needs_calibration: fix } : { access: { needs_calibration: fix } }) })
       return
     }
     await ProfileStore.writeManifest(cwd, {
       [resolved.section]: { needs_calibration: fix },
     })
-  },
-
-  async clearNeeded(cwd: string, itemID: string): Promise<void> {
-    const resolved = resolveItem(itemID)
-    if (resolved.kind === "device") {
-      await ProfileStore.writeDevice(cwd, { name: resolved.name, [resolved.section]: { needs_calibration: null } })
-      return
-    }
-    await ProfileStore.writeManifest(cwd, { [resolved.section]: { needs_calibration: null } })
   },
 }

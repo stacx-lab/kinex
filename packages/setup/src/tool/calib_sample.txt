@@ -7,16 +7,19 @@ RGBD readings. Both copies must succeed before a sample is appended.
 Use note to identify the collection step. Samples
 contain measured state and timestamps; this tool cannot command or load devices.
 
-Optional settle waits for the declared measured velocity channels to remain below
-the threshold over distinct samples. Unsupported/malformed feedback and faults are
-errors. Cached readings do not establish stability. A timeout after a reading saves
-that reading with settled:false; cancellation saves nothing. Without settle, the
-sample makes no claim of stationary motion. Settling supports joint devices,
-dexterous hands and velocity devices with declared measured velocity channels.
+Optional settle waits for measured velocities to remain below the threshold over
+distinct samples. Unsupported or malformed feedback is an error. Cached readings
+do not establish stability. A timeout after a reading saves that reading with
+settled:false; cancellation saves nothing. Without settle, the sample makes no
+claim of stationary motion. Settling supports joint devices whose joint states
+measure every commanded joint's velocity, and locomotion devices whose odometry
+measures their declared velocity axes; their runtime.observation must name the
+odometry operation.
 This blocking sampler does not advance simulator time; arrange world waits
 outside the sampler when collecting simulation evidence.
 
-For joint devices, optional frame computes FK from that exact sample and stores
-kinematics with pose, frame and reference_frame:null alongside the measured data.
-Use it for TCP calibration; joint-device reads contain no frame poses. FK and
-artifact capture still run after a settle timeout, subject to caller cancellation.
+For joint devices, optional frame names a URDF link; FK from that exact sample's
+positions stores kinematics with frame and pose in the device base alongside the
+measured data. Use it for TCP calibration; joint-device reads contain no link
+poses. FK and artifact capture still run after a settle timeout, subject to caller
+cancellation.

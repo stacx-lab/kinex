@@ -35,15 +35,15 @@ def main() -> None:
         import cv2
         import numpy as np
     except ImportError:
-        fail('missing deps in the selected interpreter — for core Python use uv add --project <python.project> "opencv-python>=4.7" numpy')
+        fail("Kinex Python lacks opencv-python>=4.7 or numpy; add them to the Kinex Python project")
 
     image = cv2.imread(args.image, cv2.IMREAD_GRAYSCALE)
     if image is None:
         fail(f"could not read {args.image}")
     import yaml
-    from kinex.camera import ray
+    from kinex.lib.camera import ray
     with open(args.profile) as handle:
-        color = yaml.safe_load(handle)["intrinsics"]["color"]
+        color = yaml.safe_load(handle)["color"]
     if (image.shape[1], image.shape[0]) != (color["width"], color["height"]):
         fail("image resolution differs from the camera profile")
     camera_matrix = np.eye(3, dtype=np.float64)
@@ -73,7 +73,7 @@ def main() -> None:
     if not ok:
         fail("solvePnP failed on the detected corners")
     projected, _ = cv2.projectPoints(obj, rvec, tvec, camera_matrix, dist)
-    from kinex.camera import project
+    from kinex.lib.camera import project
     projected_pixels = np.array([project(color, [x, y, 1]) for x, y in projected.reshape(-1, 2)])
     deltas = np.asarray(img).reshape(-1, 2) - projected_pixels
     reproj = float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1))))

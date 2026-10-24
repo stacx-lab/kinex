@@ -40,7 +40,7 @@ Read the [documentation website](https://stacx-lab.github.io/kinex/docs/) for
 setup guides, concepts and command references.
 
 <p align="center">
-  <img src="assets/architecture.svg" alt="Kinex architecture: agents load skills and call tools or devices, whose drivers connect to hardware, simulators and services." width="640">
+  <img src="assets/architecture.svg" alt="Kinex architecture: agents load skills and call tools or devices, whose nodes connect to hardware, simulators and services." width="640">
 </p>
 
 ## News
@@ -64,8 +64,10 @@ kinex
 ```
 
 Use `/login` to connect a model provider and `/model` to choose a model.
-Default Python tools and drivers use a uv-managed Python ≥3.11 environment;
-install uv before first use. Video encoding requires ffmpeg.
+Python execution uses a workspace-owned environment: uv for non-ROS workspaces,
+or independent Pixi/RoboStack Jazzy for ROS. Exec, helpers and recording share
+Kinex Python; device SDK interpreters are optional overrides for device nodes only.
+See [environment setup](docs/communication.md#kinex-python).
 
 You can also run a single task, resume a session, or update from the shell:
 
@@ -85,49 +87,20 @@ for in-session commands.
 
 ## Use Kinex with Simulators
 
-[RoboEnv](https://github.com/stacx-lab/RoboEnv) exposes simulated robots as Kinex
-devices. Follow the [simulator setup guide](https://stacx-lab.github.io/kinex/docs/simulators/#1-launch-a-simulator),
-then prepare RoboTwin and launch the block-handover task from the RoboEnv checkout:
+Kinex 2.0 uses typed ROS topics and services. The sibling `rosbridge` checkout
+runs LIBERO as a ROS graph that speaks the Kinex device contract and exports
+workspaces for its robots, such as `rosbridge setup libero/libero-panda-tabletop`.
+The exported profiles carry their calibration and borrow the simulator's
+endpoints directly. Start rosbridge separately; execution mode belongs to the
+externally launched world.
 
 ```sh
-source .venv/bin/activate
-roboenv prepare robotwin
-roboenv launch robotwin/handover-block-aloha-agilex --port 8123 --record ./recordings/demo
+rosbridge setup libero/libero-panda-tabletop --directory ../workspace_libero --domain-id 83
+rosbridge launch libero/libero-spatial-01 --execution-mode stepped --domain-id 83
 ```
 
-The `--record ./recordings/demo` option records the episode as videos in that
-directory (requires FFmpeg). Omit it if you do not want to record.
-
-Wait for `Ready` and leave it running. In a second terminal, create a workspace
-and export the task's paired Aloha AgileX devices. `launch` takes the **task ID**;
-`setup` takes its **robot ID**:
-
-```sh
-source /path/to/RoboEnv/.venv/bin/activate
-mkdir -p kinex-sim-workspace
-cd kinex-sim-workspace
-roboenv setup robotwin/robotwin-aloha-agilex
-export ROBOENV_ENDPOINT=http://127.0.0.1:8123
-kinex
-```
-
-Replace `/path/to/RoboEnv` with your checkout. In Kinex, run `/load all` and
-`/ping all`, then ask:
-
-> Use the left arm to grasp the red block on the table, hand it over to the right
-> arm, and set it down in the center of the blue pad. Release it with the right
-> gripper open.
-
-After the task finishes, press Ctrl-C in the RoboEnv terminal to close the
-simulator. If you'd like to review the handover, inspect the recorded videos in
-`recordings/demo` under your RoboEnv checkout.
-
-To try other tasks,
-use `roboenv tasks list --simulator robotwin` and
-`roboenv robots list --simulator robotwin`; the task YAML's `robot:` field gives
-its paired robot ID. See the
-[simulator walkthrough](https://stacx-lab.github.io/kinex/docs/simulators/)
-for more setup and connection details.
+See [ROS communication](docs/communication.md) for the operation and Python
+contracts.
 
 ## Use Kinex with Real-World Robots
 

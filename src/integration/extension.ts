@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises"
 import { Type } from "typebox"
 import { Text } from "@earendil-works/pi-tui"
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent"
@@ -8,10 +7,11 @@ import type { KinexCapabilities } from "@kinex/core/integration"
 import { registerCommands, executeCommand } from "./commands.ts"
 import type { RoboticsOwner } from "./owner.ts"
 import { contextUpdate } from "./context.ts"
-import { toolBridge, registerSkillTool } from "./tools.ts"
+import { toolBridge } from "./tools.ts"
 import { footerIndicator } from "./footer.ts"
 import { formatElapsed, sessionTime, sessionTimeEntry } from "./session-time.ts"
 import type { CompactionControl } from "./compaction.ts"
+import INSTRUCTIONS from "./instructions.txt"
 
 export interface SessionControl {
   prompt(text: string): Promise<void>
@@ -21,8 +21,6 @@ export interface SessionControl {
 
 export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capabilities: KinexCapabilities, report: (text: string) => void, session: SessionControl): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
-    const instructions = await readFile(new URL("./instructions.txt", import.meta.url), "utf8")
-    registerSkillTool(pi, capabilities)
     const bridge = toolBridge(pi, capabilities, owner.interaction)
     await bridge.refresh()
     let unsubscribe: (() => void) | undefined
@@ -48,7 +46,8 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         const result = await executeCommand(command, args, ctx)
         if (result.kind === "workflow") await session.prompt(result.prompt)
         else {
-          pi.sendMessage({ customType: "kinex", content: result.text, display: true }, { triggerTurn: false })
+          // The model sees this result, so it states which user command produced it.
+          pi.sendMessage({ customType: "kinex", content: `User ran /${[name, args.trim()].filter(Boolean).join(" ")}:\n${result.text}`, display: true }, { triggerTurn: false })
           if (!ctx.hasUI) report(result.text)
           if (result.isError) owner.failure = new Error(result.text)
         }
@@ -92,7 +91,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       })
       await indicator.bind(runtime, ctx)
       for (const activation of await runtime.devices.warmLoaded()) void activation.ready.catch(error => notify(ctx, `${activation.device.name}: ${String(error)}`, "error"))
-      await bridge.refreshActive(ctx)
+      await bridge.refreshActive()
       await status(ctx)
     })
     pi.on("session_shutdown", async event => {
@@ -107,9 +106,9 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       else await owner.leaveSession()
     })
     pi.on("before_agent_start", async (event, ctx) => {
-      const problems = await bridge.refreshActive(ctx)
+      const problems = await bridge.refreshActive()
       const context = await contextUpdate(capabilities, ctx, problems)
-      event.systemPromptOptions.sections.kinex = `${instructions}\n\n${context.instructions}`
+      event.systemPromptOptions.sections.kinex = `${INSTRUCTIONS}\n\n${context.instructions}`
       const failure = session.compaction.recover()
       if (failure && owner.failure === failure) owner.failure = undefined
       return { message: context.message }
@@ -129,7 +128,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     pi.on("session_compact", async (_event, ctx) => {
       session.compaction.end()
       try {
-        const problems = await bridge.refreshActive(ctx)
+        const problems = await bridge.refreshActive()
         const context = await contextUpdate(capabilities, ctx, problems)
         if (context.message) session.compaction.append(context.message)
         const failure = session.compaction.recover()
@@ -162,7 +161,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     pi.on("turn_end", async (_event, ctx) => {
       owner.observeMessages(ctx)
       if (ctx.signal?.aborted) return
-      const problems = await bridge.refreshActive(ctx)
+      const problems = await bridge.refreshActive()
       const context = await contextUpdate(capabilities, ctx, problems)
       // Pi flushes these after the complete tool batch, before preparing the next
       // request. Updating context must not start another turn after a final reply.

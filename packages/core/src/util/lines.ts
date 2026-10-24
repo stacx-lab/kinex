@@ -1,9 +1,8 @@
 import { NamedError } from "./error.ts"
 
-// Buffered line reading over a subprocess stdout stream — shared by the device
-// driver runner (per-call deadline) and the python tool runner (whole-invocation
-// deadline). The deadline is ABSOLUTE (epoch ms); callers map LineTimeoutError
-// and EOF (undefined) onto their own typed errors.
+// Buffered line reading over a subprocess stdout stream, shared by the ROS
+// device hosts and the Python tool runner. The deadline is ABSOLUTE (epoch ms);
+// callers map LineTimeoutError and EOF (undefined) onto their own typed errors.
 
 export class LineTimeoutError extends NamedError {
   constructor() {
@@ -12,13 +11,21 @@ export class LineTimeoutError extends NamedError {
 }
 
 export interface LineSource {
-  next(): Promise<{ done?: boolean; value?: Uint8Array }>
+  /** The next decoded chunk; undefined once the stream ends. */
+  next(): Promise<string | undefined>
   buffer: string
 }
 
 export function lineSource(stream: ReadableStream<Uint8Array>): LineSource {
   const reader = stream.getReader()
-  return { next: () => reader.read(), buffer: "" }
+  const decoder = new TextDecoder()
+  return {
+    buffer: "",
+    next: async () => {
+      const { done, value } = await reader.read()
+      return done ? undefined : decoder.decode(value, { stream: true })
+    },
+  }
 }
 
 // The next non-empty line, trimmed; undefined once the stream ends.
@@ -39,7 +46,7 @@ export async function readLine(source: LineSource, deadline: number): Promise<st
       source.next(),
       new Promise<never>((_, reject) => { timer.value = setTimeout(() => reject(new LineTimeoutError()), remaining) }),
     ]).finally(() => clearTimeout(timer.value))
-    if (chunk.done) return undefined
-    source.buffer += new TextDecoder().decode(chunk.value)
+    if (chunk === undefined) return undefined
+    source.buffer += chunk
   }
 }

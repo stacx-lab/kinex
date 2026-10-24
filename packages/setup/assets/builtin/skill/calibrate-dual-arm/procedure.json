@@ -13,53 +13,63 @@
     },
     "anchor_tcp": {
       "types": [
-        "gripper"
+        "gripper",
+        "suction"
       ]
     },
     "second_tcp": {
       "types": [
-        "gripper"
+        "gripper",
+        "suction"
       ]
     }
   },
   "requires": [
     {
-      "role": "anchor_tcp",
-      "pointer": "/extrinsics/mount/translation_m"
+      "role": "anchor",
+      "pointer": "/model"
+    },
+    {
+      "role": "second",
+      "pointer": "/model"
     },
     {
       "role": "anchor_tcp",
-      "pointer": "/extrinsics/mount/rotation_xyzw"
-    },
-    {
-      "role": "second_tcp",
-      "pointer": "/extrinsics/mount/translation_m"
-    },
-    {
-      "role": "second_tcp",
-      "pointer": "/extrinsics/mount/rotation_xyzw"
+      "pointer": "/frames/base/translation_m"
     },
     {
       "role": "anchor_tcp",
-      "pointer": "/intrinsics/frames/tcp/translation_m"
+      "pointer": "/frames/base/rotation_xyzw"
+    },
+    {
+      "role": "second_tcp",
+      "pointer": "/frames/base/translation_m"
+    },
+    {
+      "role": "second_tcp",
+      "pointer": "/frames/base/rotation_xyzw"
     },
     {
       "role": "anchor_tcp",
-      "pointer": "/intrinsics/frames/tcp/rotation_xyzw"
+      "pointer": "/frames/tcp/translation_m"
+    },
+    {
+      "role": "anchor_tcp",
+      "pointer": "/frames/tcp/rotation_xyzw"
     },
     {
       "role": "second_tcp",
-      "pointer": "/intrinsics/frames/tcp/translation_m"
+      "pointer": "/frames/tcp/translation_m"
     },
     {
       "role": "second_tcp",
-      "pointer": "/intrinsics/frames/tcp/rotation_xyzw"
+      "pointer": "/frames/tcp/rotation_xyzw"
     }
   ],
   "produces": [
     {
       "role": "second",
-      "pointer": "/extrinsics/mount"
+      "pointer": "/frames/base"
     }
   ],
   "computes": [

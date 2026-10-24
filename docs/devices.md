@@ -1,241 +1,150 @@
 # Device contracts
 
-A device is a named interface to hardware, a simulator or a service. Its **type**
-defines the operations, its **profile** records capabilities and configuration,
-and its **driver** implements access. Physical and simulated devices use the
-same contracts; Kinex provides a mock for testing, not a simulator engine.
+Devices bind named ROS topic/service operations to hardware, simulators or model
+services. Core owns lifecycle, protocol execution and recording; setup owns
+onboarding and calibration. See [communication](communication.md) for the wire
+contract and Python API.
 
 ## Types
 
-Types describe capabilities rather than vendors or robot models. A robot can
-combine several devices, such as an arm, gripper, camera and world clock.
-
-| Type | Interface and example |
-| --- | --- |
-| `joint` | Joint-vector control and feedback, such as a robot arm; FK/IK when declared. |
-| `dexterous_hand` | Joint-vector control with optional finger geometry and kinematics. |
-| `gripper`, `suction` | Scalar actuator commands: position/direction for grippers, on/off targets for suction. |
-| `velocity` | Named-axis velocity and optional posture commands, such as a mobile base. |
-| `legged_base` | Mode-based SDK operations, including supported locomotion and posture transitions. |
-| `rgb`, `rgbd` | Color images, with depth for RGBD cameras. |
-| `imu`, `force_torque` | Inertial or force/torque observations. |
-| `model` | Inference operations with profile-defined input/output contracts. |
-| `detection`, `segmentation` | Model services with a standard image-and-text `detect` operation. |
-| `world` | Environment clock and optional spatial reference. |
-| `other` | A resource without a more specific intrinsic contract. |
-
-An `rgbd` device satisfies an `rgb` tool requirement; `segmentation` satisfies a
-`detection` requirement. Other types must match explicitly.
+Builtin types are world, joint, gripper, suction, locomotion, rgb, rgbd, imu,
+force_torque, model and other. Arms, lifts and dexterous hands are joint devices;
+wheeled bases, quadrupeds and humanoid walking controllers are locomotion devices.
+Their schemas validate physical facts, model structure, calibration and frames. Each type guide recommends operation names and semantics for onboarding;
+Kinex does not enforce them. `other` is the fallback when no type fits: it
+prescribes no facts or operations, and its frames are optional for devices
+without spatial meaning.
 
 ## Profiles
 
-Each `.kinex/devices/<name>/profile.yaml` describes one device. The inventory comes
-from these profiles; `.kinex/workspace.yaml` holds assembly identity, simulator
-metadata and workspace safety configuration.
+Each device lives at `.kinex/devices/<name>/profile.yaml` alongside owned node
+sources and models. `description` is required and describes the device generally.
+Each `operations.<name>.description` is also required and describes that operation
+only: payload conventions, units, frames, timing, conditions and effects. Empty
+strings are allowed; absent descriptions are invalid. Do not invent unknown facts.
 
-| Field | Contract |
-| --- | --- |
-| `name`, `type` | Device identity and the schema governing its interface. |
-| `loaded` | Activation intent, not proof of a ready connection. Registration leaves devices unloaded; the model's `profile_write` tool preserves this intent. |
-| `access` | Connection facts and driver configuration: entry, optional interpreter, declared actions, persistence and timeout. |
-| `intrinsics` | Type-specific facts, such as joint models, camera calibration, control limits or inference operations. |
-| `extrinsics` | Physical placement: a fixed mount or a measured pose reference. Omitted for world and model devices. |
-| `meta` | Creation and update timestamps. |
+`runtime` declares domain, namespace, optional SDK interpreter/overlays, owned
+node factories and readiness timeout. `operations` declares topic/service
+transport, direction, endpoint, ROS type and QoS. Physical facts (`model`, `limits`, `color`, `frames`, etc.) are top-level
+fields with typed validation. One device-level `source`, `method`, `calibrated_at`
+and `needs_calibration` record covers calibration. `loaded` is lifecycle intent; status reports live
+readiness. Unknown facts use `???`; null has only the schema-defined meaning.
 
-Profile sections track provenance with `source` and unresolved work with
-`needs_calibration`. `???` denotes an unresolved fact; `null` follows the field's
-meaning. Resolve calibration requests explicitly through validated profile writes.
-For example, a wrist camera's intrinsics describe image geometry, while its
-extrinsics describe its mounting transform to the arm.
-
-Device guides supply Setup, Profile and Use instructions; only Use enters normal
-loaded-device context. Shared type guides define conventions. Custom instance
-`DEVICE.md` files are supported only for `legged_base`. See
-[setup](setup.md) for calibration evidence.
+Builtin DEVICE.md files are setup templates, including profile examples. They
+help authors write device/operation descriptions and register nodes. They have no
+usage section, and no type or instance usage text enters runtime context.
+Agents read descriptions directly from profiles. Inside exec, `runtime.devices()`
+and `runtime.operations(name)` provide discovery; `runtime.describe("device.operation")`
+resolves ROS payload schemas when needed. These work on unloaded profiles and
+never start nodes. Stable prompt prefixes do not change when descriptions,
+device catalogs or load state change.
 
 ### Frames and poses
 
-Frames form a forest; world is optional and missing relationships are not identity
-transforms. Local frames declare `parent_frame`, `translation_m` and
-`rotation_xyzw`; null parent means device base and null components mean unknown.
-Computed joint/hand frames come from models, without duplicate declarations.
-Additional fixed frames may name computed parents. Joint feedback omits
-`frame_poses`; live FK uses measured positions without clamping. Velocity feedback
-omits global pose; world relationships require explicit frame estimates.
+Every spatial device declares `frames.base`. Each frame explicitly names its
+parent as `device:frame`; `parent: null` makes it an independent root and its
+transform values are ignored. Omitting `parent` is invalid, including when the
+parent would be the device's own base. For example:
 
-Poses use `[x,y,z,qx,qy,qz,qw]` in metres with unit xyzw quaternions. See the
-[core control API](../packages/core/README.md#device-calls-and-control) for FK/IK,
-frame conversion and quaternion validation.
+```yaml
+frames:
+  base:
+    parent: world:base
+    translation_m: [0, 0, 0]
+    rotation_xyzw: [0, 0, 0, 1]
+  tcp:
+    parent: arm:flange
+    translation_m: [0, 0, 0.1]
+    rotation_xyzw: [0, 0, 0, 1]
+```
 
-## Drivers
+Non-root null transform components mean unknown, never identity. Kinex publishes
+complete fixed edges to tf2. Joint and gripper geometry is a URDF: each link below
+`model.base_link` is a device frame named by the link, published from measured
+joint state, mimic joints included, by the template `links.py` node. Profile frames
+may use a link as a parent but must not reuse its name. References must exist and be
+acyclic. ROS IDs use `device/frame`; `kinex.helpers.lookup_transform` accepts these
+IDs or qualified `device:frame` references.
+Query at observation stamps. Simulator nodes supply measurements and state;
+they do not own Kinex frame publication.
 
-Drivers adapt SDKs, simulator APIs or services to the type's operations. They own
-connections, unit conversion, boundary validation and cleanup. Declare implemented
-operations in `access.driver.actions`:
+Camera projection and distortion live in profile `color`/`depth`, not TF.
+Native RGB-D profiles declare `color` and `depth` frames and resolve
+depth-to-color geometry through tf2. A model service needs no spatial frames.
+Calibration procedures write top-level facts and `frames.<name>`, using
+`profile:<device>` readiness items.
 
-- Every driver provides `load`, `unload`, `status` and `read`.
-- Actuators add `write` and `stop`; joint/hand drivers add declared FK/IK,
-  with FK also required for declared finger geometry.
-- World drivers add `wait`; model drivers add their declared inference operations.
+## Nodes
+
+A device may own multiple node factories or bind a subset of a shared node's
+operations. Empty `runtime.nodes` binds external endpoints; it does not create an
+implicit mock. Factories receive `(profile, context)` and return owned rclpy nodes.
+Relay implementation lives in node source, not the public operation catalog.
+Nodes take their ROS names from `kinex.node.node_name(profile)`.
 
 ### Transport and lifecycle
 
-Persistent drivers run with `--serve` and exchange JSONL requests and responses,
-echoing each request's `id`. One-shot drivers consume one `{action,args}` request
-on stdin and release temporary clients before exiting. Keep diagnostics on stderr;
-stdout carries the protocol. The Python `kinex.driver_protocol.run` helper supports
-both forms, including cancellation and cleanup.
-
-`load` acquires resources and establishes readiness; `status` only observes.
-Ordinary calls never restart failed services. Unload attempts capture shutdown,
-stop and resource release. Cleanup terminates owned processes and closes borrowed
-clients without terminating shared services. Runtime discovery and Python setup
-follow the [overview's lifecycle rules](overview.md#runtime-discovery-and-lifecycle).
-
-Public `error`, `code` and `details` survive direct, batch and Python calls without
-exposing driver stderr; Python uses `RPCError`, a `RuntimeError` subclass.
-
-Direct tools and Python use `deviceID`, `action` and `args` for device requests.
-Python `device()` returns data fields directly, plus an optional `file`;
-`devices(calls=[...])` returns a `results` array with per-entry `ok`, data or error.
-Batch calls run concurrently under each device's scheduler and retain input
-order; sampling is not simultaneous and effects are not atomic. See the
-[core API](../packages/core/README.md#device-calls-and-control) for signatures.
+`load`, `unload`, `status` are reserved host operations. Load waits for readiness,
+status observes, and unload stops/reclaims owned resources. Definition changes
+require unload, validation and reload. Discovery never initializes Python or ROS.
+Model operations require host permission; Python cannot change lifecycle.
+Normal operations never restart a failed node. Stop/disposal never kill borrowed
+services.
 
 ### Motion and stop
 
-Dispatch validates before admission and observes traffic. Writes are scheduled per
-device; reads can overlap writes and independent devices write concurrently.
-New writes supersede older pending commands on the same device. `device_stop`
-and the trusted `/stop` command bypass approval; a direct model `device` call with
-`action: stop` still requests `device_act`. Stop interrupts affected commands and
-rejects queued writes within the driver's declared stop scope. Drivers keep reads
-and stop responsive; uncertain writes are never retried.
-
-Actuator writes submit validated buffers with `duration_s`, returning immediately
-with `execution_id` and measured `state`. Gripper/suction actions are flat numeric
-sequences; joint/hand actions are sequences of joint vectors. New writes replace
-pending references without stopping; invalid writes leave them intact. Position
-commands retain the final reference; velocity commands expire to zero velocity
-while retaining posture. Background faults remain visible in reads. Verify arrival
-through fresh feedback.
-
-`servo` adds trajectory planning and, by default, waits the planned duration on
-a loaded world clock. This wait does not verify arrival. `block=false` skips it
-and requires no clock. Feedback loops in `exec` choose their own observation
-intervals and stopping conditions; see [Python execution](tools-and-skills.md#python-execution-with-exec).
-
-Ownership outlives submission: cleanup targets references still owned by that
-invocation. Invalid post-submission feedback cancels
-that submission before reporting failure. A failed dispatched stop or a driver
-command reporting `stop_failed` blocks further writes until a successful load.
-
-Python scripts and their composed tools share motion ownership. On controller
-failure, timeout or cancellation, the runner attempts to stop remaining owned
-motion; cleanup failures are logged while the original failure is returned.
-Successful script completion may leave motion running. Use `stop_owned()` to
-request a stop explicitly and receive any cleanup error. Ownership checks preserve
-another invocation's replacement; the driver's declared physical stop scope still
-applies.
+Commands are standard ROS messages; a node validates each before replacing the
+active command and logs rejections. Sending is distinct from measured arrival.
+Anything that moves declares a `std_srvs/srv/Trigger` `stop`. Abort, timeout and
+failure stop the devices an invocation commanded; successful completion need not
+stop motion, and scripts call a device's `stop` explicitly when it should. Host
+stop is available without approval and cancels invocations commanding the device.
+Physical stop behavior and scope must be documented on the device's stop operation.
 
 ### Observations and capture
 
-Observations and write-result states use finite numeric `timestamp` seconds in
-the device clock: acquisition time, otherwise receipt time. Combined observations
-use the latest component timestamp; cached data retains it. Timestamps carry no
-clock label and are not implicitly synchronized. Cameras support `file`, `base64`
-and `array` output with one timestamp for color/depth. Python reads default to
-arrays; direct agent reads default to base64. Arrays cross JSON as encoded image
-payloads and are decoded by Python; fixed dimensions are validated. Direct agent
-reads attach RGB images in every mode, reusing encoded payloads or reading saved
-files in the same call. Image data is sent as image content, not text.
-
-Python reads retain image data for computation without automatically displaying
-it. To return observations from `exec` or a Python tool, request files and pass
-one path or an ordered list to `finish(result, file=...)`. Include camera identity
-and acquisition timestamps in the result. Multiple captures remain separate
-observations, even when returned together.
-
-Persistent drivers may implement `record_start` and `record_stop` for native
-capture. Otherwise, recording samples through device dispatch. See
-[recording](agent-integration.md#recording) for capture products and attribution.
+Operations retain typed payloads and acquisition stamps. Recording subscribes to
+selected declared topics and saves rosbag2, world time and TF. It never advances
+time. Explicit snapshots use the configured observation. Recorder deactivation
+precedes device unload; disposal finalizes recordings. Model recording is opt-in.
 
 ## World: time and geometry
 
-A `world` device gives tools access to the environment's clock. The supplied driver
-uses real-world monotonic time; simulator drivers implement their own clock and
-wait behavior. World has no `extrinsics`: its optional bounds, surfaces and local
-frames are expressed in world coordinates. Bounds and surfaces are informational,
-not enforced motion limits, and do not connect otherwise disconnected frame trees.
-
-`world.read` returns `time_s` and optional `budget: {used_s, max_s}` in seconds;
-used time is finite/nonnegative, allowance positive/finite or null for no cap.
-Drivers own accounting; Kinex neither infers nor enforces a budget. Reads do not
-advance time. `world.wait({duration_s})` returns `time_s` and actual `waited_s`;
-concurrent waits share world time with individual cancellation.
-
-Persistent waits use `access.driver.timeout_s` (default 60 seconds), allowing one
-additional configured timeout for cancellation acknowledgement. Successful
-recovery preserves the driver and reports `wait_timeout` without elapsed time;
-failed recovery terminates it and requires explicit load. Caller cancellation
-uses the same bounded recovery. Cancellation neither resets the world nor clears
-actuator buffers: realtime continues; stepped simulation pauses without waits.
+Every workspace requires one world device per ROS domain. Its `time` clock is the
+world time of device nodes, tf2 lookup and recording; `wait` and simulator-only
+`reset` are recommended. Physical workspaces use the real-world clock. Bounds and
+surfaces are informational facts. Document pacing, epoch resets and terminal
+episode behavior on each relevant operation. Workflow loops use world time rather
+than a simulator-specific timer.
 
 ## Models: inference as a device
 
-`model`, `detection` and `segmentation` represent inference services, with no
-physical pose or `extrinsics`. A connection can be a local process using CPU,
-CUDA or MPS, or a remote URL with credentials read from a named environment
-variable. `read` and `status` report readiness without running inference.
+Persistent inference services are `model` devices; detection, segmentation and
+policies are models too. The type prescribes no operations or payloads: model
+operations are `kinex_interfaces/srv/Json` services exchanging JSON objects, and
+each operation description defines their fields, coordinates and limitations.
+Images pass as file paths. Profiles record family, artifacts and `compute`
+placement. Load places the model and unload releases it with the device process.
 
-Model intrinsics declare identity (`family`, optional `variant` and implementation
-revision), artifacts and operations. Provision artifacts before activation;
-runtime uses the declared paths without silently downloading a new checkpoint.
-Each operation has a name and typed object inputs/outputs in Kinex's supported
-JSON Schema subset. Dispatch validates both sides and rejects undeclared
-operations and extra fields.
+## Joints and end effectors
 
-For example, a policy model returns action predictions. A controller tool such as
-`run_policy` maps those predictions to actuator writes and owns motion and
-termination. Inference itself does not command the robot.
+A joint device commands the URDF's independent movable joints in document order,
+with strict or native limit handling; `helpers.joint_model` computes FK and IK from
+the URDF, and `tip_link` is the default end-effector link. A hand has no tip link. A gripper's `grip` names the actuated joint
+with its open and closed positions, and `frames.tcp` is the grasp point with +z
+approach. A suction tool has no URDF: `vacuum` says whether it switches on and off
+or accepts a level, `frames.tcp` is the cup contact centre, and its stop never
+releases a held object. Policy values in [-1, 1] release at -1 and grip at +1 for
+both.
+No typed fact implies a mandatory operation or supplies a default payload.
 
-`detection` and `segmentation` specialize this contract with
-`detect({image, prompt, min_score?, max_results?})`. Results contain pixel boxes,
-scores and labels; segmentation also requires a mask for each result. Boxes and
-masks refer to the supplied image, not a fresh camera capture. These types supply
-the canonical `detect` schema; profiles may add operations but cannot redefine it.
-For example, `locate_object_3d` combines these results with camera depth.
+## Locomotion
 
-See the [model guide](../packages/core/assets/builtin/device/templates/model/DEVICE.md)
-for operation schemas and provisioning fields.
-
-## Joints, grippers and hands
-
-Joint goals are absolute, in model order and radians/metres; home is a joint-name
-map. Returning to declared home permits a fixed 1° revolute recovery margin only
-for an inward-moving prefix ending within limits. Measured starts are not clamped;
-prismatic limits remain strict. Native controller bounds retain native saturation
-when `limit_handling: native` is declared.
-
-Gripper stop clears pending references while retaining the applied target and
-preload, including direction-gripper accumulated targets. It never replaces a
-loaded target with measured aperture; explicit open releases. Reset seeds from
-measured posture, and stop before a first write must not close. Gripper feedback
-reports aperture, faults and timestamp; finger measurements remain driver-private.
-Hands use joint vectors and optional fingertip geometry whose chains name model
-joints in traversal order. Fixed palm/grasp references are local frames; optional
-weighted centers are geometric references, not contact feedback.
-
-## Mobile and legged bases
-
-`velocity` and `legged_base` are unlocalized roots: their profiles do not declare
-`extrinsics.mount` or `pose_frame`. Relating them to world requires explicit frame
-estimates. Command axes, units, feedback and stop behavior remain declared facts.
-
-`legged_base` uses `mode` for writes and measured state, with declared write schema,
-minimal skills and optional mode graph. Motion follows named-axis velocity,
-optional posture and duration conventions. Drivers validate live prerequisites,
-submit without waiting for physical completion and own replacement/cancellation.
-Stand/crouch transitions may have limited interruption; guides declare that scope.
-
-[Design index](README.md)
+A locomotion device declares its commandable body `velocity` axes, optional
+`posture` offsets from the nominal stance, `strict` or `native` limits and its
+`modes`: a state machine in which each mode lists the operations it accepts and
+the modes it can be commanded to. Velocity follows the latest twist until a
+watchdog timeout in world time, so callers re-send it; posture and mode commands
+persist; a stop zeroes velocity without leaving the mode. Mode-specific inputs are
+ordinary operations, JSON `std_msgs/msg/String` topics when they move the body.
+Devices remain unlocalized roots: odometry drifts and is never a global pose.

@@ -4,15 +4,15 @@ dropped cv2.calibrateHandEye) over collected pose pairs.
 
 --samples takes the merged pairs file (pairs.json — NOT calib_sample's own
 samples.json, which holds raw readings):
-  [{"frame_pose": [x,y,z,qx,qy,qz,qw],   # gripper/flange pose in BASE, from FK at sampled joint positions
+  [{"frame_pose": [x,y,z,qx,qy,qz,qw],   # --frame link pose in the arm base, from FK at sampled joint positions
     "rvec": [...], "tvec": [...]},        # board pose in CAMERA frame (detect_board.py)
    ...]
 
---mode eye_in_hand: camera rides on the flange, board fixed → camera-in-flange.
---mode eye_to_hand: camera fixed, board rides on the gripper → camera-in-base
-  (implemented by feeding the INVERTED flange poses to the same AX=XB solver).
+--mode eye_in_hand: camera rides on the --frame link, board fixed → camera in that link.
+--mode eye_to_hand: camera fixed, board rides on the --frame link → camera in the arm base
+  (implemented by feeding the INVERTED link poses to the same AX=XB solver).
 
-Output: {"ok": true, "translation_m": [x,y,z], "rotation_xyzw": [qx,qy,qz,qw], "parent_frame": "flange"|"base",
+Output: {"ok": true, "translation_m": [x,y,z], "rotation_xyzw": [qx,qy,qz,qw], "parent_frame": <frame>|<device>,
          "method": "Tsai", "residual_rot_deg": ..., "residual_trans_mm": ..., "pairs_used": n}
 """
 
@@ -20,7 +20,7 @@ import argparse
 import json
 import sys
 
-from kinex.geometry import mat_to_quat, quat_to_mat
+from kinex.lib.geometry import mat_to_quat, quat_to_mat
 
 
 def fail(message: str) -> None:
@@ -33,14 +33,14 @@ def main() -> None:
     parser.add_argument("--mode", choices=["eye_in_hand", "eye_to_hand"], required=True)
     parser.add_argument("--samples", required=True)
     parser.add_argument("--device", required=True, help="Canonical joint device frame")
-    parser.add_argument("--frame", default="flange", help="Declared moving frame in each sample")
+    parser.add_argument("--frame", required=True, help="URDF link whose poses the samples hold")
     parser.add_argument("--min-pairs", type=int, default=5)
     args = parser.parse_args()
 
     try:
         import numpy as np
     except ImportError:
-        fail("missing deps in the selected interpreter — for core Python use uv add --project <python.project> numpy")
+        fail("Kinex Python lacks numpy; add it to the Kinex Python project")
 
     def skew(v):
         return np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
@@ -76,8 +76,8 @@ def main() -> None:
         pose = sample["frame_pose"]
         T = to_T(np.array(quat_to_mat(pose[3:7])), pose[0:3])
         if args.mode == "eye_to_hand":
-            # AX=XB solves camera-in-gripper; feeding base-in-flange (the
-            # inverse gripper poses) makes the same equation yield camera-in-base.
+            # AX=XB solves camera-in-link; feeding base-in-link (the inverse
+            # link poses) makes the same equation yield camera-in-base.
             T = np.linalg.inv(T)
         grippers.append(T)
         targets.append(to_T(rodrigues(sample["rvec"]), sample["tvec"]))

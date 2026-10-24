@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, symlink } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,20 +9,31 @@ import { createKinexRuntime } from '@kinex/core'
 import { createKinexSetup, setupSkillRoots } from '../dist/index.js'
 import { quality } from '../dist/calibration/compute.js'
 
+const system = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
+
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-compute-'))
+  const python = path.join(directory, '.kinex/python/.venv/bin/python3')
+  await mkdir(path.dirname(python), { recursive: true })
+  await symlink(system, python)
   const runtime = createKinexRuntime({ directory, builtinSkillRoots: setupSkillRoots, host: { ask: async () => {} } })
   const setup = createKinexSetup(runtime)
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   const json = async (name, value) => { const file = path.join(directory, name); await writeFile(file, JSON.stringify(value)); return file }
-  const compute = async args => setup.tools.call('calib_compute', { interpreter: 'python3', ...args }, { sessionID: 'compute' })
-  return { directory, runtime, setup, json, compute }
+  const compute = async args => setup.tools.call('calib_compute', args, { sessionID: 'compute' })
+  return { directory, python, runtime, setup, json, compute }
 }
 
 test('survey computes a known rigid mount, archives sources and never writes profiles', async t => {
   const { directory, runtime, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint' })
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'arm',
+    type: 'joint',
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'base',
+    type: 'locomotion',
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const profile = path.join(directory, '.kinex/devices/arm/profile.yaml')
   const before = await readFile(profile, 'utf8')
   const points = [[0, 0, 0], [.1, 0, 0], [0, .1, 0], [0, 0, .1], [.2, .1, .3]]
@@ -32,9 +44,9 @@ test('survey computes a known rigid mount, archives sources and never writes pro
   assert.ok(!result.isError, result.output)
   const value = JSON.parse(result.output)
   assert.equal(value.quality, 'passed')
-  const mount = value.proposedChanges[0].data.extrinsics.mount
+  const mount = value.proposedChanges[0].data.frames.base
   for (const [i, expected] of [.2, .3, .4].entries()) assert.ok(Math.abs(mount.translation_m[i] - expected) < 1e-8)
-  assert.equal(mount.parent, 'base')
+  assert.equal(mount.parent, 'base:base')
   assert.equal(await readFile(profile, 'utf8'), before)
   const artifacts = path.join(directory, '.kinex/calib', value.run, 'artifacts')
   const archived = JSON.parse(await readFile(path.join(artifacts, (await readdir(artifacts))[0]), 'utf8'))
@@ -45,8 +57,14 @@ test('survey computes a known rigid mount, archives sources and never writes pro
 
 test('degenerate survey cannot propose a profile patch or complete a node', async t => {
   const { runtime, setup, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint' })
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'arm',
+    type: 'joint',
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'base',
+    type: 'locomotion',
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await setup.plan.save({ version: 1, task: { objective: 'Mount', targets: ['mount'] }, nodes: [{ id: 'mount',
     title: 'Arm mount', kind: 'calibrate', skill: 'calibrate-fixed-arm-mount', bindings: { target: 'arm', parent: 'base' } }] }, 0)
   const points = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0]]
@@ -63,7 +81,10 @@ test('degenerate survey cannot propose a profile patch or complete a node', asyn
 
 test('base checks require explicit tolerances, units, reference evidence and fresh timestamps', async t => {
   const { runtime, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'base',
+    type: 'locomotion',
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const input = { operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' } }
   const check = { name: 'vx', expected: .1, measured: .105, tolerance: .01, units: 'm/s', reference: 'tracked displacement / measured elapsed time', timestamps: [1, 2] }
   const file = await json('measurements.json', { required_checks: ['vx'], checks: [check] })
@@ -81,7 +102,10 @@ test('base checks require explicit tolerances, units, reference evidence and fre
 
 test('attempts reject changed participants and inputs and keep repeated computations', async t => {
   const { runtime, compute, json, directory } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'base',
+    type: 'locomotion',
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const file = await json('measurements.json', { required_checks: ['units'], checks: [{ name: 'units', expected: 'normalized',
     measured: 'normalized', reference: 'SDK metadata' }] })
   const first = JSON.parse((await compute({ operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' },
@@ -95,6 +119,14 @@ test('attempts reject changed participants and inputs and keep repeated computat
   assert.match(stale.output, /inputs changed/)
 })
 
+test('calibration computations never accept a caller-chosen interpreter', async t => {
+  const { compute, json } = await fixture(t)
+  const result = await compute({ operation: 'verify-base', procedure: 'verify-base-interface', bindings: { base: 'base' },
+    measurements: await json('measurements.json', {}), interpreter: 'python3' })
+  assert.equal(result.isError, true)
+  assert.match(result.output, /interpreter/)
+})
+
 test('quality gates distinguish partial coverage and warnings without weakening minima', () => {
   assert.equal(quality('fit-tcp', { n: 4, residual_mm: 4 }), 'passed')
   assert.equal(quality('fit-tcp', { n: 4, residual_mm: 7 }), 'warning')
@@ -106,39 +138,90 @@ test('quality gates distinguish partial coverage and warnings without weakening 
 })
 
 test('TCP solver produces translation only and preserves unresolved rotation', async t => {
-  const { runtime, compute, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'arm', type: 'joint', intrinsics: { model: { format: 'joints', joints: [
-    { name: 'j', type: 'revolute', limits: { min: -3, max: 3 }, max_velocity: null, max_effort: null },
-  ] } } })
-  await runtime.profiles.writeDevice({ name: 'tool', type: 'gripper', intrinsics: { frames: { tcp: { parent_frame: null, translation_m: null, rotation_xyzw: [0, 0, 0, 1] } } }, extrinsics: { mount: { parent: 'arm', parent_frame: 'flange', translation_m: [0, 0, .02], rotation_xyzw: [0, 0, 1, 0] } } })
+  const { directory, runtime, compute, json } = await fixture(t)
+  await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
+  await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-3" upper="3"/></joint></robot>')
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'arm',
+    type: 'joint',
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' },
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'tool',
+    type: 'gripper',
+    frames: {
+      tcp: { parent: "tool:base", translation_m: null, rotation_xyzw: [0, 0, 0, 1] },
+      base: { parent: "arm:flange", translation_m: [0, 0, .02], rotation_xyzw: [0, 0, 1, 0] }
+} })
   const s = Math.sqrt(.5)
   const quaternions = [[0, 0, 0, 1], [s, 0, 0, s], [0, s, 0, s], [0, 0, s, s], [-s, 0, 0, s], [0, -s, 0, s]]
   const samples = quaternions.map(([x, y, z, w]) => {
     const rotated = [2 * (x * z + w * y) * .12, 2 * (y * z - w * x) * .12, (1 - 2 * (x * x + y * y)) * .12]
-    return { settled: true, kinematics: { frame: 'flange', reference_frame: null, pose: [.2 - rotated[0], .1 - rotated[1], .5 - rotated[2], x, y, z, w] } }
+    return { settled: true, kinematics: { frame: 'flange', pose: [.2 - rotated[0], .1 - rotated[1], .5 - rotated[2], x, y, z, w] } }
   })
   const result = await compute({ operation: 'fit-tcp', procedure: 'calibrate-tcp-offset', bindings: { arm: 'arm', target: 'tool' },
-    samples: await json('samples.json', samples) })
+    samples: await json('samples.json', samples), frame: 'flange' })
   assert.ok(!result.isError, result.output)
   const value = JSON.parse(result.output)
   assert.equal(value.quality, 'passed')
   const patch = value.proposedChanges[0].data
-  assert.ok(Math.abs(patch.intrinsics.frames.tcp.translation_m[2] - .10) < 1e-8)
+  assert.ok(Math.abs(patch.frames.tcp.translation_m[2] - .10) < 1e-8)
   assert.equal(patch.extrinsics, undefined)
-  assert.deepEqual(patch.intrinsics.frames.tcp.rotation_xyzw, [0, 0, 0, 1])
+  assert.deepEqual(patch.frames.tcp.rotation_xyzw, [0, 0, 0, 1])
   await runtime.profiles.writeDevice(patch)
-  assert.deepEqual((await runtime.devices.list()).find(device => device.name === 'tool').extrinsics.mount.translation_m, [0, 0, .02])
+  assert.deepEqual((await runtime.devices.list()).find(device => device.name === 'tool').frames.base.translation_m, [0, 0, .02])
+})
+
+test('sensor bias adds the mean static residual and needs gravity for specific force', async t => {
+  const { runtime, compute, json } = await fixture(t)
+  const channel = (bias, extra = {}) => ({ axes: ['x', 'y', 'z'], bias, ...extra })
+  await runtime.profiles.writeDevice({ description: '', name: 'imu', type: 'imu',
+    measurement: { angular_velocity: channel({ x: .01, y: 0, z: 0 }), orientation: null,
+      linear_acceleration: channel({ x: 0, y: 0, z: 0 }, { quantity: 'specific_force' }) },
+    frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } })
+  const samples = await json('samples.json', Array.from({ length: 20 }, () => ({ device: 'imu',
+    data: { angular_velocity: { x: .02, y: -.01, z: 0 }, linear_acceleration: { x: .1, y: 0, z: 9.9 } } })))
+  const input = { operation: 'sensor-bias', procedure: 'calibrate-sensor-bias', bindings: { target: 'imu' }, samples }
+  const missing = await compute(input)
+  assert.equal(missing.isError, true)
+  assert.match(missing.output, /gravity_m_s2/)
+  const result = await compute({ ...input, gravity_m_s2: [0, 0, 9.80665] })
+  assert.ok(!result.isError, result.output)
+  const value = JSON.parse(result.output)
+  assert.equal(value.quality, 'passed')
+  const { measurement } = value.proposedChanges[0].data
+  assert.ok(Math.abs(measurement.angular_velocity.bias.x - .03) < 1e-12)
+  assert.ok(Math.abs(measurement.linear_acceleration.bias.z - (9.9 - 9.80665)) < 1e-12)
+  await runtime.profiles.writeDevice(value.proposedChanges[0].data)
+  const device = (await runtime.devices.list()).find(entry => entry.name === 'imu')
+  assert.equal(device.measurement.linear_acceleration.quantity, 'specific_force')
+  assert.ok(Math.abs(device.measurement.linear_acceleration.bias.x - .1) < 1e-12)
+})
+
+test('grip calibration introspects the bound gripper URDF', async t => {
+  const { directory, runtime, compute } = await fixture(t)
+  await mkdir(path.join(directory, '.kinex/devices/hand'), { recursive: true })
+  await writeFile(path.join(directory, '.kinex/devices/hand/hand.urdf'), '<robot name="hand"><link name="base_link"/><link name="finger"/><joint name="finger_joint" type="prismatic"><parent link="base_link"/><child link="finger"/><axis xyz="1 0 0"/><limit lower="0" upper="0.04"/></joint></robot>')
+  await runtime.profiles.writeDevice({ description: '', name: 'hand', type: 'gripper',
+    model: { format: 'urdf', path: 'hand.urdf', base_link: 'base_link' },
+    frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } })
+  const result = await compute({ operation: 'urdf-introspect', procedure: 'calibrate-gripper-grip', bindings: { target: 'hand' } })
+  assert.ok(!result.isError, result.output)
+  assert.deepEqual(JSON.parse(result.output).data.model.joints.map(joint => [joint.name, joint.limits]), [['finger_joint', { min: 0, max: .04 }]])
 })
 
 test('cancelling an owned computation never publishes a result', async t => {
-  const { runtime, setup, directory, json } = await fixture(t)
-  await runtime.profiles.writeDevice({ name: 'base', type: 'velocity' })
-  const interpreter = path.join(directory, 'slow-python')
+  const { runtime, setup, directory, python, json } = await fixture(t)
+  await runtime.profiles.writeDevice({ description: '',
+    name: 'base',
+    type: 'locomotion',
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const marker = path.join(directory, 'started')
-  await writeFile(interpreter, `#!/usr/bin/env python3\nimport time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('started')\ntime.sleep(30)\n`, { mode: 0o755 })
+  await rm(python)
+  await writeFile(python, `#!${system}\nimport time\nfrom pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('started')\ntime.sleep(30)\n`, { mode: 0o755 })
   const abort = new AbortController()
   const pending = setup.tools.call('calib_compute', { operation: 'verify-base', procedure: 'verify-base-interface',
-    bindings: { base: 'base' }, measurements: await json('measurements.json', {}), interpreter }, { sessionID: 'cancel', signal: abort.signal })
+    bindings: { base: 'base' }, measurements: await json('measurements.json', {}) }, { sessionID: 'cancel', signal: abort.signal })
   for (let i = 0; i < 100; i++) {
     if (await stat(marker).then(() => true, () => false)) break
     await delay(20)

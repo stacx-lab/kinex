@@ -1,35 +1,26 @@
-import { Mount, Transform, LocalFrame, ControlConnection } from "./common.ts"
-import { ModelConnection, modelShape } from "./model.ts"
-import { perceptionOperations } from "./perception.ts"
+import { modelShape } from "./model.ts"
 import { imuShape } from "./imu.ts"
-import { SensorConnection } from "./sensor.ts"
 import { z } from "zod"
-import { ForceTorqueConnection, forceTorqueShape } from "./force-torque.ts"
+import { Operation, RosRuntime } from "./operations.ts"
+import { forceTorqueShape } from "./force-torque.ts"
 import { worldShape, type WorkspaceBounds } from "./world.ts"
-export { WorkspaceBounds, Surface } from "./world.ts"
-import { VelocityControl, VelocityFeedback, VelocityStop } from "./velocity.ts"
-import { LeggedControl, LeggedStop } from "./legged.ts"
-import { gripperShape, suctionShape } from "./gripper.ts"
-import { jointShape, refineJoint, jointModel } from "./joint.ts"
-import { HandGeometry, refineHand } from "./hand.ts"
-import { deviceFrames, modelFrames } from "./frames.ts"
-import { CameraCalibration, CameraColor, CameraConnection, CameraDepth } from "./camera.ts"
-
-import { MISSING, may, known, Source, section, measured, OtherConnection, DriverSpec, driverWith, observationActions, streamActions, actuatedActions } from "./common.ts"
-export { MISSING, known, Source, DriverSpec } from "./common.ts"
+import { locomotionShape, refineLocomotion } from "./locomotion.ts"
+import { gripperShape } from "./gripper.ts"
+import { suctionShape } from "./suction.ts"
+import { commandedJoints, deviceTree } from "./urdf.ts"
+import { jointShape } from "./joint.ts"
+import { deviceFrames, frameErrors } from "./frames.ts"
+import { CameraColor, CameraDepth } from "./camera.ts"
+import { LocalFrame, field, known, lifecycle, measured, section, xyz } from "./common.ts"
+export { known } from "./common.ts"
 
 // Device profiles own access, intrinsic facts and parent-relative SI mounts.
 // Explicit calibration requests persist until cleared by a validated write.
 
-const Aabb = z.object({
-  min: z.tuple([z.number(), z.number(), z.number()]),
-  max: z.tuple([z.number(), z.number(), z.number()]),
-})
+const Aabb = z.object({ min: xyz, max: xyz })
 
 export const DeviceType = z.enum([
-  "legged_base",
-  "velocity",
-  "dexterous_hand",
+  "locomotion",
   "suction",
   "joint",
   "gripper",
@@ -38,17 +29,16 @@ export const DeviceType = z.enum([
   "imu",
   "force_torque",
   "model",
-  "detection",
-  "segmentation",
   "world",
   "other",
 ])
 export type DeviceType = z.infer<typeof DeviceType>
+const ACTUATORS: readonly DeviceType[] = ["joint", "gripper", "suction", "locomotion"]
 
-// One device-local command dimension. Joint targets use model order; mobile
-// Bases use mode-qualified velocity/posture fields for capability display, not one command vector.
+// One device-local command dimension. Joint targets use model order; locomotion
+// velocity and posture axes are listed for capability display, not one command vector.
 export const DeviceAction = z.object({
-  component: z.string().optional().describe('non-joint dim: "grip", "locomotion.velocity.vx", "locomotion.posture.height", ...'),
+  component: z.string().optional().describe('non-joint dim: "vacuum", "velocity.vx", "posture.height", ...'),
   joint: z.string().optional().describe("the physical joint this dim commands"),
   meaning: z.string().optional(),
   units: z.string().optional().describe('e.g. "m", "rad", "m/s", "normalized"'),
@@ -56,231 +46,71 @@ export const DeviceAction = z.object({
 })
 export type DeviceAction = z.infer<typeof DeviceAction>
 
-const AccessSection = z.strictObject({ ...section, connection: may(OtherConnection).default(MISSING), driver: DriverSpec.optional() })
-const SpatialShape = {
+// Physical facts and calibration provenance live directly on the profile.
+const provenance = {
   ...measured,
-  method: z.enum(["unknown", "factory", "introspection", "manual", "survey", "joint_range", "tcp_pivot", "bias"]).default("unknown"),
-  mount: may(Mount).optional(),
-  pose_frame: may(z.string().min(1).nullable()).optional(),
+  method: z.enum(["unknown", "factory", "introspection", "manual", "survey", "joint_range", "tcp_pivot", "bias", "checkerboard", "charuco", "hand_eye", "plane_fit"]).default("unknown"),
 }
-// Parent-relative local frames; null components are unknown, never identity.
 const localFrames = {
-  frames: z.record(
-    z.string().min(1).refine((name) => !name.includes(":"), "frame names cannot contain ':'"),
-    LocalFrame,
-  ).default({}),
+  frames: z.record(z.string().regex(/^[^:/]+$/, "local frame names cannot contain ':' or '/'"), LocalFrame),
 }
-const SpatialExtrinsics = z.strictObject(SpatialShape).prefault({})
-
-const jointState = {
-  ...measured,
-  method: z.enum(["unknown", "factory", "introspection", "manual", "joint_range", "survey"]).default("unknown"),
-}
-const JointIntrinsics = z.strictObject({ ...jointState, ...localFrames, ...jointShape }).superRefine(refineJoint).prefault({})
-const HandIntrinsics = z.strictObject({ ...jointState, ...localFrames, ...jointShape, geometry: HandGeometry.optional() })
-  .superRefine(refineJoint).superRefine(refineHand).prefault({})
-const JointDeviceAccess = z.strictObject({
-  ...jointState, connection: may(ControlConnection).default(MISSING),
-  driver: driverWith([...actuatedActions, "ik", "fk"]),
-})
-
-const forceTorqueState = {
-  ...measured,
-  method: z.enum(["unknown", "factory", "introspection", "manual", "bias", "survey"]).default("unknown"),
-}
-const ForceTorqueIntrinsics = z.strictObject({ ...forceTorqueState, ...localFrames, ...forceTorqueShape }).prefault({})
-const ForceTorqueAccess = z.strictObject({
-  ...forceTorqueState, connection: may(ForceTorqueConnection).default(MISSING),
-  driver: driverWith(observationActions),
-})
-
-const imuState = {
-  ...measured,
-  method: z.enum(["unknown", "factory", "introspection", "manual", "bias", "survey"]).default("unknown"),
-}
-const ImuIntrinsics = z.strictObject({ ...imuState, ...localFrames, ...imuShape }).prefault({})
-const ImuAccess = z.strictObject({
-  ...imuState, connection: may(SensorConnection).default(MISSING),
-  driver: driverWith(observationActions),
-})
-
-const endEffectorState = {
-  ...measured,
-  method: z.enum(["unknown", "factory", "introspection", "manual", "tcp_pivot", "survey"]).default("unknown"),
-}
-const velocityState = {
-  ...measured,
-  method: z.enum(["unknown", "factory", "introspection", "manual", "survey"]).default("unknown"),
-}
-const VelocityIntrinsics = z.strictObject({ ...velocityState, ...localFrames, control: may(VelocityControl).default(MISSING), feedback: may(VelocityFeedback).default(MISSING), stop: may(VelocityStop).default(MISSING) }).prefault({})
-const LeggedIntrinsics = z.strictObject({
-  ...velocityState, ...localFrames,
-  control: may(LeggedControl).default(MISSING), stop: may(LeggedStop).default(MISSING),
-}).prefault({})
-const VelocityAccess = z.strictObject({
-  ...velocityState, connection: may(ControlConnection).default(MISSING),
-  driver: driverWith(actuatedActions),
-})
-const GripperIntrinsics = z.strictObject({ ...endEffectorState, ...localFrames, ...gripperShape }).prefault({})
-const SuctionIntrinsics = z.strictObject({ ...endEffectorState, ...localFrames, ...suctionShape }).prefault({})
-const EndEffectorAccess = z.strictObject({
-  ...endEffectorState,
-  connection: may(ControlConnection).default(MISSING),
-  driver: driverWith([...actuatedActions, "introspect"]),
-})
-
-// World geometry and clock share a driver, without a parent transform.
-const WorldIntrinsics = z.strictObject({
-  source: Source.default("unknown"),
-  ...worldShape,
-  ...localFrames,
-}).prefault({})
-
-const cameraState = { source: Source.default("unknown"), ...CameraCalibration }
-const CameraAccess = z.strictObject({
-  ...cameraState,
-  connection: may(CameraConnection).default(MISSING),
-  driver: driverWith([...observationActions, "introspect", ...streamActions]),
-})
-const RgbdExtrinsics = z.strictObject({ ...SpatialShape, depth_to_color: may(Transform).optional() }).prefault({})
-const CameraIntrinsicsSection = z.strictObject({
-  ...cameraState, ...localFrames,
-  color: may(CameraColor).default(MISSING),
-}).prefault({})
-const RgbdIntrinsicsSection = z.strictObject({
-  ...cameraState, ...localFrames,
-  color: may(CameraColor).default(MISSING),
-  depth: may(CameraDepth).default(MISSING),
-}).prefault({})
-
-// A served ML model (perception OR policy — both are inference services; the
-// robot-commanding loop lives in controller tools, never in the model device).
-const modelState = section
-const ModelAccess = z.strictObject({
-  ...modelState,
-  connection: may(ModelConnection).default(MISSING),
-  driver: DriverSpec.optional(),
-})
-const ModelIntrinsics = z.strictObject({ ...modelState, ...modelShape }).prefault({})
-const DetectionIntrinsics = z.strictObject({ ...modelState, ...modelShape, operations: perceptionOperations("detection") }).prefault({})
-const SegmentationIntrinsics = z.strictObject({ ...modelState, ...modelShape, operations: perceptionOperations("segmentation") }).prefault({})
-
-// other: no intrinsic model required yet.
-const MiscIntrinsics = z
-  .strictObject({
-    ...section,
-    ...localFrames,
-  })
-  .prefault({})
-
+// How a device is reached belongs to its runtime nodes; access only carries an
+// explicit request against the access:<device> readiness item.
+const Access = z.strictObject({ needs_calibration: section.needs_calibration })
 const deviceBase = {
-  name: z.string(),
-  // Whether the agent may read from / calibrate this device. /load and /unload
-  // flip it; an unloaded device keeps every profile fact but is off-limits to
-  // the device tools and stops gating task-ready.
+  name: z.string().regex(/^[^:/]+$/),
+  description: z.string().describe("General device identity, capabilities and limitations; may be empty"),
+  ...provenance,
+  runtime: RosRuntime.optional(),
+  operations: z.record(z.string().regex(/^[a-zA-Z_]\w*$/), Operation).default({}),
   loaded: z.boolean().default(true),
-  access: AccessSection.optional(),
-  extrinsics: SpatialExtrinsics,
-  meta: z.strictObject({
-    created_at: z.string(),
-    updated_at: z.string(),
-  }),
+  access: Access.optional(),
+  meta: z.strictObject({ created_at: z.string(), updated_at: z.string() }),
 }
+const spatial = { ...deviceBase, ...localFrames }
+const camera = { ...spatial, color: field(CameraColor) }
 
 export const Device = z.discriminatedUnion("type", [
-  z.strictObject({ ...deviceBase, type: z.literal("legged_base"),
-    access: AccessSection.optional(), intrinsics: LeggedIntrinsics,
-  }).superRefine((device, ctx) => {
-    for (const key of ["mount", "pose_frame"] as const)
-      if (device.extrinsics[key] !== undefined) ctx.addIssue({ code: "custom", path: ["extrinsics", key], message: "legged bases are unlocalized roots; use explicit frame estimates" })
-  }),
-  z.strictObject({ ...deviceBase, type: z.literal("velocity"),
-    access: VelocityAccess.optional(), intrinsics: VelocityIntrinsics,
-  }).superRefine((device, ctx) => {
-    for (const key of ["mount", "pose_frame"] as const)
-      if (device.extrinsics[key] !== undefined) ctx.addIssue({ code: "custom", path: ["extrinsics", key], message: "velocity devices are unlocalized roots; use explicit frame estimates" })
-  }),
-  z.strictObject({ ...deviceBase, type: z.literal("dexterous_hand"), access: JointDeviceAccess.optional(), intrinsics: HandIntrinsics }),
-  z.strictObject({ ...deviceBase, type: z.literal("suction"), access: EndEffectorAccess.optional(), intrinsics: SuctionIntrinsics }),
-  z.strictObject({ ...deviceBase, type: z.literal("joint"),
-    access: JointDeviceAccess.optional(), intrinsics: JointIntrinsics,
-  }),
-  z.strictObject({ ...deviceBase, access: EndEffectorAccess.optional(), type: z.literal("gripper"), intrinsics: GripperIntrinsics }),
-  z.strictObject({ ...deviceBase, access: CameraAccess.optional(), type: z.literal("rgb"), intrinsics: CameraIntrinsicsSection }),
-  z.strictObject({ ...deviceBase, access: CameraAccess.optional(), extrinsics: RgbdExtrinsics, type: z.literal("rgbd"), intrinsics: RgbdIntrinsicsSection }).superRefine((device, ctx) => {
-    const { color, depth } = device.intrinsics
+  z.strictObject({ ...spatial, ...locomotionShape, type: z.literal("locomotion") }).superRefine(refineLocomotion),
+  z.strictObject({ ...spatial, ...jointShape, type: z.literal("joint") }),
+  z.strictObject({ ...spatial, ...gripperShape, type: z.literal("gripper") }),
+  z.strictObject({ ...spatial, ...suctionShape, type: z.literal("suction") }),
+  z.strictObject({ ...camera, type: z.literal("rgb") }),
+  z.strictObject({ ...camera, type: z.literal("rgbd"), depth: field(CameraDepth) }).superRefine((device, ctx) => {
+    const { color, depth } = device
     if (!known(depth)) return
-    if (depth.registration === "native" && device.extrinsics.depth_to_color === undefined)
-      ctx.addIssue({ code: "custom", path: ["extrinsics", "depth_to_color"], message: "native depth requires depth_to_color (??? until calibrated)" })
-    if (depth.registration !== "color") return
-    if (device.extrinsics.depth_to_color !== undefined)
-      ctx.addIssue({ code: "custom", path: ["extrinsics", "depth_to_color"], message: "color-registered depth inherits the color optical frame" })
-    if (!known(color)) return
+    if (depth.registration === "native" && (!device.frames.color || !device.frames.depth))
+      ctx.addIssue({ code: "custom", path: ["frames"], message: "native depth requires color and depth frames" })
+    if (depth.registration !== "color" || !known(color)) return
     for (const key of ["width", "height"] as const)
       if (known(color[key]) && known(depth[key]) && color[key] !== depth[key])
-        ctx.addIssue({ code: "custom", path: ["intrinsics", "depth", key], message: "color-registered depth must match the color grid" })
+        ctx.addIssue({ code: "custom", path: ["depth", key], message: "color-registered depth must match the color grid" })
   }),
-  z.strictObject({ ...deviceBase, type: z.literal("imu"),
-    access: ImuAccess.optional(), intrinsics: ImuIntrinsics,
-  }),
-  z.strictObject({ ...deviceBase, type: z.literal("force_torque"),
-    access: ForceTorqueAccess.optional(), intrinsics: ForceTorqueIntrinsics,
-  }),
-  // A model has no physical pose: like world, extrinsics is not materialized.
-  z.strictObject({ ...deviceBase, type: z.literal("model"), access: ModelAccess.optional(), extrinsics: z.never().optional(), intrinsics: ModelIntrinsics }),
-  z.strictObject({ ...deviceBase, type: z.literal("detection"), access: ModelAccess.optional(), extrinsics: z.never().optional(), intrinsics: DetectionIntrinsics }),
-  z.strictObject({ ...deviceBase, type: z.literal("segmentation"), access: ModelAccess.optional(), extrinsics: z.never().optional(), intrinsics: SegmentationIntrinsics }),
-  z.strictObject({ ...deviceBase, type: z.literal("world"),
-    access: z.strictObject({ ...jointState, connection: may(OtherConnection).default(MISSING),
-      driver: driverWith(["read", "wait", "load", "unload", "status"]),
-    }).optional(), extrinsics: z.never().optional(), intrinsics: WorldIntrinsics,
-  }),
-  z.strictObject({ ...deviceBase, type: z.literal("other"), intrinsics: MiscIntrinsics }),
+  z.strictObject({ ...spatial, ...imuShape, type: z.literal("imu") }),
+  z.strictObject({ ...spatial, ...forceTorqueShape, type: z.literal("force_torque") }),
+  z.strictObject({ ...deviceBase, ...modelShape, type: z.literal("model") }),
+  z.strictObject({ ...spatial, ...worldShape, type: z.literal("world") }),
+  // The fallback type prescribes nothing and may have no spatial frames.
+  z.strictObject({ ...deviceBase, frames: localFrames.frames.optional(), type: z.literal("other") }),
 ]).superRefine((device, ctx) => {
-  if ("stop" in device.intrinsics) {
-    const stop = device.intrinsics.stop
-    if (known(stop) && !stop.affected_devices.includes(device.name)) ctx.addIssue({ code: "custom", path: ["intrinsics", "stop"], message: "stop scope must include this device" })
-  }
-  if ("frames" in device.intrinsics) {
-    const explicit = device.intrinsics.frames
-    const computed = modelFrames(device)
-    if (new Set(computed).size !== computed.length || computed.some(name => Object.hasOwn(explicit, name)))
-      ctx.addIssue({ code: "custom", path: ["intrinsics", "frames"], message: "model-defined frames must be unique; remove duplicate frames entries" })
-    const frames = deviceFrames(device)
-    if (Object.hasOwn(frames, device.name))
-      ctx.addIssue({ code: "custom", path: ["intrinsics", "frames"], message: "named frames must differ from canonical device frame" })
-    for (const name of Object.keys(frames)) {
-      if (name.includes(":")) ctx.addIssue({ code: "custom", path: ["intrinsics", "frames"], message: "frame names cannot contain ':'" })
-      const seen = new Set<string>()
-      let current: string | null = name
-      while (current !== null) {
-        if (seen.has(current) || !Object.hasOwn(frames, current)) {
-          ctx.addIssue({ code: "custom", path: ["intrinsics", "frames", name], message: "frame parents must exist and be acyclic" })
-          break
-        }
-        seen.add(current)
-        current = frames[current]!.parent_frame
-      }
-    }
-  }
-  const spatial = device.extrinsics
-  if (!spatial) return
-  if (spatial.mount !== undefined && spatial.pose_frame !== undefined)
-    ctx.addIssue({ code: "custom", path: ["extrinsics"], message: "choose mounted or measured root placement" })
+  for (const name of lifecycle)
+    if (Object.hasOwn(device.operations, name))
+      ctx.addIssue({ code: "custom", path: ["operations", name], message: "reserved host lifecycle operation" })
+  const { stop } = device.operations
+  if (stop && (stop.transport !== "service" || stop.type !== "std_srvs/srv/Trigger"))
+    ctx.addIssue({ code: "custom", path: ["operations", "stop"], message: "stop must be a std_srvs/srv/Trigger service" })
+  const operations = Object.values(device.operations)
+  const commanded = ACTUATORS.includes(device.type) && operations.some(op => op.transport === "topic" && op.direction === "input")
+  if (!stop && device.runtime && (commanded || operations.some(op => op.type === "kinex_interfaces/srv/Wait")))
+    ctx.addIssue({ code: "custom", path: ["operations"], message: "commanded actuators and world waits require a stop service" })
+  if ("stop" in device && known(device.stop) && !device.stop.affected_devices.includes(device.name))
+    ctx.addIssue({ code: "custom", path: ["stop"], message: "stop scope must include this device" })
+  if (!("frames" in device) || !device.frames) return
+  if (!device.frames.base) ctx.addIssue({ code: "custom", path: ["frames", "base"], message: "spatial devices require an explicit base frame" })
+  for (const message of frameErrors([device], false))
+    ctx.addIssue({ code: "custom", path: ["frames"], message })
 })
 export type Device = z.infer<typeof Device>
-
-// [sim] — descriptive metadata for a simulated embodiment: which simulator the
-// profiles in this workspace describe. A simulator workspace SHIPS its device
-// profiles (a sim reads out its own intrinsics and extrinsics, so there is
-// nothing to interview and nothing to introspect at runtime), and each device
-// is reached through its own driver like any other — there is no harness-level
-// simulator connection.
-const SimConnection = z.object({
-  ...section,
-  simulator: z.string().describe('simulator kind: "libero" | "robotwin" | "robocasa" | ...'),
-  notes: z.string().optional().describe("task/scene/config facts worth carrying into every session"),
-})
 
 // The slim robot manifest: whole-assembly facts only. Devices are NOT listed
 // here — the devices/ directory is the single source of truth; the `devices`
@@ -291,20 +121,17 @@ export const RobotManifest = z.strictObject({
     ...section,
     id: z.string(),
     name: z.string(),
-    platform: z.enum(["real", "sim"]),
     kind: z.enum(["arm", "mobile", "quadruped", "humanoid", "other"]),
-    model: may(z.string()).default(MISSING).describe("make/model, e.g. UR5e, Panda"),
+    model: field(z.string()).describe("make/model, e.g. UR5e, Panda"),
   }),
-  // Simulated embodiments only: which simulator these profiles describe.
-  sim: SimConnection.optional(),
   // [devices-declared] — inventory marker only; devices/*/profile.yaml are ground truth.
   devices: z.object({ ...section }).prefault({}),
   // [safety]
   safety: z
     .object({
       ...section,
-      max_cartesian_velocity: may(z.number().nullable()).default(MISSING).describe("m/s; null = no additional cap; ??? = unspecified"),
-      max_joint_velocity: may(z.number().nullable()).default(MISSING).describe("rad/s; null = no additional cap; ??? = unspecified"),
+      max_cartesian_velocity: field(z.number().nullable()).describe("m/s; null = no additional cap; ??? = unspecified"),
+      max_joint_velocity: field(z.number().nullable()).describe("rad/s; null = no additional cap; ??? = unspecified"),
       keep_out_zones: z.array(Aabb).default([]),
     })
     .prefault({}),
@@ -337,76 +164,46 @@ export function isCameraType(type: DeviceType): boolean {
   return type === "rgb" || type === "rgbd"
 }
 
-export function isModel(device: Device): device is Extract<Device, { type: "model" | "detection" | "segmentation" }> {
-  return device.type === "model" || device.type === "detection" || device.type === "segmentation"
-}
-
 export function matchesDeviceType(actual: DeviceType, required: DeviceType): boolean {
   return actual === required || (required === "rgb" && isCameraType(actual))
-    || (required === "detection" && actual === "segmentation")
 }
 
-// Control contracts determine actuation.
-export function isActuated(device: Device): boolean {
-  return ["joint", "velocity", "legged_base", "gripper", "dexterous_hand", "suction"].includes(device.type)
-}
-export function isVelocity(device: Device): device is Extract<Device, { type: "velocity" }> { return device.type === "velocity" }
-export function isJoint(device: Device): device is Extract<Device, { type: "joint" | "dexterous_hand" }> { return device.type === "joint" || device.type === "dexterous_hand" }
-export function deviceJoints(device: Device) { return isJoint(device) ? jointModel(device.intrinsics)?.joints ?? [] : [] }
+export function isJoint(device: Device): device is Extract<Device, { type: "joint" }> { return device.type === "joint" }
+export function deviceJoints(device: Device) { return isJoint(device) ? commandedJoints(deviceTree(device)) : [] }
 
 // The device's own ordered action space, for the actuated types.
 export function deviceActions(device: Device): DeviceAction[] {
-  if (isVelocity(device)) {
-    const { control } = device.intrinsics
-    if (!known(control)) return []
-    return Object.entries(control.modes).flatMap(([mode, capabilities]) => [
-      ...(capabilities.velocity?.components ?? []).map((c) => ({ component: `${mode}.velocity.${c.axis}`, units: c.units, ...(known(c.bounds) && c.bounds !== null ? { bounds: c.bounds } : {}) })),
-      ...(capabilities.posture?.components ?? []).map((c) => ({ component: `${mode}.posture.${c.axis}`, units: c.units, ...(c.bounds !== null ? { bounds: c.bounds } : {}) })),
-    ])
+  if (device.type === "locomotion") {
+    const velocity = known(device.velocity) ? device.velocity : null
+    const posture = known(device.posture) ? device.posture : null
+    const action = (component: string, units: string, bounds?: { min: number, max: number } | null) =>
+      ({ component, units, ...(bounds ? { bounds } : {}) })
+    const speed = (axis: string) => velocity?.units === "normalized" ? "normalized" : axis.startsWith("v") ? "m/s" : "rad/s"
+    return [
+      ...Object.entries(velocity?.axes ?? {}).map(([axis, bounds]) => action(`velocity.${axis}`, speed(axis), bounds)),
+      ...Object.entries(posture ?? {}).map(([axis, bounds]) => action(`posture.${axis}`, axis === "height" ? "m" : "rad", bounds)),
+    ]
   }
   if (isJoint(device)) return deviceJoints(device).map((j) => ({
     joint: j.name, units: j.type === "prismatic" ? "m" : "rad",
     ...(j.limits ? { bounds: j.limits } : {}),
   }))
-  if (device.type === "gripper" || device.type === "suction") {
-    const control = device.intrinsics.control
-    if (!known(control)) return []
-    if (control.mode === "binary") return [{ component: "vacuum", units: "normalized", bounds: { min: Math.min(control.off_target, control.on_target), max: Math.max(control.off_target, control.on_target) } }]
-    if (control.mode === "direction") return [{ component: "direction", units: "normalized", bounds: { min: -1, max: 1 } }]
-    return [{ component: "position", units: control.units, bounds: control.bounds }]
+  if (device.type === "gripper") {
+    const grip = device.grip
+    if (!known(grip)) return []
+    const joint = deviceTree(device)?.joints.find((item) => item.name === grip.joint)
+    return [{ joint: grip.joint, units: joint?.type === "prismatic" ? "m" : "rad",
+      bounds: { min: Math.min(grip.open, grip.closed), max: Math.max(grip.open, grip.closed) } }]
   }
+  if (device.type === "suction")
+    return known(device.vacuum) ? [{ component: "vacuum", units: "normalized", bounds: { min: 0, max: 1 } }] : []
   return []
 }
 
-// A device's home configuration, aligned with deviceJoints(); undefined while
-// unknown or explicitly unavailable.
-export function deviceHome(device: Device): number[] | undefined {
-  const joints = deviceJoints(device)
-  if (joints.length === 0) return []
-  if (isJoint(device)) {
-    const home = device.intrinsics.home
-    if (!known(home) || home === null) return undefined
-    return joints.map((j) => home[j.name]!)
-  }
-  return undefined
-}
-
-// Measured roots declare an external pose reference.
-export function devicePoseFeedback(device: Device) {
-  if (device.type === "velocity" || device.type === "legged_base") return undefined
-  if (device.extrinsics?.pose_frame !== undefined) return { pose_frame: device.extrinsics.pose_frame }
-  return undefined
-}
-
-// Runtime placement is a frame reference; fixed placement is the profile mount.
+// A mount is simply the device's declared base edge.
 export function deviceMount(device: Device) {
-  const feedback = devicePoseFeedback(device)
-  if (feedback !== undefined) {
-    if (!known(feedback) || !known(feedback.pose_frame) || feedback.pose_frame === null) return undefined
-    const [parent, frame] = feedback.pose_frame.split(":")
-    return { parent: parent!, parent_frame: frame ?? parent!, translation_m: MISSING, rotation_xyzw: MISSING, dynamic: true }
-  }
-  const mount = device.extrinsics?.mount
-  if (mount === undefined || !known(mount)) return mount
-  return { ...mount, dynamic: false }
+  const base = deviceFrames(device).base
+  if (!base || base.parent === null) return undefined
+  const [parent, parent_frame] = base.parent.split(":")
+  return { ...base, parent: parent!, parent_frame: parent_frame! }
 }

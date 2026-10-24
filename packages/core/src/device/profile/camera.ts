@@ -4,14 +4,6 @@ import { z } from "zod"
 const positive = z.number().positive()
 const dimension = z.number().int().positive()
 
-export const CameraConnection = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("device"), path: field(z.string().min(1)) }),
-  z.strictObject({ kind: z.literal("usb"), serial: field(z.string().min(1)) }),
-  z.strictObject({ kind: z.literal("url"), url: field(z.url()), camera: field(z.string().min(1)) }),
-  z.strictObject({ kind: z.literal("ros"), color_topic: field(z.string().min(1)), depth_topic: z.string().min(1).optional() }),
-  z.strictObject({ kind: z.literal("mock") }),
-])
-
 export const CameraDistortion = z.discriminatedUnion("model", [
   z.strictObject({ model: z.literal("none") }),
   z.strictObject({ model: z.literal("opencv_brown_conrady"), k1: z.number(), k2: z.number(), p1: z.number(), p2: z.number(), k3: z.number() }),
@@ -24,7 +16,7 @@ const Projection = z.strictObject({
 export type CameraProjection = z.infer<typeof Projection>
 
 // Newton inversion of the supported Brown-Conrady model. FOV uses the same
-// pixel-center convention as kinex.camera (outer edges are -0.5 and size-0.5).
+// pixel-center convention as kinex.lib.camera.ray (outer edges are -0.5 and size-0.5).
 export function cameraRay(projection: CameraProjection, distortion: CameraDistortion, u: number, v: number): [number, number, number] | undefined {
   const yd = (v - projection.cy) / projection.fy
   const xd = (u - projection.cx - projection.skew * yd) / projection.fx
@@ -75,11 +67,10 @@ const derivedFov = <T extends z.infer<typeof Geometry>>(stream: T, ctx: z.Refine
   return { ...stream, fov: { horizontal_deg: angle(left, right), vertical_deg: angle(top, bottom) } }
 }
 
-export const CameraColor = Geometry.extend({ pixel_format: z.literal("rgb8"), image_format: z.literal("png") }).transform(derivedFov)
+export const CameraColor = Geometry.transform(derivedFov)
 const Range = z.strictObject({ min: z.number().nonnegative(), max: positive }).refine((r) => r.min < r.max, "min must be below max")
 const depthShape = {
   width: field(dimension), height: field(dimension), fps: field(positive.nullable()),
-  pixel_format: z.literal("uint16"), image_format: z.literal("pgm16_be"),
   quantity: z.enum(["z", "range"]), scale_m_per_unit: field(positive),
   invalid_value: z.number().int().min(0).max(65535),
   valid_range_m: field(Range), reliable_range_m: field(Range),
@@ -92,16 +83,3 @@ export const CameraDepth = z.discriminatedUnion("registration", [
   if (depth.valid_range_m.max > 65535 * depth.scale_m_per_unit)
     ctx.addIssue({ code: "custom", path: ["valid_range_m", "max"], message: "valid range exceeds the uint16 representation" })
 })
-
-export const CameraCalibration = {
-  method: z.enum(["unknown", "factory", "introspection", "checkerboard", "charuco", "hand_eye", "survey", "manual"]).default("unknown"),
-  calibrated_at: z.iso.datetime().nullable().default(null),
-  needs_calibration: section.needs_calibration,
-}
-
-export function cameraMissing(value: unknown): boolean {
-  if (value === "???") return true
-  if (!value || typeof value !== "object") return false
-  return Object.entries(value).some(([key, entry]) =>
-    !["fov", "reliable_range_m"].includes(key) && cameraMissing(entry))
-}

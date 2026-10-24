@@ -44,19 +44,9 @@ For core alone use `{ contributions: runtime => [coreContribution(runtime)] }`.
 Custom setup composition explicitly supplies `setupSkillRoots`, `setupToolNames`
 and its setup contribution. Omitted values do not inherit standalone's defaults.
 
-The `onboard-ros2` skill owns ROS policy and the `kinex_ros` library. Match the
-ROS interpreter to the selected distribution as described by the skill. Configure
-runtime files directly in the device directory and register their paths through
-`profile_write`. Drivers can carry their runtime helpers to remain operational
-without setup. See [driver configuration](assets/builtin/skill/onboard-ros2/SKILL.md#device-files).
-
-Setup also bundles `pi-web-search` 1.7.0 and `pi-btw` 0.7.1 as npm dependencies.
-`setupPiExtensions()` from `@kinex/setup/extensions` returns their package names
-and absolute package directories for a Pi host's resource loader. Standalone
-loads these extensions by default; other hosts opt in through this export.
-Importing setup does not activate a Pi session or load these extensions.
-Web search uses the host's model and credentials. BTW creates upstream Pi side
-sessions; those sessions do not inherit Kinex robotics tools or permission hooks.
+Device preparation, including ROS dependencies and Kinex Python for ROS, follows
+core's [setup-device](../core/assets/builtin/skill/setup-device/SKILL.md) skill.
+Nodes consume core runtime helpers to remain operational without setup.
 
 ## Tools and workflows
 
@@ -66,25 +56,17 @@ sessions; those sessions do not inherit Kinex robotics tools or permission hooks
 | `calib_sample` | Capture one measured sample into an isolated, participant-bound attempt. |
 | `calib_compute` | Run bundled offline solvers or model introspection and propose exact profile changes. |
 
-`calib_sample.settle` supports joint devices, dexterous hands and velocity devices
-with declared measured velocities. Only distinct device timestamps count toward
-stability. A timeout after a reading saves `settled: false`, including requested
-FK; caller cancellation saves no sample. The sampler does not advance simulator
-time, so arrange world waits outside it. For cameras, pass `args: {output: "file"}`
-to `calib_sample` to obtain archived image paths; the default internal camera read
-returns encoded image data. File-mode RGBD evidence copies both color and depth
-into attempt artifacts before appending the sample.
+`calib_sample.settle` waits for measured joint or odometry velocities to stay below
+a threshold over distinct device timestamps; see the
+[sampling contract](../../docs/setup.md#task-prerequisites-and-calibration-evidence).
 
 `/onboarding [objective]` prepares the embodiment and follows only the requested
-objective's prerequisite subgraph. Without a task it prepares profiles/drivers and
+objective's prerequisite subgraph. Without a task it prepares profiles/nodes and
 reports possible next steps, leaving measurements deferred. `/calibrate [scope]`
 resumes selected measurement work; it never exhausts an unrelated backlog.
 
-For ROS devices, `/onboarding [objective]` and `/register` select `onboard-ros2`
-through their existing workflows. No dedicated ROS command or alias is needed.
-
-Core owns `profile_write`, `setup-device`, registration, device configuration and driver operation,
-load/unload, read/write, motion and stop. Prepare profiles/drivers incrementally
+Core owns `profile_write`, `setup-device`, registration, device configuration and operation execution,
+load/unload, topic/service operations, motion and stop. Prepare profiles/nodes incrementally
 before measurement. Apply accepted results through `profile_write`; clear requests
 explicitly only when their whole section is resolved. Translation-only TCP evidence
 may satisfy a task while its orientation request remains open.
@@ -112,7 +94,7 @@ Use narrow profile pointers for both inputs and outputs, tracking only facts rel
 to the node's conclusion. Keep volatile loaded/meta fields and live poses out of
 persistent calibration dependencies and outputs. World motion does not invalidate
 arm-to-base geometry.
-Record required driver/model files as inputs. Plan inspection checks their presence;
+Record required node/model files as inputs. Plan inspection checks their presence;
 calibration attempts separately fingerprint input contents, including URDF bytes.
 Planning never resolves models or reads hardware.
 
@@ -131,8 +113,7 @@ Completed nodes become stale when required facts, outputs, evidence files or com
 prerequisites are missing, including when an explicit profile value no longer matches.
 Content changes, node-definition edits and re-recorded completed prerequisites alone
 do not invalidate receipts. Reassess their relevance when modifying a completed plan.
-Receipts contain status, note, evidence and time; old hash fields are ignored on read
-and removed on the next plan write. Calibration attempts and solver results retain
+Receipts contain status, note, evidence and time. Calibration attempts and solver results retain
 their separate input, definition and prerequisite checks. Malformed deferred
 procedures are reported without gating unrelated tasks.
 
@@ -147,7 +128,7 @@ For example, establish an existing camera connection without calibrating geometr
     "nodes": [{
       "id": "camera-access", "title": "Prepare camera access", "kind": "prepare",
       "skill": "setup-device", "bindings": {"device": "camera"},
-      "outputs": [{"kind": "profile", "device": "camera", "pointer": "/access/driver"}]
+      "outputs": [{"kind": "profile", "device": "camera", "pointer": "/runtime/nodes"}]
     }],
     "task": {"objective": "View camera images", "targets": ["camera-access"]}
   }
@@ -175,8 +156,7 @@ Archive the errors, limits and user decision; retain the original quality assess
 and do not mark a failed-quality node done. Record the returned numbered `evidence` path after applying and
 verifying accepted changes; later solves do not overwrite that evidence.
 
-`setup.plan` exposes `inspect`, `read`, `save`, `select`, and `record`.
-`setup.calibration.compute` exposes the offline computation API.
+`setup.plan` exposes `inspect`, `save`, `select` and `record`.
 
 ## Procedures and embodiments
 
@@ -185,16 +165,17 @@ types, distinct participants, parent relationships, required profile pointers,
 produced fields, supported computations and quality criteria. Setup reads the
 sidecar from the skill directory selected by core discovery. Custom skills without
 sidecars remain usable with explicitly authored requirements/evidence. The compute
-tool executes only known bundled programs; overriding prose does not replace its
-Python executable. Custom computations use host tools and archive their evidence.
+tool executes only known bundled programs in Kinex Python; overriding prose does
+not replace them. Custom computations use host tools and archive their evidence.
 
 | Skills | Coverage |
 | --- | --- |
-| `onboard-ros2` | ROS integration selection, configuration, registration and interface verification; explicit plan requirements without a fixed procedure. |
 | `calibrate-camera-intrinsics`, `calibrate-camera-extrinsics` | Color image geometry and camera mounting. |
-| `calibrate-tcp-offset` | Tool-tip translation; orientation is separate. |
+| `calibrate-tcp-offset` | Gripper or suction tool-tip translation; orientation is separate. |
 | `calibrate-fixed-arm-mount`, `calibrate-dual-arm` | Rigid parent/arm or cross-arm transforms. |
 | `calibrate-joint-range`, `calibrate-world-geometry` | Joint/model limits and independently measured environment geometry. |
+| `calibrate-gripper-grip` | The grip joint and its open and closed positions. |
+| `calibrate-sensor-bias` | IMU gyro/accelerometer and force/torque bias from static readings. |
 | `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected base conventions, motion response, expiry/stop and posture references, evaluated with `verify-base`. |
 
 Fixed arms, dual arms, wheeled manipulators, quadrupeds with arms and humanoids use
@@ -210,26 +191,17 @@ ROS onboarding observes the selected interfaces directly and reports the results
 Failed checks leave onboarding incomplete. Existing base procedures use `verify-base`
 with the evidence format documented in the `calib_compute` tool description.
 
-## Migration and checks
+## Checks
 
-Replace `calib_plan` with `setup_plan` (`action:read`), and
-`setup.calibration.plan()` with `setup.plan.inspect()`. Replace `device_calibrate`
-with `calib_compute` (`operation:urdf-introspect`, procedure:`calibrate-joint-range`,
-bindings:{arm:deviceName}); migrate its permission key to `calib_compute`.
-Replace sampler `routine` with a node or procedure/bindings, then reuse `run`.
-Replace `calibrate-joint-range-workspace` with `calibrate-joint-range` or
-`calibrate-world-geometry`. No compatibility aliases are provided for these renamed
-calibration commands and procedures.
-
-Historical calibration evidence can be explicitly referenced after checking provenance; it is not automatically
-promoted to a completed plan. Removing setup leaves core devices operational.
-Unregistering a device preserves new attempt history; affected plan requirements
-become missing/stale. Native plugin snapshot adoption is separate work.
+Existing calibration evidence can be referenced after checking its provenance; it is
+not automatically promoted to a completed plan. Removing setup leaves core devices
+operational. Unregistering a device preserves attempt history; affected plan
+requirements become missing or stale.
 
 From the repository root run `npm run typecheck`, `npm test`, `npm run test:core`,
 `npm run test:setup`, then `npm run build` and `npm run pack -- OUTPUT_DIRECTORY`.
 Builds and consumer tests run sequentially. Tests use synthetic evidence and fake
-drivers; physical and live simulator validation are separate. Nothing is published.
+device hosts; physical and live simulator validation are separate. Nothing is published.
 
 ## License
 

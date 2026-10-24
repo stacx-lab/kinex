@@ -8,10 +8,10 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 const home = await mkdtemp(path.join(os.tmpdir(), 'kinex-python-home-'))
 process.env.KINEX_CONFIG_DIR = path.join(home, 'config')
-process.env.KINEX_DATA_DIR = path.join(home, 'data')
 after(() => rm(home, { recursive: true, force: true }))
 const { createKinexRuntime } = await import('../dist/index.js')
 const { pythonRuntime } = await import('../dist/python/environment.js')
+const { rosReceipt } = await import('../dist/python/ros-environment.js')
 const python = execFileSync(process.env.PYTHON ?? 'python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim()
 
 async function until(check) {
@@ -49,8 +49,8 @@ finish();
   const previousPath = process.env.PATH
   process.env.PATH = [bin, previousPath].filter(Boolean).join(path.delimiter)
   const runtimes = []
-  const create = () => {
-    const runtime = createKinexRuntime({ directory, host: { ask: async () => {} } })
+  const create = (options = {}) => {
+    const runtime = createKinexRuntime({ directory, host: { ask: async () => {} }, ...options })
     runtimes.push(runtime)
     return runtime
   }
@@ -66,7 +66,7 @@ finish();
   const status = await runtime.python.status()
   return {
     directory, runtime, status, create,
-    launch: (signal, owner = runtime) => owner.run(() => pythonRuntime(directory, undefined, signal)),
+    launch: (signal, owner = runtime) => owner.operation(() => pythonRuntime(directory, undefined, signal)),
     configure: value => writeFile(config, JSON.stringify(value)),
     release: () => writeFile(release, ''),
     calls: async () => (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)),
@@ -77,7 +77,7 @@ finish();
     tool: async (source = 'import sys\nfrom kinex import finish\nfinish({"python": sys.executable})\n', interpreter) => {
       const tool = path.join(directory, '.kinex/tools/probe')
       await mkdir(tool, { recursive: true })
-      await writeFile(path.join(tool, 'tool.yaml'), JSON.stringify({ name: 'probe', kind: 'perception', description: 'Python environment probe', ...(interpreter ? { interpreter } : {}) }))
+      await writeFile(path.join(tool, 'tool.yaml'), JSON.stringify({ name: 'probe', description: 'Python environment probe', ...(interpreter ? { interpreter } : {}) }))
       await writeFile(path.join(tool, 'tool.py'), source)
       return tool
     },
@@ -212,36 +212,76 @@ test('missing imports report the interpreter without synchronization or replay',
   assert.deepEqual(await f.calls(), [])
 })
 
-test('explicit tool interpreters bypass default environment preparation', async t => {
+test('tool interpreter overrides are rejected without preparing another environment', async t => {
   const f = await fixture(t)
   await f.tool(undefined, python)
-  const result = await f.runtime.tools.call('probe', {}, { sessionID: 'python' })
-  assert.ok(!result.isError, result.output)
-  assert.equal(JSON.parse(result.output).python, python)
+  const catalog = await f.runtime.tools.list()
+  assert.ok(catalog.problems.some(problem => /interpreter/.test(problem)))
+  assert.ok(!catalog.tools.some(tool => tool.name === 'probe'))
   await assert.rejects(stat(f.status.project), { code: 'ENOENT' })
   assert.deepEqual(await f.calls(), [])
 })
 
-test('default persistent and one-shot drivers use the prepared interpreter without syncing', async t => {
+test('ROS environment selection is inert, workspace-configured and independent of devices', async t => {
   const f = await fixture(t)
-  await f.existing()
-  await f.runtime.profiles.writeManifest({ identity: { id: 'python', name: 'Python', kind: 'arm', platform: 'real' } })
-  for (const persistent of [true, false]) {
-    const name = persistent ? 'persistent' : 'oneshot'
-    await f.runtime.profiles.writeDevice({ name, type: 'other', loaded: false,
-      access: { connection: { kind: 'process' }, driver: {
-        entry: 'driver.py', persistent, actions: ['load', 'unload', 'status', 'read'], timeout_s: 5,
-      } },
-    })
-    await writeFile(path.join(f.directory, '.kinex/devices', name, 'driver.py'),
-      'import os, sys\nfrom kinex.driver_protocol import run\nrun(lambda action, args: {"ok": True, "python": sys.executable, "pid": os.getpid()}, lambda: None)\n')
-    await (await f.runtime.devices.load(name)).ready
-    const first = await f.runtime.devices.dispatch(name, 'read')
-    const second = await f.runtime.devices.dispatch(name, 'read')
-    assert.equal(first.data.python, f.status.executable)
-    assert.equal(second.data.python, f.status.executable)
-    if (persistent) assert.equal(first.data.pid, second.data.pid)
-    await f.runtime.devices.unload(name)
+  const before = {...process.env}
+  await mkdir(path.join(f.directory, '.kinex'), {recursive:true})
+  await writeFile(path.join(f.directory, '.kinex/kinex.json'), JSON.stringify({python:{provider:'ros-jazzy',interfaces:['../interfaces']}}))
+  const status = await f.runtime.python.status()
+  assert.equal(status.provider,'ros-jazzy')
+  assert.equal(status.present,false)
+  assert.equal(status.executable,path.join(f.directory,'.kinex/python/.pixi/envs/default/bin/python3'))
+  assert.deepEqual(status.interfaces,[path.join(f.directory,'interfaces')])
+  await f.runtime.tools.list()
+  await f.runtime.context()
+  await assert.rejects(stat(status.project),{code:'ENOENT'})
+  assert.deepEqual({...process.env},before)
+  // A host override follows the same precedence as other core settings.
+  const override = f.create({settings:{python:{provider:'uv',interfaces:[]}}})
+  assert.equal((await override.python.status()).provider,'uv')
+})
+
+test('prepared ROS exec sources its own overlays and ignores ambient Python import paths', async t => {
+  const f = await fixture(t)
+  await mkdir(path.join(f.directory,'.kinex'),{recursive:true})
+  await writeFile(path.join(f.directory,'.kinex/kinex.json'),JSON.stringify({python:{provider:'ros-jazzy'}}))
+  const status=await f.runtime.python.status()
+  await mkdir(path.dirname(status.executable),{recursive:true})
+  await symlink(python,status.executable)
+  for(const [index,overlay] of status.overlays.entries()) {
+    await mkdir(path.dirname(overlay),{recursive:true})
+    await writeFile(overlay,`export KINEX_TEST_OVERLAY_${index}=own\n`)
   }
-  assert.deepEqual(await f.calls(), [])
+  await writeFile(path.join(status.project,'ros-ready.json'),await rosReceipt([]))
+  const previous=process.env.PYTHONPATH
+  process.env.PYTHONPATH='/must/not/inherit/simulator'
+  t.after(()=>{if(previous===undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH=previous})
+  const result=await f.runtime.tools.call('exec',{python:`import os, sys
+from kinex import finish
+assert '/must/not/inherit/simulator' not in sys.path
+assert os.environ['KINEX_TEST_OVERLAY_0'] == os.environ['KINEX_TEST_OVERLAY_1'] == 'own'
+finish({'python':sys.executable})`},{sessionID:'ros-python'})
+  assert.ok(!result.isError,result.output)
+  assert.equal(JSON.parse(result.output).result.python,status.executable)
+  assert.deepEqual(await f.calls(),[])
+})
+
+test('changed ROS interface sources require preparation again', async t => {
+  const f = await fixture(t)
+  const interfaces = path.join(f.directory, 'interfaces/demo_interfaces')
+  await mkdir(path.join(interfaces, 'srv'), {recursive:true})
+  await writeFile(path.join(interfaces, 'srv/Echo.srv'), 'string text\n---\nstring text\n')
+  await mkdir(path.join(f.directory, '.kinex'), {recursive:true})
+  await writeFile(path.join(f.directory, '.kinex/kinex.json'), JSON.stringify({python:{provider:'ros-jazzy',interfaces:['../interfaces']}}))
+  const status = await f.runtime.python.status()
+  await mkdir(path.dirname(status.executable), {recursive:true})
+  await symlink(python, status.executable)
+  await writeFile(path.join(status.project, 'ros-ready.json'), await rosReceipt(status.interfaces))
+  assert.equal((await f.runtime.python.status()).present, true)
+  await writeFile(path.join(interfaces, 'srv/Echo.srv'), 'string text\n---\nstring echoed\n')
+  assert.equal((await f.runtime.python.status()).present, false)
+  await writeFile(path.join(status.project, 'ros-ready.json'), await rosReceipt(status.interfaces))
+  await mkdir(path.join(interfaces, 'build/demo'), {recursive:true})
+  await writeFile(path.join(interfaces, 'build/demo/Stale.srv'), '---\n')
+  assert.equal((await f.runtime.python.status()).present, true)
 })

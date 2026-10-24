@@ -1,3 +1,4 @@
+import { recordingDevices } from "../packages/core/test/fixtures/recording.mjs"
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, readFile, writeFile, stat, readdir } from 'node:fs/promises'
@@ -40,13 +41,13 @@ test('Pi package skills, prompts, themes and extensions coexist with Kinex acros
   assert.ok(loader.getSkills().skills.some(skill => skill.name === 'package-probe'))
   assert.ok(loader.getPrompts().prompts.some(prompt => prompt.name === 'probe-prompt'))
   assert.ok(loader.getThemes().themes.some(theme => theme.name === 'probe-theme'))
-  assert.ok(app.host.session.getAllTools().some(tool => tool.name === 'kinex_skill'))
+  assert.ok(app.host.session.getAllTools().some(tool => tool.name === 'skill'))
   await app.host.session.prompt('/package-command')
   assert.ok(app.host.session.sessionManager.getEntries().some(entry => entry.customType === 'package-command-ran'))
   await app.host.session.prompt('/probe-prompt argument')
   assert.match(JSON.stringify(fake.requests.at(-1)), /PACKAGE_PROMPT argument/)
   assert.match(JSON.stringify(fake.requests.at(-1)), /Inspect package resource integration/)
-  assert.match(JSON.stringify(fake.requests.at(-1)), /Kinex core Python:/)
+  assert.match(JSON.stringify(fake.requests.at(-1)), /exec runs Kinex Python/)
   await app.host.session.prompt('/skill:package-probe')
   assert.match(JSON.stringify(fake.requests.at(-1)), /PACKAGE_SKILL_BODY/)
   await writeFile(path.join(dir, 'probe-prompt.md'), 'RELOADED_PACKAGE_PROMPT $1')
@@ -103,7 +104,8 @@ test('nested robotics calls retain recording attribution', async t => {
   await seed(app.owner.runtime)
   await bind(app)
   await app.host.session.prompt('/load sensor')
-  await app.host.session.prompt('/record start sensor=2')
+  await recordingDevices(app.owner.runtime, cwd)
+  await app.host.session.prompt('/record start telemetry=2')
   fake.steps.push({ tool: 'nested_device' }, { text: 'recorded' })
   await app.host.session.prompt('Read sensor through a nested call')
   await app.host.session.prompt('/record stop success checked')
@@ -113,7 +115,7 @@ test('nested robotics calls retain recording attribution', async t => {
   assert.equal(result.nestedCalls.calls.length, 1)
   const recording = path.join(cwd, '.kinex/recordings', dirs[0])
   const timeline = (await readFile(path.join(recording, 'timeline.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
-  const events = (await readFile(path.join(recording, 'devices/sensor/events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
+  const events = (await readFile(path.join(recording, 'passive/sensor/events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
   const id = result.nestedCalls.calls[0].id
   assert.ok(timeline.some(event => event.kind === 'tool.start' && event.callID === id))
   assert.ok(timeline.some(event => event.kind === 'tool.end' && event.callID === id))

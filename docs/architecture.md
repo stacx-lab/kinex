@@ -6,7 +6,7 @@ Kinex connects coding agents to physical robots and simulators through three lay
 - **Tools** execute operations that combine device access, computation and control.
 - **Skills** guide the agent through tasks using reusable procedures.
 
-![Kinex architecture: the agent loads skills and calls tools or devices directly; tools also operate devices, whose drivers exchange commands and observations with hardware, simulators and services.](../assets/architecture.svg)
+![Kinex architecture: the agent loads skills and calls tools or devices directly; tools also operate devices, whose nodes exchange commands and observations with hardware, simulators and services.](../assets/architecture.svg)
 
 The agent loads skills as needed, then calls devices directly through `device` or
 `devices`, uses reusable tools, or combines operations in Python through `exec`.
@@ -18,7 +18,7 @@ A useful analogy is a coding-agent harness:
 
 | Layer | Coding-agent analogy | Kinex example |
 | --- | --- | --- |
-| Devices | System resources such as disks and GPUs. OS and driver interfaces provide basic operations such as storage reads/writes or GPU computation. | Cameras, actuators and model services expose operations through drivers. |
+| Devices | System resources such as disks and GPUs. OS and driver interfaces provide basic operations such as storage reads/writes or GPU computation. | Cameras, actuators and model services expose operations through device nodes. |
 | Tools | `bash` executes commands; `grep` searches text. These tools turn resource access into useful operations. | `exec` runs Python with device access; `locate_object_3d` combines camera and model outputs to estimate a position. |
 | Skills | A debugging procedure guides the agent to reproduce a failure, inspect code, make a fix and run tests using available tools. | A calibration procedure guides sampling, computation and verification. |
 
@@ -28,22 +28,25 @@ OS interfaces and libraries rather than calling hardware drivers directly.
 
 ## Devices
 
-A device is a named resource with a **type**, **profile** and **driver**. Its type
-defines operations and data conventions; its profile describes access, intrinsic
-properties and spatial relationships. The driver implements the interface using
-a hardware SDK, simulator API or service connection, handling units, validation
-and connection cleanup. Hardware and simulators share these contracts.
+A device is a named resource with a type, a profile and a communication interface.
+The type describes physical or computational facts. Its operation catalog declares
+arbitrary typed topics and services; nodes implement those interfaces through a
+hardware SDK, simulator API or computational service. A device can start several
+owned nodes or expose a subset of endpoints from an existing shared node. Core
+owns only the nodes declared in that device's runtime; external nodes retain
+their own lifecycle. The world device owns time. Hardware and simulators share
+these contracts.
 
 Examples include:
 
-- A camera supplies images; a joint device accepts motion commands and returns
-  measured state. Command acceptance does not establish arrival: verify feedback.
+- A camera supplies images; a joint device takes motion commands and returns
+  measured state. A sent command does not establish arrival: verify feedback.
 - A detection or policy model exposes inference as a device. Controller tools
   decide how to apply its output to the robot.
-- A `world` device exposes environment time through `read` and `wait`, so tools
-  can use the driver's clock for hardware or simulation.
+- A `world` device exposes environment time through its clock topic and wait services.
+  Tools schedule work through these operations for hardware or simulation.
 
-See [device contracts](devices.md) for frames, motion and driver behavior.
+See [device contracts](devices.md) for frames, motion and node behavior.
 
 ## Tools
 
@@ -51,24 +54,22 @@ Tools are executable operations with names, descriptions and input schemas. They
 perform computation or sequences of device calls without requiring the agent to
 choose every intermediate step. The `exec` tool runs ordinary Python source or
 script files with runtime access, without requiring a tool manifest. Scripts can
-compose perception and control tools, wait on the world clock, check measured
+compose perception and control helpers, wait on the world clock, check measured
 feedback in bounded loops, and return structured results with multiple images.
 The agent interprets those observations before choosing the next action.
 
-Reusable Python tools declare their interface in `tool.yaml` and run the manifest's
-entry script (`tool.py` by default), with two capability classes:
+Reusable Python tools declare their schema in `tool.yaml`. Async entries export
+`main(args, io)` and compose operations with `publish`, `subscribe`, `request` and
+`serve`. Ordinary Python branching and asyncio task groups define the workflow.
+Perception and control share one execution approval. Tools and their temporary
+communication resources end with the invocation; model state persists in devices.
 
-- **Perception** tools read and compute. For example, `locate_object_3d` combines
-  camera imagery, a detection or segmentation model, and depth to estimate an
-  object's position in the camera frame.
-- **Controller** tools can also command devices and run feedback loops. For
-  example, `servo` plans and submits a joint trajectory from measured state,
-  then waits its planned duration on a loaded world clock by default. Arrival
-  still requires fresh feedback; `block=false` skips the wait.
+`relative_pose` queries tf2; camera intrinsics are profile facts.
 
-Python tools and `exec` preserve permissions, cancellation and motion ownership;
-they cannot load or unload devices. Scripts own their stopping conditions and
-must explicitly stop owned motion when successful completion requires it.
+Python tools and `exec` preserve permissions and cancellation, and a failed
+invocation stops the devices it commanded; they cannot load or unload devices.
+Scripts own their stopping conditions and must explicitly stop motion when
+successful completion requires it.
 The agent-facing `device` tool and trusted user commands provide lifecycle
 control. Other tools support profile updates and calibration. See
 [tools and skills](tools-and-skills.md) for execution guidance and
@@ -81,7 +82,7 @@ supported by references, scripts or procedure metadata. The agent loads it to
 choose operations, interpret results and decide next steps. Loading a skill does
 not execute the procedure or grant additional permissions.
 
-For example, `setup-device` guides driver provisioning, profile creation and
+For example, `setup-device` guides device node provisioning, profile creation and
 interface verification. A camera calibration skill guides the agent to collect
 observations through sampling tools, compute a calibration, and apply accepted
 results through `profile_write`. The devices supply measurements, tools perform
