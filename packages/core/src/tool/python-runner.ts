@@ -71,7 +71,7 @@ type PythonExecution = Pick<ToolManifest, "timeout_s"> & {
   directory: string
   entry: string[]
   source?: string
-  script?: { file?: string; argv: string[]; exitCode: number | null }
+  script?: { file?: string; argv: string[] }
 }
 
 function execution(info: PyToolInfo): PythonExecution {
@@ -175,10 +175,9 @@ async function dialog(cwd: string, info: PythonExecution, args: Record<string, u
         const code = await abortable(proc.exited, signal)
         await served.drained
         if (info.script && code === 0) return null
-        const stderr = served.stderr.tail
-        const reason = stderr.trim().slice(-4000)
-        const message = info.script ? `script exited with code ${code}${reason ? `\n${reason}` : ""}`
-          : reason || `tool exited without a {"return": ...} line`
+        // Scripts already return stderr as output; only tools carry its tail.
+        const reason = served.stderr.tail.trim().slice(-4000)
+        const message = info.script ? `script exited with code ${code}` : reason || `tool exited without a {"return": ...} line`
         throw new PyToolError(
           ctx.abort.aborted
             ? "tool interrupted"
@@ -219,7 +218,6 @@ async function dialog(cwd: string, info: PythonExecution, args: Record<string, u
       await served.drained
     } finally {
       signal.removeEventListener("abort", onAbort)
-      if (info.script) info.script.exitCode = proc.exitCode
     }
   }).then(result => {
     signal.throwIfAborted()
@@ -238,9 +236,7 @@ interface ScriptInput {
 
 export async function runScript(input: ScriptInput, ctx: Context): Promise<Result> {
   await ctx.ask({ permission: "python_tool", description: `run Python exec ${JSON.stringify(input)}` })
-  const script: NonNullable<PythonExecution["script"]> = {
-    file: input.file ? path.resolve(ctx.directory, input.file) : undefined, argv: input.argv, exitCode: null,
-  }
+  const script = { file: input.file ? path.resolve(ctx.directory, input.file) : undefined, argv: input.argv }
   let output = "", dropped = 0
   const capture = (text: string) => {
     output += text
@@ -262,7 +258,7 @@ export async function runScript(input: ScriptInput, ctx: Context): Promise<Resul
   }
   return {
     title: "exec (Python)",
-    output: formatJSON({ exit_code: script.exitCode, output: `${dropped ? `(output truncated: ${dropped} characters dropped)\n` : ""}${output}`,
+    output: formatJSON({ output: `${dropped ? `(output truncated: ${dropped} characters dropped)\n` : ""}${output}`,
       ...(error ?? { result }) }),
     ...(error ? { isError: true } : await resultAttachments(result, ctx.directory)),
   }

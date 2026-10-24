@@ -116,6 +116,19 @@ class Subscription:
             raise TimeoutError("cached observation is stale")
         return message
 
+    # A context manager closes the stream on exit; the scope closes any others at its end.
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        self.close()
+
     def close(self):
         with self.lock:
             if self.closed:

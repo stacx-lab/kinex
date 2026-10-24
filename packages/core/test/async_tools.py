@@ -349,5 +349,59 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(endpoints, [("/world/stop", {})])
 
 
+class Dialog(unittest.IsolatedAsyncioTestCase):
+    async def test_subscription_closes_as_a_context_manager(self):
+        import threading
+        from collections import deque
+        from kinex.communication import Subscription
+
+        def stream():
+            io = NS(node=NS(destroy_subscription=Mock()), subscriptions=[])
+            value = Subscription.__new__(Subscription)
+            value.io, value.handle, value.closed = io, object(), False
+            value.lock, value.inbox, value.buffer = threading.Lock(), deque(), deque()
+            value.event, value.last = asyncio.Event(), None
+            io.subscriptions.append(value)
+            return value
+
+        first, second = stream(), stream()
+        with first as entered:
+            self.assertIs(entered, first)
+        async with second as entered:
+            self.assertIs(entered, second)
+        for value in (first, second):
+            self.assertTrue(value.closed)
+            value.io.node.destroy_subscription.assert_called_once_with(value.handle)
+            self.assertEqual(value.io.subscriptions, [])
+
+    def test_plain_converts_messages_arrays_and_non_finite_numbers(self):
+        import numpy as np
+        from kinex.lib.plain import plain
+
+        class JointState:
+            def get_fields_and_field_types(self):
+                return {"name": "sequence<string>", "position": "sequence<double>"}
+
+        class Image:
+            def get_fields_and_field_types(self):
+                return {"data": "sequence<uint8>"}
+
+        class Capture_Response:
+            def get_fields_and_field_types(self):
+                return {"image": "sensor_msgs/Image"}
+
+        JointState.__module__ = Image.__module__ = "sensor_msgs.msg._messages"
+        Capture_Response.__module__ = "kinex_interfaces.srv._capture"
+        convert = ModuleType("rosidl_runtime_py.convert")
+        convert.message_to_ordereddict = lambda _: {"name": ["j1"], "position": np.array([.5, np.nan])}
+        with patch.dict(sys.modules, {"rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
+                                      "rosidl_runtime_py.convert": convert}):
+            self.assertEqual(plain({"state": JointState(), "pair": (np.float32(2), float("inf"))}),
+                             {"state": {"name": ["j1"], "position": [.5, None]}, "pair": [2., None]})
+            for image in (Image(), Capture_Response()):
+                with self.assertRaisesRegex(TypeError, "save_image"):
+                    plain({"image": image})
+
+
 if __name__ == "__main__":
     unittest.main()

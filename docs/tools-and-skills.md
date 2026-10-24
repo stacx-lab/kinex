@@ -68,7 +68,7 @@ One execution approval covers an invocation's reads and commands; scripts cannot
 load/unload devices or control recording. See
 [commands and cleanup](communication.md#commands-and-cleanup) for failure cleanup
 and stops. Each invocation uses a fresh process with a default 120-second wall-clock
-timeout and returns an exit code, bounded stdout/stderr and an optional JSON result.
+timeout and returns bounded stdout/stderr with an optional JSON result or an error.
 
 See [Python scripting](../packages/core/README.md#python-scripting) for all inputs,
 the [control example](../packages/core/README.md#feedback-control-with-exec) for a

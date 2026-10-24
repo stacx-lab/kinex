@@ -127,7 +127,10 @@ and returns the decoded response object; owned nodes serve it with
 `kinex.node.json_service(node, operation, handler)`. `publish`, `subscribe`,
 `request` and `serve` are protocol primitives; the helpers do not prescribe
 control flow. Use ordinary functions, branching and asyncio task groups.
-Messages may be native ROS messages or field mappings. Subscriptions expose
+Messages may be native ROS messages or field mappings. A subscription used with
+`with` or `async with` closes on exit; the scope closes any others. `finish`
+converts ROS messages and NumPy values to JSON and non-finite numbers to `null`;
+images return only through `file=`. Subscriptions expose
 `next`, `latest(max_age_s=...)` and idempotent `close`. Both ROS and Python queues
 are bounded. Receipt-age checks detect transport staleness; observation timestamps
 belong to world time.

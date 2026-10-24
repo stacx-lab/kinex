@@ -205,15 +205,16 @@ defaults to 120 wall-clock seconds. Each invocation uses a fresh
 process; script stdin receives EOF. Owned subprocesses are terminated when the
 invocation ends, including on success.
 
-The result contains `exit_code`, bounded combined stdout/stderr in `output`, and
-`result` (normally `null`). Normal completion and `sys.exit(0)` succeed. Optionally
+The result contains bounded combined stdout/stderr in `output` and `result`
+(normally `null`). Normal completion and `sys.exit(0)` succeed. Optionally
 use `kinex.finish(value)` for a JSON result, or `kinex.finish(value, file=image_path)`
 to attach an image. Pass `file=[path1, path2]` to attach multiple images in order.
 When attaching files, `value` must be a JSON object (or omitted); the paths are
 included in its `file` field. Include camera identities and timestamps alongside
 them. Printing paths or returning base64 text does not attach images.
-Execution failures set the tool's error flag and return `error`, retaining
-RPC `code` and `details` when present. `exit_code` is null if Python never started.
+Execution failures set the tool's error flag and return `error` in place of `result`,
+retaining RPC `code` and `details` when present. An uncaught exception's traceback
+appears once, in `error`; a script that exits nonzero without one reports its code.
 Output truncation is reported explicitly. Raw prints and subprocess output cannot
 be interpreted as runtime messages. Invalid arguments use the standard tool
 validation error result; permission denial propagates to the host.
