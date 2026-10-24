@@ -19,29 +19,70 @@ test('important tools show action and target, including streamed arguments and a
     ['record', { action: 'start', devices: { arm: 10, camera: 2 } }, 'record start arm=10Hz camera=2Hz'],
     ['record', { action: 'snap', devices: ['arm', 'camera'] }, 'record snap arm, camera'],
     ['device_stop', {}, 'device_stop all'],
-    ['exec', { description: 'inspect arm state', python: 'from kinex import runtime' }, 'exec inspect arm state'],
-    ['exec', { description: 'inspect arm state', file: 'scripts/inspect.py' }, 'exec inspect arm state'],
-    ['exec', { file: 'scripts/inspect.py' }, 'exec scripts/inspect.py'],
-    ['exec', { description: '  ', file: 'scripts/inspect.py' }, 'exec scripts/inspect.py'],
-    ['exec', { python: 'from kinex import runtime\nprint(runtime.devices())' }, 'exec python script'],
-    ['exec', { description: 'inspect' }, 'exec inspect'],
-    ['exec', {}, 'exec python script'],
   ]) assert.equal(plain(toolRenderers(name).renderCall(args, theme, context)), expected)
   for (const args of [undefined, null, {}, { devices: { arm: null } }]) {
     assert.doesNotThrow(() => plain(toolRenderers('record').renderCall(args, theme, context)))
   }
   assert.equal(plain(toolRenderers('unknown_custom_tool').renderCall({}, theme, context)), 'unknown_custom_tool')
+  for (const [name, args, subject] of [['exec', { description: 'inspect' }, 'inspect'], ['device', { deviceID: 'arm' }, 'read arm']]) {
+    const colors = new Map()
+    toolRenderers(name).renderCall(args, { ...theme, fg: (color, text) => { colors.set(text, color); return text } }, context)
+    assert.equal(colors.get(subject), 'accent')
+  }
 })
 
-test('exec labels sanitize text and truncate without hiding expanded source', () => {
+test('exec calls show the description and the script as formatted source', () => {
   const renderers = toolRenderers('exec')
-  const args = { description: '\x1b[2Jinspect\narm state', python: 'from kinex import runtime\nprint(runtime.devices())' }
-  assert.equal(plain(renderers.renderCall(args, theme, context)), 'exec inspect arm state')
+  const call = (args, expanded = false) => renderers.renderCall(args, theme, { ...context, expanded }).render(100).map(line => stripTerminalSequences(line).trimEnd())
+  assert.deepEqual(call({ description: 'inspect arm state', python: 'from kinex import runtime\nprint(runtime.devices())' }),
+    ['exec inspect arm state', '', 'from kinex import runtime', 'print(runtime.devices())'])
+  assert.deepEqual(call({ description: '  ', file: 'scripts/inspect.py', argv: ['--arm', 'left arm', "it's"], args: { speed: .5 } }),
+    ['exec', '', "python scripts/inspect.py --arm 'left arm' 'it'\\''s'", 'args {"speed":0.5}'])
+  assert.deepEqual(call({ description: 'inspect' }), ['exec inspect'])
+  assert.deepEqual(call({}), ['exec'])
+  const source = Array.from({ length: 25 }, (_, i) => `x${i} = ${i}`).join('\n')
+  const collapsed = call({ python: source })
+  assert.equal(collapsed.length, 13)
+  assert.equal(collapsed[11], 'x9 = 9')
+  assert.match(collapsed[12], /expand \(15 more lines\)/)
+  assert.deepEqual(call({ python: source }, true), ['exec', '', ...source.split('\n')])
+  const eleven = source.split('\n').slice(0, 11).join('\n')
+  assert.deepEqual(call({ python: eleven }), ['exec', '', ...eleven.split('\n')])
+})
+
+test('exec labels and scripts sanitize text and truncate the title', () => {
+  const renderers = toolRenderers('exec')
+  const args = { description: '\x1b[2Jinspect\narm state', python: 'print("\x1b[2Jhi")' }
   const narrow = renderers.renderCall(args, theme, context).render(20)
-  assert.equal(narrow.length, 1)
   assert.ok(visibleWidth(narrow[0]) <= 20)
-  const expanded = plain(renderers.renderCall(args, theme, { ...context, expanded: true }))
-  assert.match(expanded, /from kinex import runtime/)
+  assert.match(stripTerminalSequences(narrow[0]), /^exec inspect arm/)
+  assert.ok(!narrow.some(line => line.includes('\x1b[2J')))
+  const result = { content: [{ type: 'text', text: JSON.stringify({ output: '\x1b[2Jprinted', result: null }) }] }
+  const shown = renderers.renderResult(result, { expanded: true }, theme, context).render(100)
+  assert.ok(!shown.some(line => line.includes('\x1b[2J')))
+  assert.equal(plain(renderers.renderResult(result, { expanded: true }, theme, context)), 'printed')
+})
+
+test('exec results show printed output, then the result or the failure once, as plain lines', () => {
+  const renderers = toolRenderers('exec')
+  const show = (envelope, { expanded = true, isError = false } = {}) => renderers.renderResult(
+    { content: [{ type: 'text', text: typeof envelope === 'string' ? envelope : JSON.stringify(envelope, null, 2) }] },
+    { expanded }, theme, { ...context, isError }).render(100).map(line => stripTerminalSequences(line).trimEnd())
+  assert.deepEqual(show({ output: 'loaded\nready\n', result: { position: [.5, -1], pose: { z: .4 }, time_s: 1.0000000001 } }),
+    ['', 'loaded', 'ready', '', '{', '  "position": [0.5,-1],', '  "pose": {"z":0.4},', '  "time_s": 1', '}'])
+  assert.deepEqual(show({ output: '', result: [1, 2] }), ['', '[1,2]'])
+  assert.deepEqual(show({ output: '', result: 'done\nok' }), ['', 'done', 'ok'])
+  assert.deepEqual(show({ output: '', result: null }), [])
+  const traceback = 'Traceback (most recent call last):\n  File "<exec>", line 1\nRuntimeError: boom'
+  assert.deepEqual(show({ output: 'hi\n', error: traceback }, { isError: true }), ['', 'hi', '', ...traceback.split('\n')])
+  assert.deepEqual(show({ output: '', error: 'wait failed', code: 'OperationError', details: 'sequential' }, { isError: true }),
+    ['', 'wait failed', '{', '  "code": "OperationError",', '  "details": "sequential"', '}'])
+  assert.deepEqual(show('The user rejected permission "python_tool".', { isError: true }), ['', 'The user rejected permission "python_tool".'])
+  const printed = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n')
+  const collapsed = show({ output: printed, error: traceback }, { expanded: false, isError: true })
+  assert.equal(collapsed[0], '')
+  assert.match(collapsed[1], /expand \(18 more lines\)/)
+  assert.deepEqual(collapsed.slice(2), ['line 18', 'line 19', '', ...traceback.split('\n')])
 })
 
 test('all Kinex tools share JSON result formatting regardless of argument-summary support', () => {
@@ -66,7 +107,7 @@ test('tool expansion reveals arguments and results, while collapsed views bound 
   const result = await piResult({ title: 'result', output: JSON.stringify({ state: { data: Array.from({ length: 100 }, (_, i) => i), end: 'END_OF_RESULT' } }) })
   const before = structuredClone(result)
   const preview = renderers.renderResult(result, { expanded: false }, theme, context).render(25)
-  assert.equal(preview.length, 5)
+  assert.equal(preview.length, 6)
   assert.match(preview.at(-1), /expand/)
   const full = plain(renderers.renderResult(result, { expanded: true }, theme, context))
   assert.match(full, /END_OF_RESULT/)

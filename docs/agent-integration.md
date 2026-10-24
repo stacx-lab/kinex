@@ -10,9 +10,9 @@ Workspace safety limits and keep-out zones remain manifest data, outside robot
 context.
 
 `exec` is a core tool alongside direct device calls and reusable Python tools.
-It runs source or script files in a fresh process, returning captured stdout/stderr,
-an exit code and an optional structured result. Its optional `description` is a
-display label; standalone falls back to the script path or `python script`.
+It runs source or script files in a fresh process, returning captured stdout/stderr
+and either an optional structured result or an error. Its optional `description` is a
+display label; standalone shows the inline source or the script command beneath it.
 The host's shell and file tools retain their own execution paths and permissions.
 
 Tool results can carry image attachments as `{mime, data}` (base64) or
