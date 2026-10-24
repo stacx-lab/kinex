@@ -10,8 +10,10 @@ import json
 import os
 import sys
 import threading
+import traceback
 from kinex.communication import communication
 from kinex.errors import RPCError, OperationError
+from kinex.lib.plain import plain
 
 _rpc_lock = threading.Lock()
 
@@ -40,18 +42,17 @@ if os.environ.get("KINEX_TOOL_DIALOG") == "1":
 def _emit(payload):
     if _out is None:
         raise RuntimeError("not running inside a kinex tool dialog — the harness spawns tools with KINEX_TOOL_DIALOG=1")
-    _out.write(json.dumps(payload) + "\n")
+    _out.write(json.dumps(plain(payload), allow_nan=False) + "\n")
     _out.flush()
 
 
 if _out is not None:
-    _previous_excepthook = sys.excepthook
-
-    def _excepthook(kind, error, traceback):
+    # Uncaught exceptions travel through the dialog once, leaving stderr to printed output.
+    def _excepthook(kind, error, trace):
         if isinstance(error, RPCError) and (error.code is not None or error.details is not None):
             _emit(error.payload())
         else:
-            _previous_excepthook(kind, error, traceback)
+            _emit({"error": "".join(traceback.format_exception(kind, error, trace)).rstrip()})
 
     sys.excepthook = _excepthook
 
@@ -90,7 +91,11 @@ def robot():
 
 
 def finish(result=None, file=None):
-    """End successfully; `file` is an image path or ordered list of image paths."""
+    """End successfully with JSON-ready data; ROS messages and NumPy values are converted.
+
+    `file` is an image path or ordered list of image paths; images are never data.
+    """
+    result = plain(result)
     payload = {**(result or {}), "file": file} if file else result
     _emit({"return": payload})
     sys.exit(0)

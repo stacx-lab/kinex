@@ -57,7 +57,7 @@ print('ordinary script')
   const options = { description: 'inspect runtime', args: { value: 7 }, argv: ['hello', 'two words'] }
   const inline = await execScript(runtime, { python: source, ...options })
   assert.ok(!inline.isError, inline.output)
-  assert.deepEqual(JSON.parse(inline.output), { exit_code: 0, output: 'node-test\nordinary script\n', result: null })
+  assert.deepEqual(JSON.parse(inline.output), { output: 'node-test\nordinary script\n', result: null })
   const scripts = path.join(directory, 'scripts')
   await mkdir(scripts)
   await writeFile(path.join(scripts, 'helper.py'), 'value = 9\n')
@@ -75,7 +75,7 @@ assert Path.cwd() == Path(__file__).parent.parent
   for (const python of ['pass', 'import sys; sys.exit(0)', 'import os; os._exit(0)']) {
     const result = await execScript(runtime, { python })
     assert.ok(!result.isError, result.output)
-    assert.deepEqual(JSON.parse(result.output), { exit_code: 0, output: '', result: null })
+    assert.deepEqual(JSON.parse(result.output), { output: '', result: null })
   }
 })
 
@@ -113,7 +113,7 @@ test('exec preserves optional results and image attachments, and reports exit an
   await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'))
   const response = await execScript(runtime, { python: 'from kinex import args, finish\nprint("before finish")\nfinish({"value": 0}, file=args()["image"])', args: { image: 'frame.png' } })
   assert.ok(!response.isError, response.output)
-  assert.deepEqual(JSON.parse(response.output), { exit_code: 0, output: 'before finish\n', result: { value: 0, file: 'frame.png' } })
+  assert.deepEqual(JSON.parse(response.output), { output: 'before finish\n', result: { value: 0, file: 'frame.png' } })
   assert.deepEqual(response.attachments, [{ mime: 'image/png', path: image }])
   const second = path.join(directory, 'second.png')
   await writeFile(second, Buffer.from('89504e470d0a1a0a', 'hex'))
@@ -127,19 +127,20 @@ test('exec preserves optional results and image attachments, and reports exit an
   const direct = await runtime.tools.call('images', {}, { sessionID: 's' })
   assert.ok(!direct.isError, direct.output)
   assert.deepEqual(direct.attachments, [second, image].map(path => ({ mime: 'image/png', path })))
-  for (const [python, code, error] of [
-    ['print("before failure"); raise ValueError("broken script")', 1, /broken script/],
-    ['import sys; print("before failure"); sys.exit(7)', 7, /code 7/],
-    ['print("before failure"); from kinex import fail; fail("explicit failure")', 0, /explicit failure/],
-    ['if:', 1, /SyntaxError/],
-    ['from kinex import finish; finish({1, 2})', 1, /not JSON serializable/],
+  for (const [python, error] of [
+    ['print("before failure"); raise ValueError("broken script")', /^Traceback[\s\S]*ValueError: broken script$/],
+    ['import sys; print("before failure"); sys.exit(7)', /^script exited with code 7$/],
+    ['print("before failure"); from kinex import fail; fail("explicit failure")', /^explicit failure$/],
+    ['if:', /^Traceback[\s\S]*SyntaxError/],
+    ['from kinex import finish; finish({1, 2})', /^Traceback[\s\S]*not JSON serializable/],
   ]) {
     const result = await execScript(runtime, { python })
     assert.equal(result.isError, true, result.output)
     const value = JSON.parse(result.output)
-    assert.equal(value.exit_code, code)
+    assert.deepEqual(Object.keys(value), ['output', 'error'])
     assert.match(value.error, error)
-    if (python.includes('before failure')) assert.match(value.output, /before failure/)
+    // The traceback is reported once, in error; output keeps only what the script printed.
+    assert.equal(value.output, python.includes('before failure') ? 'before failure\n' : '')
   }
   const rpc = await execScript(runtime, { python: 'from kinex import RPCError\nraise RPCError("node failed", code="fault", details={"joint": 0})' })
   assert.equal(rpc.isError, true)

@@ -2,26 +2,10 @@
 import asyncio
 import importlib.util
 import json
-import math
 import sys
 
 from kinex.communication import communication, seconds
-
-
-def plain(message):
-    from rosidl_runtime_py.convert import message_to_ordereddict
-    return message_to_ordereddict(message)
-
-
-def finite(value):
-    """JSON has no NaN or infinity; unavailable measurements become null."""
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {key: finite(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [finite(item) for item in value]
-    return value
+from kinex.lib.plain import plain
 
 
 def observation(message):
@@ -37,10 +21,10 @@ def observation(message):
         return {"file": save(message), "timestamp": seconds(message.header.stamp),
                 "frame_id": message.header.frame_id, "width": message.width, "height": message.height}
     if isinstance(message, JointState):
-        return finite({"positions": list(message.position), "velocities": list(message.velocity),
-                       "joint_names": list(message.name),
-                       "timestamp": seconds(message.header.stamp)})
-    return finite(dict(plain(message)))
+        return plain({"positions": list(message.position), "velocities": list(message.velocity),
+                      "joint_names": list(message.name),
+                      "timestamp": seconds(message.header.stamp)})
+    return plain(message)
 
 
 class DeviceHost:
@@ -155,7 +139,7 @@ class DeviceHost:
     async def stop(self):
         op = self.profile["operations"].get("stop")
         if op:
-            return dict(plain(await self.io._request(op, {})))
+            return plain(await self.io._request(op, {}))
         # Passive devices declare the built-in no-op stop.
         return {"success": True, "message": "no stop operation"}
 
