@@ -65,8 +65,9 @@ kinex
 
 Use `/login` to connect a model provider and `/model` to choose a model.
 Python execution uses a workspace-owned environment: uv for non-ROS workspaces,
-or independent Pixi/RoboStack Jazzy for ROS. Exec, helpers and recording share
-Kinex Python; device SDK interpreters are optional overrides for device nodes only.
+or independent Pixi/RoboStack Jazzy for ROS on Linux x86-64; install uv or Pixi
+before first use. Exec, helpers and recording share Kinex Python; device SDK
+interpreters are optional overrides for device nodes only.
 See [environment setup](docs/communication.md#kinex-python).
 
 You can also run a single task, resume a session, or update from the shell:
@@ -87,20 +88,25 @@ for in-session commands.
 
 ## Use Kinex with Simulators
 
-Kinex 2.0 uses typed ROS topics and services. The sibling `rosbridge` checkout
-runs LIBERO as a ROS graph that speaks the Kinex device contract and exports
-workspaces for its robots, such as `rosbridge setup libero/libero-panda-tabletop`.
-The exported profiles carry their calibration and borrow the simulator's
-endpoints directly. Start rosbridge separately; execution mode belongs to the
-externally launched world.
+Kinex devices are typed ROS topics and services.
+[rosbridge](https://github.com/stacx-lab/rosbridge) runs ABC, LIBERO, RoboTwin,
+RoboDojo and RoboCasa as ROS graphs that speak the Kinex device contract, and
+exports a Kinex workspace for each of its robots. The exported profiles carry
+their calibration, select the `ros-jazzy` Python provider and borrow the
+simulator's endpoints directly. rosbridge serves `kinex_interfaces/srv/Wait` from
+its own identical copy, so it builds without a Kinex checkout.
 
 ```sh
 rosbridge setup libero/libero-panda-tabletop --directory ../workspace_libero --domain-id 83
 rosbridge launch libero/libero-spatial-01 --execution-mode stepped --domain-id 83
 ```
 
-See [ROS communication](docs/communication.md) for the operation and Python
-contracts.
+Launch a task for the exported robot on the same ROS domain, then open Kinex in
+the exported directory, run `/load all` and give it the task. The launched world
+owns the execution mode. Its cameras publish native `image`, `camera_info` and,
+for RGB-D, `depth` topics and render a current frame for each new subscriber, so
+Kinex can read them while a stepped world is paused. See
+[ROS communication](docs/communication.md) for the operation and Python contracts.
 
 ## Use Kinex with Real-World Robots
 
@@ -118,8 +124,9 @@ If the task needs additional calibration, request its scope, for example
 `/calibrate camera-to-arm transform for picking`.
 
 Once ready, give Kinex the task in plain language. Use `/stop` to cancel the
-response and stop actuators within their declared scope, or `/unload <device>`
-to release a device. See [onboarding and calibration](https://stacx-lab.github.io/kinex/docs/onboarding/)
+response, stop actuators within their declared scope and cancel scripts that
+commanded them, or `/unload <device>` to release a device. See
+[onboarding and calibration](https://stacx-lab.github.io/kinex/docs/onboarding/)
 for more detail.
 
 ## Disclaimer
@@ -154,7 +161,7 @@ packages. Browse [Pi packages](https://pi.dev/packages) or read the
 ## Using Kinex with Other Harnesses
 
 Kinex plugins currently support **Pi, Claude Code and Codex**. They package Kinex's
-device tools, skills and robot context through a shared MCP adapter, with Pi also
+device tools, skills and robotics context through a shared MCP adapter, with Pi also
 providing direct lifecycle commands and UI integration. They are maintained in the separate
 [kinex-plugins repository](https://github.com/stacx-lab/kinex-plugins).
 OpenCode is not currently supported.

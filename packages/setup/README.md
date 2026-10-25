@@ -53,7 +53,7 @@ Nodes consume core runtime helpers to remain operational without setup.
 | Tool | Responsibility |
 | --- | --- |
 | `setup_plan` | Read/save a DAG, select a task's targets, and record evidence-backed outcomes. |
-| `calib_sample` | Capture one measured sample into an isolated, participant-bound attempt. |
+| `calib_sample` | Read one measured sample into an isolated, participant-bound attempt. |
 | `calib_compute` | Run bundled offline solvers or model introspection and propose exact profile changes. |
 
 `calib_sample.settle` waits for measured joint or odometry velocities to stay below
@@ -144,8 +144,9 @@ Attempts live in `.kinex/calib/<run-id>/` with a manifest, `samples.json`, immut
 artifacts, numbered solver results and a latest `result.json`. Start sampling or
 computing with `node`, or with `procedure` plus bindings and inputs. Reuse the
 returned `run` thereafter. Participants/procedure/inputs cannot change within an
-attempt. Camera images and solver source files are copied before use. Old samples
-are preserved; record exclusions in a separate solver input with references to them.
+attempt. Camera image and depth files and solver input files are copied before use.
+Old samples are preserved; record exclusions in a separate solver input with
+references to them.
 Results separate computation, quality, resolved fields, unresolved facts and
 `proposedChanges`. Failed quality proposes no writes. Warnings require review against
 task accuracy. If the user explicitly requests keeping an over-limit result during
@@ -176,7 +177,7 @@ not replace them. Custom computations use host tools and archive their evidence.
 | `calibrate-joint-range`, `calibrate-world-geometry` | Joint/model limits and independently measured environment geometry. |
 | `calibrate-gripper-grip` | The grip joint and its open and closed positions. |
 | `calibrate-sensor-bias` | IMU gyro/accelerometer and force/torque bias from static readings. |
-| `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected base conventions, motion response, expiry/stop and posture references, evaluated with `verify-base`. |
+| `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected locomotion-base conventions, motion response, expiry/stop and posture references, evaluated with `verify-base`. |
 
 Fixed arms, dual arms, wheeled manipulators, quadrupeds with arms and humanoids use
 actual endpoint/frame compositions. Moving torso attachments and body/heading
@@ -187,9 +188,10 @@ their units. No gait tuning, odometry optimization or inferred motion limits.
 Collect incrementally, reuse suitable factory/model/simulator facts and stop when
 minimum evidence, coverage and quality meet the task. Explicit tolerances are
 required for verification measurements; missing references remain incomplete.
-ROS onboarding observes the selected interfaces directly and reports the results.
-Failed checks leave onboarding incomplete. Existing base procedures use `verify-base`
-with the evidence format documented in the `calib_compute` tool description.
+Device preparation follows core's `setup-device`, verifying the declared operations,
+input rejection, stop and teardown; failed checks leave onboarding incomplete.
+Existing base procedures use `verify-base` with the evidence format documented in
+the `calib_compute` tool description.
 
 ## Checks
 
@@ -199,7 +201,8 @@ operational. Unregistering a device preserves attempt history; affected plan
 requirements become missing or stale.
 
 From the repository root run `npm run typecheck`, `npm test`, `npm run test:core`,
-`npm run test:setup`, then `npm run build` and `npm run pack -- OUTPUT_DIRECTORY`.
+`npm run test:setup` or the full `npm run check`, then `npm run build` and
+`npm run pack -- OUTPUT_DIRECTORY`.
 Builds and consumer tests run sequentially. Tests use synthetic evidence and fake
 device hosts; physical and live simulator validation are separate. Nothing is published.
 

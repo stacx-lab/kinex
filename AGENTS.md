@@ -7,9 +7,9 @@ Design history and progress belong in git.
 ## Ownership
 
 - `packages/core/src` owns device management and operation; core assets own runtime
-  Python, operational ROS configuration/adapters/interfaces, tools, provisioning bundles,
-  device guides and setup-device. Core must not
-  import setup, a host agent or UI.
+  Python, `kinex_interfaces`, tools, provisioning bundles, device guides with
+  reference nodes, and setup-device, which also covers ROS device onboarding. Core
+  must not import setup, a host agent or UI.
 - `packages/setup` owns onboarding and calibration procedures/assets, including
   calibration skills and evidence. Setup borrows core operational
   runtime resources through package exports.
@@ -27,11 +27,15 @@ Design history and progress belong in git.
   activate core Python in ordinary shells or create it during discovery.
 - Separate trusted commands from permission-checked model tools. Python tools
   cannot change device lifecycle; model recording remains opt-in.
-- Preserve initialization ordering, cancellation, recording ownership and disposal.
-  Use the owned process helper for core subprocesses; never terminate borrowed
-  services. Retain the [device](docs/devices.md),
+- Preserve initialization ordering, cancellation, invocation cleanup, recording
+  ownership and disposal. Use the owned process helper for core subprocesses; never
+  terminate borrowed services. Retain the [device](docs/devices.md),
+  [command and cleanup](docs/communication.md#commands-and-cleanup),
   [control API](packages/core/README.md#device-calls-and-control) and
   [calibration](docs/setup.md) contracts.
+- Python reaches devices only through `kinex.communication`. Keep the exec API
+  (the `kinex` root and `kinex.helpers`) apart from `kinex.node`, `kinex.lib` and
+  `kinex.host`.
 - Keep dynamic state out of stable prompt prefixes. Refresh capabilities within
   tasks and restore context after compaction without bypassing host permissions.
 

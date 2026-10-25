@@ -26,16 +26,20 @@ operations:
     qos: {depth: 1, reliability: best_effort, durability: volatile}
 ```
 
-Device nodes default to the workspace Kinex Python and its overlays. Only a device
-that needs a separate SDK environment declares `runtime.interpreter` and
-`runtime.overlays`; that environment never selects the Python used by exec,
-helpers or recording.
+Device nodes default to the workspace Kinex Python and its overlays;
+`runtime.overlays` scripts are sourced after them, for example to put a
+device-local SDK directory on `PYTHONPATH`. Only a device that needs a separate
+SDK environment declares `runtime.interpreter`, which replaces Kinex Python and
+its overlays; that environment never selects the Python used by exec, helpers or
+recording.
 
-The example shows runtime fields; a complete profile also includes top-level physical facts,
-explicit frames and calibration metadata. Direction is from the device's perspective. A service
-is an input. A topic can be an input or output. Operations describe the public
-communication interface; implementation details such as relay routes belong in
-node source files, not the operation catalog.
+The example shows runtime fields; a complete profile also includes top-level
+physical facts, explicit frames and calibration metadata. Direction is from the
+device's perspective. A service is an input. A topic can be an input or output.
+`qos` defaults to depth 1, `reliable` and `volatile`; `timeout_s` (default 10)
+bounds a request, a publish's subscriber discovery and a snapshot read. Operations
+describe the public communication interface; implementation details such as relay
+routes belong in node source files, not the operation catalog.
 
 `runtime.nodes` explicitly lists the nodes Kinex starts and owns. A factory
 receives `(profile, rclpy_context)` and returns an owned rclpy node. Multiple
@@ -50,24 +54,27 @@ The host awaits these checks and public endpoint discovery within
 create resources without waiting for callbacks; the host adds the returned nodes
 to its executor before checking readiness.
 
-The LIBERO catalog supplies explicit `node.py` implementations for its devices.
-Those files create subscriptions, publishers and service clients/servers to
-forward between the public endpoints and the external simulator. Their source
-routes are implementation details. The clock relay disables inherited ROS
-arguments so `/clock` keeps its literal source name and cannot be remapped into
-its own output. Other nodes normally inherit the world clock configuration.
+Builtin type templates ship reference `node.py` files that adapt an existing ROS
+driver: they read vendor topics with sensor-data QoS and publish or serve the
+public endpoints. Their source routes are implementation details. Kinex remaps
+each device node's `/clock` to the world `time` topic; the world template's clock
+node disables global ROS arguments so it is never remapped into its own output.
+Workspaces exported by [rosbridge](https://github.com/stacx-lab/rosbridge) borrow
+the simulator graph's endpoints and start only the `links.py` nodes of joint and
+gripper devices.
 
 `load`, `unload` and `status` are host lifecycle operations, not declared ROS
-operations. `stop` calls the declared `std_srvs/srv/Trigger` service, or is a
-no-op for a passive device. Actuators with command topics and worlds with `wait`
-must declare one. Loading checks interface readiness; normal calls never restart
-failed nodes.
+operations; profiles cannot declare them. `stop` calls the declared
+`std_srvs/srv/Trigger` service, or is a no-op for a passive device. Actuators with
+command topics and worlds with `wait` must declare one. Loading checks interface
+readiness; normal calls never restart failed nodes.
 
 Unload before changing definitions. Core fingerprints runtime fields, profile
-facts and node entrypoint source; changed definitions require explicit reload.
-Read device and operation descriptions directly from profiles. Discovery remains
-read-only. Inside exec, use `from kinex import runtime`, then
+facts, node entrypoint source and the URDF; changed definitions require explicit
+reload. Read device and operation descriptions directly from profiles. Discovery
+remains read-only. Inside exec, use `from kinex import runtime`, then
 `runtime.devices()` for configured devices and host-known readiness,
+`runtime.device(name)` for one device's description and state,
 `runtime.operations(device)` for declared operations (including unloaded devices),
 and `runtime.describe("device.operation")` for protocol metadata and recursive
 ROS payload definitions. These queries never load devices or advance time.
@@ -76,7 +83,8 @@ injected into the system prompt or exported as per-operation model tools.
 The host TypeScript API retains `runtime.devices.operations()`.
 
 Device and operation descriptions are required strings and may be empty. Typed
-templates guide setup; they do not prescribe operation names or inject usage text.
+templates guide setup; they recommend operation names without enforcing them and
+inject no usage text.
 
 ## Kinex Python
 
@@ -90,14 +98,15 @@ For ROS workspaces, configure `.kinex/kinex.json`:
 Interface source paths resolve relative to `.kinex`. Hosts prepare it explicitly
 with the TypeScript `runtime.python.prepare()`, which installs the independent
 Pixi/RoboStack Jazzy Python 3.12 environment and builds core and configured
-interfaces there. The
-provider is selected from workspace configuration, independent of device load
-state. Discovery does not install or create an environment. First approved use
-prepares a missing environment and rebuilds interfaces whose sources changed;
-explicit preparation always rebuilds them from clean.
+interfaces there. The provider is selected from workspace configuration,
+independent of device load state. Discovery does not install or create an
+environment. First approved use prepares a missing environment, or one whose
+interface sources changed; explicit preparation always runs, and each preparation
+rebuilds the interfaces from clean.
 ROS processes source only their own overlays; host shells remain unchanged.
-Non-ROS workspaces default to the existing uv environment. A simulator keeps its
-own Python and communicates with Kinex through ROS; simulator packages are not
+Non-ROS workspaces default to the existing uv environment. A simulator, such as
+one run by [rosbridge](https://github.com/stacx-lab/rosbridge), keeps its own
+Python and communicates with Kinex through ROS; simulator packages are not
 installed in Kinex Python. `exec` and Python tool manifests have no interpreter
 option.
 
@@ -121,9 +130,10 @@ async def main():
 asyncio.run(main())
 ```
 
-`image_path` and `target_message` above are application inputs. A
-`kinex_interfaces/srv/Json` operation encodes keyword arguments as one JSON object
-and returns the decoded response object; owned nodes serve it with
+`image_path` and `target_message` above are application inputs. Scripts and tools
+reach devices only through `communication()`. A `kinex_interfaces/srv/Json`
+operation encodes keyword arguments as one JSON object and returns the decoded
+response object; owned nodes serve it with
 `kinex.node.json_service(node, operation, handler)`. `publish`, `subscribe`,
 `request` and `serve` are protocol primitives; the helpers do not prescribe
 control flow. Use ordinary functions, branching and asyncio task groups.
@@ -153,11 +163,12 @@ runtime launches.
 
 ## World time
 
-The recommended world interface provides `time`, relative `wait(duration_s)`,
-`stop` and optional `reset`. Waits are sequential: the world rejects a wait while
-another is pending, and `stop` cancels the pending one. Realtime waits observe
-progress; stepped waits authorize world advancement. A periodic loop must skip
-missed deadlines, and must not assume an expired wait produces a fresh observation.
+A world provides the required `time` clock and, as recommended, relative
+`wait(duration_s)` with its `stop`; only simulators add `reset`. A zero wait is an
+observation barrier. Waits are sequential: the world rejects a wait while another
+is pending, and `stop` cancels the pending one. Realtime waits observe progress;
+stepped waits authorize world advancement. A periodic loop must skip missed
+deadlines, and must not assume an expired wait produces a fresh observation.
 
 Subscriptions, TF lookup and calibration sampling never advance the world.
 Host watchdogs use monotonic wall time so timeouts and cancellation still work
@@ -193,11 +204,13 @@ is opt-in. This API is not a sandbox for arbitrary Python.
 
 Before its first command to a device, a publish or a service request, an
 invocation reports the device to the host. Successful completion leaves motion
-running. Failure, cancellation or timeout stops every device the invocation
-commanded, from the communication scope and again from the host after the Python
-process ends; a wait abandoned inside a scope stops its world. A stop through
-`device_stop`, `/stop` or the runtime API also cancels running invocations that
-commanded a stopped device. Uncertain commands are not retried. Unload releases
+running; before teardown, the scope waits for reliable subscribers to acknowledge
+its commands, and an unacknowledged command fails it. Failure, cancellation or
+timeout stops every device the invocation commanded, from the communication scope
+and again from the host after the Python process ends; a wait abandoned inside a
+scope stops its world. Any host stop of a device, through `device_stop`, `/stop`,
+a device call's `stop` action or the runtime API, also cancels running
+invocations that commanded it. Uncertain commands are not retried. Unload releases
 owned nodes and stops according to the declared device contract, without
 terminating borrowed services.
 
@@ -206,12 +219,13 @@ terminating borrowed services.
 Kinex owns frame publication and composition. Device load automatically publishes
 known mounts and fixed internal frames from profiles on `/tf_static`; there is no
 profile switch for this. Unknown calibration never becomes an identity transform.
-Profiles declare all frames in top-level `frames`, including `frames.base`.
-Every frame explicitly supplies `parent: device:frame`, or `parent: null` for an
-independent root whose transform values are ignored. Non-root null components
-mean unknown and publish no static edge. ROS frame IDs use `<device>/<frame>`,
-including `arm/base`, `arm/flange` and `gripper/tcp`. Kinex lookup accepts either
-qualified profile references (`arm:base`) or native ROS IDs (`arm/base`).
+Profiles declare their frames in top-level `frames`, including `frames.base`;
+joint and gripper URDF links add device frames of their own. Every frame
+explicitly supplies `parent: device:frame`, or `parent: null` for an independent
+root whose transform values are ignored. Non-root null components mean unknown
+and publish no static edge. ROS frame IDs use `<device>/<frame>`, including
+`arm/base`, `arm/flange` and `gripper/tcp`. Kinex lookup accepts either qualified
+profile references (`arm:base`) or native ROS IDs (`arm/base`).
 
 A joint or gripper device's `links.py` factory creates a persistent
 `kinex.node.LinkPublisher`. It reads the profile's URDF once, subscribes to
@@ -227,44 +241,57 @@ and `ik(pose, seed, link=None)` runs the bounded solver within URDF limits and
 verifies its result with FK; the link defaults to `model.tip_link`. A controller
 with native kinematics may declare `fk` or `ik` as ordinary optional operations.
 
-Kinex automatically owns a persistent tf2 service per runtime ROS domain.
-Import `helpers` from `kinex` and use `await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)`, which
-returns `TransformStamped`. Its internal endpoint is passed to exec outside the
-device catalog; no world operation or device factory registers it. A world-clock rewind
-invalidates dynamic history while retaining fixed calibration.
+Kinex automatically owns a persistent tf2 service
+(`kinex_interfaces/srv/LookupTransform`) for each runtime ROS domain with a world
+clock. Import `helpers` from `kinex` and use
+`await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)`,
+which returns `TransformStamped`. Its internal endpoint is passed to exec outside
+the device catalog; no world operation or device factory registers it. A
+world-clock rewind invalidates dynamic history while retaining fixed calibration.
 
 The simulator supplies state and measurements, not TF or a transform-lookup
-service. Camera nodes set image frame IDs to the calibrated optical frame. Camera
-projection and distortion live in the profile, not TF.
+service. Camera nodes set image frame IDs to the calibrated optical frame.
 
-`relative_pose` uses tf2 and accepts qualified frame references or ROS frame IDs. Supply `timestamp` for a measurement
-at a particular world time; omitting it explicitly requests the latest available
-transform. Kinex retains the tf2 service across exec calls, so a new
-invocation can query a paused world without waiting for another physics tick.
-Missing relationships and unavailable timestamps are errors.
+`relative_pose` uses tf2 and accepts qualified frame references or ROS frame IDs.
+Supply `timestamp` for a measurement at a particular world time; omitting it
+explicitly requests the latest available transform. Kinex retains the tf2 service
+across exec calls, so a new invocation can query a paused world without waiting
+for another physics tick. Missing relationships and unavailable timestamps are
+errors.
 
-Cameras are native ROS topics: `image`, and `depth` for rgbd. `helpers.camera_frame`
-subscribes and returns the current image and its equally stamped depth; a simulator
-publishes a current frame to each new subscriber, so a paused world can be read.
-Images stay as ROS payloads in Python. `helpers.image_array` converts them for
-computation; `helpers.save_image` writes a selected image. Return paths with
-`finish(result, file=...)` after leaving the scope to attach images to the model.
+Cameras are native ROS topics: `image`, `depth` for rgbd and, where a source
+provides it, `camera_info`. Camera projection and distortion live in the profile,
+not TF or `camera_info`. `helpers.camera_frame(io, camera)` subscribes and returns
+the next image and, for rgbd, the depth with the same stamp; the same
+`kinex.lib.camera.frame` backs device snapshots and `locate_object_3d`. A live
+camera streams; a simulator publishes a current frame to each new subscriber, so
+a paused world can be read without advancing it. Images stay as ROS payloads in
+Python. `helpers.image_array` converts them for computation; `helpers.save_image`
+writes a selected image. Return paths with `finish(result, file=...)` after
+leaving the scope to attach images to the model.
 
 ## Native validation
 
-Build the shared interface package from `packages/core/assets/ros` in the selected
-ROS environment. Sibling rosbridge serves `kinex_interfaces/srv/Wait` from its own
-identical copy and does not build this directory.
+`kinex_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
+services; commands and observations use standard ROS messages. The ros-jazzy
+provider builds it from `packages/core/assets/ros`; build that directory in any
+other ROS environment that calls these services.
+[rosbridge](https://github.com/stacx-lab/rosbridge) serves
+`kinex_interfaces/srv/Wait` from its own byte-identical copy, so it needs no Kinex
+checkout to build.
 
-A workspace exported with `rosbridge setup` borrows the running graph's endpoints;
-load its devices after `rosbridge launch` on the same ROS domain.
+`rosbridge setup <robot> --directory DIR --domain-id N` exports a workspace whose
+devices borrow the running graph's endpoints. Start the simulator with
+`rosbridge launch <task> --execution-mode stepped|realtime --domain-id N`, then
+load the devices on the same ROS domain.
 
 ## Recording
 
-Continuous capture observes the selected device's declared topics, including
-input commands, and saves typed CDR messages with rosbag2. Output sample rates
-use the world clock. Clock and TF data are retained alongside the observations,
-with reset epochs in the sample index. Capturing never requests world progress.
-See [recording](agent-integration.md#recording) for products and lifecycle.
-The Kinex Python environment must provide `rosbag2_py` and SQLite storage; frame
-conversion additionally uses `tf2_geometry_msgs`. Discovery imports neither.
+Continuous recording observes the selected operations, by default every declared
+topic of the device, including input commands, and saves typed CDR messages with
+rosbag2. Output sample rates use the world clock. Clock and TF data are retained
+alongside the observations, with reset epochs in the sample index. Recording
+never requests world progress. See [recording](agent-integration.md#recording)
+for products and lifecycle. The Kinex Python environment must provide
+`rosbag2_py` and SQLite storage; frame conversion additionally uses
+`tf2_geometry_msgs`. Discovery imports neither.
