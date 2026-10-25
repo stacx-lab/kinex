@@ -7,10 +7,11 @@ time, tf2, interface provisioning and invocation cleanup.
 
 ## Shared user commands
 
-`/register`, `/unregister`, `/load`, `/unload`, `/ping`, `/stop` and `/record` use
-trusted host APIs. Model calls use permission-checked tools. Python cannot change
-device lifecycle or enable recording. New profiles remain unloaded until explicit
-activation; load waits for readiness and unload releases only owned resources.
+`/register`, `/unregister`, `/devices`, `/load`, `/unload`, `/ping`, `/stop` and
+`/record` use trusted host APIs. Model calls use permission-checked tools. Python
+cannot change device lifecycle or enable recording. New profiles remain unloaded
+until explicit activation; load waits for readiness and unload releases only owned
+resources. `/stop` also cancels running scripts that commanded a stopped device.
 
 ## Feature contributions
 
@@ -21,15 +22,21 @@ capabilities. Hosts own permissions, sessions, cancellation and compaction.
 ## Device calls and control
 
 Each `.kinex/devices/<name>/profile.yaml` requires `type` and `description`.
-The description gives general identity, capabilities and limitations. Top-level
-physical facts and explicit frames keep typed schema checks; type does not imply an
-operation name or payload.
+Types are `world`, `joint`, `gripper`, `suction`, `locomotion`, `rgb`, `rgbd`,
+`imu`, `force_torque`, `model` and the fallback `other`, which prescribes no facts
+or operations. The description gives general identity, capabilities and
+limitations. Top-level physical facts and explicit frames keep typed schema checks;
+type does not imply an operation name or payload. Nodes own device connections;
+`access` holds only `needs_calibration`, the explicit request against the
+`access:<device>` readiness item.
 
 `operations.<name>` requires its own `description`, transport, direction, endpoint
 and ROS type. Describe only that operation: units, frames, timing, input/output
 conventions, errors and effects. Both descriptions are required strings and may
-be empty. Read descriptions directly from `profile.yaml`. Query runtime metadata
-and ROS payload schemas when needed, including while unloaded:
+be empty. `load`, `unload` and `status` are reserved host lifecycle actions. A
+`stop` operation must be a `std_srvs/srv/Trigger` service; commanded actuators and
+world waits require one. Read descriptions directly from `profile.yaml`. Query
+runtime metadata and ROS payload schemas when needed, including while unloaded:
 
 ```python
 from kinex import runtime, finish
@@ -51,10 +58,14 @@ results attach PNG, JPEG, GIF or WebP files for the model. Python reaches device
 
 For workflows use `communication()` async pub/sub and request/response helpers.
 Commands are standard ROS messages; sending is not arrival. Measure feedback to
-verify results. Use the world for time and tf2 for
-stamped transforms. Helper-specific operation requirements are explicit helper
-contracts, never requirements of the device type. Device type guides recommend ROS
-patterns; workspace descriptions define the actual interface.
+verify results. Use the world for time and tf2 for stamped transforms. Free-form
+operations, including model inference, use `kinex_interfaces/srv/Json`:
+`io.request` sends its keyword fields as one JSON object and returns the decoded
+response. Cameras are `image` and, for rgbd, `depth` topics;
+`helpers.camera_frame(io, camera)` returns the current image and its equally
+stamped depth without advancing world time. Helper-specific operation requirements
+are explicit helper contracts, never requirements of the device type. Device type
+guides recommend ROS patterns; workspace descriptions define the actual interface.
 
 Within `async with communication() as io`,
 `await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)` queries
@@ -103,16 +114,19 @@ asyncio.run(main())
 - `python.status()/initialize()/prepare({signal})` inspect, seed and synchronize the
   separate `.kinex/python` project. Status is read-only; initialize installs nothing.
   The project may be absent. Default Python execution prepares it only when the
-  environment is missing or its ROS interface receipt is incomplete; otherwise it
-  runs directly, even if dependency declarations have changed. Explicit `prepare()` always synchronizes. Concurrent first use within
-  a process waits for preparation; failed bootstraps can retry without accepting a partial environment.
+  environment is missing or its ROS interface receipt no longer matches the core and
+  configured interface sources; otherwise it runs directly, even if dependency
+  declarations have changed. Explicit `prepare()` always synchronizes. Concurrent
+  first use within a process waits for preparation; failed bootstraps can retry
+  without accepting a partial environment.
   Preparation returns the interpreter and child-process environment.
-- `devices.list()/load()/reload()/unload()/ping()` provide device lifecycle APIs.
+- `devices.list()/load()/reload()/unload()/ping()` provide device lifecycle APIs,
+  and `devices.operations()` lists each device's declared operations.
   Load/reload returns `{device, ready}`; await
   `ready` for background initialization. `devices.dispatch()` is a trusted operation API.
 - `devices.templates()` discovers provisioning instances and type templates.
   `devices.unregister(name, signal?)` holds the device lifecycle fence through
-  capture shutdown, deactivation and deletion. Attempt directories and setup plans
+  recording shutdown, deactivation and deletion. Attempt directories and setup plans
   are retained.
   Failed deactivation preserves device files. This trusted method
   does not prompt; the `/unregister` command confirms through its host.
@@ -166,10 +180,14 @@ other tool traffic retains its tool name.
 
 ## Assets and discovery
 
-Builtin typed device templates contain Setup and Profile guidance. They explain
-how to author descriptions, physical facts, operations and nodes, and supply no
-usage text ([device contracts](../../docs/devices.md#profiles)). The stable prompt
-only directs agents to runtime discovery. Context refresh and compaction do not inject catalogs.
+Builtin type templates in `assets/builtin/device/templates` contain Setup guidance,
+usually with recommended operations, and a Profile example. They explain how to
+author descriptions, physical facts, operations and nodes, and supply no usage text
+([device contracts](../../docs/devices.md#profiles)). Every template except `other`
+ships a reference `node.py`; sensor and actuator nodes adapt an existing ROS driver
+to the Kinex contract. The `grounding-dino`, `sam3` and `fastwam` bundles provision
+model nodes. The stable prompt describes the workspace layout and directs agents to
+runtime discovery; neither it nor context refresh and compaction inject catalogs.
 
 Guide discovery preserves nearest-workspace/user/builtin precedence and searches
 named bundles before type templates. Python discovery is inert; `.kinex/python`
@@ -181,7 +199,9 @@ Kinex Python unless a device SDK needs a separate `runtime.interpreter`.
 Use `exec` to run ordinary Python with access to the active runtime. Supply exactly
 one of `python` (source) or `file` (a script path); no manifest or `main()` function
 is required. Multiline source is passed directly, without shell syntax.
-Optional `description` supplies a short lowercase TUI label, such as `inspect arm state`.
+Optional `description` supplies a short lowercase label, such as `inspect arm state`,
+that hosts show as the call's subject; standalone shows the highlighted source or
+the `python` command beneath it.
 
 ```json
 {
@@ -207,11 +227,14 @@ invocation ends, including on success.
 
 The result contains bounded combined stdout/stderr in `output` and `result`
 (normally `null`). Normal completion and `sys.exit(0)` succeed. Optionally
-use `kinex.finish(value)` for a JSON result, or `kinex.finish(value, file=image_path)`
-to attach an image. Pass `file=[path1, path2]` to attach multiple images in order.
-When attaching files, `value` must be a JSON object (or omitted); the paths are
-included in its `file` field. Include camera identities and timestamps alongside
-them. Printing paths or returning base64 text does not attach images.
+use `kinex.finish(value)` for a JSON result: ROS messages, NumPy values and tuples
+become plain JSON, non-finite numbers become `null`, and images are rejected.
+Return images as files instead: `kinex.finish(value, file=image_path)` attaches one,
+for example from `helpers.save_image(image)`, and `file=[path1, path2]` attaches
+several in order. When attaching files, `value` must be a JSON object (or omitted);
+the paths are included in its `file` field. Include camera identities and
+timestamps alongside them. Printing paths or returning base64 text does not attach
+images.
 Execution failures set the tool's error flag and return `error` in place of `result`,
 retaining RPC `code` and `details` when present. An uncaught exception's traceback
 appears once, in `error`; a script that exits nonzero without one reports its code.
@@ -219,9 +242,14 @@ Output truncation is reported explicitly. Raw prints and subprocess output canno
 be interpreted as runtime messages. Invalid arguments use the standard tool
 validation error result; permission denial propagates to the host.
 
-One `python_tool` approval covers an invocation. Scripts use `communication`,
-`helpers`, `profile`, `robot` and `runtime` from `kinex`; they cannot change device
-lifecycle or control recording. Cleanup follows
+One `python_tool` approval covers an invocation. Scripts reach devices only through
+`communication`; they cannot change device lifecycle or control recording. The
+`kinex` root (`args`, `finish`, `fail`, `profile`, `robot`, `communication`,
+`runtime`, `RPCError` and `OperationError`) and `kinex.helpers` form the exec API.
+`kinex.node` gives device nodes command routing, JSON services and URDF link
+frames; `kinex.lib` holds shared internals and `kinex.host` the processes the
+runtime launches. Workspace helpers in `.kinex/lib` are importable from exec,
+tools and nodes. Cleanup follows
 [commands and cleanup](../../docs/communication.md#commands-and-cleanup). Request a
 device's `stop` operation, for example in a `finally` block around a control loop,
 when successful completion must stop motion. `exec` and manifest tools share the

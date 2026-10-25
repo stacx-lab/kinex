@@ -37,16 +37,20 @@ reconnect the whole collection. `/reload` refreshes agent resources only.
 ### Recording and session export
 
 Capture device observations with `/record` and preserve the conversation with
-Pi's `/export`. These examples use the
-[RoboTwin workspace](../README.md#use-kinex-with-simulators).
+Pi's `/export`. These examples use a RoboTwin workspace that
+[rosbridge](https://github.com/stacx-lab/rosbridge) exports with
+`rosbridge setup robotwin/robotwin-aloha-agilex --directory DIR --domain-id N`.
+Start a task on the same domain with
+`rosbridge launch <task> --execution-mode stepped|realtime --domain-id N`; see
+[simulators](../README.md#use-kinex-with-simulators).
 
-| Command                         | Purpose                                                                    |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| `/record start left_arm=10 head_camera=2` | Record the left arm at 10 Hz and head camera at 2 Hz. |
-| `/record snap <devices ...>`    | Capture a one-time snapshot of the named devices.                          |
-| `/record stop`                  | Finish and save the active recording.                                      |
-| `/record status`                | Show active and recent recordings.                                         |
-| `/export [path]`                | Export the current conversation session as HTML or JSONL.                  |
+| Command                                   | Purpose                                                                 |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| `/record start left_arm=10 head_camera=2` | Record the left arm at 10 Hz and head camera at 2 Hz.                   |
+| `/record snap <devices ...>`              | Capture a one-time snapshot of the named devices.                       |
+| `/record stop [outcome] [summary]`        | Finish and save; optional outcome `success`, `failure` or `partial`.    |
+| `/record status`                          | Show the active recording and summaries of recent ones.                 |
+| `/export [path]`                          | Export the current conversation session as HTML or JSONL.               |
 
 ### Real-world setup
 

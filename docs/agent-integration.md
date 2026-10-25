@@ -2,26 +2,28 @@
 
 ## Tools and device guidance
 
-Tools declare input schemas; Python manifests also declare a timeout. Composition
-preserves permissions and recording attribution. Device templates own setup
-guidance only, and agents read device and operation descriptions from profiles; see
-[device contracts](devices.md#profiles).
+Tools declare input schemas; Python manifests also declare a timeout. Contribution
+composition preserves permissions and recording attribution. Device templates own
+setup guidance only, and agents read device and operation descriptions from
+profiles; see [device contracts](devices.md#profiles).
 Workspace safety limits and keep-out zones remain manifest data, outside robot
 context.
 
 `exec` is a core tool alongside direct device calls and reusable Python tools.
-It runs source or script files in a fresh process, returning captured stdout/stderr
-and either an optional structured result or an error. Its optional `description` is a
-display label; standalone shows the inline source or the script command beneath it.
+It runs source or script files in a fresh process, returning the printed output
+and either an optional JSON-ready result or an error; an uncaught exception's
+traceback appears once, in the error. Its optional `description` is the display
+subject; standalone shows the highlighted inline source or the `python` command
+beneath it, then the printed output followed by the result or the failure.
 The host's shell and file tools retain their own execution paths and permissions.
 
 Tool results can carry image attachments as `{mime, data}` (base64) or
 `{mime, path}`. Hosts must forward both as image content in attachment order.
-Direct camera reads attach their PNG, JPEG, GIF or WebP image automatically; Python results attach
-selected image files returned through `finish`. A partially successful `devices`
-batch retains successful images and per-call errors, with the top-level error
-flag set only when every call failed. Hosts must inspect individual results
-without discarding the successful observations.
+Direct camera reads attach their PNG, JPEG, GIF or WebP image automatically; Python
+results attach selected image files returned through `finish`. A partially
+successful `devices` batch retains successful images and per-call errors, with the
+top-level error flag set only when every call failed. Hosts must inspect individual
+results without discarding the successful observations.
 
 ## Sessions and permissions
 
@@ -31,12 +33,17 @@ retains connections across same-workspace sessions while cancelling old calls,
 resetting grants and ending recordings; workspace replacement/quit disposes them.
 Robotics/question batches execute sequentially; denial/cancellation stops later
 calls without rolling back completed work. Pure coding batches remain parallel.
+Standalone labels each user command result it adds to the conversation with the
+command that produced it.
 
 `exec` requests `python_tool` approval once per invocation; its device reads and
 commands share that approval, and Python cannot change device lifecycle or control
-recording. Manifest tools keep their own permission when invoked outside `exec`.
-Cleanup follows [commands and cleanup](communication.md#commands-and-cleanup);
-hosts route `exec` through core's tool API so the shared Python runner applies them.
+recording. Manifest tools request their own `python_tool` approval per call; inside
+`exec`, scripts call the matching helpers instead. A failed, timed-out or cancelled
+invocation stops the devices it commanded, and a device stop cancels the invocations
+that commanded it; see [commands and cleanup](communication.md#commands-and-cleanup).
+Hosts route `exec` through core's tool API so the shared Python runner applies this
+cleanup.
 
 ## Recording
 
@@ -68,13 +75,17 @@ transcript references; outcomes and summaries are annotations, not verification.
 ## Context and compaction
 
 Tools/skills refresh within tasks. Stable prompt prefixes exclude dynamic state;
-only changed minimal context sections append to the active history tail. Device
-catalogs, readiness summaries and ROS payload schemas are queried inside exec
+only changed minimal context sections append to the active history tail. Core's
+stable robotics instructions cover the `.kinex` workspace layout, devices, Python,
+principles and tools; setup adds where its plans and calibration attempts live.
+Device catalogs, readiness and ROS payload schemas are queried inside exec
 through `kinex.runtime`, never injected into the stable prefix or model tool list.
 Exec instructions and examples are workspace-independent. Compaction restores
-the same minimal sections before the next request, stopping if recovery fails. Images enter history as bytes; recording traces omit image bytes and opaque
-reasoning. Active time uses a monotonic clock, excludes idle/input dialogs and
-persists outside model context; shutdown clears footer timers/subscriptions.
+the same minimal sections before the next request, stopping if recovery fails.
+Images enter history as bytes; recording traces keep only conversation messages,
+omitting system entries, image bytes and opaque reasoning. Active time uses a
+monotonic clock, excludes idle/input dialogs and persists outside model context;
+shutdown clears footer timers/subscriptions.
 
 ## Pi resources and credentials
 
@@ -88,6 +99,6 @@ sessions, loading extensions or initializing robotics. Project declarations live
 under `.kinex/agent`, resources under `.pi`; version/ref pins survive updates.
 
 See [project overview](overview.md) for contribution ownership and
-[device contracts](devices.md) for node lifecycle and capture interfaces.
+[device contracts](devices.md) for node lifecycle and observation interfaces.
 
 [Design index](README.md)

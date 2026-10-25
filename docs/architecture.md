@@ -29,22 +29,28 @@ OS interfaces and libraries rather than calling hardware drivers directly.
 ## Devices
 
 A device is a named resource with a type, a profile and a communication interface.
-The type describes physical or computational facts. Its operation catalog declares
-arbitrary typed topics and services; nodes implement those interfaces through a
-hardware SDK, simulator API or computational service. A device can start several
-owned nodes or expose a subset of endpoints from an existing shared node. Core
-owns only the nodes declared in that device's runtime; external nodes retain
-their own lifecycle. The world device owns time. Hardware and simulators share
-these contracts.
+The type describes physical or computational facts: builtin types cover the world,
+joint mechanisms such as arms and hands, grippers, suction tools, locomotion
+bases, rgb and rgbd cameras, IMUs, force/torque sensors and models, with `other`
+as the fallback. Its operation catalog declares arbitrary typed ROS topics and
+services; nodes implement those interfaces through a hardware SDK, simulator API
+or computational service. A device can start several owned nodes or expose a
+subset of endpoints from an existing shared node. Core owns only the nodes
+declared in that device's runtime; external nodes retain their own lifecycle.
+Every workspace has a world device, which owns time. Hardware and simulators
+share these contracts; [rosbridge](https://github.com/stacx-lab/rosbridge) runs
+simulators as Kinex ROS graphs and exports their workspaces.
 
 Examples include:
 
-- A camera supplies images; a joint device takes motion commands and returns
-  measured state. A sent command does not establish arrival: verify feedback.
-- A detection or policy model exposes inference as a device. Controller tools
-  decide how to apply its output to the robot.
-- A `world` device exposes environment time through its clock topic and wait services.
-  Tools schedule work through these operations for hardware or simulation.
+- A camera publishes images on ROS topics; a joint device takes motion commands
+  and returns measured state. A sent command does not establish arrival: verify
+  feedback.
+- A detection or policy model exposes inference as a device through JSON
+  services. Controller tools decide how to apply its output to the robot.
+- A `world` device exposes environment time through its clock topic and its wait
+  and stop services. Tools schedule work through these operations for hardware or
+  simulation.
 
 See [device contracts](devices.md) for frames, motion and node behavior.
 
@@ -60,7 +66,9 @@ The agent interprets those observations before choosing the next action.
 
 Reusable Python tools declare their schema in `tool.yaml`. Async entries export
 `main(args, io)` and compose operations with `publish`, `subscribe`, `request` and
-`serve`. Ordinary Python branching and asyncio task groups define the workflow.
+`serve`; Python reaches devices only through this communication scope. Builtin
+Python tools are interfaces to `kinex.helpers` functions that `exec` scripts call
+directly. Ordinary Python branching and asyncio task groups define the workflow.
 Perception and control share one execution approval. Tools and their temporary
 communication resources end with the invocation; model state persists in devices.
 
