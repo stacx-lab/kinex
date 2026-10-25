@@ -129,7 +129,13 @@ for(const mode of ['success','failure','cancel']) test(`a commanded device is st
  assert.equal(await stops(dir),mode==='success'?0:1)
 })
 
-test('a device stop cancels only the invocations that commanded it',async t=>{
+// device_stop, a device call's stop action and the runtime dispatch share invocation cancellation.
+const stoppers={
+ device_stop:(runtime,deviceID)=>runtime.tools.call('device_stop',{deviceID},{sessionID:'stop'}),
+ device:(runtime,deviceID)=>runtime.tools.call('device',{deviceID,action:'stop'},{sessionID:'stop'}),
+ dispatch:(runtime,deviceID)=>runtime.devices.dispatch(deviceID,'stop').then(()=>({})),
+}
+for(const [via,stop] of Object.entries(stoppers)) test(`a device stop cancels only the invocations that commanded it (${via})`,async t=>{
  const {runtime,directory}=await fixture(t)
  const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
  await protocolDevice(runtime,directory,'idle',{loaded:true})
@@ -138,11 +144,10 @@ test('a device stop cancels only the invocations that commanded it',async t=>{
  const running=exec(runtime,`from kinex import _rpc\n${enroll}\nopen(${JSON.stringify(marker)},'w').close()\nimport time;time.sleep(30)`)
  void running.then(()=>{finished=true})
  while(!await access(marker).then(()=>true,()=>false)) await delay(20)
- const stop=deviceID=>runtime.tools.call('device_stop',{deviceID},{sessionID:'stop'})
- assert.ok(!(await stop('idle')).isError)
+ assert.ok(!(await stop(runtime,'idle')).isError)
  await delay(200)
  assert.equal(finished,false)
- assert.ok(!(await stop('sensor')).isError)
+ assert.ok(!(await stop(runtime,'sensor')).isError)
  const result=await running
  assert.equal(result.isError,true);assert.match(result.output,/device stop cancelled this invocation/)
  assert.equal(await stops(dir),2)

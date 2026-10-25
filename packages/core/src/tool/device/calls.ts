@@ -2,6 +2,7 @@ import { z } from "zod"
 import { ProfileStore } from "../../device/profile/store.ts"
 import { checkDeviceCall, dispatchDevice } from "../../device/dispatch.ts"
 import { lifecycleAction } from "../../device/lifecycle.ts"
+import { stopDevice } from "../../device/stop.ts"
 import { isCommandAction } from "../../device/interface.ts"
 import { NamedError } from "../../util/error.ts"
 import { imageMime } from "../../util/media.ts"
@@ -54,7 +55,9 @@ export async function callDevices(calls: Call[], ctx: Context): Promise<CallResu
       ctx.abort.throwIfAborted()
       const reading = action === "load" || action === "unload"
         ? await lifecycleAction(ctx.directory, item.device, action, ctx.abort)
-        : await dispatchDevice(ctx.directory, item.device, action, args, undefined, ctx.abort)
+        : action === "stop"
+          ? await stopDevice(ctx.directory, item.device, ctx.abort)
+          : await dispatchDevice(ctx.directory, item.device, action, args, undefined, ctx.abort)
       ctx.abort.throwIfAborted()
       const { data, filePath: file } = reading
       const mime = file && await imageMime(file)

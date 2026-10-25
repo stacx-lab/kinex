@@ -32,13 +32,23 @@ export async function releaseInvocation(cwd: string, id: string, failed: boolean
   if (errors.length) throw new NamedError("DeviceCleanupError", `invocation cleanup failed: ${errors.join("; ")}`)
 }
 
-/** Stops devices and cancels the running invocations that commanded any of them. */
-export async function stopDevices(cwd: string, devices: Device[]) {
+async function cancelInvocations(cwd: string, devices: Device[]) {
   const directories = new Set(await Promise.all(devices.map(device => ProfileStore.deviceDir(cwd, device.name))))
   for (const { cancel, devices: commanded } of invocations().values())
     if ([...commanded.keys()].some(directory => directories.has(directory)))
       cancel.abort(new NamedError("DeviceStopped", "a device stop cancelled this invocation"))
+}
+
+/** Stops devices and cancels the running invocations that commanded any of them. */
+export async function stopDevices(cwd: string, devices: Device[]) {
+  await cancelInvocations(cwd, devices)
   return sendStops(cwd, devices)
+}
+
+/** One device's stop call, through any path, which also cancels the invocations that commanded it. */
+export async function stopDevice(cwd: string, device: Device, signal?: AbortSignal) {
+  await cancelInvocations(cwd, [device])
+  return dispatchDevice(cwd, device, "stop", {}, undefined, signal)
 }
 
 function sendStops(cwd: string, devices: Device[]) {

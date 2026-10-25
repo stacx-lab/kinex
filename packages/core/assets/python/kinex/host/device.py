@@ -176,7 +176,7 @@ async def main():
             task.cancel()
         await asyncio.gather(*host.tasks.values(), return_exceptions=True)
         if host.io:
-            await host.run("unload", {}, None)
+            await host.run("unload", {})
 
 
 if __name__ == "__main__":
