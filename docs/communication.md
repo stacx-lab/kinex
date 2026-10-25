@@ -234,9 +234,8 @@ device catalog; no world operation or device factory registers it. A world-clock
 invalidates dynamic history while retaining fixed calibration.
 
 The simulator supplies state and measurements, not TF or a transform-lookup
-service. Camera nodes set image frame IDs to the calibrated optical frame,
-including on-demand captures. Camera projection and distortion live in the
-profile, not TF.
+service. Camera nodes set image frame IDs to the calibrated optical frame. Camera
+projection and distortion live in the profile, not TF.
 
 `relative_pose` uses tf2 and accepts qualified frame references or ROS frame IDs. Supply `timestamp` for a measurement
 at a particular world time; omitting it explicitly requests the latest available
@@ -244,6 +243,9 @@ transform. Kinex retains the tf2 service across exec calls, so a new
 invocation can query a paused world without waiting for another physics tick.
 Missing relationships and unavailable timestamps are errors.
 
+Cameras are native ROS topics: `image`, and `depth` for rgbd. `helpers.camera_frame`
+subscribes and returns the current image and its equally stamped depth; a simulator
+publishes a current frame to each new subscriber, so a paused world can be read.
 Images stay as ROS payloads in Python. `helpers.image_array` converts them for
 computation; `helpers.save_image` writes a selected image. Return paths with
 `finish(result, file=...)` after leaving the scope to attach images to the model.
@@ -251,8 +253,8 @@ computation; `helpers.save_image` writes a selected image. Return paths with
 ## Native validation
 
 Build the shared interface package from `packages/core/assets/ros` in the selected
-ROS environment. Sibling rosbridge requires `KINEX_ROS_PACKAGES` set to that
-directory when preparing a simulator.
+ROS environment. Sibling rosbridge serves `kinex_interfaces/srv/Wait` from its own
+identical copy and does not build this directory.
 
 A workspace exported with `rosbridge setup` borrows the running graph's endpoints;
 load its devices after `rosbridge launch` on the same ROS domain.

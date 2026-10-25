@@ -1,5 +1,6 @@
-"""Camera images convert ROS payloads and locate registered 16UC1 depth."""
+"""Camera images convert ROS payloads, pair frames from topics and locate registered 16UC1 depth."""
 
+import asyncio
 import os
 import unittest
 from types import SimpleNamespace
@@ -7,7 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from kinex.lib.camera import array, save
+from kinex.lib.camera import array, frame, save
 from kinex.helpers.perception import _locate as locate
 
 
@@ -51,6 +52,48 @@ class CameraImages(unittest.TestCase):
         np.testing.assert_allclose(result["point"], [0, 0, 2])
         with self.assertRaisesRegex(ValueError, "16UC1"):
             locate(profile, np.ones((3, 3), dtype=bool), depth_image=message("mono8", depth.astype(np.uint8)))
+
+
+def stamped(seconds):
+    return SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=seconds, nanosec=0)))
+
+
+class Stream:
+    def __init__(self, stamps):
+        self.messages, self.closed = [stamped(s) for s in stamps], False
+
+    async def next(self, timeout_s=None):
+        if not self.messages:
+            await asyncio.sleep(3600)
+        return self.messages.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
+def scope(**streams):
+    return SimpleNamespace(catalog={f"camera.{name}": {"timeout_s": 1} for name in streams},
+                           subscribe=lambda reference: streams[reference.split(".", 1)[1]],
+                           operation=lambda reference: {"timeout_s": 1})
+
+
+class CameraFrames(unittest.IsolatedAsyncioTestCase):
+    async def test_rgb_reads_one_image_and_closes_its_stream(self):
+        image = Stream([4])
+        self.assertEqual(await frame(scope(image=image), "camera"), (stamped(4), None))
+        self.assertTrue(image.closed)
+
+    async def test_rgbd_pairs_image_and_depth_with_equal_stamps(self):
+        image, depth = Stream([1, 2, 3]), Stream([2])
+        color, registered = await frame(scope(image=image, depth=depth), "camera")
+        self.assertEqual((color.header.stamp.sec, registered.header.stamp.sec), (2, 2))
+        self.assertTrue(image.closed and depth.closed)
+
+    async def test_unpaired_streams_time_out_and_close(self):
+        image, depth = Stream([1]), Stream([2])
+        with self.assertRaises(TimeoutError):
+            await frame(scope(image=image, depth=depth), "camera", timeout_s=.05)
+        self.assertTrue(image.closed and depth.closed)
 
 
 if __name__ == "__main__":

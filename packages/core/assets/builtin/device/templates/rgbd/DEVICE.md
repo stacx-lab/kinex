@@ -14,6 +14,11 @@ its own `projection` and `distortion` and calibrated `frames.color` and
 `frames.depth`; headers then use `<device>/color` and `<device>/depth`, and Kinex
 resolves depth-to-color through tf2.
 
+A reader subscribes to `image` and `depth` and pairs the frames with equal stamps;
+snapshots archive both and perception tools measure from them. Publish both from
+one acquisition with the same stamp; a simulator publishes a current pair to each
+new subscriber, as for rgb.
+
 The sibling `node.py` adapts an existing ROS RGB-D driver with registered depth;
 copy it into the device directory and set `COLOR` and `DEPTH` to its topics.
 
@@ -21,11 +26,8 @@ copy it into the device directory and set `COLOR` and `DEPTH` to its topics.
 
 - `image` (recommended): as for rgb.
 - `depth` (recommended): output topic `sensor_msgs/msg/Image`, `16UC1` in units of
-  `scale_m_per_unit` with `invalid_value: 0` for missing samples, `best_effort`
-  with depth 1.
-- `capture` (recommended): service `kinex_interfaces/srv/CaptureRGBD` returning
-  `image` and `depth_image` from one acquisition without advancing world time.
-  Snapshots archive both; perception tools measure from them.
+  `scale_m_per_unit` with `invalid_value: 0` for missing samples, stamped like its
+  `image`, `best_effort` with depth 1 for a streaming driver.
 
 ### Profile
 
@@ -51,12 +53,6 @@ operations:
     endpoint: /kinex/rgbd/depth
     type: sensor_msgs/msg/Image
     qos: {depth: 1, reliability: best_effort, durability: volatile}
-  capture:
-    description: Paired image and depth_image from one acquisition without advancing world time.
-    transport: service
-    direction: input
-    endpoint: /kinex/rgbd/capture
-    type: kinex_interfaces/srv/CaptureRGBD
 color:
   width: ???
   height: ???

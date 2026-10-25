@@ -14,9 +14,6 @@ def observation(message):
         return message
     from sensor_msgs.msg import Image, JointState
     from kinex.lib.camera import save
-    if isinstance(getattr(message, "image", None), Image):
-        depth = getattr(message, "depth_image", None)
-        return {**observation(message.image), **({"depth_file": save(depth)} if depth is not None else {})}
     if isinstance(message, Image):
         return {"file": save(message), "timestamp": seconds(message.header.stamp),
                 "frame_id": message.header.frame_id, "width": message.width, "height": message.height}
@@ -115,11 +112,15 @@ class DeviceHost:
             return await self.stop()
         if action == "$sample":
             configured = self.profile["runtime"].get("observation")
+            if not configured and self.profile["type"] in ("rgb", "rgbd"):
+                # One acquisition: the image and, for rgbd, its equally stamped depth.
+                from kinex.lib.camera import frame, save
+                image, depth = await frame(self.io, self.profile["name"])
+                return {**observation(image), **({"depth_file": save(depth)} if depth is not None else {})}
             candidates = [(name, op) for name, op in self.profile["operations"].items()
                           if op["direction"] == "output" and op["type"] in
                           ("sensor_msgs/msg/JointState", "sensor_msgs/msg/Image", "rosgraph_msgs/msg/Clock")]
-            action = configured or ("capture" if "capture" in self.profile["operations"] else
-                                    candidates[0][0] if candidates else None)
+            action = configured or (candidates[0][0] if candidates else None)
             if not action:
                 raise ValueError("declare runtime.observation for this device")
         reference = f"{self.profile['name']}.{action}"

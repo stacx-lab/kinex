@@ -105,8 +105,10 @@ Physical stop behavior and scope must be documented on the device's stop operati
 
 Operations retain typed payloads and acquisition stamps. Recording subscribes to
 selected declared topics and saves rosbag2, world time and TF. It never advances
-time. Explicit snapshots use the configured observation. Recorder deactivation
-precedes device unload; disposal finalizes recordings. Model recording is opt-in.
+time. Explicit snapshots use the configured observation; a camera without one is
+read from its topics, its image and, for rgbd, the equally stamped depth. Recorder
+deactivation precedes device unload; disposal finalizes recordings. Model recording
+is opt-in.
 
 ## World: time and geometry
 

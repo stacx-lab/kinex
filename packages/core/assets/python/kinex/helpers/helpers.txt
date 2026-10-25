@@ -31,6 +31,8 @@ Policy
     Implementation: policy.py
 
 Images
+  await helpers.camera_frame(io, camera, timeout_s=None)
+    The current image and, for an rgbd camera, its depth from the same acquisition.
   helpers.image_array(image)
     Native-order pixels of a sensor_msgs/Image as numpy for computation.
   helpers.save_image(image)

@@ -5,7 +5,7 @@ from PIL import Image
 
 from kinex import profile
 from kinex.communication import seconds
-from kinex.lib.camera import array, project, ray, rays, save
+from kinex.lib.camera import array, frame, project, ray, rays, save
 from kinex.lib.geometry import number, vector, xyzq_to_rt
 
 
@@ -19,18 +19,17 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     optical Z in metres instead of RGBD depth. instance indexes detections sorted by
     descending score. Returns point (metres), pixel, depth_samples, reference
     (visible_surface or box_region), frame, label, detection_score, detections,
-    timestamp and the captured image file; rotation_xyzw is None.
+    timestamp and the image file; rotation_xyzw is None.
 
     Example: await helpers.locate_object_3d(io, "camera", "detector", "red mug")
     """
     cam = profile(camera)
     color = cam["color"]
-    capture = await io.request(f"{camera}.capture")
-    image = capture.image
+    image, depth_image = await frame(io, camera)
     if (image.width, image.height) != (color["width"], color["height"]):
         raise ValueError("image dimensions differ from calibration")
-    if depth is None and not hasattr(capture, "depth_image"):
-        raise ValueError("capture has no depth_image; supply optical depth in metres")
+    if depth is None and depth_image is None:
+        raise ValueError("camera has no depth; supply optical depth in metres")
     file = save(image)
     detected = await io.request(f"{model}.detect", image=file, prompt=prompt,
                                 min_score=min_score, max_results=max(10, instance + 1))
@@ -39,9 +38,9 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     if depth is not None:
         measured = _locate(cam, region, depth=depth)
     else:
-        relation = (await _depth_to_color(io, image, capture.depth_image)
+        relation = (await _depth_to_color(io, image, depth_image)
                     if cam["depth"]["registration"] == "native" else None)
-        measured = _locate(cam, region, depth_image=capture.depth_image, depth_to_color=relation)
+        measured = _locate(cam, region, depth_image=depth_image, depth_to_color=relation)
     return {**measured, "frame": image.header.frame_id, "reference": reference,
             "rotation_xyzw": None, "label": detection.get("label", prompt),
             "detection_score": detection["score"], "detections": count,

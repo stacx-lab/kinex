@@ -1,4 +1,4 @@
-import { protocolDevice, inputOperation } from '../../core/test/fixtures/protocol.mjs'
+import { protocolDevice, outputOperation } from '../../core/test/fixtures/protocol.mjs'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, rm, symlink } from 'node:fs/promises'
@@ -202,7 +202,7 @@ test('calibration archives both RGBD files and never appends an incomplete sampl
   await mkdir(output, { recursive: true })
   await writeFile(path.join(output, 'color.png'), 'color evidence')
   await writeFile(path.join(output, 'depth.pgm'), 'depth evidence')
-  await protocolDevice(runtime, directory, 'camera', { ...(await runtime.devices.list()).find(d=>d.name==='camera'), operations: {capture: inputOperation('capture')}, handler: `def dispatch(action, args, cancelled):
+  await protocolDevice(runtime, directory, 'camera', { ...(await runtime.devices.list()).find(d=>d.name==='camera'), operations: {image: outputOperation('image'), depth: outputOperation('depth')}, handler: `def dispatch(action, args, cancelled):
     if action == '$sample':
         return {'file': ${JSON.stringify(path.join(output, 'color.png'))}, 'depth_file': ${JSON.stringify(path.join(output, 'depth.pgm'))}, 'timestamp': 1}
     return {'ok': True}

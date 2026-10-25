@@ -80,7 +80,7 @@ async def main():
             if max(map(abs, sample.velocity)) < 0.005:
                 break
             await io.request("world.wait", duration_s=0.1)
-        files = [helpers.save_image((await io.request(f"{camera}.capture")).image)
+        files = [helpers.save_image((await helpers.camera_frame(io, camera))[0])
                  for camera in ("camera_wrist", "camera_scene")]
     finish({"steps": step + 1}, file=files)
 
