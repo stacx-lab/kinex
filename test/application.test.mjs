@@ -97,7 +97,8 @@ for (const source of ['file', 'camera', 'exec']) test(`${source} images are stor
   if (source === 'file') {
     await writeFile(image, png)
     await mkdir(path.join(cwd, '.kinex/tools'), { recursive: true })
-    await writeFile(path.join(cwd, '.kinex/tools/capture.ts'), `export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:${JSON.stringify(image)}}]}) }`)
+    await writeFile(path.join(cwd, '.kinex/tools/capture.ts'), `import { fileURLToPath } from 'node:url'
+export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:fileURLToPath(new URL('../../frame.png', import.meta.url))}]}) }`)
     fake.steps.push({ tool: 'capture' })
   } else if (source === 'exec') {
     await seed(app.owner.runtime)
@@ -132,7 +133,7 @@ for (const source of ['file', 'camera', 'exec']) test(`${source} images are stor
   t.after(() => resumed.dispose())
   await bind(resumed)
   await resumed.host.session.prompt('look again')
-  assert.match(JSON.stringify(fake.requests.at(-1)), new RegExp(png.toString('base64').replace(/[+]/g, '\\+')))
+  assert.ok(JSON.stringify(fake.requests.at(-1)).includes(png.toString('base64')))
   if (source === 'exec') assert.deepEqual(imageURLs(fake.requests.at(-1)), imageURLs(fake.requests[1]))
 })
 
