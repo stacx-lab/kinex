@@ -10,6 +10,7 @@ import { roboticsContext } from "./context/index.ts"
 import { checkDeviceCall, dispatchDevice, deactivateDevice } from "./device/dispatch.ts"
 import { listDeviceTemplates } from "./device/templates.ts"
 import { removeDevice } from "./device/remove.ts"
+import { stopDevice } from "./device/stop.ts"
 import { warmLoadedDevices, type Activation, loadDevice, unloadDevice, reloadDevice, pingDevice, lifecycleAction, deviceTransition } from "./device/lifecycle.ts"
 import { observeDevices, type DeviceEvent } from "./device/observe.ts"
 import { Recorder, type RecorderHost, type RecordingEvent, type StartInput, type SnapInput, type StopInput, type ExecutionEvent } from "./record/recorder.ts"
@@ -148,7 +149,9 @@ export function createKinexRuntime(options: RuntimeOptions) {
         const combined = AbortSignal.any([abort.signal, ...(signal ? [signal] : [])])
         return action === "load" || action === "unload"
           ? lifecycleAction(directory, device, action, combined)
-          : dispatchDevice(directory, device, action, args, undefined, combined)
+          : action === "stop"
+            ? stopDevice(directory, device, combined)
+            : dispatchDevice(directory, device, action, args, undefined, combined)
       }),
     },
     profiles: {

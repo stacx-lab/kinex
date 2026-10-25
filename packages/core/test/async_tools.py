@@ -403,5 +403,23 @@ class Dialog(unittest.IsolatedAsyncioTestCase):
                     plain({"image": image})
 
 
+class DeviceHostShutdown(unittest.IsolatedAsyncioTestCase):
+    async def test_closed_input_unloads_a_loaded_device(self):
+        import io
+        from kinex.host import device
+        calls = []
+
+        class Host:
+            io, tasks = object(), {}
+
+            async def run(self, action, args):
+                calls.append((action, args))
+
+        with patch.object(device, "DeviceHost", Host), patch.object(sys, "stdin", io.StringIO("")), \
+                patch.object(sys, "stdout", io.StringIO()):
+            await device.main()
+        self.assertEqual(calls, [("unload", {})])
+
+
 if __name__ == "__main__":
     unittest.main()
