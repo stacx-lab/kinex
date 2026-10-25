@@ -2,11 +2,10 @@
 
 Set SOURCE to the driver's rgb8 image topic at the profile resolution. The driver
 keeps acquisition and its stamps; this node publishes in the calibrated optical
-frame and serves the latest frame on demand.
+frame, and a reader subscribes to `image` and takes the next frame.
 """
 import asyncio
 
-from kinex_interfaces.srv import Capture
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
@@ -25,19 +24,14 @@ class Camera(Node):
         image = profile["operations"]["image"]
         self.image = self.create_publisher(Image, image["endpoint"], qos(image))
         self.create_subscription(Image, SOURCE, self.receive, qos_profile_sensor_data)
-        self.create_service(Capture, profile["operations"]["capture"]["endpoint"], self.capture)
 
     def receive(self, message):
         message.header.frame_id = self.frame
         self.latest = message
         self.image.publish(message)
 
-    def capture(self, request, response):
-        response.image = self.latest
-        return response
-
     async def ready(self):
-        # Capture cannot report a missing frame, so load waits for the first one.
+        # A loaded camera is streaming: load waits for the first frame.
         while self.latest is None:
             await asyncio.sleep(.02)
 

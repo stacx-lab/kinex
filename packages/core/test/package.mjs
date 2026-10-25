@@ -9,8 +9,10 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 
 export async function checkCorePackage(directory, env, pack) {
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/runtime.py'))
-  for (const file of ['srv/Wait.srv', 'srv/Capture.srv', 'package.xml', 'CMakeLists.txt'])
+  for (const file of ['srv/Wait.srv', 'srv/Json.srv', 'package.xml', 'CMakeLists.txt'])
     assert.ok(pack.files.some(entry => entry.path === `assets/ros/kinex_interfaces/${file}`))
+  // Cameras are native image topics; no capture service is shipped.
+  assert.ok(!pack.files.some(entry => /kinex_interfaces\/srv\/Capture/.test(entry.path)))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/host/run.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))

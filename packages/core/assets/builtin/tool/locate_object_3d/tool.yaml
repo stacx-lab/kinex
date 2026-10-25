@@ -24,7 +24,7 @@ parameters:
     depth:
       type: number
       exclusiveMinimum: 0
-      description: optional optical Z in metres at the representative region pixel; otherwise use the captured RGBD depth
+      description: optional optical Z in metres at the representative region pixel; otherwise use the camera's paired RGBD depth
     min_score:
       type: number
       minimum: 0

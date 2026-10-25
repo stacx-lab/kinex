@@ -338,14 +338,14 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, [["arm"]])
 
     async def test_stop_calls_each_declared_stop_service(self):
-        io, endpoints = scope({**WAIT, "camera.capture": {"type": "kinex_interfaces/srv/Capture", "endpoint": "/capture"}}), []
+        io, endpoints = scope({**WAIT, "detector.detect": {"type": "kinex_interfaces/srv/Json", "endpoint": "/detect"}}), []
 
         async def request(spec, fields, timeout_s=None, **_):
             endpoints.append((spec["endpoint"], fields))
             return NS(success=True)
 
         io._request = request
-        await io._stop(["camera", "world"])
+        await io._stop(["detector", "world"])
         self.assertEqual(endpoints, [("/world/stop", {})])
 
 
@@ -386,19 +386,19 @@ class Dialog(unittest.IsolatedAsyncioTestCase):
             def get_fields_and_field_types(self):
                 return {"data": "sequence<uint8>"}
 
-        class Capture_Response:
+        class Frame_Response:
             def get_fields_and_field_types(self):
                 return {"image": "sensor_msgs/Image"}
 
         JointState.__module__ = Image.__module__ = "sensor_msgs.msg._messages"
-        Capture_Response.__module__ = "kinex_interfaces.srv._capture"
+        Frame_Response.__module__ = "example_interfaces.srv._frame"
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = lambda _: {"name": ["j1"], "position": np.array([.5, np.nan])}
         with patch.dict(sys.modules, {"rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
                                       "rosidl_runtime_py.convert": convert}):
             self.assertEqual(plain({"state": JointState(), "pair": (np.float32(2), float("inf"))}),
                              {"state": {"name": ["j1"], "position": [.5, None]}, "pair": [2., None]})
-            for image in (Image(), Capture_Response()):
+            for image in (Image(), Frame_Response()):
                 with self.assertRaisesRegex(TypeError, "save_image"):
                     plain({"image": image})
 
