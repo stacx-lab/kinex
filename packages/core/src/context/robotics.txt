@@ -29,7 +29,9 @@ ROS resources a script creates end with it. Install missing ROS packages through
 Follow profile units, limits and safety; never assume missing facts. Avoid unintended
 collisions along the whole path. A sent command or arrival is not success; verify with
 measurements. On faults, unexpected contact or lost feedback, call device_stop first.
-Work efficiently: skip checks that add nothing, but never at the cost of completing the task.
+Work efficiently: skip checks that add nothing, combine tool calls if necessary
+(e.g. perceive and return the results inside the same exec for motion),
+but never at the cost of soundness and task completion.
 
 ## Tools and the user
 
