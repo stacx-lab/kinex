@@ -74,5 +74,5 @@ grip: ???
 stop: {behavior: hold, affected_devices: [gripper]}
 frames:
   base: {parent: null, translation_m: null, rotation_xyzw: null}
-  tcp: {parent: "gripper:base", translation_m: null, rotation_xyzw: null}
+  tcp: {parent: "gripper:base", translation_m: "???", rotation_xyzw: "???"}
 ```

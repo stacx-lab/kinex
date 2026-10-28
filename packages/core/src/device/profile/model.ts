@@ -23,8 +23,8 @@ const Artifact = z.strictObject({
 })
 export const modelShape = {
   family: field(identifier),
-  variant: z.string().regex(/^[\w./:@+-]+$/).nullable().default(null),
-  implementation: z.strictObject({ repository: z.url(), revision: z.string().min(1) }).nullable().default(null),
+  variant: field(z.string().regex(/^[\w./:@+-]+$/).nullable()),
+  implementation: field(z.strictObject({ repository: z.url(), revision: z.string().min(1) }).nullable()),
   artifacts: field(z.array(Artifact).refine((items) => new Set(items.map((item) => item.name)).size === items.length, "artifact names must be unique")),
   compute: field(Compute),
 }

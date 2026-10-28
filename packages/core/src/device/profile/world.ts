@@ -40,6 +40,6 @@ export const worldShape = {
   needs_calibration: section.needs_calibration,
   method: z.enum(["unknown", "manual", "survey", "introspection", "plane_fit"]).default("unknown"),
   calibrated_at: z.iso.datetime().nullable().default(null),
-  bounds: field(WorkspaceBounds.nullable()).default(null),
+  bounds: field(WorkspaceBounds.nullable()),
   surfaces: z.array(Surface).default([]).refine((items) => new Set(items.map((s) => s.name)).size === items.length, "surface names must be unique"),
 }

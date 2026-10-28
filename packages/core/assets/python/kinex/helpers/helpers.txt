@@ -31,6 +31,11 @@ Policy
     Implementation: policy.py
 
 Images
+  await helpers.camera_geometry(io, camera)
+    Fetch descriptors before acquisition; reuse within this invocation.
+    await geometry.unproject(pixels, stream="color") returns Nx3 optical rays.
+    await geometry.project(points, stream="color") returns Nx2 pixels.
+    Invalid individual results contain NaN. Calls use the existing scope.
   await helpers.camera_frame(io, camera, timeout_s=None)
     The current image and, for an rgbd camera, its depth from the same acquisition.
   helpers.image_array(image)

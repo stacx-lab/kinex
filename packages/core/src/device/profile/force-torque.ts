@@ -10,5 +10,5 @@ export const ForceTorqueMeasurement = z.strictObject({
 }).refine((v) => v.force !== null || v.torque !== null, "at least one force or torque measurement is required")
 export const forceTorqueShape = {
   measurement: field(ForceTorqueMeasurement),
-  sample_rate_hz: z.number().positive().nullable().default(null),
+  sample_rate_hz: field(z.number().positive().nullable()),
 }

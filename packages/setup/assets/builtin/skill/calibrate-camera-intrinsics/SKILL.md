@@ -32,3 +32,5 @@ request only if its remaining fields are also resolved. Stop when the current
 task's required camera facts are established.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.
+
+Reuse factory calibration before measuring. SDK calibration snapshots are optional. This procedure produces OpenCV parameters for a node adapter; reload the node after applying them.

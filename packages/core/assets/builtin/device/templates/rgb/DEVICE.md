@@ -7,11 +7,16 @@ description: Color camera with profile intrinsics and a calibrated optical frame
 ## Setup
 
 Declare color geometry (`width`, `height`, `fps`, `projection`, `distortion`);
-Kinex derives `fov`. The profile is the only source of intrinsics. `frames.base`
+For undistorted pinhole streams Kinex derives `fov`. SDKs may own active calibration. `frames.base`
 is the optical frame (+X right, +Y down, +Z forward) and its mount. Stamp every
 image at acquisition on the world clock and set `header.frame_id` to
 `<device>/base`. Decide whether images are raw or rectified, and compare the
 source's live calibration with the profile.
+
+Distortion metadata accepts arbitrary model names and JSON parameters. SDK-owned
+calibration does not need to be duplicated; use geometry service descriptors.
+See [camera geometry](geometry.md) for services, adapters and calibration ownership.
+Raw images remain unchanged for model consumers.
 
 A reader subscribes to `image` and takes the next frame; snapshots and perception
 tools read it this way. A live camera streams continuously. A simulator, whose world
