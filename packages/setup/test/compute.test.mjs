@@ -150,7 +150,7 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
     name: 'tool',
     type: 'gripper',
     frames: {
-      tcp: { parent: "tool:base", translation_m: null, rotation_xyzw: [0, 0, 0, 1] },
+      tcp: { parent: "tool:base", translation_m: '???', rotation_xyzw: [0, 0, 0, 1] },
       base: { parent: "arm:flange", translation_m: [0, 0, .02], rotation_xyzw: [0, 0, 1, 0] }
 } })
   const s = Math.sqrt(.5)
@@ -168,15 +168,25 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
   assert.ok(Math.abs(patch.frames.tcp.translation_m[2] - .10) < 1e-8)
   assert.equal(patch.extrinsics, undefined)
   assert.deepEqual(patch.frames.tcp.rotation_xyzw, [0, 0, 0, 1])
+  await runtime.profiles.writeDevice({ name: 'tool', frames: { tcp: { rotation_xyzw: '???' } } })
+  const unknownRotation = await compute({ operation: 'fit-tcp', procedure: 'calibrate-tcp-offset', bindings: { arm: 'arm', target: 'tool' },
+    samples: await json('unknown-rotation.json', samples), frame: 'flange' })
+  assert.ok(!unknownRotation.isError, unknownRotation.output)
+  assert.equal(JSON.parse(unknownRotation.output).proposedChanges[0].data.frames.tcp.rotation_xyzw, '???')
+  await runtime.profiles.writeDevice({ name: 'tool', frames: { base: { translation_m: '???' } } })
+  const unknownMount = await compute({ operation: 'fit-tcp', procedure: 'calibrate-tcp-offset', bindings: { arm: 'arm', target: 'tool' },
+    samples: await json('unknown-mount.json', samples), frame: 'flange' })
+  assert.equal(unknownMount.isError, true)
+  await runtime.profiles.writeDevice({ name: 'tool', frames: { base: { translation_m: [0, 0, .02] } } })
   await runtime.profiles.writeDevice(patch)
   assert.deepEqual((await runtime.devices.list()).find(device => device.name === 'tool').frames.base.translation_m, [0, 0, .02])
 })
 
 test('sensor bias adds the mean static residual and needs gravity for specific force', async t => {
   const { runtime, compute, json } = await fixture(t)
-  const channel = (bias, extra = {}) => ({ axes: ['x', 'y', 'z'], bias, ...extra })
+  const channel = (bias, extra = {}) => ({ axes: ['x', 'y', 'z'], bias, range: null, resolution: null, ...extra })
   await runtime.profiles.writeDevice({ description: '', name: 'imu', type: 'imu',
-    measurement: { angular_velocity: channel({ x: .01, y: 0, z: 0 }), orientation: null,
+    measurement: { angular_velocity: channel({ x: .01, y: 0, z: 0 }), orientation: null, magnetic_field: null,
       linear_acceleration: channel({ x: 0, y: 0, z: 0 }, { quantity: 'specific_force' }) },
     frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } })
   const samples = await json('samples.json', Array.from({ length: 20 }, () => ({ device: 'imu',

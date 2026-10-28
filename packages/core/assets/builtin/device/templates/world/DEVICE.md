@@ -59,7 +59,7 @@ operations:
     direction: input
     endpoint: /kinex/world/stop
     type: std_srvs/srv/Trigger
-bounds: null
+bounds: ???
 surfaces: []
 frames:
   base: {parent: null, translation_m: null, rotation_xyzw: null}

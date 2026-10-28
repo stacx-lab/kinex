@@ -6,6 +6,7 @@ from PIL import Image
 from kinex import profile
 from kinex.communication import seconds
 from kinex.lib.camera import array, frame, project, ray, rays, save
+from kinex.helpers.camera_geometry import camera_geometry
 from kinex.lib.geometry import number, vector, xyzq_to_rt
 
 
@@ -24,8 +25,17 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     Example: await helpers.locate_object_3d(io, "camera", "detector", "red mug")
     """
     cam = profile(camera)
-    color = cam["color"]
+    geometry = await camera_geometry(io, camera)
+    color = geometry.streams["color"]
+    cam = {**cam, "color": color}
+    if cam.get("depth", {}).get("registration") == "native" and "depth" in geometry.streams:
+        cam["depth"] = {**cam["depth"], **geometry.streams["depth"]}
     image, depth_image = await frame(io, camera)
+    if geometry.remote and image.header.frame_id != color["frame"]:
+        raise ValueError("image optical frame differs from active geometry")
+    if depth_image is not None and cam["depth"]["registration"] == "native" and geometry.remote:
+        if depth_image.header.frame_id != geometry.streams["depth"]["frame"]:
+            raise ValueError("depth optical frame differs from active geometry")
     if (image.width, image.height) != (color["width"], color["height"]):
         raise ValueError("image dimensions differ from calibration")
     if depth is None and depth_image is None:
@@ -36,11 +46,11 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     detection, count = _select_detection(detected["results"], min_score, instance)
     region, reference = _detection_region(detection, color)
     if depth is not None:
-        measured = _locate(cam, region, depth=depth)
+        measured = await _locate(cam, region, depth=depth, geometry=geometry)
     else:
         relation = (await _depth_to_color(io, image, depth_image)
                     if cam["depth"]["registration"] == "native" else None)
-        measured = _locate(cam, region, depth_image=depth_image, depth_to_color=relation)
+        measured = await _locate(cam, region, depth_image=depth_image, depth_to_color=relation, geometry=geometry)
     return {**measured, "frame": image.header.frame_id, "reference": reference,
             "rotation_xyzw": None, "label": detection.get("label", prompt),
             "detection_score": detection["score"], "detections": count,
@@ -106,14 +116,20 @@ def _central(points):
     return np.argmin(np.sum((points - np.median(points, axis=0)) ** 2, axis=1))
 
 
-def _locate(camera, region, *, depth_image=None, depth=None, depth_to_color=None):
+async def _locate(camera, region, *, depth_image=None, depth=None, depth_to_color=None, geometry=None):
     color = camera["color"]
     if depth is not None:
         if number(depth, "depth") <= 0:
             raise ValueError("depth must be positive optical Z in metres")
         pixels = np.column_stack(np.nonzero(region)[::-1])
-        pixel = pixels[_central(pixels)]
-        return {"point": (np.asarray(ray(color, *pixel)) * depth).tolist(), "pixel": pixel.tolist(), "depth_samples": 0}
+        directions = await geometry.unproject(pixels) if geometry else rays(color, *pixels.T)
+        keep = np.isfinite(directions).all(axis=1)
+        pixels, directions = pixels[keep], directions[keep]
+        if not len(pixels):
+            raise ValueError("no usable camera geometry")
+        index = _central(pixels)
+        pixel = pixels[index]
+        return {"point": (directions[index] * depth).tolist(), "pixel": pixel.tolist(), "depth_samples": 0}
 
     meta = camera["depth"]
     if depth_image.encoding != "16UC1":
@@ -132,7 +148,10 @@ def _locate(camera, region, *, depth_image=None, depth=None, depth_to_color=None
     y, x = np.nonzero(valid)
     distances = distances[y, x]
     pixels = np.column_stack((x, y))
-    directions = rays(meta if native else color, x, y).reshape(-1, 3)
+    directions = (await geometry.unproject(pixels, "depth" if native else "color") if geometry
+                  else rays(meta if native else color, x, y).reshape(-1, 3))
+    keep = np.isfinite(directions).all(axis=1)
+    directions, distances, pixels = directions[keep], distances[keep], pixels[keep]
     scale = distances / np.linalg.norm(directions, axis=1) if meta["quantity"] == "range" else distances
     points = directions * scale[:, None]
     if native:
@@ -140,7 +159,7 @@ def _locate(camera, region, *, depth_image=None, depth=None, depth_to_color=None
         points = points @ np.asarray(rotation).T + translation
         keep = points[:, 2] > 0
         points, distances = points[keep], distances[keep]
-        projected = np.column_stack(project(color, points.T))
+        projected = await geometry.project(points) if geometry else np.column_stack(project(color, points.T))
         keep = np.isfinite(projected).all(axis=1) & (projected >= 0).all(axis=1) & (projected < [color["width"], color["height"]]).all(axis=1)
         points, distances, pixels = points[keep], distances[keep], np.rint(projected[keep]).astype(int)
         keep = (pixels < [color["width"], color["height"]]).all(axis=1)

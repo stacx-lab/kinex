@@ -14,8 +14,15 @@ export const quaternion = z.tuple([z.number(), z.number(), z.number(), z.number(
   .refine((q) => Math.abs(Math.hypot(...q) - 1) < 1e-6, "unit quaternion xyzw required")
 export const LocalFrame = z.strictObject({
   parent: z.string().regex(/^[^:/]+:[^:/]+$/, "expected device:frame").nullable(),
-  translation_m: xyz.nullable(),
-  rotation_xyzw: quaternion.nullable(),
+  translation_m: field(xyz.nullable()),
+  rotation_xyzw: field(quaternion.nullable()),
+}).superRefine((frame, ctx) => {
+  for (const key of ["translation_m", "rotation_xyzw"] as const) {
+    if (frame.parent === null ? frame[key] !== null : frame[key] === null)
+      ctx.addIssue({ code: "custom", path: [key], message: frame.parent === null
+        ? "root transform components must be null (inapplicable)"
+        : "non-root transform components must be numeric tuples or ??? (unknown)" })
+  }
 })
 export type LocalFrame = z.infer<typeof LocalFrame>
 

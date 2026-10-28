@@ -61,7 +61,7 @@ operations:
     type: kinex_interfaces/srv/Json
     timeout_s: 30
 family: sam3
-variant: null
+variant: ???
 implementation: {repository: "https://github.com/Max-Fu/sam3", revision: 6fe87d64a5beb9084923d7a9e002741178635b09}
 artifacts:
   - name: checkpoint

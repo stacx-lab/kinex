@@ -222,7 +222,7 @@ profile switch for this. Unknown calibration never becomes an identity transform
 Profiles declare their frames in top-level `frames`, including `frames.base`;
 joint and gripper URDF links add device frames of their own. Every frame
 explicitly supplies `parent: device:frame`, or `parent: null` for an independent
-root whose transform values are ignored. Non-root null components mean unknown
+root whose transform values must be null (inapplicable). Non-root ??? components mean unknown
 and publish no static edge. ROS frame IDs use `<device>/<frame>`, including
 `arm/base`, `arm/flange` and `gripper/tcp`. Kinex lookup accepts either qualified
 profile references (`arm:base`) or native ROS IDs (`arm/base`).
@@ -249,7 +249,7 @@ which returns `TransformStamped`. Its internal endpoint is passed to exec outsid
 the device catalog; no world operation or device factory registers it. A
 world-clock rewind invalidates dynamic history while retaining fixed calibration.
 
-The simulator supplies state and measurements, not TF or a transform-lookup
+The simulator supplies state and measurements, or node geometry descriptors, not TF or a transform-lookup
 service. Camera nodes set image frame IDs to the calibrated optical frame.
 
 `relative_pose` uses tf2 and accepts qualified frame references or ROS frame IDs.
@@ -261,7 +261,7 @@ errors.
 
 Cameras are native ROS topics: `image`, `depth` for rgbd and, where a source
 provides it, `camera_info`. Camera projection and distortion live in the profile,
-not TF or `camera_info`. `helpers.camera_frame(io, camera)` subscribes and returns
+or node geometry descriptors, not TF or `camera_info`. `helpers.camera_frame(io, camera)` subscribes and returns
 the next image and, for rgbd, the depth with the same stamp; the same
 `kinex.lib.camera.frame` backs device snapshots and `locate_object_3d`. A live
 camera streams; a simulator publishes a current frame to each new subscriber, so

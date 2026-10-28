@@ -54,7 +54,7 @@ state change.
 
 Every spatial device declares `frames.base`. Each frame explicitly names its
 parent as `device:frame`; `parent: null` makes it an independent root and its
-transform values are ignored. Omitting `parent` is invalid, including when the
+transform values must be null (inapplicable). Omitting `parent` is invalid, including when the
 parent would be the device's own base. For example:
 
 ```yaml
@@ -69,7 +69,7 @@ frames:
     rotation_xyzw: [0, 0, 0, 1]
 ```
 
-Non-root null transform components mean unknown, never identity. Kinex publishes
+Non-root ??? transform components mean unknown, never identity. Kinex publishes
 complete fixed edges to tf2. Joint and gripper geometry is a URDF: `model.base_link`
 is the device base, and each link below it is a device frame named by the link,
 published from measured joint state, mimic joints included, by the template
@@ -80,6 +80,13 @@ references. Query at observation stamps. Simulator nodes supply measurements and
 state; they do not own Kinex frame publication.
 
 Camera projection and distortion live in profile `color`/`depth`, not TF.
+Distortion metadata accepts arbitrary model names and JSON parameters. Core
+interprets only explicitly undistorted pinhole geometry. Distorted geometry uses
+camera-node geometry, unproject and project JSON services backed by SDK/OpenCV.
+SDK calibration snapshots are optional. Calibration stays immutable while loaded;
+service descriptors identify the active calibration. Raw pixels remain unchanged.
+Distorted FOV is supplied or unknown, not calculated during parsing.
+
 Native RGB-D profiles declare `color` and `depth` frames and resolve
 depth-to-color geometry through tf2. Model devices have no frames.
 Calibration procedures write top-level facts and `frames.<name>`, using

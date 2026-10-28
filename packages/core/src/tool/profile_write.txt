@@ -11,4 +11,6 @@ New devices use loaded:false; activation uses the device tool (action="load") or
 
 Device description gives general identity, capabilities and limitations. Each operation requires its own description for payload conventions and behavior; both descriptions are required strings and may be empty. Typed templates guide setup, while actual operation names are device-specific.
 
-Physical facts (model, limits, color, frames, etc.) are top-level. Every frame requires parent: device:frame or null for an independent root; there is no implicit parent. Root transform components are ignored. Non-root null components mean unknown, never identity. Mounts are frames.base.
+Physical facts (model, limits, color, frames, etc.) are top-level. Every frame requires parent: device:frame or null for an independent root; there is no implicit parent. Root transform components must be null (inapplicable). Non-root ??? components mean unknown, never identity. Mounts are frames.base.
+
+Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred; needs_calibration:null clears a resolved marker.

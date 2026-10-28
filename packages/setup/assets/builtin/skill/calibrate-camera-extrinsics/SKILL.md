@@ -6,7 +6,8 @@ description: Measure a camera mount from robot poses and board observations when
 # Calibrate camera extrinsics
 
 Bind `target` to the camera and `arm` to the observing arm. Require the camera's
-color projection/distortion and the selected arm's model and measured attachment
+usable color geometry (services or explicit undistorted pinhole intrinsics)
+and the selected arm's model and measured attachment
 frame. Bind frame-specific prerequisites in the plan; do not require world
 localization for an arm-local measurement. RGB-D uses the COLOR optical frame.
 
@@ -41,3 +42,15 @@ If the user explicitly keeps a result beyond these limits, follow the
 `calib_compute` acceptance rules.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.
+
+
+For board observations, fetch helpers.camera_geometry(io, camera) before
+acquisition; archive its descriptor/calibration ID. SDK-backed profiles may use
+descriptor dimensions for the offline detector's color section.
+Run detect_board.py without --rays to archive pixels and object points.
+In exec, call await geometry.unproject(pixels) and archive {"rays":[...]}.
+Run the same detector with --rays to obtain fitted camera_points; call
+await geometry.project(camera_points) and archive {"pixels":[...]}.
+Rerun with --rays and --projected to calculate pixel reprojection error.
+Keep image and board arguments identical. Reject invalid coordinates or stale
+calibration IDs. Scripts never connect to devices directly.

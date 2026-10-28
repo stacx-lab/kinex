@@ -53,3 +53,5 @@ the current revision, then read setup_plan again. If relevant inputs changed, re
 only affected steps. Once task requirements are satisfied, resume the task immediately.
 Report the current result and any necessary next action concisely; leave deferred work
 collapsed. Planning evidence does not certify safe motion or replace host permissions.
+
+Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred; needs_calibration:null clears a resolved marker.

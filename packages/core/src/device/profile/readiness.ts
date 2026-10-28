@@ -71,10 +71,10 @@ function factsCheck(device: Device): Check {
     case "rgb":
     case "rgbd": {
       const color = device.color
-      if (!known(color) || hasMissing(color, ["fov", "reliable_range_m"])) return { done: false, detail: "color is incomplete" }
+      if (!known(color) || hasMissing(color, ["fov", "reliable_range_m", "projection", "distortion"])) return { done: false, detail: "color is incomplete" }
       if (device.type === "rgb") return { done: true, detail: `color ${color.width}x${color.height} (${device.source})` }
       const depth = device.depth
-      if (!known(depth) || hasMissing(depth, ["fov", "reliable_range_m"])) return { done: false, detail: "depth is incomplete" }
+      if (!known(depth) || hasMissing(depth, ["fov", "reliable_range_m", "projection", "distortion"])) return { done: false, detail: "depth is incomplete" }
       return { done: true, detail: `color ${color.width}x${color.height}, depth ${depth.scale_m_per_unit} m/unit ${depth.registration} (${device.source})` }
     }
     case "joint": {
@@ -98,13 +98,13 @@ function factsCheck(device: Device): Check {
     }
     case "imu": {
       const measurement = device.measurement
-      if (!known(measurement) || hasMissing(measurement)) return { done: false, detail: "IMU measurement is incomplete" }
+      if (!known(measurement) || hasMissing(measurement, ["range", "resolution"])) return { done: false, detail: "IMU measurement is incomplete" }
       const acceleration = measurement.linear_acceleration
       return { done: true, detail: `IMU channels: ${Object.entries(measurement).filter(([, value]) => value !== null).map(([key]) => key).join(", ")}${acceleration && known(acceleration) ? `; ${acceleration.quantity}` : ""}` }
     }
     case "force_torque": {
       const measurement = device.measurement
-      if (!known(measurement) || hasMissing(measurement)) return { done: false, detail: "force/torque measurement is incomplete" }
+      if (!known(measurement) || hasMissing(measurement, ["range", "resolution"])) return { done: false, detail: "force/torque measurement is incomplete" }
       return { done: true, detail: `${measurement.quantity}; force: ${measurement.force && known(measurement.force) ? measurement.force.axes.join(",") : "none"}; torque: ${measurement.torque && known(measurement.torque) ? measurement.torque.axes.join(",") : "none"}` }
     }
     case "world": {
@@ -126,7 +126,7 @@ function factsCheck(device: Device): Check {
       const placement = compute.kind === "cuda" ? `cuda:${compute.index}` : compute.kind
       return {
         done: true,
-        detail: `${family}${device.variant ? ` (${device.variant})` : ""} on ${placement}: ${Object.keys(device.operations).join(", ")}`,
+        detail: `${family}${known(device.variant) && device.variant ? ` (${device.variant})` : ""} on ${placement}: ${Object.keys(device.operations).join(", ")}`,
       }
     }
     default:
@@ -141,7 +141,7 @@ function profileCheck(device: Device, devices: Device[]): Check {
   if (errors.length) return { done: false, detail: errors.join("; ") }
   for (const [name, frame] of Object.entries(deviceFrames(device))) {
     if (frame.parent === null) continue
-    if (frame.translation_m === null || frame.rotation_xyzw === null)
+    if (!known(frame.translation_m) || !known(frame.rotation_xyzw))
       return { done: false, detail: `frames.${name} transform is unknown; calibrate or supply measured TF` }
   }
   return facts

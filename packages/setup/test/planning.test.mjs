@@ -153,7 +153,7 @@ test('partial TCP facts can satisfy a task while rotation and section request re
     name: 'tool',
     type: 'gripper',
     needs_calibration: 'orientation unknown',
-    frames: { base: { parent: "arm:flange", translation_m: [0, 0, .1], rotation_xyzw: null } } })
+    frames: { base: { parent: "arm:flange", translation_m: [0, 0, .1], rotation_xyzw: '???' } } })
   await save([], [], [fact('tool', '/frames/base/translation_m')])
   assert.equal((await setup.plan.inspect()).taskSatisfied, true)
   await setup.plan.select({ objective: 'Full pose', targets: [], facts: [fact('tool', '/frames/base/rotation_xyzw')] }, 1)
@@ -171,7 +171,7 @@ test('dual-arm prerequisites bind both particular TCPs, with producer dependenci
     await runtime.profiles.writeDevice({ description: '',
       name,
       type: 'gripper',
-      frames: { base: { parent: `${parent}:${'flange'}`, translation_m: null, rotation_xyzw: null, translation_m: name === 'rt' ? null : [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] } } })
+      frames: { base: { parent: `${parent}:${'flange'}`, translation_m: '???', rotation_xyzw: '???', translation_m: name === 'rt' ? '???' : [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] } } })
   const dual = node('dual', { kind: 'calibrate', skill: 'calibrate-dual-arm',
     bindings: { anchor: 'left', second: 'right', anchor_tcp: 'lt', second_tcp: 'rt' } })
   await save([dual], ['dual'])
@@ -251,26 +251,26 @@ test('reference compositions preserve moving attachments without forcing world c
       await runtime.profiles.writeDevice({ description: '',
         name: 'base',
         type: 'locomotion',
-        frames: { base: {parent: null, translation_m: null, rotation_xyzw: null}, torso: { parent: "base:base", translation_m: null, rotation_xyzw: null } } })
+        frames: { base: {parent: null, translation_m: null, rotation_xyzw: null}, torso: { parent: "base:base", translation_m: '???', rotation_xyzw: '???' } } })
       if (composition.parent !== 'base') await runtime.profiles.writeDevice({ description: '',
         name: composition.parent,
         type: 'joint',
         frames: {
-          [composition.frame]: { parent: `${composition.parent}:base`, translation_m: null, rotation_xyzw: null },
-          base: { parent: "base:base", translation_m: null, rotation_xyzw: null,  }
+          [composition.frame]: { parent: `${composition.parent}:base`, translation_m: '???', rotation_xyzw: '???' },
+          base: { parent: "base:base", translation_m: '???', rotation_xyzw: '???',  }
 } })
     }
     for (const arm of composition.arms) await runtime.profiles.writeDevice({ description: '',
       name: arm,
       type: 'joint',
       frames: {
-        flange: { parent: `${arm}:base`, translation_m: null, rotation_xyzw: null },
-        base: { parent: `${composition.parent}:${composition.frame}`, translation_m: null, rotation_xyzw: null }
+        flange: { parent: `${arm}:base`, translation_m: '???', rotation_xyzw: '???' },
+        base: { parent: `${composition.parent}:${composition.frame}`, translation_m: '???', rotation_xyzw: '???' }
 } })
     for (const [index, tool] of composition.tools.entries()) await runtime.profiles.writeDevice({ description: '',
       name: tool,
       type: tool.endsWith('hand') ? 'joint' : 'gripper',
-      frames: { base: { parent: `${composition.arms[index]}:${'flange'}`, translation_m: null, rotation_xyzw: null,  } } })
+      frames: { base: { parent: `${composition.arms[index]}:${'flange'}`, translation_m: '???', rotation_xyzw: '???',  } } })
     const selected = composition.arms[0]
     await save([
       node('local-frame', { outputs: [fact(selected, '/frames/flange/parent')] }),

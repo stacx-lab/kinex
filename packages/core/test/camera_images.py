@@ -9,7 +9,10 @@ import numpy as np
 from PIL import Image
 
 from kinex.lib.camera import array, frame, save
-from kinex.helpers.perception import _locate as locate
+from kinex.helpers.perception import _locate
+
+def locate(*args, **kwargs):
+    return asyncio.run(_locate(*args, **kwargs))
 
 
 def message(encoding, values, bigendian=False, pad=0):

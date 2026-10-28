@@ -148,7 +148,7 @@ const SOLVERS: { [O in Operation]: Solver<O> } = {
       const target = await ProfileStore.readDevice(context.cwd, context.run.bindings.target ?? fail("Bind target"))
       const base = target ? deviceFrames(target).base : undefined
       if (!base || base.parent !== `${context.run.bindings.arm}:${input.frame}` ||
-          base.translation_m === null || base.rotation_xyzw === null) fail("TCP fitting requires a known mount in the sampled arm frame")
+          !Array.isArray(base.translation_m) || !Array.isArray(base.rotation_xyzw)) fail("TCP fitting requires a known mount in the sampled arm frame")
       return script(skillScript("calibrate-tcp-offset", "fit_tcp.py"),
         ["--samples", await archived(context, input.samples), "--frame", input.frame, "--mount", JSON.stringify(base)], context)
     },
@@ -160,7 +160,7 @@ const SOLVERS: { [O in Operation]: Solver<O> } = {
       const profile = await ProfileStore.readDevice(cwd, target)
       const tcp = profile?.type === "gripper" || profile?.type === "suction" ? profile.frames.tcp : undefined
       if (tcp && tcp.parent !== `${target}:base`) fail("TCP fitting requires tcp to be relative to the end-effector base")
-      const frame = { parent: `${target}:base`, translation_m: data.tcp_translation_m, rotation_xyzw: tcp?.rotation_xyzw ?? null }
+      const frame = { parent: `${target}:base`, translation_m: data.tcp_translation_m, rotation_xyzw: tcp?.rotation_xyzw ?? "???" }
       return { method: "tcp_pivot", patch: { frames: { tcp: frame } }, resolved: [["/frames/tcp/translation_m", frame.translation_m]] }
     },
     unresolved: ["TCP orientation is not measured by pivot calibration"],

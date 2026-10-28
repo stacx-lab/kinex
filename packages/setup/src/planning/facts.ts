@@ -42,7 +42,7 @@ function known(value: unknown): boolean {
   if (value && typeof value === "object") return Object.values(value).every(known)
   return true
 }
-// Null frame components are unknown; null parents declare independent roots.
+// Unknown frame components use ???; null parents declare independent roots.
 function knownProfileFact(data: unknown, selector: string): boolean {
   const value = pointer(data, selector)
   if (!selector.startsWith("/frames")) return known(value)

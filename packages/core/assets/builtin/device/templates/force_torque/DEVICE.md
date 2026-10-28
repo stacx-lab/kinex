@@ -52,7 +52,9 @@ measurement:
   target: {device: ???, frame: ???}
   force: ???
   torque: ???
-sample_rate_hz: null
+sample_rate_hz: ???
 frames:
   base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```
+
+Unknown sample rates, channel ranges and resolutions use ???. Null means explicitly absent or inapplicable. Optional specifications do not require calibration unless the task needs them.

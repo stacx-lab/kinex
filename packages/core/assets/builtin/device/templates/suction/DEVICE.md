@@ -64,5 +64,5 @@ vacuum: ???
 stop: {behavior: hold, affected_devices: [suction]}
 frames:
   base: {parent: null, translation_m: null, rotation_xyzw: null}
-  tcp: {parent: "suction:base", translation_m: null, rotation_xyzw: null}
+  tcp: {parent: "suction:base", translation_m: "???", rotation_xyzw: "???"}
 ```

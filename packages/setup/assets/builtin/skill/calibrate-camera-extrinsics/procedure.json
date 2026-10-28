@@ -15,14 +15,6 @@
   },
   "requires": [
     {
-      "role": "target",
-      "pointer": "/color/projection"
-    },
-    {
-      "role": "target",
-      "pointer": "/color/distortion"
-    },
-    {
       "role": "arm",
       "pointer": "/model"
     }

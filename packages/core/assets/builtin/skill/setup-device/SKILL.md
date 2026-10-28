@@ -80,7 +80,9 @@ Every spatial device declares `frames.base`. Every frame explicitly supplies
 `parent: device:frame` or `parent: null` for an independent root. There is no
 implicit base parent. Root transform values are ignored; write null components.
 For non-roots, translation_m and rotation_xyzw describe the parent-relative edge;
-null components mean unknown and publish no static TF. URDF links of joint and
+??? components mean unknown and publish no static TF. URDF links of joint and
 gripper devices are frames under their base, named by link, whose live transforms
 come from measured joint states; parents may reference them, and profile frames
 must not reuse their names. Parent references must exist and be acyclic.
+
+Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred; needs_calibration:null clears a resolved marker.

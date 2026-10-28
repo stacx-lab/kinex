@@ -131,8 +131,8 @@ test('joint URDF trees validate home and links and serve helper kinematics', asy
   for (const [patch, error] of [
     [{ home: { robot0_joint1: 0 } }, /home must name every commanded joint/],
     [{ model: { ...arm.model, tip_link: 'missing' } }, /tip_link missing must be a link below base_link/],
-    [{ frames: { base: root, flange: { ...root, parent: 'arm:base' } } }, /arm:flange: URDF link collides with a profile frame/],
-    [{ frames: { base: root, tool: { ...root, parent: 'arm:typo' } } }, /arm:tool: unknown parent frame arm:typo/],
+    [{ frames: { base: root, flange: { ...root, translation_m: '???', rotation_xyzw: '???', parent: 'arm:base' } } }, /arm:flange: URDF link collides with a profile frame/],
+    [{ frames: { base: root, tool: { ...root, translation_m: '???', rotation_xyzw: '???', parent: 'arm:typo' } } }, /arm:tool: unknown parent frame arm:typo/],
   ]) await assert.rejects(runtime.profiles.writeDevice({ ...arm, ...patch }), error)
   await runtime.profiles.writeDevice({ ...arm, frames: { base: root, tool: { parent: 'arm:flange', translation_m: [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] } } })
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:arm').detail, '7 joints, native limits, tip flange')

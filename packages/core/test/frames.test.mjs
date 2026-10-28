@@ -13,13 +13,14 @@ test('profiles flatten facts', () => {
   assert.equal(parsed.grip, '???')
 })
 
-test('every frame has an explicit parent; null declares a root regardless of transform', () => {
-  assert.ok(Device.safeParse(profile({ base: frame(null) })).success)
+test('every frame has an explicit parent; null declares a root with inapplicable transforms', () => {
+  assert.equal(Device.safeParse(profile({ base: frame(null) })).success, false)
+  assert.ok(Device.safeParse(profile()).success)
   const { parent, ...missingParent } = frame('sensor:base')
   for (const value of [missingParent, frame('base'), frame('sensor'), frame('sensor/base')]) {
     assert.equal(Device.safeParse(profile({ tool: value })).success, false)
   }
-  assert.ok(Device.safeParse(profile({ tool: frame('sensor:base'), unknown: { ...root(), parent: 'sensor:tool' } })).success)
+  assert.ok(Device.safeParse(profile({ tool: frame('sensor:base'), unknown: { parent: 'sensor:tool', translation_m: '???', rotation_xyzw: '???' } })).success)
   assert.equal(Device.safeParse({ ...profile(), frames: {} }).success, false)
 })
 
@@ -68,7 +69,7 @@ test('flat calibration patches retain requests, validate clears and protect requ
   const runtime = createKinexRuntime({ directory })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   await runtime.profiles.writeDevice({ ...profile({}, 'world'), type: 'world', loaded: false })
-  await runtime.profiles.writeDevice({ ...profile({ base: { ...root(), parent: 'world:base' } }, 'tool'), loaded: false,
+  await runtime.profiles.writeDevice({ ...profile({ base: { parent: 'world:base', translation_m: '???', rotation_xyzw: '???' } }, 'tool'), loaded: false,
     source: 'user', method: 'survey', needs_calibration: 'Measure mounting pose' })
   await assert.rejects(runtime.profiles.writeDevice({ name: 'tool', needs_calibration: null }), /cannot clear profile:tool/)
   await runtime.profiles.writeDevice({ name: 'tool', frames: { base: { translation_m: [0, 0, .2] } } })
@@ -86,4 +87,84 @@ test('flat calibration patches retain requests, validate clears and protect requ
   await runtime.profiles.writeDevice({ ...profile({ base: frame('missing:base') }, 'unrelated'), loaded: false })
   await runtime.operation(() => ProfileStore.validateFrames(directory, 'tool'))
   await assert.rejects(runtime.operation(() => ProfileStore.validateFrames(directory, 'unrelated')), /unknown parent/)
+})
+
+test('unknown transform components stay explicit and non-root null is invalid', () => {
+  for (const translation_m of ['???', [0, 0, .1]]) {
+    const parsed = Device.parse(profile({ tool: { parent: 'sensor:base', translation_m, rotation_xyzw: '???' } }))
+    assert.equal(parsed.frames.tool.rotation_xyzw, '???')
+  }
+  for (const key of ['translation_m', 'rotation_xyzw']) {
+    assert.equal(Device.safeParse(profile({ tool: { ...frame('sensor:base'), [key]: null } })).success, false)
+  }
+  const parsed = Device.parse(profile({ tool: { parent: 'sensor:base' } }))
+  assert.equal(parsed.frames.tool.translation_m, '???')
+  assert.equal(parsed.frames.tool.rotation_xyzw, '???')
+})
+
+test('unspecified metadata stays unknown while explicit absence remains null', () => {
+  const parsed = type => {
+    const { frames, ...bare } = profile()
+    return Device.parse({ ...bare, ...(type === 'model' ? {} : { frames }), type })
+  }
+  assert.equal(parsed('world').bounds, '???')
+  assert.equal(parsed('model').variant, '???')
+  assert.equal(parsed('model').implementation, '???')
+  for (const type of ['imu', 'force_torque']) assert.equal(parsed(type).sample_rate_hz, '???')
+  const imu = Device.parse({ ...profile(), type: 'imu', measurement: {
+    angular_velocity: { axes: ['x'], bias: { x: 0 } }, linear_acceleration: null, orientation: null,
+  } })
+  assert.equal(imu.measurement.magnetic_field, '???')
+  assert.equal(imu.measurement.angular_velocity.range, '???')
+  assert.equal(imu.measurement.angular_velocity.resolution, '???')
+  assert.equal(imu.measurement.orientation, null)
+  assert.equal(Device.parse({ ...profile(), type: 'world', bounds: null }).bounds, null)
+})
+
+test('optional unknown sensor specifications do not block readiness', async () => {
+  const { checkReadinessItem } = await import('../dist/device/profile/readiness.js')
+  const device = Device.parse({ ...profile(), type: 'imu', measurement: {
+    angular_velocity: { axes: ['x'], bias: { x: 0 } },
+    linear_acceleration: null, orientation: null, magnetic_field: null,
+  } })
+  assert.equal(checkReadinessItem({ devices: [device] }, 'profile:sensor').done, true)
+})
+
+test('device template profile examples satisfy the schema', async () => {
+  const { readdir, readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const directory = new URL('../assets/builtin/device/templates/', import.meta.url)
+  for (const name of await readdir(directory)) {
+    const guide = await readFile(new URL(name + '/DEVICE.md', directory), 'utf8')
+    const blocks = guide.matchAll(/```yaml\n([\s\S]*?)```/g)
+    for (const [, block] of blocks) {
+      const data = parse(block)
+      if (!data?.name || !data?.type) continue
+      const result = Device.safeParse({ ...data, meta: { created_at: '', updated_at: '' } })
+      assert.ok(result.success, name + ': ' + result.error?.message)
+    }
+  }
+})
+
+test('static TF excludes unknown transforms and roots', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { fileURLToPath } = await import('node:url')
+  execFileSync(process.env.PYTHON ?? 'python3', ['-c', `
+import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+from kinex.lib import frames
+sent = []
+broadcaster = SimpleNamespace(sendTransform=lambda values: sent.extend(values))
+profile = {"name": "tool", "frames": {
+    "base": {"parent": None, "translation_m": None, "rotation_xyzw": None},
+    "known": {"parent": "tool:base", "translation_m": [0, 0, 1], "rotation_xyzw": [0, 0, 0, 1]},
+    "partial": {"parent": "tool:base", "translation_m": [0, 0, 1], "rotation_xyzw": "???"},
+    "unknown": {"parent": "tool:base", "translation_m": "???", "rotation_xyzw": "???"},
+}}
+with patch.dict(sys.modules, {"tf2_ros": SimpleNamespace(StaticTransformBroadcaster=lambda node: broadcaster)}):
+    with patch.object(frames, "transform", side_effect=lambda parent, child, pose: child):
+        frames.publish_profile(None, profile)
+assert sent == ["tool/known"], sent
+`], { env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) } })
 })

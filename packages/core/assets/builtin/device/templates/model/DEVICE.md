@@ -56,8 +56,10 @@ operations:
     endpoint: /kinex/model/infer
     type: kinex_interfaces/srv/Json
 family: ???
-variant: null
-implementation: null
+variant: ???
+implementation: ???
 artifacts: [{name: weights, path: weights/model.pt, source: {kind: local}}]
 compute: ???
 ```
+
+Unknown variant or implementation metadata uses ???; use null only when explicitly absent or inapplicable.

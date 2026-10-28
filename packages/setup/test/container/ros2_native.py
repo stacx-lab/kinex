@@ -33,7 +33,7 @@ async def main():
             'base': {'parent': 'world:base', 'translation_m': [1, 0, 0], 'rotation_xyzw': [0, 0, 0, 1]},
             'flange': {'parent': 'arm:base', 'translation_m': [0, 2, 0], 'rotation_xyzw': [0, 0, 0, 1]},
             'tool': {'parent': 'arm:flange', 'translation_m': [0, 0, 3], 'rotation_xyzw': [0, 0, 0, 1]},
-            'unknown': {'parent': 'arm:base', 'translation_m': None, 'rotation_xyzw': None},
+            'unknown': {'parent': 'arm:base', 'translation_m': '???', 'rotation_xyzw': '???'},
         }}
         broadcasters = publish_profile(source, profile)
         buffer = Buffer()

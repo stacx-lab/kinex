@@ -6,8 +6,8 @@ const axisMap = <T extends z.ZodType>(schema: T) => z.strictObject({ x: schema.o
 const range = z.strictObject({ min: z.number(), max: z.number() }).refine((v) => v.min < v.max, "min must be below max")
 export const SensorChannel = z.strictObject({
   axes: z.array(axis).min(1).refine((v) => new Set(v).size === v.length, "duplicate axis"),
-  range: axisMap(range).nullable().default(null),
-  resolution: axisMap(z.number().positive()).nullable().default(null),
+  range: field(axisMap(range).nullable()),
+  resolution: field(axisMap(z.number().positive()).nullable()),
   bias: field(axisMap(z.number())),
 }).superRefine((channel, ctx) => {
   for (const key of ["range", "resolution", "bias"] as const) {

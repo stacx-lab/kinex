@@ -14,6 +14,14 @@ its own `projection` and `distortion` and calibrated `frames.color` and
 `frames.depth`; headers then use `<device>/color` and `<device>/depth`, and Kinex
 resolves depth-to-color through tf2.
 
+Depth aligned to color is not necessarily undistorted: its geometry follows the
+published color grid. Native depth uses its own reported distortion model and
+intrinsics. Follow the rgb guide to preserve factory coefficients, including
+vendor-specific models, without relabeling them. Use the rgb geometry service
+contract for color and native depth. If a node rectifies color,
+it must also provide depth registered to that corrected grid or declare native
+depth with its own geometry; never mix raw depth pixels with rectified color.
+
 A reader subscribes to `image` and `depth` and pairs the frames with equal stamps;
 snapshots archive both and perception tools measure from them. Publish both from
 one acquisition with the same stamp; a simulator publishes a current pair to each
