@@ -12,7 +12,9 @@ Describe actual non-overlapping endpoints by interface: URDF joint arms, lifts a
 dexterous hands, locomotion bodies (wheeled, legged or humanoid) with declared
 modes, URDF grippers, suction tools, cameras and other sensors. An arm need not have a gripper. Quadrupeds need not expose raw
 leg joints; never invent a locomotion policy or a whole-body control interface.
-Morphology is identity.kind, not an execution contract.
+Morphology is identity.kind, not an execution contract. It describes the whole robot
+and must be arm, mobile, quadruped, humanoid or other. Use other when no category
+fits; ??? is not accepted for this field.
 
 Reuse supplied device names. Record canonical/local frames and attachments. Fixed
 mounts, moving local frames and measured base pose feedback have different semantics.
