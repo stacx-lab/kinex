@@ -1,5 +1,5 @@
 Persist profile facts in the workspace:
-- robot: partial manifest; identity requires id, name and kind initially.
+- robot: partial manifest; identity requires id, name and kind initially. identity.kind describes the whole robot's morphology and must be arm, mobile, quadruped, humanoid or other. Use other when no category fits; ??? is not accepted for this field.
 - device: partial profile; name is required, type and description on first write, plus frames.base for spatial devices. Use setup-device and the selected guide for new devices.
 - needed: {item,note?}; queue the reason without changing existing provenance.
 
