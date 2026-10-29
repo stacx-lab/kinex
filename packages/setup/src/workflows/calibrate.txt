@@ -14,8 +14,8 @@ part of a broader calibration. An unrelated calibrated gripper satisfies nothing
 
 Follow next eligible nodes in authored order, selecting the least burdensome method
 that meets the task's accuracy needs. Load the skill. Use factory/model/simulator
-facts first, and collect physical evidence only for necessary gaps. Batch related
-questions and preparation. Verify participating devices respond before physical prep;
+facts first, and collect measurements only for necessary gaps. Batch related
+questions and preparation. Verify participating devices respond before preparation;
 activation remains an explicit core lifecycle operation with existing permissions.
 
 Start calib_sample with node:<id> or procedure plus bindings; reuse the returned run

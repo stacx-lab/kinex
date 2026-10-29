@@ -6,8 +6,7 @@ Tools declare input schemas; Python manifests also declare a timeout. Contributi
 composition preserves permissions and recording attribution. Device templates own
 setup guidance only, and agents read device and operation descriptions from
 profiles; see [device contracts](devices.md#profiles).
-Workspace safety limits and keep-out zones remain manifest data, outside robot
-context.
+Workspace keep-out zones remain manifest data, outside robot context.
 
 `exec` is a core tool alongside direct device calls and reusable Python tools.
 It runs source or script files in a fresh process, returning the printed output

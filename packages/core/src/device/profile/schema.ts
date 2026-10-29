@@ -126,15 +126,8 @@ export const RobotManifest = z.strictObject({
   }),
   // [devices-declared] — inventory marker only; devices/*/profile.yaml are ground truth.
   devices: z.object({ ...section }).prefault({}),
-  // [safety]
-  safety: z
-    .object({
-      ...section,
-      max_cartesian_velocity: field(z.number().nullable()).describe("m/s; null = no additional cap; ??? = unspecified"),
-      max_joint_velocity: field(z.number().nullable()).describe("rad/s; null = no additional cap; ??? = unspecified"),
-      keep_out_zones: z.array(Aabb).default([]),
-    })
-    .prefault({}),
+  // Keep-out zones are manifest data; no readiness item gates them.
+  safety: z.object({ source: section.source, keep_out_zones: z.array(Aabb).default([]) }).prefault({}),
   meta: z.object({
     created_at: z.string(),
     updated_at: z.string(),

@@ -43,6 +43,10 @@ only its owned nodes. Verification loads the device within the authorized task
 scope, inspects readiness and exercises the declared operations, input rejection,
 stop and teardown, returning observations to the caller.
 
+Speed limits come from the hardware (vendor, controller or URDF). Onboarding and
+nodes never preset more conservative velocity caps; an additional cap uses a value
+the user chose when asked.
+
 Core owns async protocol helpers and the world-clock client. ROS activation stays
 within owned subprocesses; shared host packages and overlays are never rolled back on unload.
 

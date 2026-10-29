@@ -3,7 +3,7 @@
 ## Workspace
 
 The nearest `.kinex/` (here or an ancestor) holds the robot:
-- `workspace.yaml`: identity and safety limits.
+- `workspace.yaml`: identity and keep-out zones.
 - `devices/<name>/`: `profile.yaml` plus node sources (`node.py`, URDF, ...).
 - `device/`, `tools/`, `skills/`: workspace guides, tools and skills; override builtins.
 - `lib/`: Python shared by exec, tools and nodes.
@@ -36,5 +36,4 @@ but never at the cost of soundness and task completion.
 ## Tools and the user
 
 Tool descriptions define execution semantics; skills give procedures. Don't repeat
-permission prompts as questions. Ask only for missing facts, choices or physical
-feedback.
+permission prompts as questions. Ask only for missing facts or choices.

@@ -67,7 +67,6 @@ export interface NeededEntry {
 const ROBOT_ITEMS = {
   identity: "identity",
   "devices-declared": "devices",
-  safety: "safety",
 } as const
 const DEVICE_SECTIONS = ["access", "profile"] as const
 type DeviceSection = (typeof DEVICE_SECTIONS)[number]

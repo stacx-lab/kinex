@@ -86,7 +86,7 @@ def profile(device, *, optional=False):
 
 
 def robot():
-    """The workspace robot's workspace manifest (identity and safety)."""
+    """The workspace robot's workspace manifest (identity and keep-out zones)."""
     return _rpc({"call": "robot"})["robot"]
 
 
