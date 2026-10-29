@@ -4,6 +4,13 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { Interaction, type Mode } from "./interaction.ts"
 
 // Workspace ownership outlives SDK sessions and extension reloads.
+type Entry = ReturnType<ExtensionContext["sessionManager"]["getBranch"]>[number]
+
+// Recordings trace the conversation; transcript system messages carry the harness prompt and tools.
+function conversation(entry: Entry): entry is Extract<Entry, { type: "message" }> {
+  return entry.type === "message" && entry.message.role !== "system"
+}
+
 export class RoboticsOwner {
   readonly interaction: Interaction
   runtime?: KinexRuntime
@@ -20,7 +27,7 @@ export class RoboticsOwner {
       ...this.interaction.host,
       exportTrace: async (sessionID, range) => {
         if (this.trace?.getSessionId() !== sessionID) return { sessionID, messages: [] }
-        const entries = this.trace.getBranch().filter(entry => entry.type === "message")
+        const entries = this.trace.getBranch().filter(conversation)
         const first = range.first ? entries.findIndex(entry => entry.id === range.first) : 0
         const last = range.last ? entries.findIndex(entry => entry.id === range.last) : entries.length - 1
         return { sessionID, messages: entries.slice(Math.max(0, first), last < 0 ? undefined : last + 1).map(entry => ({
@@ -39,7 +46,7 @@ export class RoboticsOwner {
 
   observeMessages(ctx: ExtensionContext) {
     for (const entry of ctx.sessionManager.getBranch()) {
-      if (entry.type !== "message" || this.observed.has(entry.id)) continue
+      if (!conversation(entry) || this.observed.has(entry.id)) continue
       this.observed.add(entry.id)
       this.runtime?.observe({ type: "message", sessionID: ctx.sessionManager.getSessionId(), id: entry.id,
         completed: entry.message.role === "assistant" && entry.message.stopReason !== "toolUse" })

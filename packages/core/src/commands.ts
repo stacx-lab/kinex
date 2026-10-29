@@ -1,6 +1,6 @@
 import type { KinexRuntime } from "./runtime.ts"
 import { parseSpecs } from "./record/spec.ts"
-import { recordingOutput } from "./record/output.ts"
+import { recordingOutput, recordingSummary } from "./record/output.ts"
 import { workflows } from "./workflows/index.ts"
 
 export const roboticsCommands = [
@@ -23,7 +23,7 @@ export interface CommandContext {
   notify?(message: string): void
 }
 
-export function isRoboticsCommand(name: string): name is RoboticsCommand {
+function isRoboticsCommand(name: string): name is RoboticsCommand {
   return roboticsCommands.some(command => command.name === name)
 }
 
@@ -40,7 +40,7 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
   if (name === "unregister") {
     const device = tokens[0]
     if (!device || device === "all" || tokens.length !== 1) throw new Error("Usage: /unregister <device>")
-    if (!await context.confirm(`Unregister ${device}?`, "Unload and delete its profile, driver and local files?")) return output("Cancelled")
+    if (!await context.confirm(`Unregister ${device}?`, "Unload and delete its profile, node and local files?")) return output("Cancelled")
     await runtime.devices.unregister(device, context.signal)
     return output(`${device} unregistered`)
   }
@@ -63,7 +63,7 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
     if (name === "unload") { await runtime.devices.unload(target); return `${target} unloaded` }
     if (name === "ping") return `${target}: ${JSON.stringify(await runtime.devices.ping(target))}`
     const activation = await runtime.devices.load(target, context.signal)
-    if (activation.activating) context.notify?.(`${target}: activating`)
+    context.notify?.(`${target}: activating`)
     await activation.ready
     return `${target} loaded`
   }))
@@ -78,7 +78,8 @@ async function record(runtime: KinexRuntime, tokens: string[], sessionID: string
   const json = (value: unknown) => recordingOutput(value, verbose)
   if (verb === "status") {
     if (rest.length) throw new Error("Usage: /record status")
-    return json({ active: await runtime.recording.status(), recent: await runtime.recording.recent(5) })
+    const active = await runtime.recording.status()
+    return json({ active, recent: (await runtime.recording.recent(5)).filter(entry => entry.id !== active?.id).map(recordingSummary) })
   }
   if (verb === "start") {
     const { specs, instruction } = parseSpecs(rest)

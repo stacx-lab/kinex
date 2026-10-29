@@ -15,22 +15,14 @@
   },
   "requires": [
     {
-      "role": "target",
-      "pointer": "/intrinsics/color/projection"
-    },
-    {
-      "role": "target",
-      "pointer": "/intrinsics/color/distortion"
-    },
-    {
       "role": "arm",
-      "pointer": "/intrinsics/model"
+      "pointer": "/model"
     }
   ],
   "produces": [
     {
       "role": "target",
-      "pointer": "/extrinsics/mount"
+      "pointer": "/frames/base"
     }
   ],
   "computes": [

@@ -6,7 +6,8 @@ description: Measure a camera mount from robot poses and board observations when
 # Calibrate camera extrinsics
 
 Bind `target` to the camera and `arm` to the observing arm. Require the camera's
-color projection/distortion and the selected arm's model and measured attachment
+usable color geometry (services or explicit undistorted pinhole intrinsics)
+and the selected arm's model and measured attachment
 frame. Bind frame-specific prerequisites in the plan; do not require world
 localization for an arm-local measurement. RGB-D uses the COLOR optical frame.
 
@@ -16,13 +17,12 @@ Use known/measured board geometry. On mobile robots the relationship assumed fix
 by the solver must actually remain fixed during collection. Base/torso motion that
 changes it invalidates those pairs; holding commanded zero is not proof of rest.
 
-Verify participating devices answer before physical preparation. Move with
-`servo speedFraction <= 0.15`. Servo waits its planned duration by default.
-Set `block=false` for non-blocking motion. Verify measured arrival.
+Verify participating devices answer before physical preparation. Plan motion with
+`kinex.helpers.trajectory` using `fraction <= 0.15`, submit through the device's
+declared command operation, wait on the world clock and verify measured arrival.
 Record the named attachment frame, without applying TCP offset.
-Use `calib_sample` for robot evidence and camera artifacts, passing
-`args: {output: "file"}` for every camera sample. Retain both sample IDs and
-timestamps. Sequential captures are not claimed to be synchronized.
+Use `calib_sample` for robot evidence and camera artifacts. Retain both sample
+IDs and timestamps. Sequential captures are not claimed to be synchronized.
 
 `scripts/detect_board.py` detects ChArUco/checkerboard observations. Archive selected
 pairs as `[{frame_pose:[x,y,z,qx,qy,qz,qw],rvec:[...],tvec:[...]}]` outside the
@@ -38,12 +38,19 @@ arm attachment frame; eye-to-hand uses the arm base. A world mount requires an
 explicitly established transform. Persist accepted fields, retain residuals in
 evidence, and return to the task once its required transform is available.
 
-During setup, if the user explicitly asks to keep a result despite exceeding the
-error limits above, honor the request; do not refuse or force recollection solely
-because of those limits. When requested, persist the computed fields with
-`profile_write`, using archived solver data if `proposedChanges` is empty. Record
-errors, limits and the user decision in evidence; retain the original quality
-assessment and do not mark a failed-quality node done. Preserve frame conventions,
-profile validation and host permissions; never invent missing computed values.
+If the user explicitly keeps a result beyond these limits, follow the
+`calib_compute` acceptance rules.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.
+
+
+For board observations, fetch helpers.camera_geometry(io, camera) before
+acquisition; archive its descriptor/calibration ID. SDK-backed profiles may use
+descriptor dimensions for the offline detector's color section.
+Run detect_board.py without --rays to archive pixels and object points.
+In exec, call await geometry.unproject(pixels) and archive {"rays":[...]}.
+Run the same detector with --rays to obtain fitted camera_points; call
+await geometry.project(camera_points) and archive {"pixels":[...]}.
+Rerun with --rays and --projected to calculate pixel reprojection error.
+Keep image and board arguments identical. Reject invalid coordinates or stale
+calibration IDs. Scripts never connect to devices directly.

@@ -23,36 +23,10 @@ test('tool startup rejects missing, malformed and non-object arguments', () => {
     assert.equal(result.status, 1, result.stderr)
     assert.match(result.stderr, error)
   }
-  const inline = run('import runpy; runpy.run_module("kinex._inline", run_name="__main__")', '{"args":{}}\n', true)
-  assert.equal(inline.status, 1, inline.stderr)
-  assert.match(inline.stderr, /inline startup request requires source/)
-})
-
-test('one-shot startup rejects malformed requests and always releases resources', () => {
-  const source = `import sys
-from kinex.driver_protocol import run
-run(lambda action, args: {'ok': True}, lambda: print('released', file=sys.stderr))
-`
-  for (const [input, error] of [
-    ['', /missing driver startup request/],
-    ['broken\n', /JSONDecodeError/],
-    ['[]\n', /must be an object/],
-  ]) {
-    const result = run(source, input)
-    assert.equal(result.status, 1, result.stderr)
-    assert.match(result.stderr, error)
-    assert.match(result.stderr, /released/)
-  }
-  for (const input of ['{}\n', '{"action":"read","args":null}\n']) {
-    const result = run(source, input)
-    assert.equal(result.status, 0, result.stderr)
-    assert.match(JSON.parse(result.stdout).error, /Expected action and object args/)
-    assert.match(result.stderr, /released/)
-  }
 })
 
 test('ordinary Python imports leave stdin and stdout available to the caller', () => {
-  const result = run('import kinex, kinex.driver_protocol, sys\nprint(sys.stdin.readline().strip())', 'caller input\n')
+  const result = run('import kinex, kinex.runtime, sys\nprint(sys.stdin.readline().strip())', 'caller input\n')
   assert.equal(result.status, 0, result.stderr)
   assert.equal(result.stdout, 'caller input\n')
   assert.equal(result.stderr, '')

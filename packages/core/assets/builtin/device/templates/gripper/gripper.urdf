@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!-- Reference parallel gripper: each finger opens finger_joint metres along ±y, so the
+     pad gap is twice the joint; pads mark the inner contact faces; +z approaches. -->
+<robot name="gripper">
+  <link name="base_link"/>
+  <link name="left_finger"/>
+  <link name="right_finger"/>
+  <link name="left_pad"/>
+  <link name="right_pad"/>
+  <joint name="finger_joint" type="prismatic">
+    <parent link="base_link"/>
+    <child link="left_finger"/>
+    <origin xyz="0 0 0.06"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.04" effort="20" velocity="0.1"/>
+  </joint>
+  <joint name="right_finger_joint" type="prismatic">
+    <parent link="base_link"/>
+    <child link="right_finger"/>
+    <origin xyz="0 0 0.06"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0" upper="0.04" effort="20" velocity="0.1"/>
+    <mimic joint="finger_joint"/>
+  </joint>
+  <joint name="left_pad_joint" type="fixed">
+    <parent link="left_finger"/>
+    <child link="left_pad"/>
+    <origin xyz="0 0 0.04"/>
+  </joint>
+  <joint name="right_pad_joint" type="fixed">
+    <parent link="right_finger"/>
+    <child link="right_pad"/>
+    <origin xyz="0 0 0.04"/>
+  </joint>
+</robot>

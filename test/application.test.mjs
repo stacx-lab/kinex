@@ -1,3 +1,5 @@
+import {protocolCamera} from '../packages/core/test/fixtures/protocol.mjs'
+import { recordingDevices } from "../packages/core/test/fixtures/recording.mjs"
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, readFile, writeFile, stat, rm } from 'node:fs/promises'
@@ -17,8 +19,8 @@ test('headless context includes one short Python instruction without onboarding 
   await app.host.session.prompt('Describe the available Python environment without running tools')
   const request = fake.requests[0]
   const system = JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
-  assert.equal(system.match(/Kinex core Python:/g)?.length, 1)
-  assert.match(system, /uv add\/uv sync/)
+  assert.equal(system.match(/exec runs Kinex Python/g)?.length, 1)
+  assert.match(system, /Discover devices with `kinex\.runtime`/)
   assert.doesNotMatch(system, /Default pyproject\.toml|\{\{PROJECT\}\}/)
   const context = await app.owner.runtime.context()
   assert.ok(JSON.stringify(request).includes(context.python.executable))
@@ -31,7 +33,7 @@ test('direct commands need no model and preserve the robotics workspace', async 
   const outputs = []
   const app = await createApplication({ cwd, report: text => outputs.push(text) })
   t.after(() => app.dispose())
-  await seed(app.owner.runtime)
+  await seed(app.owner.runtime, 'sensor', { preparePython: false })
   await bind(app)
   const commands = app.host.session.extensionRunner.getRegisteredCommands().map(command => command.name)
   assert.ok(!commands.some(name => name.startsWith('kinex-')), 'only short Kinex command names are exposed')
@@ -58,7 +60,7 @@ test('headless permission denial prevents coding side effects', async t => {
   assert.equal(fake.requests.length, 1)
 })
 
-test('same-workspace replacement retains drivers and finalizes recording', async t => {
+test('same-workspace replacement retains device nodes and finalizes recording', async t => {
   const cwd = await workspace(t)
   await fakeProvider(t, isolation.root)
   const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
@@ -68,7 +70,8 @@ test('same-workspace replacement retains drivers and finalizes recording', async
   await bind(app)
   await app.host.session.prompt('/load sensor')
   await core.devices.dispatch('sensor', 'stop')
-  await app.host.session.prompt('/record start sensor=2')
+  await recordingDevices(app.owner.runtime, cwd)
+  await app.host.session.prompt('/record start telemetry=2')
   assert.ok(await core.recording.status())
   app.host.setRebindSession(() => bind(app))
   await app.host.newSession()
@@ -94,22 +97,21 @@ for (const source of ['file', 'camera', 'exec']) test(`${source} images are stor
   if (source === 'file') {
     await writeFile(image, png)
     await mkdir(path.join(cwd, '.kinex/tools'), { recursive: true })
-    await writeFile(path.join(cwd, '.kinex/tools/capture.ts'), `export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:${JSON.stringify(image)}}]}) }`)
+    await writeFile(path.join(cwd, '.kinex/tools/capture.ts'), `import { fileURLToPath } from 'node:url'
+export default { description: 'Capture test image', execute: async () => ({title:'frame',output:'frame',attachments:[{mime:'image/png',path:fileURLToPath(new URL('../../frame.png', import.meta.url))}]}) }`)
     fake.steps.push({ tool: 'capture' })
   } else if (source === 'exec') {
+    await seed(app.owner.runtime)
     await writeFile(image, png)
     await writeFile(second, secondPng)
-    fake.steps.push({ tool: 'exec', args: { interpreter: 'python3',
+    fake.steps.push({ tool: 'exec', args: {
       python: 'from kinex import finish\nfinish({"observed": True}, file=["second.png", "frame.png"])',
     } })
   } else {
     await seed(app.owner.runtime)
-    await app.owner.runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true,
-      access: { connection: { kind: 'mock' } }, intrinsics: {
-        color: { width: 2, height: 2, pixel_format: 'rgb8', image_format: 'png' },
-      } })
-    png = Buffer.from((await app.owner.runtime.devices.dispatch('camera', 'read')).data.color, 'base64')
-    fake.steps.push({ tool: 'device', args: { deviceID: 'camera' } })
+  await protocolCamera(app.owner.runtime, cwd)
+    png = await readFile((await app.owner.runtime.devices.dispatch('camera', 'read')).filePath)
+    fake.steps.push({ tool: 'device', args: { deviceID: 'camera', action: 'read' } })
   }
   fake.steps.push({ text: 'seen' })
   await bind(app)
@@ -131,7 +133,7 @@ for (const source of ['file', 'camera', 'exec']) test(`${source} images are stor
   t.after(() => resumed.dispose())
   await bind(resumed)
   await resumed.host.session.prompt('look again')
-  assert.match(JSON.stringify(fake.requests.at(-1)), new RegExp(png.toString('base64').replace(/[+]/g, '\\+')))
+  assert.ok(JSON.stringify(fake.requests.at(-1)).includes(png.toString('base64')))
   if (source === 'exec') assert.deepEqual(imageURLs(fake.requests.at(-1)), imageURLs(fake.requests[1]))
 })
 
@@ -143,7 +145,8 @@ test('guided workflows wait for the SDK response and recordings reference persis
   await seed(app.owner.runtime)
   await bind(app)
   await app.host.session.prompt('/load sensor')
-  await app.host.session.prompt('/record start sensor=2')
+  await recordingDevices(app.owner.runtime, cwd)
+  await app.host.session.prompt('/record start telemetry=2')
   for (const command of ['onboarding', 'register', 'calibrate']) {
     const requests = fake.requests.length
     const objective = `inspect the sensor via ${command}`
@@ -153,7 +156,7 @@ test('guided workflows wait for the SDK response and recordings reference persis
       .map(message => typeof message.content === 'string' ? message.content : message.content.map(block => block.text ?? '').join('\n'))
       .findLast(text => text.includes(objective))
     assert.match(prompt, /inspect the sensor/)
-    if (command === 'onboarding') assert.match(prompt, /onboard-ros2/)
+    if (command === 'onboarding') assert.match(prompt, /setup-device/)
   }
   const timing = app.host.session.sessionManager.getEntries().filter(entry => entry.type === 'custom' && entry.customType === 'kinex-active-time')
   assert.ok(timing.length >= 3)
@@ -277,7 +280,7 @@ test('composition owns setup discovery and reservations across session and works
       const check = async () => {
         const core = app.owner.runtime
         const setup = kind !== 'core'
-        assert.equal((await core.skills.list()).some(skill => skill.name === 'onboard-ros2'), setup)
+        assert.equal((await core.skills.list()).some(skill => skill.name === 'calibrate-tcp-offset'), setup)
         assert.equal(app.host.session.getAllTools().some(tool => tool.name === 'calib_compute'), setup)
         assert.equal(Boolean(app.host.session.extensionRunner.getCommand('onboarding')), setup)
         for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2'])

@@ -3,7 +3,8 @@
   "roles": {
     "target": {
       "types": [
-        "gripper"
+        "gripper",
+        "suction"
       ]
     },
     "arm": {
@@ -15,21 +16,21 @@
   "requires": [
     {
       "role": "arm",
-      "pointer": "/intrinsics/model"
+      "pointer": "/model"
     },
     {
       "role": "target",
-      "pointer": "/extrinsics/mount/translation_m"
+      "pointer": "/frames/base/translation_m"
     },
     {
       "role": "target",
-      "pointer": "/extrinsics/mount/rotation_xyzw"
+      "pointer": "/frames/base/rotation_xyzw"
     }
   ],
   "produces": [
     {
       "role": "target",
-      "pointer": "/intrinsics/frames/tcp/translation_m"
+      "pointer": "/frames/tcp/translation_m"
     }
   ],
   "computes": [

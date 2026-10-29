@@ -1,3 +1,5 @@
+import { protocolDevice } from '../packages/core/test/fixtures/protocol.mjs'
+import { recordingDevices } from "../packages/core/test/fixtures/recording.mjs"
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -14,7 +16,7 @@ const { createKinexRuntime } = await import('@kinex/core')
 const entry = fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url))
 
 for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]]) {
-  test(`${signal} closes live drivers and finalizes recording during an active model request`, { timeout: 15000 }, async t => {
+  test(`${signal} closes live device nodes and finalizes recording during an active model request`, { timeout: 15000 }, async t => {
     const cwd = await workspace(t)
     const fake = await fakeProvider(t, isolation.root)
     let release
@@ -22,23 +24,16 @@ for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]]) {
     t.after(() => release())
     const core = createKinexRuntime({ directory: cwd })
     await seed(core)
-    await core.profiles.writeDevice({ name: 'sensor', loaded: true, access: {
-      connection: { kind: 'process' }, driver: {
-        interpreter: 'python3', persistent: true, actions: ['load', 'unload', 'read', 'status'], timeout_s: 2,
-      },
-    } })
-    const device = path.join(cwd, '.kinex/devices/sensor')
-    await writeFile(path.join(device, 'driver.py'), `import os
-from kinex.driver_protocol import run
-def dispatch(action, args):
-    with open("pid", "w") as output: output.write(str(os.getpid()))
-    return {"ok": True, "value": 1}
-def close():
-    with open("closed", "w") as output: output.write(str(os.getpid()))
-run(dispatch, close)
-`)
+    const device = await protocolDevice(core, cwd, 'sensor', {handler: `import os
+from pathlib import Path
+def dispatch(action, args, cancelled):
+    Path('pid').write_text(str(os.getpid()))
+    return {'value':1}
+`})
+    await core.profiles.writeDevice({name:'sensor',loaded:true})
+    await recordingDevices(core, cwd)
     await core.dispose()
-    const child = spawn(process.execPath, [entry, '-p', '--auto', '--model', 'fake/test', '--record', 'sensor=2', 'Wait for shutdown'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(process.execPath, [entry, '-p', '--auto', '--model', 'fake/test', '--record', 'telemetry=2', 'Wait for shutdown'], { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
     let stderr = ''
     child.stdout.resume()
     child.stderr.on('data', data => { stderr += data })
@@ -60,13 +55,14 @@ run(dispatch, close)
   })
 }
 
-for (const [specs, json] of [['sensor=2', false], ['sensor=2 camera=2', true], ['camera=2', true]]) {
+for (const [specs, json] of [['telemetry=2', false], ['telemetry=2 camera=2', true], ['camera=2', true]]) {
   test(`headless --record ${specs} reports refusals and continues the model task (json=${json})`, { timeout: 15000 }, async t => {
     const cwd = await workspace(t)
     const fake = await fakeProvider(t, isolation.root)
     const core = createKinexRuntime({ directory: cwd })
     await seed(core)
-    await core.profiles.writeDevice({ name: 'sensor', loaded: true })
+    await core.profiles.writeDevice({ description: '', name: 'sensor', loaded: true })
+    await recordingDevices(core, cwd)
     await core.dispose()
 
     const reader = createKinexRuntime({ directory: cwd })
@@ -90,12 +86,12 @@ for (const [specs, json] of [['sensor=2', false], ['sensor=2 camera=2', true], [
     if (json) for (const line of stdout.trim().split('\n')) assert.doesNotThrow(() => JSON.parse(line))
     assert.match(stdout, /TASK_COMPLETED/)
     assert.equal(fake.requests.length, 1)
-    const hasValidDevice = specs.includes('sensor=')
+    const hasValidDevice = specs.includes('telemetry=')
     assert.equal(statusDuringTask, hasValidDevice ? 'recording' : 'stopped')
 
     const recordings = await reader.recording.recent()
     assert.equal(recordings.length, 1)
     assert.equal(recordings[0].status, 'stopped')
-    assert.deepEqual(Object.keys(recordings[0].sampling.devices), hasValidDevice ? ['sensor'] : [])
+    assert.deepEqual(Object.keys(recordings[0].sampling.devices), hasValidDevice ? ['telemetry'] : [])
   })
 }

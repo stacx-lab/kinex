@@ -1,0 +1,256 @@
+"""Exercise pose validation, trajectory duration and planning limits."""
+
+import copy
+import json
+import math
+import random
+import unittest
+
+from kinex.lib.geometry import pose, quaternion
+from kinex.helpers import trajectory
+from kinex.helpers.motion import planning_limits
+
+
+PROFILE = {"name": "arm", "type": "joint", "home": None, "limits": "strict"}
+JOINTS = [{"name": "j", "type": "revolute", "limits": {"min": -2, "max": 2}, "max_velocity": 0.5, "max_acceleration": 1.0}]
+
+
+class QuaternionTests(unittest.TestCase):
+    def test_rounded_quaternions_preserve_position_direction_sign_and_input(self):
+        for rotation in ([.964, .264, .032, .011], [0, 0, .707, .707]):
+            for sign in (1, -1):
+                original = [.2, -.1, .95] + [sign * component for component in rotation]
+                before = original.copy()
+                result = pose(original)
+                norm = math.hypot(*original[3:])
+                self.assertEqual(result[:3], original[:3])
+                self.assertAlmostEqual(math.hypot(*result[3:]), 1, places=15)
+                for actual, component in zip(result[3:], original[3:]):
+                    self.assertAlmostEqual(actual * norm, component, places=15)
+                result[0] = 99
+                self.assertEqual(original, before)
+
+    def test_norm_bounds_are_inclusive_and_adjacent_outside_values_are_rejected(self):
+        for norm in (.999, math.nextafter(.999, 1), 1, math.nextafter(1.001, 1), 1.001):
+            for sign in (1, -1):
+                with self.subTest(norm=norm, sign=sign):
+                    self.assertEqual(quaternion([0, 0, 0, sign * norm]), [0, 0, 0, sign])
+        for norm in (math.nextafter(.999, 0), math.nextafter(1.001, math.inf), .99, 1.01, 0):
+            with self.subTest(norm=norm), self.assertRaises(ValueError) as caught:
+                quaternion([0, 0, 0, norm], "goal")
+            message = str(caught.exception)
+            self.assertIn("goal requires a unit quaternion [qx, qy, qz, qw] (xyzw)", message)
+            self.assertIn(f"got norm {norm!r}", message)
+            self.assertIn("within 0.001 of 1", message)
+        with self.assertRaises(ValueError):
+            quaternion([.71, 0, 0, .71])  # Two-decimal rounding can exceed the tolerance.
+
+    def test_invalid_quaternions_and_poses_are_rejected(self):
+        for value in (None, {}, [], [0, 0, 1], [0, 0, 0, 0, 1], (0, 0, 0, 1),
+                      [0, 0, 1.57, 0], [.1, .2, .3, .9],
+                      *([0, 0, 0, v] for v in (True, False, "1", math.nan, math.inf, -math.inf))):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                quaternion(value)
+        for value in ([0] * 7, [0] * 6, [0] * 8,
+                      *([v, 0, 0, 0, 0, 0, 1] for v in (True, "0", math.nan, math.inf))):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                pose(value)
+
+    def test_full_precision_geometry_and_json_round_trips_remain_unit(self):
+        from kinex.lib.geometry import mat_to_quat, quat_to_mat
+
+        rng = random.Random(0)
+        for _ in range(100):
+            rotation = mat_to_quat(quat_to_mat([rng.gauss(0, 1) for _ in range(4)]))
+            result = pose(json.loads(json.dumps([.1, .2, .3] + rotation)))
+            self.assertAlmostEqual(math.hypot(*result[3:]), 1, places=15)
+            for actual, expected in zip(result[3:], rotation):
+                self.assertAlmostEqual(actual, expected, places=15)
+
+    def test_joint_ik_normalizes_rounded_goals(self):
+        from joint_model import model, simple
+
+        arm = model(simple(limits='lower="-2" upper="2"'), "flange")
+        target = [.878, .479, 0, 0, 0, .247, .969]  # FK at 0.5 rad, rounded to 3 decimals.
+        solved = arm.ik(target, [0], position_tolerance_m=1e-3, rotation_tolerance_rad=1e-3)
+        self.assertAlmostEqual(solved[0], .5, delta=2e-3)
+
+    def test_locomotion_commands_follow_modes_and_limits(self):
+        from types import SimpleNamespace as NS
+        from kinex.lib.locomotion import accepted, posture, transition, velocity
+
+        profile = {"limits": "strict", "velocity": {"units": "si", "axes": {"vx": {"min": -1, "max": 1}, "wz": None}},
+                   "posture": {"height": {"min": -.1, "max": .05}, "pitch": {"min": -.3, "max": .3}},
+                   "modes": {"standing": {"accepts": ["velocity", "posture"], "transitions": ["crouched"]},
+                             "crouched": {"accepts": [], "transitions": ["standing"]}}}
+        twist = lambda vx=0., vy=0., wz=0.: NS(linear=NS(x=vx, y=vy, z=0.), angular=NS(x=0., y=0., z=wz))
+        accepted(profile, "standing", "velocity")
+        for mode, operation in (("crouched", "velocity"), ("fallen", "velocity"), (None, "posture")):
+            with self.assertRaises(ValueError):
+                accepted(profile, mode, operation)
+        transition(profile, "crouched", "standing")
+        for mode, target in (("standing", "standing"), ("crouched", "walking"), (None, "standing")):
+            with self.assertRaises(ValueError):
+                transition(profile, mode, target)
+        self.assertEqual(velocity(profile, twist(.5, wz=5.))["wz"], 5.)
+        for command in (twist(1.5), twist(vy=.1), twist(math.nan)):
+            with self.assertRaises(ValueError):
+                velocity(profile, command)
+        self.assertEqual(velocity({**profile, "limits": "native"}, twist(1.5))["vx"], 1.5)
+        tilt = NS(x=0., y=math.sin(.1), z=0., w=math.cos(.1))
+        values = posture(profile, NS(position=NS(x=0., y=0., z=-.05), orientation=tilt))
+        self.assertAlmostEqual(values["pitch"], .2)
+        self.assertEqual(values["height"], -.05)
+        roll = NS(x=math.sin(.1), y=0., z=0., w=math.cos(.1))
+        for pose in (NS(position=NS(x=.1, y=0., z=0.), orientation=tilt), NS(position=NS(x=0., y=0., z=0.), orientation=roll)):
+            with self.assertRaises(ValueError):
+                posture(profile, pose)
+
+
+class MotionTests(unittest.TestCase):
+    def test_measured_positions_require_unique_complete_finite_joints(self):
+        from types import SimpleNamespace
+        from kinex.lib.joints import measured_positions
+
+        joints = [{"name": name, "type": "revolute", "limits": {"min": -1, "max": 1}}
+                  for name in ("j0", "j1")]
+        state = SimpleNamespace(name=["j1", "j0"], position=[.1, 0.])
+        self.assertEqual(measured_positions(state, joints), [0., .1])
+        for names, values in [(["j0", "j0"], [0., 0.]), (["j0"], [0.]),
+                              (["j0", "j1"], [0.]), (["j0", "j1"], [math.nan, 0.])]:
+            with self.subTest(names=names, values=values), self.assertRaises(ValueError):
+                measured_positions(SimpleNamespace(name=names, position=values), joints)
+
+    def test_joint_home_recovery(self):
+        from kinex.lib.joints import command, home_start_tolerance
+        profile = copy.deepcopy(PROFILE)
+        profile.update(home={"j": 0})
+        joints = copy.deepcopy(JOINTS)
+        tolerance = home_start_tolerance(profile, joints, [0])
+        self.assertEqual(tolerance, math.radians(1))
+        for sign in (-1, 1):
+            plan = trajectory(joints, [sign * (2 + tolerance)], [0], .01, start_tolerance=tolerance)
+            command(profile, plan.actions, joints)
+        for points in ([2.09, 0], [2.004, 2.005, 0], [2.004, 1.9, 2.001, 0], [2.004, .1], [2.004]):
+            with self.assertRaises(ValueError):
+                command(profile, [[q] for q in points], joints)
+        for home in (None, "???"):
+            profile["home"] = home
+            self.assertEqual(home_start_tolerance(profile, joints, [0]), 0)
+            with self.assertRaises(ValueError):
+                command(profile, [[2.004], [0]], joints)
+        profile.update(home={"j": 0})
+        with self.assertRaises(ValueError):
+            command(profile, [[2 + math.radians(1.01)], [0]], joints)
+        self.assertEqual(home_start_tolerance(profile, joints, [.1]), 0)
+        joints[0]["type"] = "prismatic"
+        with self.assertRaises(ValueError):
+            trajectory(joints, [2.001], [0], .01, start_tolerance=tolerance)
+
+    def test_native_commands_pass_raw_targets_and_still_validate_structure(self):
+        from kinex.lib.joints import command
+        from kinex.helpers.policy import _grip, _vacuum
+
+        profile, joints = copy.deepcopy(PROFILE), copy.deepcopy(JOINTS)
+        actions = [[100]]
+        with self.assertRaises(ValueError):
+            command(profile, actions, joints)
+        profile["limits"] = "native"
+        self.assertEqual(command(profile, actions, joints), actions)
+        for target in ([True], [math.nan], [math.inf], [], [1, 2]):
+            with self.assertRaises(ValueError):
+                command(profile, [[0], target], joints)
+        self.assertTrue(trajectory(joints, [2.001], [100], .01, check_limits=False).actions)
+        gripper = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0}}
+        self.assertEqual([_grip(gripper, value) for value in (-1, 0, 1)], [.04, .02, 0])
+        for value in (-1.001, 1.001, True, math.nan, math.inf):
+            with self.assertRaises(ValueError):
+                _grip(gripper, value)
+        values = (-1, 0, .1, 1)
+        self.assertEqual([_vacuum({"vacuum": "binary"}, value) for value in values], [0, 0, 1, 1])
+        self.assertEqual([_vacuum({"vacuum": "proportional"}, value) for value in values], [0, .5, .55, 1])
+        with self.assertRaisesRegex(ValueError, "no vacuum control"):
+            _vacuum({"vacuum": "???"}, 0)
+
+    def test_full_plan_duration_endpoint_and_speed_scaling(self):
+        joints = [{"type": "revolute", "limits": {"min": -3, "max": 3}}] * 2
+        plan = trajectory(joints, [0, 0], [2, 1], .01)
+        self.assertEqual(plan.duration_s, 3.75)
+        self.assertEqual(len(plan.actions), 375)
+        self.assertEqual(plan.actions[-1], [2, 1])
+        slow = trajectory(joints, [0, 0], [2, 1], .01, .5)
+        self.assertEqual(slow.duration_s, 7.5)
+        self.assertEqual(len(slow.actions), 750)
+        self.assertEqual(slow.actions[-1], [2, 1])
+        still = trajectory(joints, [1, 1], [1, 1], .01)
+        self.assertEqual(still.duration_s, .01)
+        self.assertEqual(still.actions, [[1, 1]])
+        with self.assertRaises(TypeError):
+            trajectory(joints, [0, 0], [2, 1], .01, duration_s=2.5)
+        with self.assertRaisesRegex(ValueError, "one million"):
+            trajectory(joints, [0, 0], [2, 1], .01, .0001)
+
+    def assert_rates(self, plan, start, velocities, accelerations):
+        dt = plan.duration_s / len(plan.actions)
+        for i, (velocity, acceleration) in enumerate(zip(velocities, accelerations)):
+            values = [start[i]] + [p[i] for p in plan.actions]
+            speeds = [(b-a) / dt for a, b in zip(values, values[1:])]
+            changes = [(b-a) / dt for a, b in zip([0]+speeds, speeds+[0])]
+            self.assertLessEqual(max(map(abs, speeds)), velocity + 1e-8)
+            self.assertLessEqual(max(map(abs, changes)), acceleration + 1e-8)
+
+    def test_nonintegral_duration_and_mixed_joint_rate_overrides(self):
+        joints = [
+            {"type": "revolute", "limits": {"min": -2, "max": 2}, "max_velocity": .5},
+            {"type": "prismatic", "limits": {"min": -1, "max": 1}},
+        ]
+        goal = [.123, .037]
+        plan = trajectory(joints, [0, 0], goal, .01, .7, [.8, .2], [.8, .6])
+        velocities, accelerations = planning_limits(joints, [.8, .2], [.8, .6])
+        self.assertNotAlmostEqual(plan.duration_s / .01, round(plan.duration_s / .01))
+        self.assertEqual(len(plan.actions), math.ceil(plan.duration_s / .01))
+        self.assertEqual(plan.actions[-1], goal)
+        self.assert_rates(plan, [0, 0], [v*.7 for v in velocities], [a*.7 for a in accelerations])
+
+    def test_planner_obeys_limits_and_uses_shortest_continuous_joint_path(self):
+        joints = copy.deepcopy(JOINTS)
+        plan = trajectory(joints, [0], [1], .01)
+        self.assert_rates(plan, [0], [.5], [1])
+        self.assertEqual(plan.actions[-1], [1])
+        joints[0].update(type="continuous", limits=None)
+        plan = trajectory(joints, [math.pi-.1], [-math.pi+.1], .01)
+        self.assertAlmostEqual(plan.actions[-1][0], math.pi+.1)
+        joints[0].pop("max_acceleration")
+        self.assertTrue(trajectory(joints, [0], [1], .01).actions)
+
+    def test_planning_rates_use_available_limits_and_unit_specific_defaults(self):
+        joints = [
+            {"type": "revolute", "max_velocity": .2},
+            {"type": "prismatic", "max_acceleration": .03},
+            {"type": "continuous", "max_velocity": None, "max_acceleration": None},
+        ]
+        self.assertEqual(planning_limits(joints), [[.2, .1, 1], [3, .03, 3]])
+        self.assertEqual(planning_limits(joints, [.1, .02, .3], [2, 2, 2]),
+                         [[.1, .02, .3], [2, .03, 2]])
+        self.assertEqual(planning_limits(joints, 1, 1), [[.2, 1, 1], [1, .03, 1]])
+        joints[2].update(max_velocity=1000, max_acceleration=1000)
+        self.assertEqual(planning_limits(joints), [[.2, .1, 1], [3, .03, 3]])
+        for bad in (0, -1, True, float("nan"), [1]):
+            with self.assertRaises(ValueError):
+                planning_limits(joints, max_velocity=bad)
+
+    def test_unknown_limits_still_produce_smooth_references_and_speed_scaling(self):
+        for kind, velocity, acceleration, distance in (
+            ("revolute", 1, 3, 1), ("prismatic", .1, .3, .1),
+        ):
+            joints = [{"type": kind, "limits": {"min": -2, "max": 2}}]
+            plan = trajectory(joints, [0], [distance], .01)
+            self.assert_rates(plan, [0], [velocity], [acceleration])
+            self.assertEqual(plan.actions[-1], [distance])
+            slow = trajectory(joints, [0], [distance], .01, .5)
+            self.assertGreater(slow.duration_s, plan.duration_s)
+            self.assert_rates(slow, [0], [velocity*.5], [acceleration*.5])
+
+
+if __name__ == "__main__":
+    unittest.main()

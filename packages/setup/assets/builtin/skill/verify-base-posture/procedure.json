@@ -3,26 +3,26 @@
   "roles": {
     "base": {
       "types": [
-        "velocity"
+        "locomotion"
       ]
     }
   },
   "requires": [
     {
       "role": "base",
-      "pointer": "/intrinsics/control/mode"
+      "pointer": "/modes"
     },
     {
       "role": "base",
-      "pointer": "/intrinsics/control/body_frame"
+      "pointer": "/posture"
     },
     {
       "role": "base",
-      "pointer": "/intrinsics/stop/behavior"
+      "pointer": "/stop/behavior"
     },
     {
       "role": "base",
-      "pointer": "/intrinsics/stop/affected_devices"
+      "pointer": "/stop/affected_devices"
     }
   ],
   "produces": [],

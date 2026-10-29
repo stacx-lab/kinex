@@ -1,4 +1,4 @@
-import { field, section } from "./common.ts"
+import { field, quaternion, section, xyz } from "./common.ts"
 import { z } from "zod"
 
 const side = z.number().nullable()
@@ -27,11 +27,7 @@ const polygon = z.array(z.tuple([z.number(), z.number()])).min(3).refine((vertic
 
 export const Surface = z.strictObject({
   name: z.string().min(1),
-  pose: field(z.strictObject({
-    translation_m: z.tuple([z.number(), z.number(), z.number()]),
-    rotation_xyzw: z.tuple([z.number(), z.number(), z.number(), z.number()])
-      .refine((q) => Math.abs(Math.hypot(...q) - 1) < 1e-6, "must be a unit quaternion"),
-  })),
+  pose: field(z.strictObject({ translation_m: xyz, rotation_xyzw: quaternion })),
   extent: field(z.discriminatedUnion("shape", [
     z.strictObject({ shape: z.literal("rectangle"), size_m: z.tuple([z.number().positive(), z.number().positive()]) }),
     z.strictObject({ shape: z.literal("polygon"), vertices_m: polygon }),
@@ -44,6 +40,6 @@ export const worldShape = {
   needs_calibration: section.needs_calibration,
   method: z.enum(["unknown", "manual", "survey", "introspection", "plane_fit"]).default("unknown"),
   calibrated_at: z.iso.datetime().nullable().default(null),
-  bounds: field(WorkspaceBounds.nullable()).default(null),
+  bounds: field(WorkspaceBounds.nullable()),
   surfaces: z.array(Surface).default([]).refine((items) => new Set(items.map((s) => s.name)).size === items.length, "surface names must be unique"),
 }

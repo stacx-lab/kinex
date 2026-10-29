@@ -16,8 +16,8 @@ arm base and the declared parent frame, in metres and the same order. Use measur
 fixtures, CAD with traceable geometry, a tracker or calibrated touch probing;
 uncalibrated images do not establish parent coordinates.
 
-For touch probing, add dependencies on the particular arm's control/feedback and
-TCP. Approach slowly in user-confirmed approximately 5 mm steps; never command
+For touch probing, add dependencies on the particular arm's URDF model, motion
+operations and TCP. Approach slowly in user-confirmed approximately 5 mm steps; never command
 motion while touching. A non-motion survey does not require loading the arm.
 
 Archive `{arm_points_m:[[...]],parent_points_m:[[...]]}`. Use at least 4 well-spread,

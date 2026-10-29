@@ -1,97 +1,170 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Device } from '../dist/device/profile/schema.js'
-import { spatialReading } from '../dist/device/spatial.js'
-import { deviceFrames } from '../dist/device/profile/frames.js'
-import { jointReading } from '../dist/device/joint.js'
-import { validateReading, validateWriteResult } from '../dist/device/dispatch.js'
+import { frameErrors } from '../dist/device/profile/frames.js'
 
-const unknown = () => ({ parent_frame: null, translation_m: null, rotation_xyzw: null })
-const frame = parent => ({ parent_frame: parent, translation_m: [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] })
-const profile = frames => ({ name: 'sensor', type: 'other', intrinsics: { frames }, meta: { created_at: '', updated_at: '' } })
+const root = () => ({ parent: null, translation_m: null, rotation_xyzw: null })
+const frame = parent => ({ parent, translation_m: [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] })
+const profile = (frames = {}, name = 'sensor') => ({ description: '', name, type: 'other', frames: { base: root(), ...frames }, meta: { created_at: '', updated_at: '' } })
 
-test('joint models declare frames without placeholders and reject conflicting names', () => {
-  const value = { ...profile({}), type: 'joint', intrinsics: {
-    kinematics: { frame: 'top', fk: 'driver', ik: null, frame_to_reported: [0, 0, 0, 0, 0, 0, 1] },
-  } }
-  const device = Device.parse(value)
-  assert.deepEqual(device.intrinsics.frames, {})
-  assert.deepEqual(deviceFrames(device), { top: { parent_frame: null } })
-  assert.ok(Device.safeParse({ ...value, intrinsics: { ...value.intrinsics, frames: { tool: frame('top') } } }).success)
-  assert.throws(() => Device.parse({ ...value, intrinsics: { ...value.intrinsics, frames: { top: unknown() } } }), /duplicate/)
-  for (const name of ['sensor', 'arm:top']) {
-    assert.equal(Device.safeParse({ ...value, intrinsics: { kinematics: { ...value.intrinsics.kinematics, frame: name } } }).success, false)
-  }
+test('profiles flatten facts', () => {
+  const parsed = Device.parse({ ...profile(), type: 'gripper', source: 'user' })
+  assert.equal(parsed.source, 'user')
+  assert.equal(parsed.grip, '???')
 })
 
-test('local frame definitions allow unknown components and reject missing parents and cycles', () => {
-  const value = { flange: unknown(), tool: frame('flange'), partial: { ...unknown(), translation_m: [0, 0, 0] } }
-  assert.deepEqual(Device.parse(profile(value)).intrinsics.frames, value)
-  for (const frames of [{ tip: frame('missing') }, { a: frame('b'), b: frame('a') }, { a: frame('a') }, { old: null }, { old: [0, 0, 0, 0, 0, 0, 1] }]) {
+test('every frame has an explicit parent; null declares a root with inapplicable transforms', () => {
+  assert.equal(Device.safeParse(profile({ base: frame(null) })).success, false)
+  assert.ok(Device.safeParse(profile()).success)
+  const { parent, ...missingParent } = frame('sensor:base')
+  for (const value of [missingParent, frame('base'), frame('sensor'), frame('sensor/base')]) {
+    assert.equal(Device.safeParse(profile({ tool: value })).success, false)
+  }
+  assert.ok(Device.safeParse(profile({ tool: frame('sensor:base'), unknown: { parent: 'sensor:tool', translation_m: '???', rotation_xyzw: '???' } })).success)
+  assert.equal(Device.safeParse({ ...profile(), frames: {} }).success, false)
+})
+
+test('other devices may omit frames; spatial types and declared frames still need a base', () => {
+  const { frames, ...bare } = profile()
+  const device = Device.parse(bare)
+  assert.equal(device.frames, undefined)
+  assert.deepEqual(frameErrors([device]), [])
+  assert.equal(Device.safeParse({ ...bare, frames: {} }).success, false)
+  assert.equal(Device.safeParse({ ...bare, type: 'rgb' }).success, false)
+})
+
+test('frame validation catches local and cross-device missing references and cycles', () => {
+  for (const frames of [{ tip: frame('sensor:missing') }, { a: frame('sensor:b'), b: frame('sensor:a') }, { a: frame('sensor:a') }]) {
     assert.equal(Device.safeParse(profile(frames)).success, false)
   }
+  const arm = Device.parse(profile({ base: frame('world:base') }, 'arm'))
+  const world = Device.parse(profile({}, 'world'))
+  assert.deepEqual(frameErrors([arm, world]), [])
+  assert.match(frameErrors([arm]).join(), /unknown parent/)
+  world.frames.base = frame('arm:base')
+  assert.match(frameErrors([arm, world]).join(), /acyclic/)
 })
 
-test('unknown sensor transforms do not require read feedback; provided poses must be declared', () => {
-  const device = Device.parse(profile({ optional: unknown(), fixed: frame(null) }))
-  assert.deepEqual(spatialReading(device, { data: {} }).data, {})
-  for (const name of ['missing', 'fixed']) assert.throws(() => spatialReading(device, { data: { frame_poses: { [name]: [0, 0, 0, 0, 0, 0, 1] } } }))
+test('URDF links are device frames, checked once the model resolves', async () => {
+  const { resolvedTrees } = await import('../dist/device/profile/urdf.js')
+  const model = { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }
+  const arm = Device.parse({ ...profile({ base: frame('world:base'), tool: frame('arm:flange') }, 'arm'), type: 'joint', model })
+  const gripper = Device.parse(profile({ base: frame('arm:flange') }, 'gripper'))
+  const world = Device.parse(profile({}, 'world'))
+  assert.deepEqual(frameErrors([arm, gripper, world]), [])
+  resolvedTrees.set(arm.model, { base_link: 'base_link', links: ['base_link', 'flange'], joints: [{ name: 'flange_joint',
+    type: 'fixed', parent: 'base_link', child: 'flange', origin: [0, 0, 0, 0, 0, 0, 1] }] })
+  assert.deepEqual(frameErrors([arm, gripper, world]), [])
+  gripper.frames.base = frame('arm:missing')
+  assert.match(frameErrors([arm, gripper, world]).join(), /gripper:base: unknown parent frame arm:missing/)
 })
 
-test('joint reads reject obsolete frame feedback', () => {
-  const device = Device.parse({ ...profile({ flange: unknown() }), type: 'joint', intrinsics: {
-    frames: { flange: unknown() }, model: { format: 'joints', joints: [
-      { name: 'j', type: 'revolute', limits: { min: -1, max: 1 }, max_velocity: null, max_effort: null },
-    ] }, feedback: { velocities: false, efforts: false },
-  } })
-  const data = { positions: [1.01], velocities: [], efforts: [], faults: [], timestamp: 1 }
-  assert.deepEqual(jointReading(device, spatialReading(device, { data })).data, data)
-  assert.throws(() => jointReading(device, { data: { ...data, frame_poses: {} } }))
+test('flat calibration patches retain requests, validate clears and protect required facts', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { createKinexRuntime } = await import('../dist/index.js')
+  const { ProfileStore } = await import('../dist/device/profile/store.js')
+  const directory = await mkdtemp(join(tmpdir(), 'kinex-flat-profile-'))
+  const runtime = createKinexRuntime({ directory })
+  t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
+  await runtime.profiles.writeDevice({ ...profile({}, 'world'), type: 'world', loaded: false })
+  await runtime.profiles.writeDevice({ ...profile({ base: { parent: 'world:base', translation_m: '???', rotation_xyzw: '???' } }, 'tool'), loaded: false,
+    source: 'user', method: 'survey', needs_calibration: 'Measure mounting pose' })
+  await assert.rejects(runtime.profiles.writeDevice({ name: 'tool', needs_calibration: null }), /cannot clear profile:tool/)
+  await runtime.profiles.writeDevice({ name: 'tool', frames: { base: { translation_m: [0, 0, .2] } } })
+  assert.equal((await runtime.devices.list()).find(d => d.name === 'tool').needs_calibration, 'Measure mounting pose')
+  await assert.rejects(runtime.profiles.writeDevice({ name: 'tool', needs_calibration: null }), /unknown/)
+  await runtime.profiles.writeDevice({ name: 'tool', frames: { base: { rotation_xyzw: [0, 0, 0, 1] } }, needs_calibration: null })
+  const tool = (await runtime.devices.list()).find(d => d.name === 'tool')
+  assert.equal(tool.source, 'user')
+  assert.equal(tool.needs_calibration, null)
+  await runtime.operation(async () => {
+    await assert.rejects(ProfileStore.writeDevice(directory, { name: 'tool', frames: null }, ['frames']), /cannot remove required/)
+    await assert.rejects(ProfileStore.markNeeded(directory, 'mount:tool'), /unknown calibration item/)
+  })
+  // An unrelated unloaded declaration cannot block this device's valid graph.
+  await runtime.profiles.writeDevice({ ...profile({ base: frame('missing:base') }, 'unrelated'), loaded: false })
+  await runtime.operation(() => ProfileStore.validateFrames(directory, 'tool'))
+  await assert.rejects(runtime.operation(() => ProfileStore.validateFrames(directory, 'unrelated')), /unknown parent/)
 })
 
-
-test('gripper reads and write states reject removed fields and validate physical aperture', () => {
-  const base = profile({ tcp: frame(null) })
-  const device = Device.parse({ ...base, type: 'gripper', intrinsics: { ...base.intrinsics, feedback: { aperture_m: true } } })
-  const data = { aperture_m: .04, faults: [], timestamp: 1 }
-  const write = state => ({ data: { execution_id: 'submission', state } })
-  assert.deepEqual(validateReading(device, { data }).data, data)
-  assert.deepEqual(validateWriteResult(device, write(data)), write(data))
-  for (const extra of [
-    { frame_poses: {} }, { positions: [] }, { velocities: [] },
-    { force_n: null }, { pressure_pa: null }, { object_detected: null },
-    { aperture_m: null }, { aperture_m: -1 }, { aperture_m: true },
-    { timestamp: undefined }, { faults: [{ message: 'bad' }] },
-  ]) {
-    assert.throws(() => validateReading(device, { data: { ...data, ...extra } }))
-    assert.throws(() => validateWriteResult(device, write({ ...data, ...extra })))
+test('unknown transform components stay explicit and non-root null is invalid', () => {
+  for (const translation_m of ['???', [0, 0, .1]]) {
+    const parsed = Device.parse(profile({ tool: { parent: 'sensor:base', translation_m, rotation_xyzw: '???' } }))
+    assert.equal(parsed.frames.tool.rotation_xyzw, '???')
   }
-  assert.throws(() => validateWriteResult(device, { data: { ...write(data).data, elapsed_s: 0 } }))
-  assert.throws(() => validateWriteResult(device, write({ ...data, faults: [{ code: 'jammed' }] })))
-  device.intrinsics.feedback.aperture_m = false
-  assert.equal(validateReading(device, { data: { ...data, aperture_m: null } }).data.aperture_m, null)
-  assert.throws(() => validateReading(device, { data }))
+  for (const key of ['translation_m', 'rotation_xyzw']) {
+    assert.equal(Device.safeParse(profile({ tool: { ...frame('sensor:base'), [key]: null } })).success, false)
+  }
+  const parsed = Device.parse(profile({ tool: { parent: 'sensor:base' } }))
+  assert.equal(parsed.frames.tool.translation_m, '???')
+  assert.equal(parsed.frames.tool.rotation_xyzw, '???')
 })
 
-test('velocity reads and write states retain body feedback but reject global pose', () => {
-  const device = Device.parse({ ...profile({ torso: unknown() }), type: 'velocity', intrinsics: {
-    frames: { torso: unknown() }, feedback: { velocity_frame: 'body', velocity_components: ['vx', 'vy', 'wz'] },
-  } })
-  const data = { velocities: [.1, 0, 0], faults: [], timestamp: 2, height_m: .74,
-    frame_poses: { torso: [0, 0, .2, 0, 0, 0, 1] } }
-  const write = state => ({ data: { execution_id: 'submission', state } })
-  assert.deepEqual(validateReading(device, { data }).data, data)
-  assert.deepEqual(validateWriteResult(device, write(data)), write(data))
-  for (const extra of [{ pose: null }, { pose: { translation_m: [1, 2, 0], rotation_xyzw: [0, 0, 0, 1] } },
-    { velocities: [0] }, { velocities: [NaN, 0, 0] }, { timestamp: Infinity }, { height_m: NaN },
-    { frame_poses: { missing: [0, 0, 0, 0, 0, 0, 1] } }]) {
-    assert.throws(() => validateReading(device, { data: { ...data, ...extra } }))
-    assert.throws(() => validateWriteResult(device, write({ ...data, ...extra })))
+test('unspecified metadata stays unknown while explicit absence remains null', () => {
+  const parsed = type => {
+    const { frames, ...bare } = profile()
+    return Device.parse({ ...bare, ...(type === 'model' ? {} : { frames }), type })
   }
-  const { frame_poses, ...body } = data
-  assert.deepEqual(validateReading(device, { data: body }).data, body)
-  assert.deepEqual(validateReading(device, { data: { ...body, frame_poses: {} } }).data, body)
-  assert.throws(() => Device.parse({ ...device, intrinsics: { ...device.intrinsics, feedback: { ...device.intrinsics.feedback, pose_frame: 'world' } } }))
-  assert.throws(() => Device.parse({ ...device, extrinsics: { pose_frame: 'world' } }))
-  assert.throws(() => Device.parse({ ...device, extrinsics: { mount: { parent: 'world', parent_frame: null, translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] } } }))
+  assert.equal(parsed('world').bounds, '???')
+  assert.equal(parsed('model').variant, '???')
+  assert.equal(parsed('model').implementation, '???')
+  for (const type of ['imu', 'force_torque']) assert.equal(parsed(type).sample_rate_hz, '???')
+  const imu = Device.parse({ ...profile(), type: 'imu', measurement: {
+    angular_velocity: { axes: ['x'], bias: { x: 0 } }, linear_acceleration: null, orientation: null,
+  } })
+  assert.equal(imu.measurement.magnetic_field, '???')
+  assert.equal(imu.measurement.angular_velocity.range, '???')
+  assert.equal(imu.measurement.angular_velocity.resolution, '???')
+  assert.equal(imu.measurement.orientation, null)
+  assert.equal(Device.parse({ ...profile(), type: 'world', bounds: null }).bounds, null)
+})
+
+test('optional unknown sensor specifications do not block readiness', async () => {
+  const { checkReadinessItem } = await import('../dist/device/profile/readiness.js')
+  const device = Device.parse({ ...profile(), type: 'imu', measurement: {
+    angular_velocity: { axes: ['x'], bias: { x: 0 } },
+    linear_acceleration: null, orientation: null, magnetic_field: null,
+  } })
+  assert.equal(checkReadinessItem({ devices: [device] }, 'profile:sensor').done, true)
+})
+
+test('device template profile examples satisfy the schema', async () => {
+  const { readdir, readFile } = await import('node:fs/promises')
+  const { parse } = await import('yaml')
+  const directory = new URL('../assets/builtin/device/templates/', import.meta.url)
+  for (const name of await readdir(directory)) {
+    const guide = await readFile(new URL(name + '/DEVICE.md', directory), 'utf8')
+    const blocks = guide.matchAll(/```yaml\n([\s\S]*?)```/g)
+    for (const [, block] of blocks) {
+      const data = parse(block)
+      if (!data?.name || !data?.type) continue
+      const result = Device.safeParse({ ...data, meta: { created_at: '', updated_at: '' } })
+      assert.ok(result.success, name + ': ' + result.error?.message)
+    }
+  }
+})
+
+test('static TF excludes unknown transforms and roots', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { fileURLToPath } = await import('node:url')
+  execFileSync(process.env.PYTHON ?? 'python3', ['-c', `
+import sys
+from types import SimpleNamespace
+from unittest.mock import patch
+from kinex.lib import frames
+sent = []
+broadcaster = SimpleNamespace(sendTransform=lambda values: sent.extend(values))
+profile = {"name": "tool", "frames": {
+    "base": {"parent": None, "translation_m": None, "rotation_xyzw": None},
+    "known": {"parent": "tool:base", "translation_m": [0, 0, 1], "rotation_xyzw": [0, 0, 0, 1]},
+    "partial": {"parent": "tool:base", "translation_m": [0, 0, 1], "rotation_xyzw": "???"},
+    "unknown": {"parent": "tool:base", "translation_m": "???", "rotation_xyzw": "???"},
+}}
+with patch.dict(sys.modules, {"tf2_ros": SimpleNamespace(StaticTransformBroadcaster=lambda node: broadcaster)}):
+    with patch.object(frames, "transform", side_effect=lambda parent, child, pose: child):
+        frames.publish_profile(None, profile)
+assert sent == ["tool/known"], sent
+`], { env: { ...process.env, PYTHONPATH: fileURLToPath(new URL('../assets/python', import.meta.url)) } })
 })

@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises"
 import { glob } from "tinyglobby"
 import path from "node:path"
-import { deviceContentRoots } from "./conventions.ts"
+import { contentRoots } from "../config/content.ts"
+import { Assets } from "../installation/assets.ts"
+
+export const deviceContentRoots = (cwd: string) => contentRoots(cwd, "device", Assets.builtin("device"))
 import { parseFrontmatter } from "../skill/index.ts"
 import { exists } from "../util/filesystem.ts"
 

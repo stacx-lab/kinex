@@ -30,7 +30,15 @@ Plugins for Pi, Claude Code and Codex release independently in
 core/setup snapshots.
 Release archives include SHA-256 checksums.
 
+Core ships the `kinex_interfaces` ROS package (`Json`, `LookupTransform` and
+`Wait` services). ROS workspaces build it into Kinex Python and rebuild it on next
+use when an update changes its sources.
+[rosbridge](https://github.com/stacx-lab/rosbridge) serves
+`kinex_interfaces/srv/Wait` from its own identical copy, so it builds without a
+Kinex checkout.
+
 `npm run check` covers core, setup, standalone, PTY behavior and packed consumers.
 See [development instructions](../README.md#contributing--development) for prerequisites.
+[Native ROS checks](../packages/setup/test/container/README.md) run separately.
 
 [Design index](README.md)

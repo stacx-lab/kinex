@@ -49,7 +49,7 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
     return pending
   }
   const manifest = JSON.parse(await readFile(path.join(relocated, 'node_modules/kinex/package.json'), 'utf8'))
-  for (const name of ['pi-web-search', 'pi-btw']) assert.equal(manifest.dependencies[name], undefined)
+  assert.deepEqual([manifest.dependencies['pi-web-search'], manifest.dependencies['pi-btw']], ['1.7.0', '0.7.1'])
   assert.equal((await invoke('--version')).stdout.trim(), manifest.version)
   for (const name of ['core', 'setup']) {
     const dependency = JSON.parse(await readFile(path.join(relocated, `node_modules/@kinex/${name}/package.json`), 'utf8'))

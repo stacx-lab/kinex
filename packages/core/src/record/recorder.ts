@@ -1,21 +1,19 @@
+import { sampleDevice } from "../device/sample.ts"
 import { scoped } from "../scope.ts"
 import fs from "node:fs"
 import fsp from "node:fs/promises"
 import path from "node:path"
 import { ProfileStore } from "../device/profile/store.ts"
-import { isCameraType, isModel, type Device } from "../device/profile/schema.ts"
+import type { Device } from "../device/profile/schema.ts"
 import { loadConfig, recordConfig, type RecordConfig } from "../config/config.ts"
 import { observeDevices, type DeviceEvent } from "../device/observe.ts"
-import { dispatchDevice } from "../device/dispatch.ts"
-import { streamRefusal } from "../device/interface.ts"
 import { NamedError } from "../util/error.ts"
 import { writeJson } from "../util/filesystem.ts"
 import { Identifier } from "../util/id.ts"
 import { create } from "../util/log.ts"
 import { eventsFile, frameFile, listRecordings, manifestFile, recordingsDir, snapshotProfiles, timelineFile, traceFile, writeManifest } from "./layout.ts"
-import type { DeviceReading } from "../device/driver.ts"
-import { createSampler, type Sampler } from "./sampler.ts"
-import { createStreams, sizeOf, type Streams } from "./stream.ts"
+import type { DeviceReading } from "../device/reading.ts"
+import { createStreams, sizeOf, type Streams } from "./subscriptions.ts"
 import type { DeviceEventRow, DeviceSampling, DeviceStats, RecordingManifest, TimelineRow } from "./schema.ts"
 import { createWriter, stageFile, type Writer } from "./writer.ts"
 
@@ -31,7 +29,7 @@ const MAX_DATA_CHARS = 64_000
 const MANIFEST_INTERVAL_MS = 1_000
 const TOOL_WINDOWS = 64
 // Origins the recorder itself dispatches with: their traffic is designated by construction.
-const OWN_ORIGINS = new Set(["snap", "sampler", "stream"])
+const OWN_ORIGINS = new Set(["snap"])
 
 interface ToolWindow {
   callID: string
@@ -49,7 +47,6 @@ interface Active {
   manifest: RecordingManifest
   startedAt: number
   writer: Writer
-  sampler: Sampler
   streams: Streams
   unobserve: () => void
   // Devices named in a stream spec or a snap list: their traffic lands under
@@ -64,6 +61,8 @@ interface Active {
   // Set by a tool-initiated stop: the trace export waits for the final
   // assistant message of the step (saved after the tool returns).
   finalMessage?: { resolve: () => void; promise: Promise<void> }
+  // Registered on process exit while recording, so a crash leaves a stopped manifest.
+  exit: () => void
 }
 
 export type RecordingEvent = { type: "recording.changed" } | { type: "recording.warning"; message: string }
@@ -133,7 +132,7 @@ function deviceStats(active: Active, device: Device, passive = false): DeviceSta
   const table = passive ? active.manifest.passive : active.manifest.devices
   const existing = table[device.name]
   if (existing) return existing
-  const created = { type: device.type, events: 0, frames: 0, bytes: 0, skipped: 0, samples: 0, readErrors: 0 }
+  const created = { type: device.type, events: 0, frames: 0, bytes: 0 }
   table[device.name] = created
   return created
 }
@@ -145,15 +144,12 @@ function boundedData(data: Record<string, unknown> | undefined): Record<string, 
   return { truncated: true, chars: text.length, keys: Object.keys(data) }
 }
 
-function stage(active: Active, device: Device, seq: number, source: string | Buffer, suffix: string, passive: boolean): { rel: string; bytes: number } | undefined {
+function stage(active: Active, device: Device, seq: number, source: string, suffix: string, passive: boolean): { rel: string; bytes: number } | undefined {
   const rel = frameFile(device.name, seq, suffix, passive)
   const bytes = (() => {
     try {
       const target = path.join(active.dir, rel)
-      if (typeof source === "string") return stageFile(source, target)
-      fs.mkdirSync(path.dirname(target), { recursive: true })
-      fs.writeFileSync(target, source)
-      return source.length
+      return stageFile(source, target)
     }
     catch (error) {
       active.manifest.error = `${rel}: ${error instanceof Error ? error.message : String(error)}`
@@ -168,7 +164,7 @@ function onDeviceEvent(event: DeviceEvent) {
   const active = state().active
   if (!active || event.workspace !== active.workspace) return
   if (event.action === "deactivate") {
-    return active.sampler.remove(event.device.name).then(() => active.streams.remove(event.device.name))
+    return active.streams.remove(event.device.name)
   }
   const passive = !(active.designated.has(event.device.name) || OWN_ORIGINS.has(event.origin ?? ""))
   const stats = deviceStats(active, event.device, passive)
@@ -189,26 +185,19 @@ function onDeviceEvent(event: DeviceEvent) {
   }
   const reading = event.reading
   if (reading) {
-    const camera = event.device.type === "rgb" || event.device.type === "rgbd"
-    const { color, depth: depthContent, ...metadata } = reading.data ?? {}
-    row.data = boundedData(camera ? metadata : reading.data)
-    // Scheduled samples feed continuous capture. Other reads retain their own
-    // artifacts without changing the configured sampling cadence.
-    const fed = event.origin === "sampler" && event.action === "read" && !event.error && !passive && active.streams.feed(event.device.name, reading, event.wall + event.latencyMs)
-    if (fed) row.stream = true
-    const still = !fed && event.origin !== "stream"
-    const image = reading.filePath ?? (camera && typeof color === "string" ? Buffer.from(color, "base64") : undefined)
-    if (still && image) {
-      const staged = stage(active, event.device, seq, image, reading.filePath ? path.extname(reading.filePath) || ".bin" : ".png", passive)
+    row.data = boundedData(reading.data)
+    const image = reading.filePath
+    if (image) {
+      const staged = stage(active, event.device, seq, image, path.extname(image) || ".bin", passive)
       if (staged) {
         row.file = staged.rel
         stats.frames += 1
         stats.bytes += staged.bytes
       }
     }
-    const depth = reading.data?.["depth_file"] ?? (camera && typeof depthContent === "string" ? Buffer.from(depthContent, "base64") : undefined)
-    if (still && (typeof depth === "string" || Buffer.isBuffer(depth))) {
-      const staged = stage(active, event.device, seq, depth, ".depth.pgm", passive)
+    const depth = reading.data?.["depth_file"]
+    if (typeof depth === "string") {
+      const staged = stage(active, event.device, seq, depth, `.depth${path.extname(depth) || ".png"}`, passive)
       if (staged) {
         row.depthFile = staged.rel
         stats.bytes += staged.bytes
@@ -223,25 +212,11 @@ function onDeviceEvent(event: DeviceEvent) {
 
 function syncManifest(active: Active) {
   const streams = active.streams.stats()
-  const sampler = active.sampler.stats()
   for (const [name, stats] of Object.entries(active.manifest.devices)) {
-    const sampled = sampler[name]
-    if (sampled) {
-      stats.samples = sampled.samples
-      stats.readErrors = sampled.readErrors
-      stats.skipped = sampled.skipped
-      if (sampled.effectiveHz !== undefined) stats.effectiveHz = sampled.effectiveHz
-    }
     const stream = streams[name]
     if (stream) stats.stream = stream
-    if (!sampled && stream) {
-      stats.samples = stream.capture_samples
-      stats.skipped = stream.capture_missed
-      stats.readErrors = stream.capture_errors
-      stats.effectiveHz = stream.capture_hz
-    }
-    if (!stats.warning && (stats.skipped || stats.readErrors || stream?.transport_dropped)) {
-      stats.warning = `${name}: recording shortfall; inspect missed capture slots, read errors and encoding losses. Available data is still being recorded.`
+    if (!stats.warning && (stream?.error || stream?.transport_dropped)) {
+      stats.warning = `${name}: recording shortfall; inspect capture errors and subscription queue losses. Available data is still being recorded.`
       state().host.emit?.({ type: "recording.warning", message: stats.warning })
       timeline(active, { kind: "note", text: stats.warning })
       emitChanged()
@@ -266,10 +241,10 @@ function emitChanged() {
 }
 
 // Crash/exit fallback (sync-only context): leave a valid manifest behind.
-function checkpoint() {
-  const active = state().active
-  if (!active) return
+function checkpoint(active: Active) {
   syncManifest(active)
+  for (const stats of Object.values(active.manifest.devices))
+    if (stats.stream?.status === "recording") stats.stream.status = "stopped"
   active.manifest.ended = new Date().toISOString()
   active.manifest.endedBy = "exit"
   active.manifest.status = "stopped"
@@ -291,6 +266,7 @@ async function exportTrace(active: Active) {
 // Device rates are fixed for the lifetime of a recording.
 export interface DeviceSpec {
   rate: number
+  operations?: string[]
 }
 
 export interface StartInput {
@@ -308,7 +284,6 @@ export interface SnapInput {
 export interface StopInput {
   outcome?: RecordingManifest["outcome"]
   summary?: string
-  labels?: string[]
   endedBy?: RecordingManifest["endedBy"]
   // The stop comes from inside a tool call: the step's final assistant message
   // is saved only after the tool returns, so the trace export waits for it.
@@ -337,15 +312,12 @@ export interface SnapResult {
 
 // Every device that produced events; rate/source only for configured ones.
 export interface DeviceStatus extends Partial<DeviceSampling> {
-  effectiveHz?: number
-  skipped: number
   samples: number
-  readErrors: number
   warning?: string
-  encodingDropped: number
+  transportDropped: number
   events: number
   frames: number
-  video?: string
+  bag?: string
   error?: string
   status?: string
 }
@@ -385,7 +357,6 @@ async function resolveDevice(active: Active, name: string): Promise<Device | str
   const device = await ProfileStore.readDevice(active.cwd, name)
   if (!device) return `no device "${name}" in this workspace`
   if (!device.loaded) return `device "${name}" is unloaded — activate it through the device tool or /load`
-  if (device.type === "world" || isModel(device)) return `${device.type} devices have nothing to record`
   return device
 }
 
@@ -401,8 +372,16 @@ async function configure(active: Active, specs: Record<string, DeviceSpec>): Pro
       report.refusals[name] = "rate must be positive and finite"
       continue
     }
-    const source = streamRefusal(device) === undefined ? "driver" : "harness"
-    const sampling = { rate: spec.rate, source } satisfies DeviceSampling
+    const operations = spec.operations ?? Object.entries(device.operations)
+      .filter(([, op]) => op.transport === "topic").map(([name]) => name)
+    if (!device.runtime || !operations.length || operations.some(name => {
+      const op = device.operations[name]
+      return !op || op.transport !== "topic"
+    })) {
+      report.refusals[name] = "continuous recording requires declared topics; select operations or expose an observation topic"
+      continue
+    }
+    const sampling = { rate: spec.rate, operations } satisfies DeviceSampling
     active.designated.add(name)
     deviceStats(active, device)
     const error = await active.streams.start(device, sampling)
@@ -412,7 +391,6 @@ async function configure(active: Active, specs: Record<string, DeviceSpec>): Pro
     }
     active.manifest.sampling.devices[name] = sampling
     report.applied[name] = sampling
-    if (source === "harness") active.sampler.start(device, spec.rate)
   }
   return report
 }
@@ -454,12 +432,12 @@ async function open(cwd: string, kind: RecordingManifest["kind"], sessionID: str
     manifest,
     startedAt: Date.parse(manifest.started),
     writer,
-    sampler: createSampler({ cwd }),
-    streams: createStreams({ cwd, dir, config, writer }),
+    streams: createStreams({ cwd, dir }),
     unobserve: observeDevices(onDeviceEvent),
     designated: new Set(),
     seq: new Map(),
     reads: new Set(),
+    exit: () => checkpoint(active),
   }
   active.manifestTimer = setInterval(() => {
     if (active.manifest.status !== "recording") return
@@ -467,7 +445,6 @@ async function open(cwd: string, kind: RecordingManifest["kind"], sessionID: str
       if (state().active !== active || active.manifest.status !== "recording") return
       for (const [name, stream] of Object.entries(active.streams.stats())) {
         if (stream.status !== "error") continue
-        await active.sampler.remove(name)
         await active.streams.remove(name)
       }
       if (active.manifest.error) {
@@ -483,6 +460,7 @@ async function open(cwd: string, kind: RecordingManifest["kind"], sessionID: str
     })
   }, MANIFEST_INTERVAL_MS)
   state().active = active
+  process.once("exit", active.exit)
   timeline(active, { kind: "record.start" })
   return active
 }
@@ -499,7 +477,7 @@ async function captureReads(active: Active, devices: string[], refusals: Record<
         return
       }
       active.designated.add(name)
-      const reading: DeviceReading | string = await dispatchDevice(active.cwd, resolved, "read", isCameraType(resolved.type) ? { output: "file" } : {}, "snap").catch(
+      const reading: DeviceReading | string = await sampleDevice(active.cwd, resolved, {}, "snap").catch(
         (error: unknown) => (error instanceof Error ? error.message : String(error)),
       )
       if (typeof reading === "string") {
@@ -521,7 +499,7 @@ function readAll(active: Active, devices: string[], refusals: Record<string, str
   return pending.finally(() => { active.reads.delete(pending) })
 }
 
-// Reserve the singleton before any filesystem or driver await (including snaps).
+// Reserve the singleton before any filesystem or node await (including snaps).
 async function initialize<T>(cwd: string, kind: RecordingManifest["kind"], sessionID: string, instruction: string | undefined, setup: (active: Active) => Promise<T>) {
   if (state().active || state().startup) throw new RecordError("already recording — record stop first")
   const operation = (async () => {
@@ -542,15 +520,10 @@ async function initialize<T>(cwd: string, kind: RecordingManifest["kind"], sessi
 export const Recorder = {
   configure(host: RecorderHost): void { state().host = host },
   observe: onExecutionEvent,
-  checkpoint,
   async dispose(): Promise<void> {
     await Recorder.stop({ endedBy: "exit" })
     for (const pending of state().pending) pending.finalMessage?.resolve()
     await Promise.all([...state().exporting])
-  },
-
-  active(): boolean {
-    return state().active !== undefined
   },
 
   async start(cwd: string, input: StartInput): Promise<{ manifest: RecordingManifest } & Configured> {
@@ -599,15 +572,12 @@ export const Recorder = {
     for (const [name, stats] of Object.entries(manifest.devices)) {
       devices[name] = {
         ...(manifest.sampling.devices[name] ?? {}),
-        ...(stats.effectiveHz !== undefined ? { effectiveHz: stats.effectiveHz } : {}),
-        skipped: stats.skipped,
-        samples: stats.samples,
-        readErrors: stats.readErrors,
+        samples: streams[name]?.samples ?? 0,
         warning: stats.warning,
-        encodingDropped: streams[name]?.transport_dropped ?? 0,
+        transportDropped: streams[name]?.transport_dropped ?? 0,
         events: stats.events,
         frames: streams[name]?.frames || stats.frames,
-        video: streams[name]?.video,
+        bag: streams[name]?.bag,
         error: streams[name]?.error,
         status: streams[name]?.status,
       }
@@ -650,7 +620,6 @@ export const Recorder = {
     clearInterval(active.manifestTimer)
     active.stopping = (async () => {
       const manifest = active.manifest
-      await active.sampler.stop()
       await Promise.all([...active.reads])
       await active.streams.stop()
       active.unobserve()
@@ -659,7 +628,6 @@ export const Recorder = {
       manifest.status = "stopped"
       if (input.outcome) manifest.outcome = input.outcome
       if (input.summary) manifest.summary = input.summary
-      if (input.labels) manifest.labels = input.labels
       timeline(active, { kind: "record.stop", reason: manifest.endedBy })
       await active.writer.flush().catch((error: unknown) => {
         manifest.error = error instanceof Error ? error.message : String(error)
@@ -683,6 +651,7 @@ export const Recorder = {
       return manifest
     })().finally(() => {
       active.unobserve()
+      process.off("exit", active.exit)
       if (state().active === active) state().active = undefined
       emitChanged()
     })
@@ -701,11 +670,11 @@ export const Recorder = {
     if (!status) return undefined
     const devices = Object.entries(status.devices).sort(([a], [b]) => a.localeCompare(b))
       .filter(([, entry]) => entry.rate !== undefined)
-      .map(([name, entry]) => `${name}@${entry.rate}Hz(${entry.source})`)
+      .map(([name, entry]) => `${name}@${entry.rate}Hz`)
       .join(", ")
     return [
       `<recording id="${status.id}" name="${status.name}" status="${status.status}" devices="${devices || "none"}"${status.quotaHit ? ' quota="hit"' : ""}>`,
-      "A background recording is running and continues across turns until `record stop`. The listed devices capture continuously at their fixed rates; every other device read/write lands under passive/. Mark decision points with `record snap <devices> <what is happening>`; `record status` flushes to disk and returns the recording directory.",
+      "A background recording is running and continues across turns until `record stop`. The listed devices observe declared topics, with output sampling capped in world time; every other device call lands under passive/. Mark decision points with `record snap <devices> <what is happening>`; `record status` flushes to disk and returns the recording directory.",
       ...Object.values(status.devices).flatMap((d) => d.warning ? [d.warning] : []).sort(),
       "</recording>",
     ].join("\n")

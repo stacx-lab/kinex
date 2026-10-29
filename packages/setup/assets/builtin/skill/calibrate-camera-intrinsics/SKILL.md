@@ -16,9 +16,8 @@ can generate a target; a printout's nominal dimensions are not measurements.
 
 Collect sharp views across image corners, distance and tilt. Start with 10 usable
 frames and add views only for insufficient coverage or quality; 15–25 often suffice.
-Use `calib_sample` with the procedure, bindings and `args: {output: "file"}`, then
-reuse its run ID and request file output on each camera sample. Camera images
-are archived; pass selected artifact paths to `calib_compute` with
+Use `calib_sample` with the procedure and bindings, then reuse its run ID for
+each camera sample. Camera images are archived; pass selected artifact paths to `calib_compute` with
 `operation:camera-intrinsics`, `images`, `board`, and measured `square_mm`.
 Declare marker dimensions/dictionary for ChArUco and corner counts for checkerboards.
 
@@ -33,3 +32,5 @@ request only if its remaining fields are also resolved. Stop when the current
 task's required camera facts are established.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.
+
+Reuse factory calibration before measuring. SDK calibration snapshots are optional. This procedure produces OpenCV parameters for a node adapter; reload the node after applying them.

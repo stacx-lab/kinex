@@ -10,8 +10,10 @@ Reuse verified factory, model, simulator and calibration facts before measuring.
 Keep unknowns as ???. Split broad objectives into independently useful facts so a
 partial calibration can satisfy a narrower task. Optional work stays deferred.
 Bind procedures to actual devices and frames; morphology does not imply an interface.
-The frame graph and setup dependency DAG are different graphs.
+The frame graph and setup dependency DAG are different graphs. Plans live in
+`.kinex/setup/plan.json`, calibration attempts in `.kinex/calib/<run>/`.
 
 Avoid adding new tests unless necessary. Skip python tests during task execution or setup attempts.
 
-For new or replaced ROS hardware in /onboarding or /register, load onboard-ros2. It owns ROS integration selection, dependencies, device configuration and interface verification. Keep existing working integrations unless replacement is requested.
+Prepare or repair devices with core's setup-device skill; keep existing working
+integrations unless replacement is requested.

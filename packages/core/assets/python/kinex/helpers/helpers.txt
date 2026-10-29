@@ -1,0 +1,50 @@
+Kinex Python helpers
+
+Import with: from kinex import helpers
+Implementation paths below are relative to this index; see their docstrings for
+details. The builtin Python tools are interfaces to these same functions; call the
+helpers directly inside exec to share its communication and cleanup.
+Workspace-specific helpers belong in .kinex/lib, which exec and tools can import.
+
+Frames
+  await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)
+    Return a stamped source-to-target transform using Kinex frame history.
+  await helpers.transform_pose(io, pose, source, target, stamp=None)
+    Express a pose given in one frame in another.
+  await helpers.relative_pose(io, child, parent, timestamp=None)
+    Express a frame-attached child pose relative to a frame-attached parent pose.
+    Implementation: frames.py
+
+Kinematics
+  helpers.joint_model(device)
+    Load a joint device's commanded joints, link FK and IK from its URDF.
+    Implementation: kinematics.py
+
+Motion
+  helpers.trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, check_limits=True, start_tolerance=0)
+    Plan joint references and duration without device I/O.
+    Implementation: motion.py
+
+Policy
+  await helpers.run_policy(io, model, observation, command, task=None, world="world", action_hz=10, max_actions=None, inference_args=None)
+    Infer once and submit the valid action prefix to the commanded devices.
+    Implementation: policy.py
+
+Images
+  await helpers.camera_geometry(io, camera)
+    Fetch descriptors before acquisition; reuse within this invocation.
+    await geometry.unproject(pixels, stream="color") returns Nx3 optical rays.
+    await geometry.project(points, stream="color") returns Nx2 pixels.
+    Invalid individual results contain NaN. Calls use the existing scope.
+  await helpers.camera_frame(io, camera, timeout_s=None)
+    The current image and, for an rgbd camera, its depth from the same acquisition.
+  helpers.image_array(image)
+    Native-order pixels of a sensor_msgs/Image as numpy for computation.
+  helpers.save_image(image)
+    Write a sensor_msgs/Image as a PNG and return its path for finish(file=...).
+    Implementation: images.py
+
+Perception
+  await helpers.locate_object_3d(io, camera, model, prompt, depth=None, min_score=0.25, instance=0)
+    Locate a detected object in a stamped camera optical frame.
+    Implementation: perception.py

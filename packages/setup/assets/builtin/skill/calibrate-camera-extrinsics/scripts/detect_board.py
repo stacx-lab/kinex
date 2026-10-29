@@ -20,7 +20,9 @@ def fail(message: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
-    parser.add_argument("--profile", required=True, help="camera profile.yaml")
+    parser.add_argument("--profile", required=True, help="camera stream dimensions")
+    parser.add_argument("--rays", help="archived unproject response rays for detected corners")
+    parser.add_argument("--projected", help="archived projected pixels for fitted camera points")
     parser.add_argument("--board", choices=["charuco", "checkerboard"], default="charuco")
     parser.add_argument("--squares-x", type=int, default=7)
     parser.add_argument("--squares-y", type=int, default=5)
@@ -35,15 +37,14 @@ def main() -> None:
         import cv2
         import numpy as np
     except ImportError:
-        fail('missing deps in the selected interpreter — for core Python use uv add --project <python.project> "opencv-python>=4.7" numpy')
+        fail("Kinex Python lacks opencv-python>=4.7 or numpy; add them to the Kinex Python project")
 
     image = cv2.imread(args.image, cv2.IMREAD_GRAYSCALE)
     if image is None:
         fail(f"could not read {args.image}")
     import yaml
-    from kinex.camera import ray
     with open(args.profile) as handle:
-        color = yaml.safe_load(handle)["intrinsics"]["color"]
+        color = yaml.safe_load(handle)["color"]
     if (image.shape[1], image.shape[0]) != (color["width"], color["height"]):
         fail("image resolution differs from the camera profile")
     camera_matrix = np.eye(3, dtype=np.float64)
@@ -68,15 +69,26 @@ def main() -> None:
         obj = np.zeros((pattern[0] * pattern[1], 1, 3), np.float32)
         obj[:, 0, :2] = np.mgrid[0 : pattern[0], 0 : pattern[1]].T.reshape(-1, 2) * square_m
 
-    normalized = np.array([ray(color, float(u), float(v))[:2] for u, v in np.asarray(img).reshape(-1, 2)], dtype=np.float64)
-    ok, rvec, tvec = cv2.solvePnP(obj, normalized, camera_matrix, dist)
+    pixels = np.asarray(img).reshape(-1, 2)
+    if not args.rays:
+        print(json.dumps({"pixels": pixels.tolist(), "object_points": obj.reshape(-1, 3).tolist()}))
+        return
+    with open(args.rays) as handle:
+        directions = np.asarray(json.load(handle)["rays"], dtype=float)
+    if directions.shape != (len(pixels), 3) or not np.isfinite(directions).all() or not np.allclose(directions[:, 2], 1):
+        fail("archived rays must match every detected corner and have Z=1")
+    ok, rvec, tvec = cv2.solvePnP(obj, directions[:, :2].copy(), camera_matrix, dist)
     if not ok:
         fail("solvePnP failed on the detected corners")
-    projected, _ = cv2.projectPoints(obj, rvec, tvec, camera_matrix, dist)
-    from kinex.camera import project
-    projected_pixels = np.array([project(color, [x, y, 1]) for x, y in projected.reshape(-1, 2)])
-    deltas = np.asarray(img).reshape(-1, 2) - projected_pixels
-    reproj = float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1))))
+    camera_points = obj.reshape(-1, 3) @ cv2.Rodrigues(rvec)[0].T + tvec.reshape(3)
+    if not args.projected:
+        print(json.dumps({"camera_points": camera_points.tolist(), "rvec": rvec.flatten().tolist(), "tvec": tvec.flatten().tolist()}))
+        return
+    with open(args.projected) as handle:
+        projected_pixels = np.asarray(json.load(handle)["pixels"], dtype=float)
+    if projected_pixels.shape != pixels.shape or not np.isfinite(projected_pixels).all():
+        fail("archived projection must match every detected corner")
+    reproj = float(np.sqrt(np.mean(np.sum((pixels - projected_pixels)**2, axis=1))))
     print(
         json.dumps(
             {
