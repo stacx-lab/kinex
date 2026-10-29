@@ -29,7 +29,9 @@ and name others after the actual node. `load`, `unload` and
 that moves, and a world with `wait`, declares a `std_srvs/srv/Trigger` `stop`,
 served after the command subscriptions (`kinex.node.command_service` does).
 Describe exact command semantics on each operation, including replacement and
-expiry behavior.
+expiry behavior. Nodes enforce only the device's own velocity limits (vendor,
+controller or URDF); never add speed scaling or clamps beyond them unless the
+user chose the value.
 
 For owned ROS implementations, register factories in `runtime.nodes`, each with
 `entry` and `factory`. Factories receive `(profile, context)` and return an owned

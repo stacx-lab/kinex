@@ -54,6 +54,9 @@ Validate schema, imports and syntax before activation. Writes preserve activatio
 load/reload only through core lifecycle tools, with existing permissions. Node changes
 need reload before live verification. Record known operation and stop semantics and
 source geometry; preserve optional unknowns that the current operation does not need.
+Never preset velocity or speed caps. Record a cap only when the device imposes it
+(vendor, controller or URDF limits); otherwise ask the user whether to cap and at what
+value before adding one.
 
 Archive verification evidence when needed, including facts not recorded in `profile.yaml`.
 Existing valid facts can complete a node without new measurement.

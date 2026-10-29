@@ -209,27 +209,12 @@ function buildNodes(ctx: PlanContext): Node[] {
     )
     .sort()
 
-  nodes.push(
-    {
-      id: "safety",
-      title: "Safety limits",
-      dependsOn: ["identity"],
-      check: () => {
-        const safety = robot?.safety
-        const cart = safety && known(safety.max_cartesian_velocity) ? safety.max_cartesian_velocity : undefined
-        const joint = safety && known(safety.max_joint_velocity) ? safety.max_joint_velocity : undefined
-        return cart !== undefined || joint !== undefined
-          ? { done: true, detail: `cart: ${cart === null ? "no additional cap" : cart === undefined ? "???" : `<=${cart} m/s`}, joint: ${joint === null ? "no additional cap" : joint === undefined ? "???" : `<=${joint} rad/s`}` }
-          : { done: false, detail: "safety velocity limits are ???" }
-      },
-    },
-    {
-      id: "task-ready",
-      title: "Profile completeness",
-      dependsOn: ["identity", "devices-declared", "safety", ...gatingItems],
-      check: () => ({ done: false, detail: "" }), // overridden: done iff all deps done
-    },
-  )
+  nodes.push({
+    id: "task-ready",
+    title: "Profile completeness",
+    dependsOn: ["identity", "devices-declared", ...gatingItems],
+    check: () => ({ done: false, detail: "" }), // overridden: done iff all deps done
+  })
   return nodes
 }
 
