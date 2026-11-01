@@ -81,13 +81,20 @@ async def frame(io, camera, *, timeout_s=None, eye=None):
     to the image operation's timeout_s.
     """
     names = [f"{eye}_image"] if eye else ["image"] + (["depth"] if f"{camera}.depth" in io.catalog else [])
-    streams = [io.subscribe(f"{camera}.{name}") for name in names]
+    endpoints = [io.operation(f"{camera}.{name}", "topic", "output")["endpoint"] for name in names]
     limit = timeout_s if timeout_s is not None else io.operation(f"{camera}.{names[0]}").get("timeout_s", 10)
 
     def stamp(message):
         return message.header.stamp.sec, message.header.stamp.nanosec
+    streams = []
     try:
         async with asyncio.timeout(limit):
+            # A camera sends its current frame once, when it matches a new reader. A reader created before this
+            # process has discovered the camera's publisher may match after that frame was sent and never get it,
+            # so subscribe once the publishers are known (transport discovery, never world scheduling).
+            while not all(io.node.count_publishers(endpoint) for endpoint in endpoints):
+                await asyncio.sleep(.005)
+            streams = [io.subscribe(f"{camera}.{name}") for name in names]
             latest = [await stream.next() for stream in streams]
             while len(latest) == 2 and stamp(latest[0]) != stamp(latest[1]):
                 older = 0 if stamp(latest[0]) < stamp(latest[1]) else 1

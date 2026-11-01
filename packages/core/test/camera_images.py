@@ -74,10 +74,21 @@ class Stream:
         self.closed = True
 
 
-def scope(**streams):
+def scope(published=0, **streams):
+    """A communication scope whose camera publishers are discovered after `published` discovery checks."""
+    checks, subscribed = [], []
+
+    def count_publishers(endpoint):
+        checks.append(endpoint)
+        return int(len(checks) > published * len(streams))
+
+    def subscribe(reference):
+        subscribed.append((reference, len(checks)))
+        return streams[reference.split(".", 1)[1]]
     return SimpleNamespace(catalog={f"camera.{name}": {"timeout_s": 1} for name in streams},
-                           subscribe=lambda reference: streams[reference.split(".", 1)[1]],
-                           operation=lambda reference: {"timeout_s": 1})
+                           subscribe=subscribe, subscribed=subscribed,
+                           node=SimpleNamespace(count_publishers=count_publishers),
+                           operation=lambda reference, *kinds: {"timeout_s": 1, "endpoint": "/" + reference.replace(".", "/")})
 
 
 class CameraFrames(unittest.IsolatedAsyncioTestCase):
@@ -91,6 +102,20 @@ class CameraFrames(unittest.IsolatedAsyncioTestCase):
         color, registered = await frame(scope(image=image, depth=depth), "camera")
         self.assertEqual((color.header.stamp.sec, registered.header.stamp.sec), (2, 2))
         self.assertTrue(image.closed and depth.closed)
+
+    async def test_streams_open_once_their_publishers_are_discovered(self):
+        image, depth = Stream([5]), Stream([5])
+        io = scope(published=3, image=image, depth=depth)
+        color, registered = await frame(io, "camera")
+        self.assertEqual((color.header.stamp.sec, registered.header.stamp.sec), (5, 5))
+        self.assertEqual([reference for reference, _ in io.subscribed], ["camera.image", "camera.depth"])
+        self.assertTrue(all(checks > 6 for _, checks in io.subscribed))
+
+    async def test_undiscovered_publishers_time_out_without_streams(self):
+        io = scope(published=10**9, image=Stream([1]))
+        with self.assertRaises(TimeoutError):
+            await frame(io, "camera", timeout_s=.05)
+        self.assertEqual(io.subscribed, [])
 
     async def test_unpaired_streams_time_out_and_close(self):
         image, depth = Stream([1]), Stream([2])

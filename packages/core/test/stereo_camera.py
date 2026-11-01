@@ -37,8 +37,10 @@ class Scope:
     def subscribe(self, reference):
         return self.streams[reference.split(".", 1)[1]]
 
-    def operation(self, reference):
-        return {"timeout_s": 5}
+    node = NS(count_publishers=lambda endpoint: 1)
+
+    def operation(self, reference, transport=None, direction=None):
+        return {"timeout_s": 5, "endpoint": "/" + reference.replace(".", "/")}
 
     async def request(self, reference, **fields):
         self.requests.append((reference, fields))
