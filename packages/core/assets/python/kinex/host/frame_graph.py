@@ -5,12 +5,19 @@ import threading
 from kinex_interfaces.srv import LookupTransform
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.clock import Clock as RosClock, ClockType
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
 from rosgraph_msgs.msg import Clock
 from tf2_ros import Buffer, LookupException, TransformException, TransformListener
 
 from kinex.communication import qos
+
+# tf2's default 10 s of history fails lookups at stamps a slow world left behind; keep five minutes.
+CACHE_S = 300.
+# A frame that no publisher has announced after this long will not appear by waiting: say so, and name the
+# device's frames that exist, instead of waiting out the caller's whole timeout.
+GRACE_S = 1.
 
 
 def nanoseconds(stamp):
@@ -19,7 +26,7 @@ def nanoseconds(stamp):
 
 class FrameBuffer(Buffer):
     def __init__(self):
-        super().__init__()
+        super().__init__(cache_time=Duration(seconds=CACHE_S))
         self.fixed = {}
         self.latest = {}
         self.future = {}
@@ -55,6 +62,25 @@ class FrameBuffer(Buffer):
                 for child in list(mapping):
                     if child.split("/", 1)[0] == name:
                         del mapping[child]
+
+    def frames(self):
+        """Every frame some transform has announced, as child or parent."""
+        with self.lock:
+            edges = {child: value.header.frame_id for mapping in (self.fixed, self.latest, self.future)
+                     for child, (value, _) in mapping.items()}
+            return set(edges) | set(edges.values())
+
+    def unknown(self, *frames):
+        """A message for the first frame no transform has announced, naming its device's frames; None if all are known."""
+        known = self.frames()
+        for frame in frames:
+            if frame in known:
+                continue
+            device = frame.split("/", 1)[0]
+            siblings = sorted(name for name in known if name.split("/", 1)[0] == device)
+            have = f"{device} has {', '.join(siblings)}" if siblings else f"no frame of {device} is on TF"
+            return f"unknown frame: {frame} is not on TF; {have}"
+        return None
 
     def connected(self, target, source):
         # tf2 retains static caches even after clear(). Track live topology so
@@ -136,7 +162,7 @@ class FrameGraphNode(Node):
         self.stamp = stamp
 
     async def lookup(self, request, response):
-        future, timer = None, None
+        future, timer, check = None, None, None
         try:
             if not math.isfinite(request.wait_s) or not 0 <= request.wait_s <= 30:
                 raise ValueError("transform wait_s must be finite and within 0..30 seconds")
@@ -151,17 +177,28 @@ class FrameGraphNode(Node):
                     if not future.done():
                         future.set_exception(TimeoutError("transform lookup timed out"))
 
+                def grace():
+                    message = self.buffer.unknown(request.target_frame, request.source_frame)
+                    if message and not future.done():
+                        future.set_exception(LookupException(message))
+
                 timer = self.create_timer(request.wait_s, expired, clock=self.watchdog_clock,
                                           callback_group=self.calls)
+                if request.wait_s > GRACE_S:
+                    check = self.create_timer(GRACE_S, grace, clock=self.watchdog_clock, callback_group=self.calls)
                 await future
             response.transform = self.buffer.lookup_transform(
                 request.target_frame, request.source_frame, Time.from_msg(request.stamp))
             response.success = True
         except (TransformException, ValueError, RuntimeError, TimeoutError) as error:
             response.message = str(error)
+            if isinstance(error, (TransformException, TimeoutError)):
+                response.message = self.buffer.unknown(request.target_frame, request.source_frame) or response.message
         finally:
             if timer is not None:
                 self.destroy_timer(timer)
+            if check is not None:
+                self.destroy_timer(check)
             if future is not None:
                 self.pending.discard(future)
         return response
