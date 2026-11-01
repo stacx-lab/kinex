@@ -1,7 +1,7 @@
 import path from "node:path"
 import { ProfileStore } from "../device/profile/store.ts"
 import { Assets } from "../installation/assets.ts"
-import { overlayCommand } from "./ros-environment.ts"
+import { overlayCommand, overlayLaunch } from "./ros-environment.ts"
 import { pythonRuntime } from "./environment.ts"
 
 // Device nodes and scripts prefer workspace helpers in .kinex/lib; tools prefer the
@@ -22,4 +22,9 @@ export async function pythonLaunch(cwd: string, kind: "node" | "tool", interpret
       ...(kind === "tool" ? { KINEX_TOOL_DIALOG: "1" } : {}),
     },
   }
+}
+
+// The command and environment that start a launch's executable in directory, its overlays applied (see overlayLaunch).
+export function launchIn(launch: { executable: string; overlays: string[]; env: NodeJS.ProcessEnv }, directory: string) {
+  return overlayLaunch(launch.executable, launch.overlays, launch.env, directory)
 }

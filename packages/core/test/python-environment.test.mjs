@@ -269,6 +269,47 @@ finish({'python':sys.executable})`},{sessionID:'ros-python'})
   assert.deepEqual(await f.calls(),[])
 })
 
+test('ROS overlays are sourced once per environment, again after they change, and through the shell when they print', async t => {
+  const f = await fixture(t)
+  await mkdir(path.join(f.directory,'.kinex'),{recursive:true})
+  await writeFile(path.join(f.directory,'.kinex/kinex.json'),JSON.stringify({python:{provider:'ros-jazzy'}}))
+  const status=await f.runtime.python.status()
+  await mkdir(path.dirname(status.executable),{recursive:true})
+  await symlink(python,status.executable)
+  const sourced=path.join(f.directory,'sourced.log')
+  await writeFile(sourced,'')
+  const overlay=async (value, extra='') => {
+    for(const [index,file] of status.overlays.entries()) {
+      await mkdir(path.dirname(file),{recursive:true})
+      await writeFile(file,`echo ${index} >> ${JSON.stringify(sourced)}\nexport KINEX_TEST_OVERLAY_${index}=${value}\n${extra}`)
+    }
+  }
+  await overlay('first')
+  await writeFile(path.join(status.project,'ros-ready.json'),await rosReceipt('jazzy',[]))
+  const run=async () => {
+    const result=await f.runtime.tools.call('exec',{python:`import os
+from kinex import finish
+finish({'value': os.environ['KINEX_TEST_OVERLAY_1'], 'shlvl': os.environ.get('SHLVL'), 'pwd': os.environ.get('PWD')})`},{sessionID:'ros-overlays'})
+    assert.ok(!result.isError,result.output)
+    return JSON.parse(result.output)
+  }
+  const times=async () => (await readFile(sourced,'utf8')).split('\n').filter(Boolean).length
+  const first=await run(), second=await run()
+  assert.deepEqual(second.result,first.result)
+  assert.equal(first.result.value,'first')
+  assert.equal(await times(),2)
+  await delay(20)
+  await overlay('second')
+  assert.equal((await run()).result.value,'second')
+  assert.equal(await times(),4)
+  await delay(20)
+  await overlay('third','echo overlay notice >&2\n')
+  const noisy=await run(), again=await run()
+  assert.equal(noisy.result.value,'third')
+  assert.match(again.output,/overlay notice/)
+  assert.equal(await times(),10)
+})
+
 test('changed ROS interface sources require preparation again', async t => {
   const f = await fixture(t)
   const interfaces = path.join(f.directory, 'interfaces/demo_interfaces')

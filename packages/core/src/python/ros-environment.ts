@@ -1,16 +1,59 @@
 import path from "node:path"
 import { createHash } from "node:crypto"
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises"
+import { mkdir, readFile, writeFile, rm, stat } from "node:fs/promises"
 import { glob } from "tinyglobby"
 import { spawnProcess, which } from "../util/process.ts"
 import { NamedError } from "../util/error.ts"
 import { Assets } from "../installation/assets.ts"
+import { scoped } from "../scope.ts"
 import PROJECT from "./ros-project.txt"
 
 export function overlayCommand(executable: string, overlays: string[]) {
   return overlays.length
     ? ["bash", "-c", 'count="$1"; shift; for ((i=0;i<count;i++)); do source "$1" || exit; shift; done; exec "$@"', "kinex-python", String(overlays.length), ...overlays, executable]
     : [executable]
+}
+
+// Sourcing the ROS overlays costs about 0.1 s per process (their setup scripts run Python). What they export depends
+// only on the overlay files (and the prefixes they enumerate), the starting environment and the working directory, so
+// it is computed once per such input (file and directory modification times) and the executable starts directly with
+// the environment the sourcing shell would have passed on. Overlays that fail or print keep the shell, as before.
+const sourced = scoped(() => new Map<string, Promise<NodeJS.ProcessEnv | undefined>>())
+
+export async function overlayLaunch(executable: string, overlays: string[], env: NodeJS.ProcessEnv, cwd: string) {
+  if (!overlays.length) return { command: [executable], env }
+  const stamps = await Promise.all([...overlays, ...overlays.map(file => path.dirname(file))]
+    .map(file => stat(file).then(info => info.mtimeMs, () => null)))
+  const entries = Object.entries(env).filter(([, value]) => value !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+  const key = JSON.stringify([overlays, stamps, cwd, entries])
+  const cache = sourced()
+  let pending = cache.get(key)
+  if (!pending) {
+    pending = sourceOverlays(overlays, env, cwd)
+    cache.set(key, pending)
+    void pending.catch(() => cache.delete(key))
+  }
+  const exported = await pending.catch(() => undefined)
+  return exported ? { command: [executable], env: exported } : { command: overlayCommand(executable, overlays), env }
+}
+
+async function sourceOverlays(overlays: string[], env: NodeJS.ProcessEnv, cwd: string) {
+  const printer = await which("env")
+  if (!printer) return undefined
+  const proc = spawnProcess([...overlayCommand(printer, overlays), "-0"], { cwd, env, stdout: "pipe", stderr: "pipe" })
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).arrayBuffer(), new Response(proc.stderr).text(), proc.exited,
+  ])
+  if (code !== 0 || err) return undefined
+  const exported: NodeJS.ProcessEnv = {}
+  for (const entry of Buffer.from(out).toString("utf8").split("\0")) {
+    if (!entry) continue
+    const split = entry.indexOf("=")
+    // Anything else on stdout was printed by an overlay: keep the shell, which shows it to the process's reader.
+    if (split < 1 || /\s/.test(entry.slice(0, split))) return undefined
+    exported[entry.slice(0, split)] = entry.slice(split + 1)
+  }
+  return exported
 }
 
 // Interface sources select the receipt, so edited, added or removed definitions

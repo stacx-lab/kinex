@@ -9,7 +9,7 @@ import { spawnProcess } from "../util/process.ts"
 import { shortID } from "../util/id.ts"
 import { NamedError } from "../util/error.ts"
 import { readLine } from "../util/lines.ts"
-import { pythonLaunch } from "../python/launch.ts"
+import { launchIn, pythonLaunch } from "../python/launch.ts"
 import { ProfileStore } from "./profile/store.ts"
 import { serveProcess, terminate, type ServeProcess } from "./serve-process.ts"
 import type { Device } from "./profile/schema.ts"
@@ -38,6 +38,7 @@ export async function rosLaunch(cwd: string, device: Device, signal?: AbortSigna
   const overlays = [...runtime.overlays, ...device.runtime.overlays.map(file => path.resolve(directory, file))]
   return {
     ...runtime,
+    overlays,
     command: overlayCommand(runtime.executable, overlays),
     env: { ...runtime.env, ROS_DOMAIN_ID: String(device.runtime.domain_id) },
     directory,
@@ -114,7 +115,7 @@ async function frames(cwd: string, device: Device, signal?: AbortSignal) {
       host = undefined
     }
     if (!host) {
-      const launch = await pythonLaunch(cwd, "node", undefined, signal)
+      const launch = await launchIn(await pythonLaunch(cwd, "node", undefined, signal), cwd)
       const endpoint = `/kinex/internal/f_${shortID()}/lookup_transform`
       host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.host.device"], {
         cwd, env: launch.env, group: true,
@@ -176,7 +177,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       throw new NamedError("RosDefinitionChanged", "unload before changing node definitions")
     if (!host || host.proc.exitCode !== null) {
       if (host) await terminate(host)
-      const launch = await rosLaunch(cwd, device, signal)
+      const launch = await launchIn(await rosLaunch(cwd, device, signal), directory)
       signal?.throwIfAborted()
       host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.host.device"], {
         cwd: directory, env: launch.env, group: true,

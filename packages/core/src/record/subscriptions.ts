@@ -1,4 +1,4 @@
-import { pythonLaunch } from "../python/launch.ts"
+import { launchIn, pythonLaunch } from "../python/launch.ts"
 import fsp from "node:fs/promises"
 import path from "node:path"
 import { z } from "zod"
@@ -102,9 +102,10 @@ export function createStreams(input: { cwd: string; dir: string }): Streams {
           if (!op || op.transport !== "topic") throw new CaptureError(`${name} is not a loaded topic`)
           return [name, op] as const
         }), ...clocks])
-        const launch = await pythonLaunch(input.cwd, "node")
+        const runtime = await pythonLaunch(input.cwd, "node")
+        const launch = await launchIn({ ...runtime, env: { ...runtime.env, ROS_DOMAIN_ID: String(ros.domain_id) } }, input.cwd)
         entry.proc = spawnProcess([...launch.command, "-u", "-m", "kinex.host.recording"], {
-          cwd: input.cwd, env: { ...launch.env, ROS_DOMAIN_ID: String(ros.domain_id) }, group: true,
+          cwd: input.cwd, env: launch.env, group: true,
         })
         entry.lines = lineSource(entry.proc.stdout)
         entry.drained = diagnostics(entry.proc.stderr, entry.stderr)

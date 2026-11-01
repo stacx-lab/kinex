@@ -11,7 +11,7 @@ import path from "node:path"
 import { formatJSON } from "../util/json.ts"
 import { ProfileStore } from "../device/profile/store.ts"
 import { matchesDeviceType } from "../device/profile/schema.ts"
-import { pythonLaunch } from "../python/launch.ts"
+import { launchIn, pythonLaunch } from "../python/launch.ts"
 import { imageMime } from "../util/media.ts"
 import { PermissionDeniedError, failure, failureMetadata } from "./errors.ts"
 import { NamedError } from "../util/error.ts"
@@ -146,14 +146,15 @@ async function dialog(cwd: string, info: PythonExecution, args: Record<string, u
   signal.throwIfAborted()
   const ros = await rosCatalog(cwd)
   const runtime = await pythonLaunch(cwd, "tool", undefined, signal)
+  const launch = await launchIn(runtime, info.directory)
   signal.throwIfAborted()
   const request = JSON.stringify({ args, source: info.source, file: info.script?.file, argv: info.script?.argv, ros }) + "\n"
-  const proc = spawnProcess([...runtime.command, ...info.entry], {
+  const proc = spawnProcess([...launch.command, ...info.entry], {
     cwd: info.directory,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: runtime.env,
+    env: launch.env,
     group: true,
   })
   // A script may leave children holding output pipes open after it exits.
