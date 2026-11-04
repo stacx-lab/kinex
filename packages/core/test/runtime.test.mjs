@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process"
+import { useUv } from "./fixtures/python.mjs"
 import { recordingDevices } from "./fixtures/recording.mjs"
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -15,6 +16,7 @@ const { createKinexRuntime, PermissionDeniedError } = await import('../dist/inde
 const host = { ask: async () => {}, questions: async () => ({}) }
 async function fixture(t, { preparePython = true, ...options } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-node-'))
+  await useUv(path.join(directory, ".kinex"))
   if (preparePython) {
   const bin = path.join(directory, '.kinex/python/.venv/bin')
   await mkdir(bin, { recursive: true })

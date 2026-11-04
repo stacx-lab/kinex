@@ -1,4 +1,5 @@
 import { protocolDevice, protocolFramePython } from '../packages/core/test/fixtures/protocol.mjs'
+import { useUv } from '../packages/core/test/fixtures/python.mjs'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,6 +9,7 @@ import { once } from 'node:events'
 export async function isolate() {
   const root = await mkdtemp(path.join(tmpdir(), 'kinex-sdk-'))
   process.env.KINEX_CONFIG_DIR = path.join(root, 'config')
+  await useUv(process.env.KINEX_CONFIG_DIR)
   process.env.KINEX_DATA_DIR = path.join(root, 'data')
   process.env.PI_CODING_AGENT_DIR = path.join(root, 'config', 'agent')
   process.env.PI_SKIP_VERSION_CHECK = '1'

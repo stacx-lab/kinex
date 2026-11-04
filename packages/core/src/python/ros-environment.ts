@@ -15,26 +15,23 @@ export function overlayCommand(executable: string, overlays: string[]) {
 
 // Interface sources select the receipt, so edited, added or removed definitions
 // rebuild on next use; relocating Kinex or the workspace does not.
-export async function rosReceipt(interfaces: string[]) {
+export async function rosReceipt(distro: string, interfaces: string[]) {
   const hash = createHash("sha256")
   for (const [index, root] of [Assets.ros(), ...interfaces].entries()) {
     const files = await glob(["**/package.xml", "**/CMakeLists.txt", "**/*.{msg,srv,action,idl}"],
       { cwd: root, ignore: ["**/build/**", "**/install/**", "**/log/**"] })
     for (const file of files.sort()) hash.update(`${index}:${file}\0`).update(await readFile(path.join(root, file)))
   }
-  return JSON.stringify({ interfaces, sources: hash.digest("hex") })
+  return JSON.stringify({ distro, interfaces, sources: hash.digest("hex") })
 }
 
-export async function prepareRosPython(project: string, interfaces: string[], env: NodeJS.ProcessEnv, signal?: AbortSignal) {
+export async function prepareRosPython(project: string, distro: string, interfaces: string[], env: NodeJS.ProcessEnv, signal?: AbortSignal) {
   await mkdir(project, { recursive: true })
-  await writeFile(path.join(project, "pixi.toml"), PROJECT, { flag: "wx" }).catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST") return
-    throw error
-  })
+  await writeFile(path.join(project, "pixi.toml"), PROJECT.replaceAll("{{distro}}", distro))
   const pixi = await which("pixi")
   if (!pixi) throw new NamedError("PythonEnvironmentError", "Install Pixi to prepare the independent Kinex ROS Python environment.")
   await rm(path.join(project, "ros-ready.json"), { force: true })
-  const receipt = await rosReceipt(interfaces)
+  const receipt = await rosReceipt(distro, interfaces)
   async function run(command: string[], cwd: string) {
     const proc = spawnProcess(command, { cwd, env, signal, group: true, stdout: "pipe", stderr: "pipe" })
     const [out, err, code] = await Promise.all([

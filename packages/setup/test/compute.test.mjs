@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { useUv } from '../../core/test/fixtures/python.mjs'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, symlink } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
@@ -13,6 +14,7 @@ const system = execFileSync('python3', ['-c', 'import sys; print(sys.executable)
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-compute-'))
+  await useUv(path.join(directory, '.kinex'))
   const python = path.join(directory, '.kinex/python/.venv/bin/python3')
   await mkdir(path.dirname(python), { recursive: true })
   await symlink(system, python)

@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { useUv } from './fixtures/python.mjs'
 import assert from 'node:assert/strict'
 import { copyFile, mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
@@ -11,6 +12,7 @@ import { urdfTree } from '../dist/device/device-model.js'
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-urdf-'))
+  await useUv(path.join(directory, '.kinex'))
   const assetsRoot = path.join(directory, 'assets')
   const runtime = createKinexRuntime({ directory, assetsRoot })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
@@ -83,6 +85,7 @@ test('runtime disposal cancels shared URDF parsing and releases its process', { 
 
 test('gripper URDF trees resolve mimic joints, validate the grip and expose the model', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-gripper-'))
+  await useUv(path.join(directory, '.kinex'))
   const runtime = createKinexRuntime({ directory })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   const python = await runtime.python.initialize()
@@ -114,6 +117,7 @@ finish({"links": model["links"], "mimic": [joint["mimic"] for joint in model["jo
 
 test('joint URDF trees validate home and links and serve helper kinematics', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-joint-'))
+  await useUv(path.join(directory, '.kinex'))
   const runtime = createKinexRuntime({ directory })
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   const python = await runtime.python.initialize()

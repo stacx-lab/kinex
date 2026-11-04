@@ -1,4 +1,5 @@
 import { test, after } from 'node:test'
+import { useUv } from './fixtures/python.mjs'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, stat } from 'node:fs/promises'
@@ -24,6 +25,7 @@ async function until(check) {
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-python-'))
+  await useUv(path.join(directory, '.kinex'))
   const bin = path.join(directory, 'bin')
   const log = path.join(directory, 'syncs.jsonl')
   const config = path.join(directory, 'sync.json')
@@ -225,7 +227,8 @@ test('tool interpreter overrides are rejected without preparing another environm
 test('ROS environment selection is inert, workspace-configured and independent of devices', async t => {
   const f = await fixture(t)
   const before = {...process.env}
-  await mkdir(path.join(f.directory, '.kinex'), {recursive:true})
+  await writeFile(path.join(f.directory, '.kinex/kinex.json'), '{}')
+  assert.equal((await f.runtime.python.status()).provider,'ros-jazzy')
   await writeFile(path.join(f.directory, '.kinex/kinex.json'), JSON.stringify({python:{provider:'ros-jazzy',interfaces:['../interfaces']}}))
   const status = await f.runtime.python.status()
   assert.equal(status.provider,'ros-jazzy')
@@ -252,7 +255,7 @@ test('prepared ROS exec sources its own overlays and ignores ambient Python impo
     await mkdir(path.dirname(overlay),{recursive:true})
     await writeFile(overlay,`export KINEX_TEST_OVERLAY_${index}=own\n`)
   }
-  await writeFile(path.join(status.project,'ros-ready.json'),await rosReceipt([]))
+  await writeFile(path.join(status.project,'ros-ready.json'),await rosReceipt('jazzy',[]))
   const previous=process.env.PYTHONPATH
   process.env.PYTHONPATH='/must/not/inherit/simulator'
   t.after(()=>{if(previous===undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH=previous})
@@ -276,12 +279,15 @@ test('changed ROS interface sources require preparation again', async t => {
   const status = await f.runtime.python.status()
   await mkdir(path.dirname(status.executable), {recursive:true})
   await symlink(python, status.executable)
-  await writeFile(path.join(status.project, 'ros-ready.json'), await rosReceipt(status.interfaces))
+  await writeFile(path.join(status.project, 'ros-ready.json'), await rosReceipt('jazzy', status.interfaces))
   assert.equal((await f.runtime.python.status()).present, true)
   await writeFile(path.join(interfaces, 'srv/Echo.srv'), 'string text\n---\nstring echoed\n')
   assert.equal((await f.runtime.python.status()).present, false)
-  await writeFile(path.join(status.project, 'ros-ready.json'), await rosReceipt(status.interfaces))
+  await writeFile(path.join(status.project, 'ros-ready.json'), await rosReceipt('jazzy', status.interfaces))
   await mkdir(path.join(interfaces, 'build/demo'), {recursive:true})
   await writeFile(path.join(interfaces, 'build/demo/Stale.srv'), '---\n')
   assert.equal((await f.runtime.python.status()).present, true)
+  // Another ROS distribution needs its own preparation.
+  await writeFile(path.join(f.directory, '.kinex/kinex.json'), JSON.stringify({python:{provider:'ros-humble',interfaces:['../interfaces']}}))
+  assert.equal((await f.runtime.python.status()).present, false)
 })

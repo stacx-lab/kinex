@@ -35,6 +35,7 @@ export async function checkCorePackage(directory, env, pack) {
     '--noEmit', '--strict', '--module', 'NodeNext', '--target', 'ES2023', '--lib', 'ES2024', '--types', 'node', 'consumer.mts'], { cwd: directory })
   const { stdout } = await exec(process.execPath, ['--input-type=module', '--eval', `
     import {protocolDevice, protocolFramePython} from ${JSON.stringify(new URL('./fixtures/protocol.mjs',import.meta.url).href)}
+    import {useUv} from ${JSON.stringify(new URL('./fixtures/python.mjs',import.meta.url).href)}
     import assert from 'node:assert/strict'
     import { copyFile, stat, mkdir, writeFile, symlink } from 'node:fs/promises'
     import { execFileSync } from 'node:child_process'
@@ -47,6 +48,7 @@ export async function checkCorePackage(directory, env, pack) {
     await assert.rejects(import('@kinex/setup'), {code:'ERR_MODULE_NOT_FOUND'})
     assert.deepEqual(count(), before)
     assert.equal(globalThis.Bun, undefined)
+    await useUv(process.env.KINEX_CONFIG_DIR)
     const runtime = createKinexRuntime({directory: process.cwd(), host: {ask: async () => {}}})
     assert.deepEqual(count(), before)
     try {

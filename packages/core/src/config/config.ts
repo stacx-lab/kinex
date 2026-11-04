@@ -9,7 +9,7 @@ export const RecordConfig = z.object({
 export type RecordConfig = z.infer<typeof RecordConfig>
 
 export const PythonSettings = z.strictObject({
-  provider: z.enum(["uv", "ros-jazzy"]).default("uv"),
+  provider: z.enum(["uv", "ros-jazzy", "ros-humble"]).default("ros-jazzy"),
   interfaces: z.array(z.string().min(1)).default([]),
 })
 export const CoreSettings = z.object({

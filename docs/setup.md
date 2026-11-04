@@ -50,10 +50,12 @@ the user chose when asked.
 Core owns async protocol helpers and the world-clock client. ROS activation stays
 within owned subprocesses; shared host packages and overlays are never rolled back on unload.
 
-Dependency installation uses the host's permission-checked shell. For ROS,
-`.kinex/kinex.json` selects `python.provider: "ros-jazzy"` and interface sources;
-the first approved exec prepares Kinex Python, which is never activated in
-ordinary shells. See the
+Dependency installation uses the host's permission-checked shell. Onboarding
+first determines the robot's ROS distribution, asking when unknown, and records it
+once as `python.provider` in `.kinex/kinex.json`: `ros-jazzy` (the default) or
+`ros-humble`, alongside interface sources. Vendor packages, sourcing and builds use
+that distribution; the first approved exec prepares Kinex Python, which is never
+activated in ordinary shells. See the
 [setup-device skill](../packages/core/assets/builtin/skill/setup-device/SKILL.md).
 
 See [project overview](overview.md) for the core/setup boundary and the
