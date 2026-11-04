@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { useUv } from './fixtures/python.mjs'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile, rm, symlink, access } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
@@ -13,6 +14,7 @@ import { protocolDevice, inputOperation, outputOperation } from './fixtures/prot
 
 async function fixture(t, options = {}) {
   const directory = await mkdtemp(path.join(tmpdir(),'kinex-protocol-'))
+  await useUv(path.join(directory, '.kinex'))
   const runtime = createKinexRuntime({directory,host:{ask:async()=>{}},...options})
   t.after(async()=>{await runtime.dispose(); await rm(directory,{recursive:true,force:true})})
   await runtime.profiles.writeManifest({identity:{id:'protocol',name:'Protocol',kind:'other'}})

@@ -49,13 +49,16 @@ matches publishers of any reliability and durability; Kinex operations keep thei
 declared QoS. Match the device's ROS domain and middleware configuration.
 
 Nodes inherit the independent Kinex Python environment. Set `runtime.interpreter`
-and overlays only when a device SDK needs its own environment. For ROS, set
-`python.provider: "ros-jazzy"` and `python.interfaces` (interface source
-directories) in `.kinex/kinex.json`; the first approved exec prepares it, then
-verify rclpy, tf2, message type support and rosbag2 there. Never activate it in an
-ordinary shell. Prefer official vendor SDKs: installed packages first, then
-binaries, building from source only when needed; check what is installed after
-sourcing the intended ROS distribution. Keep credentials in the environment.
+and overlays only when a device SDK needs its own environment. `python.provider`
+in `.kinex/kinex.json` is the workspace's ROS distribution: `ros-jazzy` (default)
+or `ros-humble`. If it is unset and the device's distribution is unknown, ask the
+user and record it; use that distribution for vendor packages, sourcing and builds.
+Set `python.interfaces` (interface source directories) there too. The first
+approved exec prepares Kinex Python; verify rclpy, tf2, message type support and
+rosbag2 there. Never activate it in an ordinary shell. Prefer official vendor SDKs:
+installed packages first, then binaries, building from source only when needed;
+check what is installed after sourcing that ROS distribution. Keep credentials in
+the environment.
 
 Use `profile_write` to validate and preserve typed facts/provenance. Leave unknown
 facts as `???`, mark missing calibration and clear resolved requests with

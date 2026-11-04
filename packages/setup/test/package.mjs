@@ -63,7 +63,9 @@ import path from 'node:path'
 import { createKinexRuntime } from '@kinex/core'
 import { urdfTree } from '@kinex/core/device/device-model'
 import { protocolFramePython } from ${JSON.stringify(new URL('../../core/test/fixtures/protocol.mjs',import.meta.url).href)}
+import { useUv } from ${JSON.stringify(new URL('../../core/test/fixtures/python.mjs',import.meta.url).href)}
 await assert.rejects(import('@kinex/setup'), {code:'ERR_MODULE_NOT_FOUND'})
+await useUv(process.env.KINEX_CONFIG_DIR)
 const runtime = createKinexRuntime({directory: process.cwd(), host:{ask: async () => {}}})
 try {
   const tools = (await runtime.tools.list()).tools.map(tool => tool.name)

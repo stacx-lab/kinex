@@ -72,7 +72,8 @@ directly. Ordinary Python branching and asyncio task groups define the workflow.
 Perception and control share one execution approval. Tools and their temporary
 communication resources end with the invocation; model state persists in devices.
 
-`relative_pose` queries tf2; camera intrinsics are profile facts.
+`relative_pose` queries tf2; camera geometry comes from profile intrinsics or the
+camera node's geometry services.
 
 Python tools and `exec` preserve permissions and cancellation, and a failed
 invocation stops the devices it commanded; they cannot load or unload devices.

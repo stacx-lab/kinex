@@ -23,7 +23,6 @@ class Recording:
 
     def start(self):
         import rosbag2_py
-        from rosbag2_py._storage import QoS
         self.directory.mkdir(parents=True, exist_ok=True)
         self.writer = rosbag2_py.SequentialWriter()
         self.writer.open(rosbag2_py.StorageOptions(uri=str(self.directory / "bag"), storage_id="sqlite3"),
@@ -47,19 +46,12 @@ class Recording:
                     raise ValueError("one topic cannot have multiple recording types")
                 continue
             topics[op["endpoint"]] = op["type"]
-            policy = op.get("qos", {})
-            offered = QoS(policy.get("depth", 1))
-            if policy.get("reliability") == "best_effort":
-                offered.best_effort()
-            else:
-                offered.reliable()
-            if policy.get("durability") == "transient_local":
-                offered.transient_local()
-            else:
-                offered.durability_volatile()
-            self.writer.create_topic(rosbag2_py.TopicMetadata(
-                id=len(topics), name=op["endpoint"], type=op["type"], serialization_format="cdr",
-                offered_qos_profiles=[offered]))
+            fields = dict(name=op["endpoint"], type=op["type"], serialization_format="cdr")
+            try:
+                metadata = rosbag2_py.TopicMetadata(id=len(topics), **fields)
+            except TypeError:  # Humble's rosbag2 has no topic ids.
+                metadata = rosbag2_py.TopicMetadata(**fields)
+            self.writer.create_topic(metadata)
             stream = Subscription(self.io, op, 64)
             self.io.subscriptions.append(stream)
             self.streams.append(stream)

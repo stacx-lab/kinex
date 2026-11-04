@@ -89,7 +89,8 @@ inject no usage text.
 ## Kinex Python
 
 Exec, helpers, ROS clients, tf2 and recording always use `.kinex/python`.
-For ROS workspaces, configure `.kinex/kinex.json`:
+It defaults to ROS Jazzy; configure `.kinex/kinex.json` for Humble (`ros-humble`),
+plain uv (`uv`) or extra interfaces:
 
 ```json
 {"python": {"provider": "ros-jazzy", "interfaces": ["../../vendor/ros/interfaces"]}}
@@ -97,14 +98,15 @@ For ROS workspaces, configure `.kinex/kinex.json`:
 
 Interface source paths resolve relative to `.kinex`. Hosts prepare it explicitly
 with the TypeScript `runtime.python.prepare()`, which installs the independent
-Pixi/RoboStack Jazzy Python 3.12 environment and builds core and configured
-interfaces there. The provider is selected from workspace configuration,
+Pixi/RoboStack Python 3.12 environment for the selected distribution (`ros-jazzy`
+or `ros-humble`) and builds core and configured interfaces there. The provider is
+selected from workspace configuration,
 independent of device load state. Discovery does not install or create an
 environment. First approved use prepares a missing environment, or one whose
-interface sources changed; explicit preparation always runs, and each preparation
+distribution or interface sources changed; explicit preparation always runs, and each preparation
 rebuilds the interfaces from clean.
 ROS processes source only their own overlays; host shells remain unchanged.
-Non-ROS workspaces default to the existing uv environment. A simulator, such as
+A simulator, such as
 one run by [rosbridge](https://github.com/stacx-lab/rosbridge), keeps its own
 Python and communicates with Kinex through ROS; simulator packages are not
 installed in Kinex Python. `exec` and Python tool manifests have no interpreter
@@ -261,7 +263,11 @@ errors.
 
 Cameras are native ROS topics: `image`, `depth` for rgbd and, where a source
 provides it, `camera_info`. Camera projection and distortion live in the profile,
-or node geometry descriptors, not TF or `camera_info`. `helpers.camera_frame(io, camera)` subscribes and returns
+or node geometry descriptors, not TF or `camera_info`.
+`helpers.camera_geometry(io, camera)` fetches the active descriptors once per
+invocation; its `project` and `unproject` call the camera node's geometry services,
+or compute locally only for explicitly undistorted pinhole profiles.
+`helpers.camera_frame(io, camera)` subscribes and returns
 the next image and, for rgbd, the depth with the same stamp; the same
 `kinex.lib.camera.frame` backs device snapshots and `locate_object_3d`. A live
 camera streams; a simulator publishes a current frame to each new subscriber, so
@@ -273,8 +279,8 @@ leaving the scope to attach images to the model.
 ## Native validation
 
 `kinex_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
-services; commands and observations use standard ROS messages. The ros-jazzy
-provider builds it from `packages/core/assets/ros`; build that directory in any
+services; commands and observations use standard ROS messages. The ROS
+providers build it from `packages/core/assets/ros`; build that directory in any
 other ROS environment that calls these services.
 [rosbridge](https://github.com/stacx-lab/rosbridge) serves
 `kinex_interfaces/srv/Wait` from its own byte-identical copy, so it needs no Kinex

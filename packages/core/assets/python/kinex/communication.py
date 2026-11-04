@@ -172,7 +172,7 @@ class Communication:
             import rclpy
             import tf2_ros  # Validate the Kinex ROS client environment before acquiring resources.
         except ImportError as error:
-            raise RPCError("Kinex Python lacks ROS support; prepare its ros-jazzy environment. Do not switch to a device or simulator interpreter.",
+            raise RPCError("Kinex Python lacks ROS support; prepare its ROS environment. Do not switch to a device or simulator interpreter.",
                            code="ros_environment_unavailable") from error
         from rclpy.context import Context
         from rclpy.executors import SingleThreadedExecutor

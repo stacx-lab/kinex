@@ -36,7 +36,7 @@ schema-defined meaning.
 Readiness tracks two items per device. `access:<device>` is done once `runtime` is
 declared; nodes own how hardware is reached, so `access.needs_calibration` only
 records an explicit request against this item. `profile:<device>` is done when
-typed facts are complete and non-root frame transforms are known. Loaded joint,
+required typed facts and non-root frame transforms are known. Loaded joint,
 gripper, suction, locomotion and camera devices gate task readiness, and the
 device inventory requires a world device.
 
@@ -79,7 +79,8 @@ name. References must exist and be acyclic. ROS IDs use `device/frame`;
 references. Query at observation stamps. Simulator nodes supply measurements and
 state; they do not own Kinex frame publication.
 
-Camera projection and distortion live in profile `color`/`depth`, not TF.
+Camera projection and distortion are profile `color`/`depth` facts or come from
+the camera node's geometry services, never TF.
 Distortion metadata accepts arbitrary model names and JSON parameters. Core
 interprets only explicitly undistorted pinhole geometry. Distorted geometry uses
 camera-node geometry, unproject and project JSON services backed by SDK/OpenCV.

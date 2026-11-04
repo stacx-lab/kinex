@@ -16,7 +16,8 @@ after(() => rm(globals, { recursive: true, force: true }))
 const allow = { ask: async () => {} }
 async function fixture(t, host = allow) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-setup-'))
-  const runtime = createKinexRuntime({ directory, host, builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames })
+  // Kinex Python defaults to ROS Jazzy; these tests use plain uv Python.
+  const runtime = createKinexRuntime({ directory, host, builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames, settings: { python: { provider: 'uv' } } })
   const setup = createKinexSetup(runtime)
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   return { directory, runtime, setup, capabilities: composeContributions([coreContribution(runtime), setupContribution(setup)]) }

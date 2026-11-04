@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { useUv } from './fixtures/python.mjs'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -8,6 +9,7 @@ import { protocolDevice, protocolFramePython } from './fixtures/protocol.mjs'
 
 test('Kinex owns one frame service across devices and exec turns outside the catalog', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'kinex-frames-owner-'))
+  await useUv(path.join(directory, '.kinex'))
   const runtime = createKinexRuntime({directory})
   t.after(async () => { await runtime.dispose(); await rm(directory, {recursive:true, force:true}) })
   await runtime.profiles.writeManifest({identity:{id:'frames',name:'Frames',kind:'other'}})
@@ -53,6 +55,7 @@ frames: {...{base: {parent: null, translation_m: null, rotation_xyzw: null}}} })
 
 test('frame service startup failure is reaped and an explicit reload can recover', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'kinex-frames-retry-'))
+  await useUv(path.join(directory, '.kinex'))
   const runtime = createKinexRuntime({directory})
   t.after(async () => {await runtime.dispose(); await rm(directory,{recursive:true,force:true})})
   await runtime.profiles.writeManifest({identity:{id:'frames',name:'Frames',kind:'other'}})
@@ -82,6 +85,7 @@ def dispatch(action, args, cancelled):
 
 test('a device loads with the world clock of its own ROS domain', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'kinex-frames-domain-'))
+  await useUv(path.join(directory, '.kinex'))
   const runtime = createKinexRuntime({directory})
   t.after(async () => {await runtime.dispose(); await rm(directory,{recursive:true,force:true})})
   await runtime.profiles.writeManifest({identity:{id:'frames',name:'Frames',kind:'other'}})

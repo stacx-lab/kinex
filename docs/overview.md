@@ -57,13 +57,13 @@ the same `tools/`, `skills/` and `device/` directories. Packaged assets use thei
 internal `builtin/tool`, `builtin/skill` and `builtin/device` paths.
 Ordinary scripts passed to `exec` need no discovery entry or manifest.
 
-Core lazily prepares `.kinex/python`: uv for non-ROS workspaces, or independent
-Pixi/RoboStack Jazzy when workspace configuration selects `ros-jazzy`. Exec,
+Core lazily prepares `.kinex/python`: independent Pixi/RoboStack Jazzy by default,
+Humble when workspace configuration selects `ros-humble`, or uv with `uv`. Exec,
 helpers, ROS clients, tf2 and recording use Kinex Python, independent of device
 load state. Only device processes may select separate SDK interpreters.
 Concurrent first use waits for preparation; incomplete bootstraps retry. Existing
-prepared environments run without synchronization until their interface sources
-change; `python.prepare()` explicitly synchronizes dependencies and rebuilds
+prepared environments run without synchronization until their ROS distribution or
+interface sources change; `python.prepare()` explicitly synchronizes dependencies and rebuilds
 interfaces from clean. Host shells retain their environment. The `kinex` root and
 `kinex.helpers` form the exec API, which reaches devices only through
 `kinex.communication`; `kinex.node` serves device nodes, `kinex.lib` holds shared
