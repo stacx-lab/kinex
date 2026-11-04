@@ -114,8 +114,8 @@ asyncio.run(main())
 - `python.status()/initialize()/prepare({signal})` inspect, seed and synchronize the
   separate `.kinex/python` project. Status is read-only; initialize installs nothing.
   The project may be absent. Default Python execution prepares it only when the
-  environment is missing or its ROS interface receipt no longer matches the core and
-  configured interface sources; otherwise it runs directly, even if dependency
+  environment is missing or its ROS receipt no longer matches the selected
+  distribution and the core and configured interface sources; otherwise it runs directly, even if dependency
   declarations have changed. Explicit `prepare()` always synchronizes. Concurrent
   first use within a process waits for preparation; failed bootstraps can retry
   without accepting a partial environment.

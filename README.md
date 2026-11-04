@@ -45,6 +45,7 @@ setup guides, concepts and command references.
 
 ## News
 
+- **2026.11.04**: Kinex v1.1.0 is released! Devices now run as ROS 2 nodes, with ROS 2 Jazzy or Humble. See the [release notes](https://github.com/stacx-lab/kinex/releases/tag/v1.1.0).
 - **2026.10.15**: Kinex v1.0.0 is released! Visit the [project website](https://stacx-lab.github.io/kinex/).
 
 ## Getting Started
