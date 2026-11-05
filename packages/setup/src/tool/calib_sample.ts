@@ -118,8 +118,8 @@ export const CalibSampleTool = define("calib_sample", {
       const file = path.join(dir, "samples.json")
       const samples = (await readJson<unknown[]>(file)) ?? []
       const data = { ...reading.data }
-      if (data.depth_file !== undefined)
-        data.depth_file = await archive(ctx.directory, run, z.string().parse(data.depth_file))
+      for (const key of ["depth_file", "left_file", "right_file"])
+        if (data[key] !== undefined) data[key] = await archive(ctx.directory, run, z.string().parse(data[key]))
       const sample = {
         index: samples.length,
         recorded_at: new Date().toISOString(),

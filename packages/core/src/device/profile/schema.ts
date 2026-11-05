@@ -11,7 +11,7 @@ import { commandedJoints, deviceTree } from "./urdf.ts"
 import { jointShape } from "./joint.ts"
 import { deviceFrames, frameErrors } from "./frames.ts"
 import { CameraColor, CameraDepth } from "./camera.ts"
-import { LocalFrame, field, known, lifecycle, measured, section, xyz } from "./common.ts"
+import { LocalFrame, field, known, lifecycle, may, measured, section, xyz } from "./common.ts"
 export { known } from "./common.ts"
 
 // Device profiles own access, intrinsic facts and parent-relative SI mounts.
@@ -75,7 +75,18 @@ export const Device = z.discriminatedUnion("type", [
   z.strictObject({ ...spatial, ...jointShape, type: z.literal("joint") }),
   z.strictObject({ ...spatial, ...gripperShape, type: z.literal("gripper") }),
   z.strictObject({ ...spatial, ...suctionShape, type: z.literal("suction") }),
-  z.strictObject({ ...camera, type: z.literal("rgb") }),
+  z.strictObject({ ...camera, left: may(CameraColor).optional(), right: may(CameraColor).optional(), type: z.literal("rgb") }).superRefine((device, ctx) => {
+    if (device.left === undefined && device.right === undefined) return
+    if (known(device.color)) ctx.addIssue({ code: "custom", path: ["color"], message: "stereo uses left and right, not color" })
+    for (const eye of ["left", "right"] as const) {
+      if (device[eye] === undefined) ctx.addIssue({ code: "custom", path: [eye], message: "stereo requires both eyes (??? until known)" })
+      if (!device.frames[eye]) ctx.addIssue({ code: "custom", path: ["frames"], message: `stereo requires frames.${eye}` })
+    }
+    const { left, right } = device.frames
+    if (left && right && !(left.parent === `${device.name}:base` && right.parent === `${device.name}:left`)
+      && !(right.parent === `${device.name}:base` && left.parent === `${device.name}:right`))
+      ctx.addIssue({ code: "custom", path: ["frames"], message: "stereo frames must chain base -> reference eye -> other eye" })
+  }),
   z.strictObject({ ...camera, type: z.literal("rgbd"), depth: field(CameraDepth) }).superRefine((device, ctx) => {
     const { color, depth } = device
     if (!known(depth)) return

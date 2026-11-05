@@ -81,6 +81,8 @@ export const DeviceEventRow = z.object({
   data: z.record(z.string(), z.unknown()).optional(),
   file: z.string().optional(),
   depthFile: z.string().optional(),
+  leftFile: z.string().optional(),
+  rightFile: z.string().optional(),
   latencyMs: z.number(),
   error: z.string().optional(),
 })

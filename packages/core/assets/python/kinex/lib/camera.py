@@ -58,16 +58,19 @@ def save(message):
     return file.name
 
 
-async def frame(io, camera, *, timeout_s=None):
+async def frame(io, camera, *, timeout_s=None, eye=None):
     """The camera's next image and, for an rgbd camera, its depth from the same acquisition.
 
     Subscribing yields a current frame: live cameras stream, and simulators publish one
     to each new subscriber, also while the world is paused. Depth is paired with the image
-    of equal stamp. timeout_s defaults to the image operation's timeout_s.
+    of equal stamp. eye selects a stereo camera's left or right image. timeout_s defaults
+    to the image operation's timeout_s.
     """
-    names = ["image"] + (["depth"] if f"{camera}.depth" in io.catalog else [])
+    if eye is None and f"{camera}.left_image" in io.catalog:
+        raise ValueError("select eye: left or right for a stereo camera")
+    names = [f"{eye}_image"] if eye else ["image"] + (["depth"] if f"{camera}.depth" in io.catalog else [])
     streams = [io.subscribe(f"{camera}.{name}") for name in names]
-    limit = timeout_s if timeout_s is not None else io.operation(f"{camera}.image").get("timeout_s", 10)
+    limit = timeout_s if timeout_s is not None else io.operation(f"{camera}.{names[0]}").get("timeout_s", 10)
 
     def stamp(message):
         return message.header.stamp.sec, message.header.stamp.nanosec
@@ -81,3 +84,19 @@ async def frame(io, camera, *, timeout_s=None):
         for stream in streams:
             stream.close()
     return latest[0], latest[1] if len(latest) == 2 else None
+
+
+async def stereo_frame(io, camera, *, timeout_s=None):
+    """A stereo camera's next left and right images.
+
+    Each image keeps its own stamp and optical frame. Reading a pair does not imply
+    hardware synchronization, so compare the stamps when the task depends on it.
+    """
+    streams = [io.subscribe(f"{camera}.{eye}_image") for eye in ("left", "right")]
+    limit = timeout_s if timeout_s is not None else io.operation(f"{camera}.left_image").get("timeout_s", 10)
+    try:
+        async with asyncio.timeout(limit):
+            return tuple(await asyncio.gather(*(stream.next() for stream in streams)))
+    finally:
+        for stream in streams:
+            stream.close()

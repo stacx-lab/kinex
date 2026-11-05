@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Solve camera intrinsics from calibration-target images (cv2.calibrateCamera).
+"""Solve Brown-Conrady or OpenCV fisheye intrinsics from calibration-target images.
 
 Input: ordered images of a ChArUco board or checkerboard with KNOWN printed square
 size (measure it — printers rescale). Output: one JSON object on stdout, where
 index is a position in --images:
 
   {"ok": true, "width": ..., "height": ...,
-   "projection": {model,fx,fy,cx,cy,skew}, "distortion": {model,k1,k2,p1,p2,k3}, "rms_px": ...,
+   "projection": {model,fx,fy,cx,cy,skew}, "distortion": {model,k1,k2,p1,p2,k3} or {model,coefficients}, "rms_px": ...,
    "frames_used": n, "frames": [{index, error_px}], "rejected": [{index, reason}], "coverage_warnings": [...]}
 """
 
@@ -20,9 +20,50 @@ def fail(message: str, **extra) -> None:
     sys.exit(1)
 
 
+def fisheye_monotonic(coefficients) -> bool:
+    """Whether distorted radius grows with angle, so every ray has one pixel radius."""
+    import numpy as np
+    theta2 = np.linspace(0, (np.pi / 2) ** 2, 4097)
+    return bool((np.polynomial.polynomial.polyval(theta2, [1, *[(2 * i + 3) * k for i, k in enumerate(coefficients)]]) > 0).all())
+
+
+def solve(object_points, image_points, size, model):
+    """Return (rms, camera matrix, distortion, per-view RMS) for one stream."""
+    import cv2
+    import numpy as np
+
+    if model == "opencv_fisheye":
+        # The fisheye API needs float64 Nx1x3 and Nx1x2 views.
+        object_points = [np.asarray(p, dtype=np.float64).reshape(-1, 1, 3) for p in object_points]
+        image_points = [np.asarray(p, dtype=np.float64).reshape(-1, 1, 2) for p in image_points]
+        flags = cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC | cv2.fisheye.CALIB_CHECK_COND | cv2.fisheye.CALIB_FIX_SKEW
+        rms, matrix, dist, rvecs, tvecs = cv2.fisheye.calibrate(
+            object_points, image_points, size, None, None, flags=flags,
+            criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-8))
+        project = cv2.fisheye.projectPoints
+        coefficients = [float(value) for value in dist.reshape(-1)]
+        distortion = {"model": model, "coefficients": coefficients}
+    else:
+        rms, matrix, dist, rvecs, tvecs = cv2.calibrateCamera(object_points, image_points, size, None, None)
+        project = cv2.projectPoints
+        distortion = {"model": model, **dict(zip(("k1", "k2", "p1", "p2", "k3"), map(float, dist.reshape(-1)[:5])))}
+
+    errors = []
+    for obj, img, rvec, tvec in zip(object_points, image_points, rvecs, tvecs):
+        projected, _ = project(obj, rvec, tvec, matrix, dist)
+        deltas = img.reshape(-1, 2) - projected.reshape(-1, 2)
+        errors.append(float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1)))))
+    if not all(np.isfinite(value).all() for value in (rms, matrix, dist, errors)):
+        raise ValueError("calibration returned non-finite parameters or errors")
+    if model == "opencv_fisheye" and not fisheye_monotonic(coefficients):
+        raise ValueError("fisheye distortion folds within the forward hemisphere")
+    return float(rms), matrix, distortion, errors
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--images", nargs="+", required=True, help="image files in capture order")
+    parser.add_argument("--model", choices=["opencv_brown_conrady", "opencv_fisheye"], default="opencv_brown_conrady")
     parser.add_argument("--board", choices=["charuco", "checkerboard"], default="charuco")
     parser.add_argument("--squares-x", type=int, default=7)
     parser.add_argument("--squares-y", type=int, default=5)
@@ -97,13 +138,11 @@ def main() -> None:
             rejected=rejected,
         )
 
-    rms, camera_matrix, dist, rvecs, tvecs = cv2.calibrateCamera(object_points, image_points, size, None, None)
-
-    frames = []
-    for index, obj, img, rvec, tvec in zip(used, object_points, image_points, rvecs, tvecs):
-        projected, _ = cv2.projectPoints(obj, rvec, tvec, camera_matrix, dist)
-        deltas = img.reshape(-1, 2) - projected.reshape(-1, 2)
-        frames.append({"index": index, "error_px": round(float(np.sqrt(np.mean(np.sum(deltas * deltas, axis=1)))), 3)})
+    try:
+        rms, camera_matrix, distortion, errors = solve(object_points, image_points, size, args.model)
+    except (cv2.error, ValueError) as error:
+        fail(f"{args.model} calibration failed: {error}")
+    frames = [{"index": index, "error_px": round(error, 3)} for index, error in zip(used, errors)]
 
     # Coverage: warn when no detections land in a quadrant of the image.
     warnings = []
@@ -125,9 +164,8 @@ def main() -> None:
                 "projection": {"model": "pinhole", "fx": float(camera_matrix[0, 0]),
                                "fy": float(camera_matrix[1, 1]), "cx": float(camera_matrix[0, 2]),
                                "cy": float(camera_matrix[1, 2]), "skew": 0.0},
-                "distortion": {"model": "opencv_brown_conrady",
-                               **dict(zip(("k1", "k2", "p1", "p2", "k3"), map(float, dist.reshape(-1)[:5])))},
-                "rms_px": float(rms),
+                "distortion": distortion,
+                "rms_px": rms,
                 "frames_used": len(frames),
                 "frames": frames,
                 "rejected": rejected,

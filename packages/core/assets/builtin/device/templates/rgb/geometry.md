@@ -7,7 +7,7 @@ Declare geometry, unproject and project as input services of type
 kinex_interfaces/srv/Json, with endpoint, timeout and descriptions.
 
 - geometry accepts {} and returns {"streams":{"color":descriptor,"depth":descriptor}}.
-  Omit depth unless native. Descriptors require positive width/height, optical
+  Omit depth unless native. Stereo returns left and right streams instead. Descriptors require positive width/height, optical
   frame and nonempty calibration_id. Projection/distortion snapshots are optional.
 - unproject accepts {stream,calibration_id,pixels:[[u,v],...]} and returns
   {rays:[[x,y,1],...]}. Color-registered depth uses color geometry.
@@ -22,7 +22,7 @@ descriptors before acquisition and reuse IDs within an invocation. Profile
 snapshots, if present, must match. Archive SDK version and calibration provenance.
 
 In the node factory call kinex.lib.camera_geometry.serve_geometry(node, profile,
-adapters), mapping color/native depth to immutable adapters:
+adapters), mapping color/native depth or left/right to immutable adapters:
 - RealSenseGeometry(active_video_profile.get_intrinsics(), optical_frame) uses
   the installed SDK directly, preserving reported model and coefficients.
 - OpenCVGeometry(stream_descriptor, fisheye=False) uses standard OpenCV Brown.

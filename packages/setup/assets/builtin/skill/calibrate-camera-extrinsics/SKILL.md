@@ -33,6 +33,29 @@ Run `calib_compute operation:camera-extrinsics` with the run ID, pairs file, mod
 and attachment `frame`. Require rotation residual <= 2 degrees and translation
 residual <= 10 mm. Add diverse pairs only when quality requires them.
 
+For a rigid stereo pair, frames chain robot -> `base` -> reference eye -> other eye.
+Choose the reference eye by observation quality, coverage and independent validation
+error. Place `base` wherever suits the installation. Declare plan outputs for `base`
+and both eyes, and validate the full chain with poses the solve did not use.
+
+Prefer the joint solve: both eyes constrain one model, so the eye-to-eye transform
+does not inherit two independent hand-eye errors, which matters most for triangulation.
+At each stationary pose, capture both eyes with `calib_sample`, run `detect_board.py
+--eye` on each eye's file, and call `await geometry.unproject(pixels, eye)`. Exclude
+invalid rays with their object points. Archive one entry per pose as
+`{frame_pose, left:{object_points,rays}, right:{object_points,rays}}`, keeping only
+poses where both eyes see the board, then run `calib_compute
+operation:camera-stereo-extrinsics` with the pairs file, `reference`, mode and `frame`.
+Require RMS angular residual <= 0.5 degrees. Inspect per-view residuals, and compare `baseline_m` with the
+camera's nominal baseline. The proposal places `base` at the reference eye; choosing
+another `base` means composing the transforms yourself and keeping the chain.
+
+Use a staged solve only when the eyes rarely see the board together. Pass `--eye` to
+`detect_board.py`, the same stream to geometry calls, and `eye` to `calib_compute
+operation:camera-extrinsics`, then apply the reference eye's proposal. Solve the other
+eye the same way, compose its transform relative to the reference eye and write it
+with `profile_write` instead of applying that second proposal.
+
 The proposed mount is camera-in-parent; do not invert it. Eye-in-hand uses the
 arm attachment frame; eye-to-hand uses the arm base. A world mount requires an
 explicitly established transform. Persist accepted fields, retain residuals in

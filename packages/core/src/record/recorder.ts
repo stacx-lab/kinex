@@ -195,6 +195,16 @@ function onDeviceEvent(event: DeviceEvent) {
         stats.bytes += staged.bytes
       }
     }
+    for (const [eye, field] of [["left", "leftFile"], ["right", "rightFile"]] as const) {
+      const file = reading.data?.[`${eye}_file`]
+      if (typeof file !== "string") continue
+      const staged = stage(active, event.device, seq, file, `.${eye}${path.extname(file) || ".png"}`, passive)
+      if (staged) {
+        row[field] = staged.rel
+        stats.frames += 1
+        stats.bytes += staged.bytes
+      }
+    }
     const depth = reading.data?.["depth_file"]
     if (typeof depth === "string") {
       const staged = stage(active, event.device, seq, depth, `.depth${path.extname(depth) || ".png"}`, passive)

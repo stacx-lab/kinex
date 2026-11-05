@@ -89,7 +89,10 @@ service descriptors identify the active calibration. Raw pixels remain unchanged
 Distorted FOV is supplied or unknown, not calculated during parsing.
 
 Native RGB-D profiles declare `color` and `depth` frames and resolve
-depth-to-color geometry through tf2. Model devices have no frames.
+depth-to-color geometry through tf2. Stereo RGB profiles declare `left` and `right`
+geometry instead of `color`, plus `frames.left` and `frames.right` optical frames;
+they chain `base` -> reference eye -> other eye, and `base` carries the mount.
+Model devices have no frames.
 Calibration procedures write top-level facts and `frames.<name>`, using
 `profile:<device>` readiness items.
 
@@ -132,7 +135,8 @@ device itself.
 Operations retain typed payloads and acquisition stamps. Recording subscribes to
 selected declared topics and saves rosbag2, world time and TF. It never advances
 time. Explicit snapshots read `runtime.observation`; a camera without one reads its
-image and, for rgbd, the equally stamped depth, and other devices fall back to
+image and, for rgbd, the equally stamped depth; stereo returns `left_file`,
+`right_file` and each eye's stamp and frame. Other devices fall back to
 their first joint state, image or clock output. Recorder deactivation precedes
 device unload; disposal finalizes recordings. Model recording is opt-in.
 
@@ -190,7 +194,10 @@ Cameras publish `image` (`rgb8`) and, for rgbd, `depth` (`16UC1` in
 `scale_m_per_unit`, 0 for missing samples) from one acquisition with equal stamps,
 in calibrated optical frames. Readers subscribe and take the next frame; a
 simulator publishes a current frame to each new subscriber with reliable QoS, so
-reading a paused world never advances it. IMU and force/torque nodes publish
+reading a paused world never advances it. A stereo rgb camera publishes `left_image`
+and `right_image` in `<device>/left` and `<device>/right` instead of `image`; each
+keeps its own stamp, and a paired read does not imply hardware synchronization. IMU
+and force/torque nodes publish
 `sensor_msgs/msg/Imu` or `geometry_msgs/msg/WrenchStamped` in `<device>/base`
 with the profile `bias` already subtracted, so consumers never correct samples;
 unmeasured axes are NaN, never 0. An optional force/torque `zero` service
