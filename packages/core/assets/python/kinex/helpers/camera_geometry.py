@@ -55,11 +55,11 @@ async def camera_geometry(io, camera):
     if remote:
         streams = (await io.request(f"{camera}.geometry"))["streams"]
     else:
-        streams = {"color": record["color"]}
+        streams = {eye: record[eye] for eye in ("left", "right")} if record.get("left") is not None else {"color": record["color"]}
         if record.get("depth", {}).get("registration") == "native":
             streams["depth"] = record["depth"]
     for name, descriptor in streams.items():
-        if name not in ("color", "depth") or not isinstance(descriptor, dict):
+        if name not in ("color", "depth", "left", "right") or not isinstance(descriptor, dict):
             raise ValueError("invalid geometry stream descriptor")
         for key in ("width", "height"):
             if not isinstance(descriptor.get(key), int) or descriptor[key] <= 0:
@@ -78,6 +78,6 @@ async def camera_geometry(io, camera):
                     raise ValueError(f"{name}.{key}: profile and active calibration differ; refresh profile or reload node")
         else:
             rays(descriptor, 0, 0)  # Validate the explicit pinhole fallback now.
-    if "color" not in streams:
-        raise ValueError("camera geometry requires color stream")
+    if "color" not in streams and not {"left", "right"} <= streams.keys():
+        raise ValueError("camera geometry requires a color stream or both stereo eyes")
     return CameraGeometry(io, camera, streams, remote)

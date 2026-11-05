@@ -14,6 +14,10 @@ parameters:
     camera:
       type: string
       description: rgb or rgbd camera with calibrated color intrinsics
+    eye:
+      type: string
+      enum: [left, right]
+      description: required for a stereo camera, which also requires depth
     model:
       type: string
       description: model device whose Json detect takes an image path, prompt, min_score and max_results and returns results with box, score, label and an optional mask PNG path

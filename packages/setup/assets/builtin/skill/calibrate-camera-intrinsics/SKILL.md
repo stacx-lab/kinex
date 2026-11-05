@@ -25,6 +25,14 @@ At least 10 frames and RMS <= 1 px are required. RMS < 0.5 px is good; 0.5–1 p
 or incomplete image coverage requires checking the task's accuracy needs. Above
 1 px, diagnose blur, wrong target geometry or poor coverage before recollecting.
 
+Choose the distortion model with `model`: `opencv_brown_conrady` (default) or, for
+fisheye lenses, `opencv_fisheye`, whose `coefficients:[k1,k2,k3,k4]` suit
+`OpenCVGeometry(stream, fisheye=True)`. Do not fit raw fisheye images with Brown-Conrady.
+
+For stereo RGB, calibrate each eye in its own solve from that eye's `left_file` or
+`right_file` samples, and pass `eye:left` or `eye:right`. Never mix the eyes' images;
+the result proposes that eye's `left` or `right` fields.
+
 Apply accepted color fields with `profile_write`, retaining active stream formats.
 Keep RGB-D depth scale/registration/range from the SDK; the board does not measure
 them. Evidence includes RMS, coverage and source images. Clear a whole-section

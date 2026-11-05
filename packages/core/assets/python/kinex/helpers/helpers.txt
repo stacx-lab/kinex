@@ -36,8 +36,11 @@ Images
     await geometry.unproject(pixels, stream="color") returns Nx3 optical rays.
     await geometry.project(points, stream="color") returns Nx2 pixels.
     Invalid individual results contain NaN. Calls use the existing scope.
-  await helpers.camera_frame(io, camera, timeout_s=None)
+  await helpers.camera_frame(io, camera, timeout_s=None, eye=None)
     The current image and, for an rgbd camera, its depth from the same acquisition.
+    A stereo camera requires eye="left" or eye="right".
+  await helpers.stereo_frame(io, camera, timeout_s=None)
+    A stereo camera's current left and right images, each with its own stamp.
   helpers.image_array(image)
     Native-order pixels of a sensor_msgs/Image as numpy for computation.
   helpers.save_image(image)
@@ -45,6 +48,6 @@ Images
     Implementation: images.py
 
 Perception
-  await helpers.locate_object_3d(io, camera, model, prompt, depth=None, min_score=0.25, instance=0)
+  await helpers.locate_object_3d(io, camera, model, prompt, depth=None, min_score=0.25, instance=0, eye=None)
     Locate a detected object in a stamped camera optical frame.
     Implementation: perception.py

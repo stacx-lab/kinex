@@ -267,6 +267,8 @@ or node geometry descriptors, not TF or `camera_info`.
 `helpers.camera_geometry(io, camera)` fetches the active descriptors once per
 invocation; its `project` and `unproject` call the camera node's geometry services,
 or compute locally only for explicitly undistorted pinhole profiles.
+A stereo camera uses `left_image` and `right_image` with `left` and `right` geometry
+streams; `helpers.stereo_frame(io, camera)` reads both, and `camera_frame` takes `eye`.
 `helpers.camera_frame(io, camera)` subscribes and returns
 the next image and, for rgbd, the depth with the same stamp; the same
 `kinex.lib.camera.frame` backs device snapshots and `locate_object_3d`. A live
