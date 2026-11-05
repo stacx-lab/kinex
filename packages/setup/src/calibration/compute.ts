@@ -16,6 +16,7 @@ import { serialized } from "../planning/plan.ts"
 
 const common = { ...AttemptInput.shape, timeout_s: z.number().positive().max(600).default(120) }
 const file = z.string().min(1).describe("Input file path, relative to invocation directory or absolute")
+const eye = z.enum(["left", "right"]).optional().describe("Eye being calibrated; required for stereo RGB")
 const frame = z.string().min(1).describe("URDF link whose poses the samples hold")
 export const ComputeInput = z.discriminatedUnion("operation", [
   z.strictObject({ ...common, operation: z.literal("urdf-introspect") }),
@@ -23,8 +24,12 @@ export const ComputeInput = z.discriminatedUnion("operation", [
   z.strictObject({ ...common, operation: z.literal("fit-dual"), points: file }),
   z.strictObject({ ...common, operation: z.literal("fit-tcp"), samples: file, frame }),
   z.strictObject({ ...common, operation: z.literal("camera-extrinsics"), samples: file,
+    eye, mode: z.enum(["eye_in_hand", "eye_to_hand"]), frame }),
+  z.strictObject({ ...common, operation: z.literal("camera-stereo-extrinsics"), samples: file,
+    reference: z.enum(["left", "right"]).describe("Eye whose mount defines the stereo base"),
     mode: z.enum(["eye_in_hand", "eye_to_hand"]), frame }),
-  z.strictObject({ ...common, operation: z.literal("camera-intrinsics"), images: z.array(file).min(10),
+  z.strictObject({ ...common, operation: z.literal("camera-intrinsics"), images: z.array(file).min(10), eye,
+    model: z.enum(["opencv_brown_conrady", "opencv_fisheye"]).default("opencv_brown_conrady"),
     board: z.enum(["charuco", "checkerboard"]).default("charuco"), square_mm: z.number().positive(),
     marker_mm: z.number().positive().optional(), squares_x: z.number().int().min(2).default(7), squares_y: z.number().int().min(2).default(5),
     corners_x: z.number().int().min(2).default(9), corners_y: z.number().int().min(2).default(6), dictionary: z.string().default("DICT_4X4_50") }),
@@ -124,6 +129,28 @@ function mount(method: string, frame: string, data: Data, { run }: Context): Fac
   return { method, patch: { frames: { base } }, resolved: Object.entries(base).map(([field, value]) => [`/frames/base/${field}`, value]) }
 }
 
+// A measured reference eye defines the stereo base. Its partner stays attached to it;
+// a joint solve measures the partner, and otherwise a new reference invalidates its
+// previous transform.
+async function referenceEye(facts: Facts, eye: "left" | "right", target: string, { cwd }: Context, measured?: Data): Promise<Facts> {
+  const partner = eye === "left" ? "right" : "left"
+  const device = await ProfileStore.readDevice(cwd, target)
+  const reference = { parent: `${target}:base`, translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] }
+  const attached = device && deviceFrames(device)[partner]?.parent === `${target}:${eye}`
+  const other = measured ? { parent: `${target}:${eye}`, translation_m: measured.partner_translation_m, rotation_xyzw: measured.partner_rotation_xyzw }
+    : attached ? undefined : { parent: `${target}:${eye}`, translation_m: "???", rotation_xyzw: "???" }
+  const pointers = (name: string, edge: Data) => Object.entries(edge).map(([field, value]): [string, unknown] => [`/frames/${name}/${field}`, value])
+  return { ...facts, patch: { frames: { ...z.record(z.string(), z.unknown()).parse(facts.patch.frames), [eye]: reference, ...(other ? { [partner]: other } : {}) } },
+    resolved: [...facts.resolved, ...pointers(eye, reference), ...(measured && other ? pointers(partner, other) : [])] }
+}
+
+// Stereo calibrates one eye per solve; every other camera has a single color stream.
+async function checkEye({ cwd, run }: Context, selected: "left" | "right" | undefined) {
+  const camera = await ProfileStore.readDevice(cwd, run.bindings.target ?? fail("Bind target"))
+  const stereo = camera?.type === "rgb" && camera.left !== undefined
+  if (stereo !== (selected !== undefined)) fail(stereo ? "Select eye: left or right for stereo calibration" : "eye is only supported for stereo RGB")
+}
+
 const SOLVERS: { [O in Operation]: Solver<O> } = {
   "urdf-introspect": {
     async solve(_, { cwd, run }) {
@@ -167,15 +194,32 @@ const SOLVERS: { [O in Operation]: Solver<O> } = {
   },
   "camera-extrinsics": {
     async solve(input, context) {
+      await checkEye(context, input.eye)
       return script(skillScript("calibrate-camera-extrinsics", "solve_extrinsics.py"), ["--samples", await archived(context, input.samples),
         "--mode", input.mode, "--device", context.run.bindings.arm ?? fail("Bind arm"), "--frame", input.frame], context)
     },
     quality: data => number(data, "pairs_used") >= 5 && number(data, "residual_rot_deg") <= 2 &&
       number(data, "residual_trans_mm") <= 10 ? "passed" : "failed",
-    facts: async (input, data, _, context) => mount("hand_eye", input.mode === "eye_to_hand" ? "base" : input.frame, data, context),
+    async facts(input, data, target, context) {
+      const facts = mount("hand_eye", input.mode === "eye_to_hand" ? "base" : input.frame, data, context)
+      return input.eye ? referenceEye(facts, input.eye, target, context) : facts
+    },
+  },
+  "camera-stereo-extrinsics": {
+    async solve(input, context) {
+      await checkEye(context, input.reference)
+      return script(skillScript("calibrate-camera-extrinsics", "solve_stereo_extrinsics.py"), ["--samples", await archived(context, input.samples),
+        "--mode", input.mode, "--reference", input.reference], context)
+    },
+    quality: data => number(data, "pairs_used") >= 5 && number(data, "residual_deg") <= .5 ? "passed" : "failed",
+    async facts(input, data, target, context) {
+      const facts = mount("hand_eye", input.mode === "eye_to_hand" ? "base" : input.frame, data, context)
+      return referenceEye(facts, input.reference, target, context, data)
+    },
   },
   "camera-intrinsics": {
     async solve(input, context) {
+      await checkEye(context, input.eye)
       // A distinct image directory keeps this solve's inputs apart from other artifacts.
       const images = path.join(context.directory, "artifacts", shortID())
       await mkdir(images)
@@ -185,7 +229,7 @@ const SOLVERS: { [O in Operation]: Solver<O> } = {
         return copy
       }))
       return script(skillScript("calibrate-camera-intrinsics", "calibrate_intrinsics.py"), ["--images", ...copies,
-        "--board", input.board, "--square-mm", String(input.square_mm), "--squares-x", String(input.squares_x),
+        "--model", input.model, "--board", input.board, "--square-mm", String(input.square_mm), "--squares-x", String(input.squares_x),
         "--squares-y", String(input.squares_y), "--corners-x", String(input.corners_x), "--corners-y", String(input.corners_y),
         "--dict", input.dictionary, ...(input.marker_mm === undefined ? [] : ["--marker-mm", String(input.marker_mm)])], context)
     },
@@ -196,7 +240,8 @@ const SOLVERS: { [O in Operation]: Solver<O> } = {
     },
     async facts(input, data) {
       const color = { width: data.width, height: data.height, projection: data.projection, distortion: data.distortion }
-      return { method: input.board, patch: { color }, resolved: Object.entries(color).map(([field, value]) => [`/color/${field}`, value]) }
+      const stream = input.eye ?? "color"
+      return { method: input.board, patch: { [stream]: color }, resolved: Object.entries(color).map(([field, value]) => [`/${stream}/${field}`, value]) }
     },
   },
   "verify-base": {

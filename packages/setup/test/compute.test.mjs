@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { useUv } from '../../core/test/fixtures/python.mjs'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, symlink } from 'node:fs/promises'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -243,4 +243,109 @@ test('cancelling an owned computation never publishes a result', async t => {
   assert.equal((await pending).isError, true)
   const runs = await readdir(path.join(directory, '.kinex/calib'))
   for (const run of runs) assert.ok(!(await readdir(path.join(directory, '.kinex/calib', run))).some(file => file.startsWith('result')))
+})
+
+test('stereo calibration solves one eye at a time and its proposals fit the profile', async t => {
+  const { directory, runtime, compute } = await fixture(t)
+  const base = { parent: null, translation_m: null, rotation_xyzw: null }
+  await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
+  await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>')
+  await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint',
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, frames: { base } })
+  await runtime.profiles.writeDevice({ description: '', name: 'mono', type: 'rgb', frames: { base } })
+  const eyeFrame = parent => ({ parent, translation_m: '???', rotation_xyzw: '???' })
+  await runtime.profiles.writeDevice({ description: '', name: 'pair', type: 'rgb', left: '???', right: '???',
+    frames: { base, left: eyeFrame('pair:base'), right: eyeFrame('pair:left') } })
+  const evidence = path.join(directory, 'evidence')
+  await mkdir(evidence)
+  const env = { ...process.env, PYTHONPATH: new URL('../../core/assets/python', import.meta.url).pathname, PYTHONDONTWRITEBYTECODE: '1' }
+  execFileSync(system, [new URL('./stereo_evidence.py', import.meta.url).pathname, evidence], { env })
+  const images = Array.from({ length: 16 }, (_, index) => path.join(evidence, `${index}.png`))
+  const intrinsics = target => ({ operation: 'camera-intrinsics', procedure: 'calibrate-camera-intrinsics', bindings: { target },
+    images, square_mm: 30, model: 'opencv_fisheye' })
+  assert.match((await compute(intrinsics('pair'))).output, /Select eye/)
+  assert.match((await compute({ ...intrinsics('mono'), eye: 'left' })).output, /only supported for stereo/)
+
+  const solved = JSON.parse((await compute({ ...intrinsics('pair'), eye: 'left' })).output)
+  assert.notEqual(solved.quality, 'failed', JSON.stringify(solved.data))
+  assert.ok(solved.resolved.every(fact => fact.pointer.startsWith('/left/')))
+  await runtime.profiles.writeDevice(solved.proposedChanges[0].data)
+
+  const extrinsics = { operation: 'camera-extrinsics', procedure: 'calibrate-camera-extrinsics', bindings: { target: 'pair', arm: 'arm' },
+    samples: path.join(evidence, 'pairs.json'), mode: 'eye_in_hand', frame: 'flange' }
+  assert.match((await compute(extrinsics)).output, /Select eye/)
+  const mounted = JSON.parse((await compute({ ...extrinsics, eye: 'right' })).output)
+  assert.equal(mounted.quality, 'passed', JSON.stringify(mounted.data))
+  assert.ok(mounted.resolved.every(fact => /^\/frames\/(base|right)\//.test(fact.pointer)))
+  await runtime.profiles.writeDevice(mounted.proposedChanges[0].data)
+
+  const device = (await runtime.devices.list()).find(entry => entry.name === 'pair')
+  assert.equal(device.left.distortion.model, 'opencv_fisheye')
+  assert.equal(device.left.distortion.coefficients.length, 4)
+  // The solved stream drives the node adapter, whose rays project back to their pixels.
+  const roundTrip = 'import json, sys\nfrom kinex.lib.camera_geometry import OpenCVGeometry as G\ng = G(json.loads(sys.argv[1]), fisheye=True)\nprint(json.dumps(g.project(g.unproject([[400., 300.]]))))'
+  const [[u, v]] = JSON.parse(execFileSync(system, ['-c', roundTrip, JSON.stringify(device.left)], { env, encoding: 'utf8' }))
+  assert.ok(Math.abs(u - 400) < 1e-3 && Math.abs(v - 300) < 1e-3)
+  const detect = (...args) => JSON.parse(spawnSync(system, [
+    new URL('../assets/builtin/skill/calibrate-camera-extrinsics/scripts/detect_board.py', import.meta.url).pathname,
+    '--image', images[0], '--profile', path.join(directory, '.kinex/devices/pair/profile.yaml'), '--square-mm', '30', ...args], { env, encoding: 'utf8' }).stdout)
+  assert.match(detect().error, /--eye/)
+  assert.match(detect('--eye', 'right').error, /no known right stream/)
+  assert.ok(detect('--eye', 'left').pixels.length >= 6)
+  assert.equal(device.right, '???')
+  assert.equal(device.frames.base.parent, 'arm:flange')
+  assert.deepEqual(device.frames.base.translation_m.map(value => Math.round(value * 1000)), [30, -60, 50])
+  assert.deepEqual(device.frames.right, { parent: 'pair:base', translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] })
+  assert.deepEqual(device.frames.left, eyeFrame('pair:right'))
+})
+
+test('camera solver recovers fisheye and Brown-Conrady models and rejects fisheye folds', () => {
+  execFileSync(system, [new URL('./camera_intrinsics.py', import.meta.url).pathname], { env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } })
+})
+
+test('joint stereo solve recovers the mount and eye-to-eye transform in both modes', async t => {
+  const { directory, runtime, compute } = await fixture(t)
+  const base = { parent: null, translation_m: null, rotation_xyzw: null }
+  await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
+  await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>')
+  await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint',
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, frames: { base } })
+  await runtime.profiles.writeDevice({ description: '', name: 'mono', type: 'rgb', frames: { base } })
+  const unknown = parent => ({ parent, translation_m: '???', rotation_xyzw: '???' })
+  await runtime.profiles.writeDevice({ description: '', name: 'pair', type: 'rgb', left: '???', right: '???',
+    frames: { base, left: unknown('pair:base'), right: unknown('pair:left') } })
+  const evidence = path.join(directory, 'evidence')
+  await mkdir(evidence)
+  execFileSync(system, [new URL('./stereo_evidence.py', import.meta.url).pathname, evidence],
+    { env: { ...process.env, PYTHONPATH: new URL('../../core/assets/python', import.meta.url).pathname, PYTHONDONTWRITEBYTECODE: '1' } })
+  const millimetres = values => values.map(value => Math.round(value * 1000) + 0)
+  const input = (name, mode, target = 'pair', reference = 'left') => ({ operation: 'camera-stereo-extrinsics', procedure: 'calibrate-camera-extrinsics',
+    bindings: { target, arm: 'arm' }, samples: path.join(evidence, `stereo_${name}.json`), mode, frame: 'flange', reference })
+  assert.match((await compute(input('in_hand', 'eye_in_hand', 'mono'))).output, /only supported for stereo/)
+
+  for (const [name, mode, parent] of [['in_hand', 'eye_in_hand', 'arm:flange'], ['to_hand', 'eye_to_hand', 'arm:base']]) {
+    const value = JSON.parse((await compute(input(name, mode))).output)
+    assert.equal(value.quality, 'passed', JSON.stringify(value.data))
+    assert.equal(value.proposedChanges[0].data.frames.base.parent, parent)
+    assert.deepEqual(millimetres(value.data.translation_m), [30, -60, 50])
+    assert.deepEqual(millimetres(value.data.partner_translation_m), [60, 0, 0])
+    assert.ok(Math.abs(value.data.baseline_m - .06) < 1e-3)
+    await runtime.profiles.writeDevice(value.proposedChanges[0].data)
+  }
+  const device = (await runtime.devices.list()).find(entry => entry.name === 'pair')
+  assert.deepEqual(device.frames.left, { parent: 'pair:base', translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] })
+  assert.equal(device.frames.right.parent, 'pair:left')
+  assert.deepEqual(millimetres(device.frames.right.translation_m), [60, 0, 0])
+  assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:pair').detail.includes('frames.'), false)
+
+  // Choosing the other eye as the reference inverts the eye-to-eye transform.
+  const swapped = JSON.parse((await compute(input('in_hand', 'eye_in_hand', 'pair', 'right'))).output)
+  assert.equal(swapped.proposedChanges[0].data.frames.left.parent, 'pair:right')
+  assert.equal(swapped.proposedChanges[0].data.frames.right.parent, 'pair:base')
+  assert.ok(Math.abs(swapped.data.baseline_m - .06) < 1e-3)
+  await runtime.profiles.writeDevice(swapped.proposedChanges[0].data)
+
+  const biased = JSON.parse((await compute(input('biased', 'eye_in_hand'))).output)
+  assert.equal(biased.quality, 'failed', JSON.stringify(biased.data.residual_deg))
+  assert.deepEqual(biased.proposedChanges, [])
 })

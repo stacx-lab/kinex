@@ -10,27 +10,31 @@ from kinex.helpers.camera_geometry import camera_geometry
 from kinex.lib.geometry import number, vector, xyzq_to_rt
 
 
-async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25, instance=0):
+async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25, instance=0, eye=None):
     """Locate a detected object in the camera optical frame (+X right, +Y down, +Z forward).
 
     camera is an rgb or rgbd device with calibrated color intrinsics; model serves a
     Json detect taking an image path, prompt, min_score and max_results and returning
     results with box, score, label and an optional mask. Samples depth inside a
     supplied mask, otherwise the central half of the box; depth gives an explicit
-    optical Z in metres instead of RGBD depth. instance indexes detections sorted by
-    descending score. Returns point (metres), pixel, depth_samples, reference
+    optical Z in metres instead of RGBD depth. A stereo camera requires eye ("left" or
+    "right") and explicit depth. instance indexes detections sorted by descending
+    score. Returns point (metres), pixel, depth_samples, reference
     (visible_surface or box_region), frame, label, detection_score, detections,
     timestamp and the image file; rotation_xyzw is None.
 
     Example: await helpers.locate_object_3d(io, "camera", "detector", "red mug")
     """
     cam = profile(camera)
+    if (cam.get("left") is not None) != (eye is not None):
+        raise ValueError("eye is required for, and only supported by, a stereo camera")
     geometry = await camera_geometry(io, camera)
-    color = geometry.streams["color"]
+    stream = eye or "color"
+    color = geometry.streams[stream]
     cam = {**cam, "color": color}
     if cam.get("depth", {}).get("registration") == "native" and "depth" in geometry.streams:
         cam["depth"] = {**cam["depth"], **geometry.streams["depth"]}
-    image, depth_image = await frame(io, camera)
+    image, depth_image = await frame(io, camera, eye=eye)
     if geometry.remote and image.header.frame_id != color["frame"]:
         raise ValueError("image optical frame differs from active geometry")
     if depth_image is not None and cam["depth"]["registration"] == "native" and geometry.remote:
@@ -46,7 +50,7 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     detection, count = _select_detection(detected["results"], min_score, instance)
     region, reference = _detection_region(detection, color)
     if depth is not None:
-        measured = await _locate(cam, region, depth=depth, geometry=geometry)
+        measured = await _locate(cam, region, depth=depth, geometry=geometry, stream=stream)
     else:
         relation = (await _depth_to_color(io, image, depth_image)
                     if cam["depth"]["registration"] == "native" else None)
@@ -116,13 +120,13 @@ def _central(points):
     return np.argmin(np.sum((points - np.median(points, axis=0)) ** 2, axis=1))
 
 
-async def _locate(camera, region, *, depth_image=None, depth=None, depth_to_color=None, geometry=None):
+async def _locate(camera, region, *, depth_image=None, depth=None, depth_to_color=None, geometry=None, stream="color"):
     color = camera["color"]
     if depth is not None:
         if number(depth, "depth") <= 0:
             raise ValueError("depth must be positive optical Z in metres")
         pixels = np.column_stack(np.nonzero(region)[::-1])
-        directions = await geometry.unproject(pixels) if geometry else rays(color, *pixels.T)
+        directions = await geometry.unproject(pixels, stream) if geometry else rays(color, *pixels.T)
         keep = np.isfinite(directions).all(axis=1)
         pixels, directions = pixels[keep], directions[keep]
         if not len(pixels):

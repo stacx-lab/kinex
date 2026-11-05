@@ -21,6 +21,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
     parser.add_argument("--profile", required=True, help="camera stream dimensions")
+    parser.add_argument("--eye", choices=["left", "right"], help="required for stereo RGB")
     parser.add_argument("--rays", help="archived unproject response rays for detected corners")
     parser.add_argument("--projected", help="archived projected pixels for fitted camera points")
     parser.add_argument("--board", choices=["charuco", "checkerboard"], default="charuco")
@@ -44,7 +45,9 @@ def main() -> None:
         fail(f"could not read {args.image}")
     import yaml
     with open(args.profile) as handle:
-        color = yaml.safe_load(handle)["color"]
+        color = yaml.safe_load(handle).get(args.eye or "color")
+    if not isinstance(color, dict):
+        fail(f"profile has no known {args.eye or 'color'} stream; stereo RGB requires --eye")
     if (image.shape[1], image.shape[0]) != (color["width"], color["height"]):
         fail("image resolution differs from the camera profile")
     camera_matrix = np.eye(3, dtype=np.float64)
