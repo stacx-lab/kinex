@@ -17,7 +17,8 @@ source's live calibration with the profile.
 Distortion metadata accepts arbitrary model names and JSON parameters. SDK-owned
 calibration does not need to be duplicated; use geometry service descriptors.
 See [camera geometry](geometry.md) for services, adapters and calibration ownership.
-Raw images remain unchanged for model consumers.
+Raw images remain unchanged for model consumers. Publish `rgb8`; a node adapting a
+`mono8` source (for example an infrared stereo pair) replicates it to three channels.
 
 A reader subscribes to `image` and takes the next frame; snapshots and perception
 tools read it this way. A live camera streams continuously. A simulator, whose world
@@ -26,12 +27,15 @@ publisher's matched event) and declares `reliable` QoS so that frame is delivere
 reading never advances world time.
 
 The sibling `node.py` adapts an existing ROS camera driver to this contract; copy
-it into the device directory and set `SOURCE` to the driver's image topic.
+it into the device directory and map each image operation to the driver's topic in
+`SOURCES`.
 
 ### Stereo
 
-A stereo pair is one `rgb` device with `layout: stereo`. Declare `left` and `right`
-geometry instead of `color`, publish `left_image` and `right_image` instead of `image`, and declare
+A stereo camera whose SDK publishes depth registered to one eye is an `rgbd` device
+with that eye as `color`; perception then measures depth directly. A raw pair is one
+`rgb` device with `layout: stereo`. Declare `left` and `right` geometry instead of
+`color`, publish `left_image` and `right_image` instead of `image`, and declare
 `frames.left` and `frames.right` as the optical frames, setting each `header.frame_id`
 to `<device>/left` or `<device>/right`. Eyes may differ in resolution. Frames chain
 `base` -> reference eye -> other eye: the reference eye's parent is `<device>:base` and
@@ -40,7 +44,9 @@ may be placed anywhere convenient, including at the reference eye.
 
 Stamp each image at its own acquisition on the world clock. A paired read does not
 imply hardware synchronization: consumers compare stamps. Serve geometry with
-`left` and `right` streams. Use `node.py` as the pattern, with one source per eye.
+`left` and `right` streams. `node.py` maps `left_image` and `right_image` in `SOURCES`.
+Record a factory eye-to-eye transform from the SDK as the other eye's frame; it is
+calibrated otherwise.
 
 ### Operations
 

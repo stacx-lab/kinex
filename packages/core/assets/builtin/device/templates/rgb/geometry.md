@@ -7,10 +7,13 @@ Declare geometry, unproject and project as input services of type
 kinex_interfaces/srv/Json, with endpoint, timeout and descriptions.
 
 - geometry accepts {} and returns {"streams":{"color":descriptor,"depth":descriptor}}.
-  Omit depth unless native. Stereo returns left and right streams instead. Descriptors require positive width/height, optical
-  frame and nonempty calibration_id. Projection/distortion snapshots are optional.
+  Omit depth unless native. Stereo returns left and right streams instead.
+  Descriptors require positive width/height, optical frame and nonempty
+  calibration_id. Projection/distortion snapshots are optional.
 - unproject accepts {stream,calibration_id,pixels:[[u,v],...]} and returns
-  {rays:[[x,y,1],...]}. Color-registered depth uses color geometry.
+  {rays:[[x,y,1],...]}. Color-registered depth uses color geometry. A Z=1 ray cannot
+  represent a direction 90 degrees or more off-axis, so a lens covering 180 degrees
+  or more is usable only inside that cone; return null beyond it.
 - project accepts {stream,calibration_id,points:[[X,Y,Z],...]} and returns
   {pixels:[[u,v],...]}. Points are optical-frame metres with positive Z.
 - Preserve order/count; null means invalid individual result. Malformed requests,
