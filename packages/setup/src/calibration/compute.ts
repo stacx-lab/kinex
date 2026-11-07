@@ -13,11 +13,14 @@ import { procedures } from "../planning/procedures.ts"
 import { atomicJSON, fail, location, inspectFacts } from "../planning/facts.ts"
 import { Assets } from "../assets.ts"
 import { serialized } from "../planning/plan.ts"
+import { IDENTITY, compose, edgePose, invert, Pose } from "./rigid.ts"
 
 const common = { ...AttemptInput.shape, timeout_s: z.number().positive().max(600).default(120) }
 const file = z.string().min(1).describe("Input file path, relative to invocation directory or absolute")
 const eye = z.enum(["left", "right"]).optional().describe("Eye being calibrated; required for stereo RGB")
 const frame = z.string().min(1).describe("URDF link whose poses the samples hold")
+const baseline = z.number().positive().optional()
+  .describe("Nominal eye-to-eye baseline in metres; a solved baseline must match within 5% (at least 2 mm)")
 export const ComputeInput = z.discriminatedUnion("operation", [
   z.strictObject({ ...common, operation: z.literal("urdf-introspect") }),
   z.strictObject({ ...common, operation: z.literal("fit-mount"), points: file, parent_frame: z.string().min(1) }),
@@ -26,8 +29,9 @@ export const ComputeInput = z.discriminatedUnion("operation", [
   z.strictObject({ ...common, operation: z.literal("camera-extrinsics"), samples: file,
     eye, mode: z.enum(["eye_in_hand", "eye_to_hand"]), frame }),
   z.strictObject({ ...common, operation: z.literal("camera-stereo-extrinsics"), samples: file,
-    reference: z.enum(["left", "right"]).describe("Eye whose mount defines the stereo base"),
-    mode: z.enum(["eye_in_hand", "eye_to_hand"]), frame }),
+    eye_to_eye: z.enum(["solve", "keep"]).describe("keep holds the profile's known eye-to-eye transform; solve measures it with the mount"),
+    nominal_baseline_m: baseline, mode: z.enum(["eye_in_hand", "eye_to_hand"]), frame }),
+  z.strictObject({ ...common, operation: z.literal("camera-eye-to-eye"), samples: file, nominal_baseline_m: baseline }),
   z.strictObject({ ...common, operation: z.literal("camera-intrinsics"), images: z.array(file).min(10), eye,
     model: z.enum(["opencv_brown_conrady", "opencv_fisheye"]).default("opencv_brown_conrady"),
     board: z.enum(["charuco", "checkerboard"]).default("charuco"), square_mm: z.number().positive(),
@@ -122,30 +126,59 @@ async function sensorBias(input: Inputs["sensor-bias"], context: Context): Promi
   return { ok: true, n: samples.length, channels }
 }
 
-// A measured mount of the target in a frame of its bound parent.
-function mount(method: string, frame: string, data: Data, { run }: Context): Facts {
+// A measured pose of the target in a frame of its bound parent.
+function mounted(frame: string, data: Data, { run }: Context) {
   const parent = run.bindings.parent ?? run.bindings.anchor ?? run.bindings.arm ?? fail("Bind parent, anchor or arm")
-  const base = { parent: `${parent}:${frame}`, translation_m: data.translation_m, rotation_xyzw: data.rotation_xyzw }
-  return { method, patch: { frames: { base } }, resolved: Object.entries(base).map(([field, value]) => [`/frames/base/${field}`, value]) }
+  return { parent: `${parent}:${frame}`, translation_m: data.translation_m, rotation_xyzw: data.rotation_xyzw }
 }
 
-// A measured reference eye defines the stereo base. Its partner stays attached to it;
-// a joint solve measures the partner, and otherwise a new reference invalidates its
-// previous transform.
-async function referenceEye(facts: Facts, eye: "left" | "right", target: string, { cwd }: Context, measured?: Data): Promise<Facts> {
-  const partner = eye === "left" ? "right" : "left"
-  const device = await ProfileStore.readDevice(cwd, target)
-  const reference = { parent: `${target}:base`, translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] }
-  const attached = device && deviceFrames(device)[partner]?.parent === `${target}:${eye}`
-  const other = measured ? { parent: `${target}:${eye}`, translation_m: measured.partner_translation_m, rotation_xyzw: measured.partner_rotation_xyzw }
-    : attached ? undefined : { parent: `${target}:${eye}`, translation_m: "???", rotation_xyzw: "???" }
-  const pointers = (name: string, edge: Data) => Object.entries(edge).map(([field, value]): [string, unknown] => [`/frames/${name}/${field}`, value])
-  return { ...facts, patch: { frames: { ...z.record(z.string(), z.unknown()).parse(facts.patch.frames), [eye]: reference, ...(other ? { [partner]: other } : {}) } },
-    resolved: [...facts.resolved, ...pointers(eye, reference), ...(measured && other ? pointers(partner, other) : [])] }
+// Proposed frames; edges with an unknown transform resolve nothing.
+function framed(method: string, frames: Record<string, Data>): Facts {
+  const resolved = Object.entries(frames).filter(([, edge]) => edge.translation_m !== "???").flatMap(([name, edge]) =>
+    Object.entries(edge).map(([field, value]): [string, unknown] => [`/frames/${name}/${field}`, value]))
+  return { method, patch: { frames }, resolved }
 }
+
+const mount = (method: string, frame: string, data: Data, context: Context) => framed(method, { base: mounted(frame, data, context) })
+
+type Eye = "left" | "right"
+const otherEye = (eye: Eye): Eye => eye === "left" ? "right" : "left"
+
+// A stereo target chains base -> reference eye -> other eye; the reference's parent is base.
+async function stereoTarget({ cwd, run }: Context) {
+  const name = run.bindings.target ?? fail("Bind target")
+  const device = await ProfileStore.readDevice(cwd, name)
+  if (device?.type !== "rgb" || device.layout !== "stereo") return fail(`${name} is not a stereo rgb camera`)
+  const reference: Eye = device.frames.left?.parent === `${name}:base` ? "left" : "right"
+  return { name, frames: device.frames, reference, other: otherEye(reference) }
+}
+
+// Place one solved eye mount in the stereo chain without discarding a known edge.
+async function placeEye(context: Context, eye: Eye, solved: Data): Promise<Record<string, Data>> {
+  const { name, frames, reference, other } = await stereoTarget(context)
+  const parent = z.string().parse(solved.parent)
+  const measured = Pose.parse(solved)
+  const ref = edgePose(frames[reference]) ?? IDENTITY
+  const path = eye === reference ? ref : edgePose(frames[eye]) && compose(ref, edgePose(frames[eye])!)
+  // The eye's chain is known: the solve places base, writing an unknown reference as identity.
+  if (path) return { base: { parent, ...compose(measured, invert(path)) }, [reference]: { parent: `${name}:base`, ...ref } }
+  const base = edgePose(frames.base)
+  if (!base) return { base: { parent, ...measured }, [eye]: { parent: `${name}:base`, ...IDENTITY },
+    [reference]: { parent: `${name}:${eye}`, translation_m: "???", rotation_xyzw: "???" } }
+  if (frames.base!.parent !== parent) fail(`${name} is mounted on ${frames.base!.parent}; solve ${eye} in that frame`)
+  const known = edgePose(frames[reference]) ?? fail(`frames.${reference} is unknown; calibrate the reference eye first`)
+  return { [other]: { parent: `${name}:${reference}`, ...compose(invert(compose(base, known)), measured) } }
+}
+
+// A solved eye-to-eye baseline must match the nominal one within 5% (at least 2 mm).
+function baselineCheck(data: Data, nominal: number | undefined): Data {
+  if (data.ok === false || nominal === undefined) return data
+  return { ...data, baseline_error_m: Math.abs(number(data, "baseline_m") - nominal), baseline_tolerance_m: Math.max(.002, .05 * nominal) }
+}
+const baselineOk = (data: Data) => data.baseline_error_m === undefined || number(data, "baseline_error_m") <= number(data, "baseline_tolerance_m")
 
 // Stereo calibrates one eye per solve; every other camera has a single color stream.
-async function checkEye({ cwd, run }: Context, selected: "left" | "right" | undefined) {
+async function checkEye({ cwd, run }: Context, selected: Eye | undefined) {
   const camera = await ProfileStore.readDevice(cwd, run.bindings.target ?? fail("Bind target"))
   const stereo = camera?.type === "rgb" && camera.layout === "stereo"
   if (stereo !== (selected !== undefined)) fail(stereo ? "Select eye: left or right for stereo calibration" : "eye is only supported for stereo RGB")
@@ -200,21 +233,39 @@ const SOLVERS: { [O in Operation]: Solver<O> } = {
     },
     quality: data => number(data, "pairs_used") >= 5 && number(data, "residual_rot_deg") <= 2 &&
       number(data, "residual_trans_mm") <= 10 ? "passed" : "failed",
-    async facts(input, data, target, context) {
-      const facts = mount("hand_eye", input.mode === "eye_to_hand" ? "base" : input.frame, data, context)
-      return input.eye ? referenceEye(facts, input.eye, target, context) : facts
+    async facts(input, data, _, context) {
+      const solved = mounted(input.mode === "eye_to_hand" ? "base" : input.frame, data, context)
+      return framed("hand_eye", input.eye ? await placeEye(context, input.eye, solved) : { base: solved })
     },
   },
   "camera-stereo-extrinsics": {
     async solve(input, context) {
-      await checkEye(context, input.reference)
-      return script(skillScript("calibrate-camera-extrinsics", "solve_stereo_extrinsics.py"), ["--samples", await archived(context, input.samples),
-        "--mode", input.mode, "--reference", input.reference], context)
+      context.run.bindings.arm ?? fail("Bind arm")
+      const { other, reference, frames } = await stereoTarget(context)
+      if (input.eye_to_eye === "keep" && input.nominal_baseline_m !== undefined) fail("nominal_baseline_m applies only when solving the eye-to-eye transform")
+      const between = input.eye_to_eye === "keep"
+        ? edgePose(frames[other]) ?? fail(`eye_to_eye: keep needs a known frames.${other}; solve it or use eye_to_eye: solve`) : undefined
+      return baselineCheck(await script(skillScript("calibrate-camera-extrinsics", "solve_stereo_extrinsics.py"), ["--samples", await archived(context, input.samples),
+        "--mode", input.mode, "--reference", reference, ...(between ? ["--between", JSON.stringify(between)] : [])], context), input.nominal_baseline_m)
     },
-    quality: data => number(data, "pairs_used") >= 5 && number(data, "residual_deg") <= .5 ? "passed" : "failed",
+    quality: data => number(data, "pairs_used") >= 5 && number(data, "residual_deg") <= .5 && baselineOk(data) ? "passed" : "failed",
     async facts(input, data, target, context) {
-      const facts = mount("hand_eye", input.mode === "eye_to_hand" ? "base" : input.frame, data, context)
-      return referenceEye(facts, input.reference, target, context, data)
+      const { reference, other } = await stereoTarget(context)
+      const frames = await placeEye(context, reference, mounted(input.mode === "eye_to_hand" ? "base" : input.frame, data, context))
+      const partner = { parent: `${target}:${reference}`, translation_m: data.partner_translation_m, rotation_xyzw: data.partner_rotation_xyzw }
+      return framed("hand_eye", input.eye_to_eye === "solve" ? { ...frames, [other]: partner } : frames)
+    },
+  },
+  "camera-eye-to-eye": {
+    async solve(input, context) {
+      const { reference } = await stereoTarget(context)
+      return baselineCheck(await script(skillScript("calibrate-camera-extrinsics", "solve_stereo_extrinsics.py"),
+        ["--samples", await archived(context, input.samples), "--mode", "eyes", "--reference", reference], context), input.nominal_baseline_m)
+    },
+    quality: data => number(data, "pairs_used") >= 5 && number(data, "residual_deg") <= .5 && baselineOk(data) ? "passed" : "failed",
+    async facts(_, data, target, context) {
+      const { reference, other } = await stereoTarget(context)
+      return framed("stereo", { [other]: { parent: `${target}:${reference}`, translation_m: data.partner_translation_m, rotation_xyzw: data.partner_rotation_xyzw } })
     },
   },
   "camera-intrinsics": {
