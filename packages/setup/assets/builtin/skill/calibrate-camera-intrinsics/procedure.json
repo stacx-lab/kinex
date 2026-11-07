@@ -17,6 +17,22 @@
     {
       "role": "target",
       "pointer": "/color/distortion"
+    },
+    {
+      "role": "target",
+      "pointer": "/left/projection"
+    },
+    {
+      "role": "target",
+      "pointer": "/left/distortion"
+    },
+    {
+      "role": "target",
+      "pointer": "/right/projection"
+    },
+    {
+      "role": "target",
+      "pointer": "/right/distortion"
     }
   ],
   "computes": [

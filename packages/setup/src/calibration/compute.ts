@@ -10,7 +10,7 @@ import { deviceTree, modelErrors } from "@kinex/core/device/profile/urdf"
 import { known } from "@kinex/core/device/profile/schema"
 import { AttemptInput, attempt, archive, saveAttempt, type Attempt } from "./attempt.ts"
 import { procedures } from "../planning/procedures.ts"
-import { atomicJSON, fail, location, inspectFacts } from "../planning/facts.ts"
+import { atomicJSON, fail, location, inspectFacts, optionalText } from "../planning/facts.ts"
 import { Assets } from "../assets.ts"
 import { serialized } from "../planning/plan.ts"
 import { IDENTITY, compose, edgePose, invert, Pose } from "./rigid.ts"
@@ -19,6 +19,7 @@ const common = { ...AttemptInput.shape, timeout_s: z.number().positive().max(600
 const file = z.string().min(1).describe("Input file path, relative to invocation directory or absolute")
 const eye = z.enum(["left", "right"]).optional().describe("Eye being calibrated; required for stereo RGB")
 const frame = z.string().min(1).describe("URDF link whose poses the samples hold")
+const LENS_MODELS = ["opencv_brown_conrady", "opencv_fisheye"] as const
 const baseline = z.number().positive().optional()
   .describe("Nominal eye-to-eye baseline in metres; a solved baseline must match within 5% (at least 2 mm)")
 export const ComputeInput = z.discriminatedUnion("operation", [
@@ -32,8 +33,9 @@ export const ComputeInput = z.discriminatedUnion("operation", [
     eye_to_eye: z.enum(["solve", "keep"]).describe("keep holds the profile's known eye-to-eye transform; solve measures it with the mount"),
     nominal_baseline_m: baseline, mode: z.enum(["eye_in_hand", "eye_to_hand"]), frame }),
   z.strictObject({ ...common, operation: z.literal("camera-eye-to-eye"), samples: file, nominal_baseline_m: baseline }),
-  z.strictObject({ ...common, operation: z.literal("camera-intrinsics"), images: z.array(file).min(10), eye,
-    model: z.enum(["opencv_brown_conrady", "opencv_fisheye"]).default("opencv_brown_conrady"),
+  z.strictObject({ ...common, operation: z.literal("camera-intrinsics"), eye,
+    images: z.array(file).min(10).optional().describe("Defaults to this run's captures of the target (the selected eye for stereo)"),
+    model: z.enum(LENS_MODELS).optional().describe("Defaults to the stream's current distortion model; opencv_fisheye for fisheye lenses"),
     board: z.enum(["charuco", "checkerboard"]).default("charuco"), square_mm: z.number().positive(),
     marker_mm: z.number().positive().optional(), squares_x: z.number().int().min(2).default(7), squares_y: z.number().int().min(2).default(5),
     corners_x: z.number().int().min(2).default(9), corners_y: z.number().int().min(2).default(6), dictionary: z.string().default("DICT_4X4_50") }),
@@ -177,6 +179,22 @@ function baselineCheck(data: Data, nominal: number | undefined): Data {
 }
 const baselineOk = (data: Data) => data.baseline_error_m === undefined || number(data, "baseline_error_m") <= number(data, "baseline_tolerance_m")
 
+// This run's archived calib_sample captures of one camera stream, in capture order.
+async function captures({ directory }: Context, target: string, stream: string) {
+  const text = await optionalText(path.join(directory, "samples.json")) ?? fail("Pass images or reuse the sampling run")
+  const samples = z.array(z.object({ device: z.string(), file: z.string().optional(), data: z.record(z.string(), z.unknown()) })).parse(JSON.parse(text))
+  const images = samples.filter(sample => sample.device === target)
+    .flatMap(sample => z.string().safeParse(stream === "color" ? sample.file : sample.data[`${stream}_file`]).data ?? [])
+  return images.length ? images : fail(`This run has no ${stream} captures of ${target}; pass images or reuse the sampling run`)
+}
+
+// The requested lens model, else the stream's current OpenCV distortion model.
+async function lensModel({ cwd }: Context, target: string, stream: string, requested?: (typeof LENS_MODELS)[number]) {
+  const device = await ProfileStore.readDevice(cwd, target)
+  const current = z.object({ distortion: z.object({ model: z.enum(LENS_MODELS) }) }).safeParse(device && Reflect.get(device, stream)).data
+  return requested ?? current?.distortion.model ?? fail("Choose model: opencv_brown_conrady, or opencv_fisheye for fisheye lenses")
+}
+
 // Stereo calibrates one eye per solve; every other camera has a single color stream.
 async function checkEye({ cwd, run }: Context, selected: Eye | undefined) {
   const camera = await ProfileStore.readDevice(cwd, run.bindings.target ?? fail("Bind target"))
@@ -271,16 +289,20 @@ const SOLVERS: { [O in Operation]: Solver<O> } = {
   "camera-intrinsics": {
     async solve(input, context) {
       await checkEye(context, input.eye)
+      const target = context.run.bindings.target ?? fail("Bind target")
+      const stream = input.eye ?? "color"
+      const model = await lensModel(context, target, stream, input.model)
+      const sources = input.images ?? await captures(context, target, stream)
       // A distinct image directory keeps this solve's inputs apart from other artifacts.
       const images = path.join(context.directory, "artifacts", shortID())
       await mkdir(images)
-      const copies = await Promise.all(input.images.map(async (image, index) => {
+      const copies = await Promise.all(sources.map(async (image, index) => {
         const copy = path.join(images, `${index}${path.extname(image)}`)
         await copyFile(path.resolve(context.cwd, image), copy)
         return copy
       }))
       return script(skillScript("calibrate-camera-intrinsics", "calibrate_intrinsics.py"), ["--images", ...copies,
-        "--model", input.model, "--board", input.board, "--square-mm", String(input.square_mm), "--squares-x", String(input.squares_x),
+        "--model", model, "--board", input.board, "--square-mm", String(input.square_mm), "--squares-x", String(input.squares_x),
         "--squares-y", String(input.squares_y), "--corners-x", String(input.corners_x), "--corners-y", String(input.corners_y),
         "--dict", input.dictionary, ...(input.marker_mm === undefined ? [] : ["--marker-mm", String(input.marker_mm)])], context)
     },

@@ -27,7 +27,25 @@ def fisheye_monotonic(coefficients) -> bool:
     return bool((np.polynomial.polynomial.polyval(theta2, [1, *[(2 * i + 3) * k for i, k in enumerate(coefficients)]]) > 0).all())
 
 
-def solve(object_points, image_points, size, model):
+def solve(object_points, image_points, size, model, min_frames=1):
+    """Return (rms, camera matrix, distortion, per-view RMS, kept view positions) for one stream.
+
+    The fisheye solver names an ill-conditioned view; it is dropped and the rest re-solved.
+    """
+    import re
+    import cv2
+    kept = list(range(len(object_points)))
+    while True:
+        try:
+            return (*fit([object_points[i] for i in kept], [image_points[i] for i in kept], size, model), kept)
+        except cv2.error as error:
+            match = re.search(r"Ill-conditioned matrix for input array (\d+)", str(error))
+            if model != "opencv_fisheye" or not match or len(kept) <= min_frames:
+                raise
+            del kept[int(match.group(1))]
+
+
+def fit(object_points, image_points, size, model):
     """Return (rms, camera matrix, distortion, per-view RMS) for one stream."""
     import cv2
     import numpy as np
@@ -139,10 +157,12 @@ def main() -> None:
         )
 
     try:
-        rms, camera_matrix, distortion, errors = solve(object_points, image_points, size, args.model)
+        rms, camera_matrix, distortion, errors, kept = solve(object_points, image_points, size, args.model, args.min_frames)
     except (cv2.error, ValueError) as error:
-        fail(f"{args.model} calibration failed: {error}")
-    frames = [{"index": index, "error_px": round(error, 3)} for index, error in zip(used, errors)]
+        fail(f"{args.model} calibration failed: {error}", rejected=rejected)
+    rejected += [{"index": index, "reason": "ill-conditioned view"} for position, index in enumerate(used) if position not in kept]
+    image_points = [image_points[position] for position in kept]
+    frames = [{"index": used[position], "error_px": round(error, 3)} for position, error in zip(kept, errors)]
 
     # Coverage: warn when no detections land in a quadrant of the image.
     warnings = []
@@ -168,7 +188,7 @@ def main() -> None:
                 "rms_px": rms,
                 "frames_used": len(frames),
                 "frames": frames,
-                "rejected": rejected,
+                "rejected": sorted(rejected, key=lambda item: item["index"]),
                 "coverage_warnings": warnings,
             }
         )
