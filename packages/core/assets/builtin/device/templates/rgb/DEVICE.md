@@ -6,6 +6,7 @@ description: Color camera with profile intrinsics and a calibrated optical frame
 
 ## Setup
 
+Set `layout: mono` for one color stream or `layout: stereo` for a pair (below).
 Declare color geometry (`width`, `height`, `fps`, `projection`, `distortion`);
 For undistorted pinhole streams Kinex derives `fov`. SDKs may own active calibration. `frames.base`
 is the optical frame (+X right, +Y down, +Z forward) and its mount. Stamp every
@@ -29,8 +30,8 @@ it into the device directory and set `SOURCE` to the driver's image topic.
 
 ### Stereo
 
-A stereo pair is one `rgb` device. Declare `left` and `right` geometry instead of
-`color`, publish `left_image` and `right_image` instead of `image`, and declare
+A stereo pair is one `rgb` device with `layout: stereo`. Declare `left` and `right`
+geometry instead of `color`, publish `left_image` and `right_image` instead of `image`, and declare
 `frames.left` and `frames.right` as the optical frames, setting each `header.frame_id`
 to `<device>/left` or `<device>/right`. Eyes may differ in resolution. Frames chain
 `base` -> reference eye -> other eye: the reference eye's parent is `<device>:base` and
@@ -52,6 +53,7 @@ imply hardware synchronization: consumers compare stamps. Serve geometry with
 ```yaml
 name: rgb
 type: rgb
+layout: mono
 loaded: false
 description: ''
 runtime:
@@ -74,9 +76,16 @@ frames:
   base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```
 
-A stereo profile replaces `color`, the `image` operation and `frames` with:
+A stereo profile:
 
 ```yaml
+name: rgb
+type: rgb
+layout: stereo
+loaded: false
+description: ''
+runtime:
+  nodes: [{entry: node.py, factory: create}]
 left: {width: ???, height: ???, fps: ???, projection: ???, distortion: ???}
 right: {width: ???, height: ???, fps: ???, projection: ???, distortion: ???}
 operations:

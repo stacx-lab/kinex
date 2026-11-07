@@ -89,9 +89,10 @@ service descriptors identify the active calibration. Raw pixels remain unchanged
 Distorted FOV is supplied or unknown, not calculated during parsing.
 
 Native RGB-D profiles declare `color` and `depth` frames and resolve
-depth-to-color geometry through tf2. Stereo RGB profiles declare `left` and `right`
-geometry instead of `color`, plus `frames.left` and `frames.right` optical frames;
-they chain `base` -> reference eye -> other eye, and `base` carries the mount.
+depth-to-color geometry through tf2. RGB profiles state `layout: mono` or
+`layout: stereo`; stereo profiles declare `left` and `right` geometry instead of
+`color`, plus `frames.left` and `frames.right` optical frames chained `base` ->
+reference eye -> other eye, where `base` carries the mount.
 Model devices have no frames.
 Calibration procedures write top-level facts and `frames.<name>`, using
 `profile:<device>` readiness items.

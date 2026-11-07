@@ -147,7 +147,7 @@ async function referenceEye(facts: Facts, eye: "left" | "right", target: string,
 // Stereo calibrates one eye per solve; every other camera has a single color stream.
 async function checkEye({ cwd, run }: Context, selected: "left" | "right" | undefined) {
   const camera = await ProfileStore.readDevice(cwd, run.bindings.target ?? fail("Bind target"))
-  const stereo = camera?.type === "rgb" && camera.left !== undefined
+  const stereo = camera?.type === "rgb" && camera.layout === "stereo"
   if (stereo !== (selected !== undefined)) fail(stereo ? "Select eye: left or right for stereo calibration" : "eye is only supported for stereo RGB")
 }
 

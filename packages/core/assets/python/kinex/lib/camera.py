@@ -37,6 +37,20 @@ def project(stream, point):
     return p["fx"]*x + p["skew"]*y + p["cx"], p["fy"]*y + p["cy"]
 
 
+def stereo(camera):
+    """Whether a camera profile is a stereo rgb pair (layout: stereo)."""
+    return camera.get("layout") == "stereo"
+
+
+def camera_stream(camera, eye=None):
+    """The geometry stream an eye selects: color, or a stereo camera's left or right."""
+    if stereo(camera) != (eye is not None):
+        raise ValueError("eye is required for, and only supported by, a stereo camera")
+    if eye not in (None, "left", "right"):
+        raise ValueError("eye must be left or right")
+    return eye or "color"
+
+
 def array(message):
     """Native-order pixels of a sensor_msgs/Image: HxWx3 RGB or HxW mono8/16UC1."""
     if message.encoding not in ENCODINGS:
@@ -66,8 +80,6 @@ async def frame(io, camera, *, timeout_s=None, eye=None):
     of equal stamp. eye selects a stereo camera's left or right image. timeout_s defaults
     to the image operation's timeout_s.
     """
-    if eye is None and f"{camera}.left_image" in io.catalog:
-        raise ValueError("select eye: left or right for a stereo camera")
     names = [f"{eye}_image"] if eye else ["image"] + (["depth"] if f"{camera}.depth" in io.catalog else [])
     streams = [io.subscribe(f"{camera}.{name}") for name in names]
     limit = timeout_s if timeout_s is not None else io.operation(f"{camera}.{names[0]}").get("timeout_s", 10)
