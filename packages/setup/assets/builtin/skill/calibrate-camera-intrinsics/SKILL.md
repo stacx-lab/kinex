@@ -17,21 +17,25 @@ can generate a target; a printout's nominal dimensions are not measurements.
 Collect sharp views across image corners, distance and tilt. Start with 10 usable
 frames and add views only for insufficient coverage or quality; 15–25 often suffice.
 Use `calib_sample` with the procedure and bindings, then reuse its run ID for
-each camera sample. Camera images are archived; pass selected artifact paths to `calib_compute` with
-`operation:camera-intrinsics`, `images`, `board`, and measured `square_mm`.
+each camera sample and for `calib_compute operation:camera-intrinsics` with `board` and
+measured `square_mm`. `images` defaults to the run's archived captures of the target;
+pass selected artifact paths only to exclude captures.
 Declare marker dimensions/dictionary for ChArUco and corner counts for checkerboards.
 
 At least 10 frames and RMS <= 1 px are required. RMS < 0.5 px is good; 0.5–1 px
 or incomplete image coverage requires checking the task's accuracy needs. Above
 1 px, diagnose blur, wrong target geometry or poor coverage before recollecting.
 
-Choose the distortion model with `model`: `opencv_brown_conrady` (default) or, for
-fisheye lenses, `opencv_fisheye`, whose `coefficients:[k1,k2,k3,k4]` suit
-`OpenCVGeometry(stream, fisheye=True)`. Do not fit raw fisheye images with Brown-Conrady.
+`model` defaults to the stream's current OpenCV distortion model; on a first
+calibration choose `opencv_brown_conrady` or, for fisheye lenses, `opencv_fisheye`,
+whose `coefficients:[k1,k2,k3,k4]` suit `OpenCVGeometry(stream, fisheye=True)`. Do not
+fit raw fisheye images with Brown-Conrady. Views the fisheye solver finds
+ill-conditioned are rejected and the rest re-solved.
 
-For stereo RGB, calibrate each eye in its own solve from that eye's `left_file` or
-`right_file` samples, and pass `eye:left` or `eye:right`. Never mix the eyes' images;
-the result proposes that eye's `left` or `right` fields.
+For stereo RGB, calibrate each eye in its own solve with `eye:left` or `eye:right`;
+captures default to that eye's images, and the result proposes that eye's `left` or
+`right` fields. With the board held still at each capture, the same run's paired
+views also measure the eye-to-eye transform (see calibrate-camera-extrinsics).
 
 Apply accepted color fields with `profile_write`, retaining active stream formats.
 Keep RGB-D depth scale/registration/range from the SDK; the board does not measure

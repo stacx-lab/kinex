@@ -266,10 +266,21 @@ test('stereo calibration solves one eye at a time and its proposals fit the prof
   assert.match((await compute(intrinsics('pair'))).output, /Select eye/)
   assert.match((await compute({ ...intrinsics('mono'), eye: 'left' })).output, /only supported for stereo/)
 
+  assert.match((await compute({ ...intrinsics('pair'), eye: 'left', model: undefined })).output, /Choose model/)
   const solved = JSON.parse((await compute({ ...intrinsics('pair'), eye: 'left' })).output)
   assert.notEqual(solved.quality, 'failed', JSON.stringify(solved.data))
   assert.ok(solved.resolved.every(fact => fact.pointer.startsWith('/left/')))
   await runtime.profiles.writeDevice(solved.proposedChanges[0].data)
+
+  // Reusing the sampling run supplies each eye's captures; the profile supplies a known lens model.
+  const captures = images.map((file, index) => ({ index, device: 'pair', data: { left_file: file, right_file: file } }))
+  await writeFile(path.join(directory, '.kinex/calib', solved.run, 'samples.json'), JSON.stringify([{ index: 99, device: 'arm', data: {} }, ...captures]))
+  const reuse = { operation: 'camera-intrinsics', run: solved.run, square_mm: 30 }
+  const left = JSON.parse((await compute({ ...reuse, eye: 'left' })).output)
+  assert.equal(left.data.frames_used, solved.data.frames_used)
+  assert.equal(left.data.distortion.model, 'opencv_fisheye')
+  assert.match((await compute({ ...reuse, eye: 'right' })).output, /Choose model/)
+  assert.ok(JSON.parse((await compute({ ...reuse, eye: 'right', model: 'opencv_fisheye' })).output).resolved.every(fact => fact.pointer.startsWith('/right/')))
 
   const extrinsics = { operation: 'camera-extrinsics', procedure: 'calibrate-camera-extrinsics', bindings: { target: 'pair', arm: 'arm' },
     samples: path.join(evidence, 'pairs.json'), mode: 'eye_in_hand', frame: 'flange' }
