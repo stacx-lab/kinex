@@ -1,6 +1,7 @@
 """Camera images: current frames, pixel arrays for computation and files for finish()."""
 
-from kinex.lib.camera import array, frame, save, stereo_frame as read_stereo
+from kinex import profile
+from kinex.lib.camera import array, camera_stream, frame, save, stereo_frame as read_stereo
 
 
 async def camera_frame(io, camera, timeout_s=None, eye=None):
@@ -11,6 +12,7 @@ async def camera_frame(io, camera, timeout_s=None, eye=None):
 
     Example: image, depth = await helpers.camera_frame(io, "camera")
     """
+    camera_stream(profile(camera), eye)
     return await frame(io, camera, timeout_s=timeout_s, eye=eye)
 
 
@@ -21,6 +23,7 @@ async def stereo_frame(io, camera, timeout_s=None):
 
     Example: left, right = await helpers.stereo_frame(io, "camera")
     """
+    camera_stream(profile(camera), "left")
     return await read_stereo(io, camera, timeout_s=timeout_s)
 
 

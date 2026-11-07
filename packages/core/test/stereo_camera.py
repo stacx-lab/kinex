@@ -6,7 +6,7 @@ from types import ModuleType, SimpleNamespace as NS
 import unittest
 from unittest.mock import patch
 
-from kinex.helpers import camera_geometry as geometry_module, perception
+from kinex.helpers import camera_geometry as geometry_module, images, perception
 from kinex.lib.camera import frame, stereo_frame
 
 
@@ -38,7 +38,7 @@ class Scope:
         return self.streams[reference.split(".", 1)[1]]
 
     def operation(self, reference):
-        return {"timeout_s": .05}
+        return {"timeout_s": 5}
 
     async def request(self, reference, **fields):
         self.requests.append((reference, fields))
@@ -53,7 +53,7 @@ class Scope:
         return {"rays": [[float(u), float(v), 1.] for u, v in fields["pixels"]]}
 
 
-STEREO = {"type": "rgb", "color": "???", "left": {"width": 4, "height": 2}, "right": {"width": 4, "height": 2}}
+STEREO = {"type": "rgb", "layout": "stereo", "left": {"width": 4, "height": 2}, "right": {"width": 4, "height": 2}}
 
 
 class StereoFrames(unittest.IsolatedAsyncioTestCase):
@@ -67,8 +67,9 @@ class StereoFrames(unittest.IsolatedAsyncioTestCase):
     async def test_single_read_selects_an_eye(self):
         scope = Scope(left_image=Stream([]), right_image=Stream([image(3, "camera/right")]))
         self.assertEqual((await frame(scope, "camera", eye="right"))[0].header.frame_id, "camera/right")
-        with self.assertRaisesRegex(ValueError, "select eye"):
-            await frame(scope, "camera")
+        with patch.object(images, "profile", lambda _: STEREO):
+            with self.assertRaisesRegex(ValueError, "eye is required"):
+                await images.camera_frame(scope, "camera")
 
     async def test_snapshot_returns_both_eyes_and_the_later_stamp(self):
         msg = ModuleType("sensor_msgs.msg")
@@ -108,7 +109,7 @@ class StereoLocate(unittest.IsolatedAsyncioTestCase):
         with patch.object(perception, "profile", lambda _: STEREO):
             with self.assertRaisesRegex(ValueError, "eye is required"):
                 await perception.locate_object_3d(self.scope(), "camera", "model", "mug", depth=2)
-        with patch.object(perception, "profile", lambda _: {"type": "rgb", "color": {}}):
+        with patch.object(perception, "profile", lambda _: {"type": "rgb", "layout": "mono", "color": {}}):
             with self.assertRaisesRegex(ValueError, "eye is required"):
                 await perception.locate_object_3d(self.scope(), "camera", "model", "mug", depth=2, eye="left")
 

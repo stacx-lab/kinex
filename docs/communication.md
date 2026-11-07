@@ -11,6 +11,7 @@ discovery or activate Python in ordinary shells.
 name: camera
 description: Fixed scene camera with calibrated optical frame
 type: rgb
+layout: mono
 loaded: false
 runtime:
   domain_id: 0

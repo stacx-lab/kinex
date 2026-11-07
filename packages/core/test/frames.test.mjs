@@ -30,7 +30,7 @@ test('other devices may omit frames; spatial types and declared frames still nee
   assert.equal(device.frames, undefined)
   assert.deepEqual(frameErrors([device]), [])
   assert.equal(Device.safeParse({ ...bare, frames: {} }).success, false)
-  assert.equal(Device.safeParse({ ...bare, type: 'rgb' }).success, false)
+  assert.equal(Device.safeParse({ ...bare, type: 'rgb', layout: 'mono' }).success, false)
 })
 
 test('frame validation catches local and cross-device missing references and cycles', () => {

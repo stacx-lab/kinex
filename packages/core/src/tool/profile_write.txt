@@ -3,7 +3,7 @@ Persist profile facts in the workspace:
 - device: partial profile; name is required, type and description on first write, plus frames.base for spatial devices. Use setup-device and the selected guide for new devices.
 - needed: {item,note?}; queue the reason without changing existing provenance.
 
-Patches deep-merge. To switch a strict variant, supply the complete top-level section and list it in replace (e.g. ["model"]). Arrays replace wholesale. null removes an optional section only when listed in replace. Changing device type replaces its profile. Invalid updates are not saved.
+Patches deep-merge. To switch a strict variant, supply the complete top-level section and list it in replace (e.g. ["model"]). Arrays replace wholesale. null removes an optional section only when listed in replace. Changing device type or rgb layout replaces its profile, so supply the complete profile. Invalid updates are not saved.
 
 Outstanding requests persist across reads and replacements. Clear a resolved request with top-level needs_calibration:null for profile:<device> (or in access for access:<device>); the store rejects clearing incomplete facts. Unknown required facts remain ???. Set source to the origin of the data; keep diagnostics in calibration evidence.
 

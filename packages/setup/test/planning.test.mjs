@@ -46,6 +46,7 @@ test('only task targets and ancestors advance; no global calibration gate', asyn
   await runtime.profiles.writeDevice({ description: '',
     name: 'camera',
     type: 'rgb',
+    layout: 'mono',
     loaded: true,
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await runtime.profiles.writeDevice({ description: '',
