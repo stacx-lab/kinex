@@ -15,7 +15,6 @@ function write(level: Level, service: string, message: string, extra?: Record<st
 
 export function create(service: string) {
   return {
-    info: (message: string, extra?: Record<string, unknown>) => write("INFO", service, message, extra),
     warn: (message: string, extra?: Record<string, unknown>) => write("WARN", service, message, extra),
   }
 }

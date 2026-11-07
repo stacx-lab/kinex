@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
-import { Type, Unsafe } from "typebox"
-import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent"
+import { Unsafe } from "typebox"
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent"
 import { PermissionDeniedError, QuestionDeclinedError, type Result } from "@kinex/core"
 import type { KinexCapabilities } from "@kinex/core/integration"
 import type { Interaction } from "./interaction.ts"
@@ -15,7 +15,7 @@ export async function piResult(result: Result, signal?: AbortSignal): Promise<Aw
   return { content, details: { kinex: { title: result.title, isError: result.isError, metadata: result.metadata } } }
 }
 
-export function toolBridge(pi: ExtensionAPI, runtime: Pick<KinexCapabilities, "tools">, interaction: Interaction, namespaceConflicts = false) {
+export function toolBridge(pi: ExtensionAPI, runtime: Pick<KinexCapabilities, "tools">, interaction: Interaction) {
   const registered = new Map<string, string>()
   const present = new Set<string>()
   return {
@@ -24,26 +24,26 @@ export function toolBridge(pi: ExtensionAPI, runtime: Pick<KinexCapabilities, "t
       const catalog = await runtime.tools.list()
       const foreign = new Set(bound ? pi.getAllTools().map(tool => tool.name).filter(name => !registered.has(name)) : [])
       // Built-ins must retain their native semantics even before session binding.
-      for (const name of ["read", "write", "edit", "bash", "grep", "find", "ls", "question", "kinex_skill"]) foreign.add(name)
+      for (const name of ["read", "write", "edit", "bash", "grep", "find", "ls", "question"]) foreign.add(name)
       const problems = [...catalog.problems]
       const next = new Set<string>()
       const added: string[] = []
       for (const tool of catalog.tools) {
-        const name = foreign.has(tool.name) && namespaceConflicts ? `kinex_${tool.name}` : tool.name
-        if (foreign.has(name)) { problems.push(`Kinex tool ${tool.name} conflicts with a host tool`); continue }
+        const { name } = tool
+        if (foreign.has(name)) { problems.push(`Kinex tool ${name} conflicts with a host tool`); continue }
         if (next.has(name)) throw new Error(`Kinex tool names collide in the host: ${name}`)
         next.add(name)
         if (!present.has(name)) added.push(name)
         const fingerprint = JSON.stringify(tool)
         if (registered.get(name) === fingerprint) continue
         pi.registerTool({
-          name, label: `Kinex ${tool.name}`, description: tool.description,
-          ...toolRenderers(tool.name, name),
+          name, label: `Kinex ${name}`, description: tool.description,
+          ...toolRenderers(name),
           parameters: Unsafe<Record<string, unknown>>(tool.inputSchema), executionMode: "sequential",
           async execute(callID, args, signal, _update, ctx) {
-            if (!present.has(name)) throw new Error(`Tool ${tool.name} is no longer available`)
+            if (!present.has(name)) throw new Error(`Tool ${name} is no longer available`)
             try {
-              return await interaction.run(ctx, signal, async combined => piResult(await runtime.tools.call(tool.name, args, {
+              return await interaction.run(ctx, signal, async combined => piResult(await runtime.tools.call(name, args, {
                 sessionID: ctx.sessionManager.getSessionId(), callID, abort: combined, directory: ctx.cwd,
                 ask: async request => { await interaction.host.ask?.(request) }, questions: questions => interaction.questions(questions),
               }), combined))
@@ -60,7 +60,7 @@ export function toolBridge(pi: ExtensionAPI, runtime: Pick<KinexCapabilities, "t
       for (const name of next) present.add(name)
       return { problems, added, removed }
     },
-    async refreshActive(_ctx: ExtensionContext) {
+    async refreshActive() {
       const result = await this.refresh(true)
       if (result.added.length || result.removed.size) pi.setActiveTools([...new Set([
         ...pi.getActiveTools().filter(name => !result.removed.has(name)), ...result.added,
@@ -68,17 +68,4 @@ export function toolBridge(pi: ExtensionAPI, runtime: Pick<KinexCapabilities, "t
       return result.problems
     },
   }
-}
-
-export function registerSkillTool(pi: ExtensionAPI, capabilities: Pick<KinexCapabilities, "skills">) {
-  pi.registerTool({
-    name: "kinex_skill", label: "Kinex skill", description: "Load a Kinex skill from any enabled feature package, using the current skill catalog.",
-    parameters: Type.Object({ name: Type.String() }), executionMode: "sequential",
-    async execute(_callID, args, signal) {
-      signal?.throwIfAborted()
-      const skill = await capabilities.skills.load(args.name)
-      if (!skill) throw new Error(`Unknown Kinex skill: ${args.name}`)
-      return { content: [{ type: "text", text: `${skill.content}\n\nBase directory: ${skill.info.directory}${skill.info.requires ? `\nCalibration requirements: ${skill.info.requires}` : ""}` }], details: {} }
-    },
-  })
 }

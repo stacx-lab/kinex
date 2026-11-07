@@ -1,5 +1,18 @@
-Run ordinary Python source or a script file with Kinex runtime access. Import device, devices, call, profile, robot, or Device from kinex. call("servo", device="arm", joints=target) and call("servo", **params) take keyword arguments, not a positional dictionary; device("world", "wait", {"duration_s": duration}) takes an argument dictionary. call composes Python tools or device/devices, not host tools. print() goes to output; finish(value, file=path_or_paths) returns JSON with one or more images in order.
-
-When the next decision needs images, control, wait as needed, read measured feedback, and capture selected cameras with output="file" in the same script; return their paths through finish. Blocking servo already waits its planned duration; verify arrival instead of waiting it again. Printing paths does not attach images.
-
-Use bounded Python loops for feedback control, checking faults and missing feedback; call stop_owned() when ending a loop that must stop motion. Return images to the model when further control requires visual interpretation. Device lifecycle changes and recording tool calls are unavailable. Failure, timeout or cancellation stops owned motion; successful completion may leave motion running.
+Run Python source or a script in the workspace's Kinex Python. Device environments and the world clock never choose this interpreter. Python cannot load/unload devices or control recording; lifecycle remains host-controlled. One execution approval covers composed operations.
+Discover interfaces on demand, without starting devices:
+  from kinex import runtime, finish
+  devices = runtime.devices()
+  # runtime.operations(device_name) lists declared operations, even if unloaded.
+  # runtime.describe(operation) resolves ROS payload schemas when needed.
+  finish({"devices": [{"name": d["name"], "loaded": d["loaded"]} for d in devices]})
+Use actual operation names from these queries, not names inferred from device types. Catalogs remain in Python until you explicitly return selected fields. Load required devices through the host before communication.
+For async protocol work, import communication, args, finish from kinex. For example, where args supplies a discovered command topic and its ROS payload:
+  async def main():
+      a = args()
+      async with communication() as io:
+          await io.publish(a["operation"], a["payload"])
+      finish({"sent": True})
+  # Execute with asyncio.run(main()). Sending is not measured arrival.
+Use io.subscribe(operation, depth=1) and await stream.next(timeout_s=...) for output topics (with or async with closes the stream early); await io.request(operation, **fields) for services. World wait operations own scheduling, one wait at a time. Observations and tf2 queries never advance world time. Bound work, inspect fresh measured feedback, and stop on terminal task status. Service rejections raise kinex.OperationError with operation, response and structured details; inspect the response and relevant feedback before deciding how to recover.
+Import helpers with from kinex import helpers. Read kinex/helpers/helpers.txt under the Python library directory in runtime context for available functions and implementation paths. Builtin Python tools are interfaces to these helpers; call them directly to share this invocation's communication and cleanup. Put workspace-specific helpers in .kinex/lib, which exec can import.
+Failure, timeout or cancellation stops every device this invocation commanded; success leaves their motion running. finish(value, file=paths) returns selected summaries as JSON, converting ROS messages and NumPy values, and images only through file paths, after leaving the communication scope. Do not print entire catalogs or raw streams unless requested.

@@ -5,11 +5,12 @@ description: Verify selected height or attitude references and moving attachment
 
 # Verify base posture
 
-Declare only the selected mode and measured channels as plan inputs; unused modes
-and feedback channels are not prerequisites.
+Declare only the selected mode and measured axes as plan inputs; unused modes and
+axes are not prerequisites.
 
-Bind `base` to its velocity endpoint and inspect the selected mode's posture
-components and reference. Support only exposed height/roll/pitch/yaw axes. Torso
+Bind `base` to its locomotion device and reach a mode that accepts posture through
+its declared transitions. Posture axes are offsets from the nominal stance; support
+only the declared height/roll/pitch/yaw axes. Torso
 yaw posture is distinct from base turning velocity. Use a documented reference
 and independent measurements where needed to establish physical zero or units.
 
@@ -28,7 +29,7 @@ Stop on faults, unexpected movement or operator interruption.
 Archive samples, independent references and selected acceptance criteria, then run
 calib_compute operation:verify-base using its documented measurement format.
 Report missing measurements as partial. Persist only verified reference/default
-facts; correct proven driver conversion errors through setup-device and reload.
+facts; correct proven node conversion errors through setup-device and reload.
 Do not infer safe limits from a handful of successful trials or tune the gait.
 Return to the task once its selected requirements are met.
 

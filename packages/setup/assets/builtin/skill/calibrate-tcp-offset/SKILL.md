@@ -1,18 +1,19 @@
 ---
 name: calibrate-tcp-offset
-description: Measure flange-to-tool-tip translation by pivot touches when a task needs a TCP; orientation remains a separate fact.
+description: Measure the tool-tip translation in a gripper or suction tool's base by pivot touches when a task needs a TCP; orientation remains a separate fact.
 ---
 
 # Calibrate tcp offset
 
-Bind `target` to the gripper and `arm` to its parent arm. Require a known
-mount in the sampled arm frame. The fit updates `intrinsics.frames.tcp`, relative
-to the gripper base, preserving TCP orientation and the existing mount.
+Bind `target` to the gripper or suction tool and `arm` to its parent arm. Require
+a known mount in the sampled arm frame. The fit updates `frames.tcp`, relative to
+the tool's base, preserving TCP orientation and the existing mount. A suction
+tool's TCP is the cup contact centre.
 
 Prefer verified controller TCP settings or a matching tool datasheet. Archive the
 source with provenance rather than repeating measurement. Otherwise require
-attachment-frame poses computed through FK from measured joints. Native FK
-conversion already removes the reported TCP offset; do not subtract it twice.
+attachment-link poses computed through URDF FK from measured joints; the URDF
+link excludes any controller TCP offset.
 
 Prefer hand-guiding a rigid pointed tool to one fixed reference point. Two repeated
 touches from the same orientation should agree within about 3 mm; otherwise fix
@@ -21,7 +22,7 @@ Never command motion while touching. When powered approaches are needed, retract
 before reorientation and approach in user-confirmed approximately 5 mm steps at
 an appropriate low speed. Wait for execution and verify measured arrival.
 
-Capture with `calib_sample frame:<attachment-frame>` into one attempt, using settling only when supported
+Capture with `calib_sample frame:<attachment-link>` into one attempt, using settling only when supported
 by measured velocity feedback. Collect at least 4 orientations separated by roughly
 20 degrees; 6–8 are typical. From sample 4 onward run `calib_compute operation:fit-tcp`
 with `samples` and the actual attachment `frame`, reusing the run ID. Stop collecting
@@ -31,6 +32,6 @@ Mean residual < 5 mm is good, 5–10 mm needs review against the task's accuracy
 > 10 mm fails. Archive exclusions and original readings rather than silently
 removing outliers. Persist accepted translation only. Pivoting does not measure
 orientation: preserve a verified rotation, or leave it unknown. A task requiring
-translation alone may proceed while a broader extrinsics request stays open.
+translation alone may proceed while a broader profile calibration request stays open.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.

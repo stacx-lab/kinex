@@ -6,7 +6,8 @@ description: Measure a camera mount from robot poses and board observations when
 # Calibrate camera extrinsics
 
 Bind `target` to the camera and `arm` to the observing arm. Require the camera's
-color projection/distortion and the selected arm's model and measured attachment
+usable color geometry (services or explicit undistorted pinhole intrinsics)
+and the selected arm's model and measured attachment
 frame. Bind frame-specific prerequisites in the plan; do not require world
 localization for an arm-local measurement. RGB-D uses the COLOR optical frame.
 
@@ -16,34 +17,55 @@ Use known/measured board geometry. On mobile robots the relationship assumed fix
 by the solver must actually remain fixed during collection. Base/torso motion that
 changes it invalidates those pairs; holding commanded zero is not proof of rest.
 
-Verify participating devices answer before physical preparation. Move with
-`servo speedFraction <= 0.15`. Servo waits its planned duration by default.
-Set `block=false` for non-blocking motion. Verify measured arrival.
+Verify participating devices answer before physical preparation. Plan motion with
+`kinex.helpers.trajectory` using `fraction <= 0.15`, submit through the device's
+declared command operation, wait on the world clock and verify measured arrival.
 Record the named attachment frame, without applying TCP offset.
-Use `calib_sample` for robot evidence and camera artifacts, passing
-`args: {output: "file"}` for every camera sample. Retain both sample IDs and
-timestamps. Sequential captures are not claimed to be synchronized.
+At each pose, take `calib_sample` of the arm with `frame`, then of the camera; a
+retake replaces the previous capture. Sequential captures are not claimed to be
+synchronized. Use at least 5 diverse poses; 10–15 are typical. Prefer rotations
+separated by roughly 20 degrees.
 
-`scripts/detect_board.py` detects ChArUco/checkerboard observations. Archive selected
-pairs as `[{frame_pose:[x,y,z,qx,qy,qz,qw],rvec:[...],tvec:[...]}]` outside the
-sampler-owned samples.json. Exclude failed detections with reasons. Use at least
-5 diverse pairs; 10–15 are typical. Prefer rotations separated by roughly 20 degrees.
+Turn the captures into observations with one exec of `scripts/board_observations.py`
+(pass its absolute path under this skill's base directory as `file`) with argv
+`--samples .kinex/calib/<run>/samples.json --camera <camera> --arm <arm> --frame <frame>
+--output <file> --square-mm <measured>` plus board options. It pairs each settled arm
+pose with the camera capture after it, detects the board, unprojects corners through
+the camera's active geometry (any lens model), and reports rejected samples and the
+geometry calibration IDs; keep them in evidence. Add `--eye` to observe one stereo eye.
 
-Run `calib_compute operation:camera-extrinsics` with the run ID, pairs file, mode,
-and attachment `frame`. Require rotation residual <= 2 degrees and translation
+Run `calib_compute operation:camera-extrinsics` with the run ID, observations file,
+mode and attachment `frame`. Require rotation residual <= 2 degrees and translation
 residual <= 10 mm. Add diverse pairs only when quality requires them.
+
+For a rigid stereo pair, frames chain robot -> `base` -> reference eye -> other eye;
+the reference eye is the one whose parent is `<camera>:base`. Declare plan outputs for
+`base` and both eyes, validate the full chain with poses the solve did not use, and
+apply each accepted proposal before the next solve.
+
+Establish the eye-to-eye transform first. Keep a factory transform recorded from the
+SDK. Otherwise run `calib_compute operation:camera-eye-to-eye`, which needs no arm:
+paired views of a still board, such as intrinsics captures, measure it without
+hand-eye error. Then run `operation:camera-stereo-extrinsics` with `eye_to_eye:keep`,
+mode and `frame`, so both eyes constrain the mount. Use `eye_to_eye:solve` only when
+no eye-to-eye transform exists; it measures both together. Stereo observations keep
+views where both eyes see the board; omit `--arm` and `--frame` for the eye-to-eye
+solve. Require RMS
+angular residual <= 0.5 degrees, inspect per-view residuals, and pass the camera's
+`nominal_baseline_m` when known.
+
+When the eyes rarely see the board together, solve each eye with `--eye` observations
+and `operation:camera-extrinsics` with `eye`. Proposals keep every known edge: a solve
+places `base` when the eye's chain to `base` is known (a factory eye-to-eye transform
+counts), and otherwise places the other eye relative to a measured reference.
 
 The proposed mount is camera-in-parent; do not invert it. Eye-in-hand uses the
 arm attachment frame; eye-to-hand uses the arm base. A world mount requires an
 explicitly established transform. Persist accepted fields, retain residuals in
 evidence, and return to the task once its required transform is available.
 
-During setup, if the user explicitly asks to keep a result despite exceeding the
-error limits above, honor the request; do not refuse or force recollection solely
-because of those limits. When requested, persist the computed fields with
-`profile_write`, using archived solver data if `proposedChanges` is empty. Record
-errors, limits and the user decision in evidence; retain the original quality
-assessment and do not mark a failed-quality node done. Preserve frame conventions,
-profile validation and host permissions; never invent missing computed values.
+If the user explicitly keeps a result beyond these limits, follow the
+`calib_compute` acceptance rules.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.
+

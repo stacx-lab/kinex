@@ -41,7 +41,7 @@ for (const denied of [
     }`)
     const directory = path.join(cwd, '.kinex/tools/denied_controller')
     await mkdir(directory, { recursive: true })
-    await writeFile(path.join(directory, 'tool.yaml'), 'name: denied_controller\nkind: controller\ndescription: Permission test\ninterpreter: python3\n')
+    await writeFile(path.join(directory, 'tool.yaml'), 'name: denied_controller\ndescription: Permission test\n')
     await writeFile(path.join(directory, 'tool.py'), 'raise RuntimeError("must not run")\n')
     await bind(app)
     fake.steps.push({ tools: [{ name: 'write', args: { path: 'completed.txt', content: 'completed' } }, denied, { name: 'sibling' }, marker] })
@@ -145,8 +145,8 @@ function assertSnapshot(app) {
   const snapshots = branch.slice(index + 1).filter(entry => entry.type === 'custom_message' && entry.customType === 'kinex-context')
   assert.equal(snapshots.length, 1)
   const snapshot = snapshots[0]
-  for (const section of ['core.python', 'core.guides', 'core.conventions', 'core.skills', 'core.recording', 'problems']) assert.ok(snapshot.content.includes(`${section}:\n`), section)
-  for (const section of ['core.devices', 'core.readiness', 'setup.plan']) assert.ok(!Object.hasOwn(snapshot.details, section), section)
+  for (const section of ['core.python', 'core.guides', 'core.skills', 'core.recording', 'problems']) assert.ok(snapshot.content.includes(`${section}:\n`), section)
+  assert.ok(!Object.hasOwn(snapshot.details, 'setup.plan'))
   assert.ok(app.host.session.agent.state.messages.some(message => message.role === 'custom' && message.content === snapshot.content))
   return snapshot
 }
@@ -154,19 +154,19 @@ function assertSnapshot(app) {
 test('manual compaction keeps user focus, adds robotics rules and immediately persists a full snapshot', async t => {
   const { fake, app, cwd } = await fixture(t)
   await bind(app)
-  fake.steps.push({ text: 'Motion command accepted; completion has not been observed.' }, { text: 'Need to verify completion.' })
+  fake.steps.push({ text: 'Motion command sent; completion has not been observed.' }, { text: 'Need to verify completion.' })
   await app.host.session.prompt('Move sensor after calibration value 0.125 m in world frame')
   await app.host.session.prompt('Retain the unverified action')
   await app.host.session.prompt('/load sensor')
   app.host.services.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1, reserveTokens: 512 } })
-  fake.respond = request => ({ text: isSummary(request) ? 'SUMMARY: sensor command accepted, motion unverified; calibration 0.125 m in world.' : 'AFTER_COMPACTION' })
+  fake.respond = request => ({ text: isSummary(request) ? 'SUMMARY: sensor command sent, motion unverified; calibration 0.125 m in world.' : 'AFTER_COMPACTION' })
   await app.host.session.compact('USER_FOCUS: retain pending calibration checks')
   const snapshot = assertSnapshot(app)
   const summaryRequests = fake.requests.filter(isSummary)
   assert.ok(summaryRequests.length >= 1)
   assert.ok(summaryRequests.some(request => JSON.stringify(request).includes('USER_FOCUS')))
   assert.ok(summaryRequests.some(request => JSON.stringify(request).includes('0.125 m')))
-  assert.ok(summaryRequests.every(request => JSON.stringify(request).includes('Never turn command acceptance into a claim of motion completion')))
+  assert.ok(summaryRequests.every(request => JSON.stringify(request).includes('turn a sent command into a claim of motion completion')))
   const session = app.host.session.sessionFile
   const persisted = await readFile(session, 'utf8')
   assert.ok(persisted.includes('SUMMARY: sensor'))

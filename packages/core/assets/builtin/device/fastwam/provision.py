@@ -1,14 +1,20 @@
-"""Download pinned artifacts, verify content, and emit an unloaded profile candidate."""
+"""Download and verify one FastWAM variant's pinned artifacts; no ML imports."""
 
 import argparse
 import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
-from fastwam_config import VARIANTS, make_profile
-
 HERE = Path(__file__).resolve().parent
+
+
+def selected(variant):
+    """The variant's checkpoint and statistics plus the shared Wan backbone files."""
+    return [item for item in json.loads((HERE / "artifacts.json").read_text())
+            if item["repo"] != "yuanty/fastwam"
+            or Path(item["filename"]).stem.removesuffix("_dataset_stats") == variant]
 
 
 def verify(path, artifact):
@@ -23,30 +29,28 @@ def verify(path, artifact):
     return digest.hexdigest() == artifact.get("sha256", artifact.get("git_blob"))
 
 
-def download(artifact):
+def download(directory, artifact):
     from huggingface_hub import hf_hub_download
-    path = HERE / "weights" / artifact["repo"] / artifact["filename"]
-    print(f"Provisioning {artifact['repo']}/{artifact['filename']}", flush=True)
+    path = directory / "weights" / artifact["repo"] / artifact["filename"]
     if verify(path, artifact):
         return
+    print(f"Provisioning {artifact['repo']}/{artifact['filename']}", flush=True)
     hf_hub_download(artifact["repo"], artifact["filename"], revision=artifact["revision"],
-                    local_dir=HERE / "weights" / artifact["repo"], force_download=path.exists())
+                    local_dir=directory / "weights" / artifact["repo"], force_download=path.exists())
     if not verify(path, artifact):
         raise ValueError(f"Artifact checksum mismatch: {path}")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--compute", default="cuda:0")
-    parser.add_argument("--variant", choices=VARIANTS, default="libero_uncond_2cam224")
+    parser.add_argument("directory", type=Path)
+    parser.add_argument("variant")
     args = parser.parse_args()
-    import torch
-
-    torch.zeros(1, device=args.compute)
+    artifacts = selected(args.variant)
+    if not any(item["repo"] == "yuanty/fastwam" for item in artifacts):
+        parser.error(f"unknown variant: {args.variant}")
     with ThreadPoolExecutor(max_workers=3) as pool:
-        list(pool.map(download, json.loads((HERE / "artifacts.json").read_text())))
-    profile = make_profile(HERE, args.variant, int(args.compute.split(":")[1]))
-    (HERE / "profile.generated.json").write_text(json.dumps(profile, indent=2) + "\n")
+        list(pool.map(partial(download, args.directory), artifacts))
 
 
 if __name__ == "__main__":

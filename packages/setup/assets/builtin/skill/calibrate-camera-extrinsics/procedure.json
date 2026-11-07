@@ -10,31 +10,34 @@
     "arm": {
       "types": [
         "joint"
-      ]
+      ],
+      "optional": true
     }
   },
   "requires": [
     {
-      "role": "target",
-      "pointer": "/intrinsics/color/projection"
-    },
-    {
-      "role": "target",
-      "pointer": "/intrinsics/color/distortion"
-    },
-    {
       "role": "arm",
-      "pointer": "/intrinsics/model"
+      "pointer": "/model"
     }
   ],
   "produces": [
     {
       "role": "target",
-      "pointer": "/extrinsics/mount"
+      "pointer": "/frames/base"
+    },
+    {
+      "role": "target",
+      "pointer": "/frames/left"
+    },
+    {
+      "role": "target",
+      "pointer": "/frames/right"
     }
   ],
   "computes": [
-    "camera-extrinsics"
+    "camera-extrinsics",
+    "camera-stereo-extrinsics",
+    "camera-eye-to-eye"
   ],
-  "quality": "At least 5 diverse pairs; rotation residual <= 2 degrees and translation residual <= 10 mm."
+  "quality": "At least 5 diverse pairs; rotation residual <= 2 degrees and translation residual <= 10 mm; stereo solves require at least 5 views, RMS angular residual <= 0.5 degrees and, with a nominal baseline, agreement within 5% (at least 2 mm)."
 }

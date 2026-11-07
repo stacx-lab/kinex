@@ -2,12 +2,12 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises'
 import path from 'node:path'
-import { setupPiExtensions } from '@kinex/setup/extensions'
 import { isolate, fakeProvider, workspace, bind } from './helpers.mjs'
 
 const isolation = await isolate()
 after(isolation.cleanup)
 const { createApplication } = await import('../dist/application.js')
+const { bundledExtensions } = await import('../dist/integration/default-extensions.js')
 
 function extension(name, text = 'EXTENSION_OK') {
   return `export default function (pi) {
@@ -36,7 +36,7 @@ for (const configured of [false, true]) {
       const agent = path.join(isolation.root, 'config', 'agent')
       const modules = path.join(agent, 'npm', 'node_modules')
       await mkdir(modules, { recursive: true })
-      for (const extension of setupPiExtensions()) {
+      for (const extension of bundledExtensions()) {
         await symlink(extension.path, path.join(modules, extension.name))
       }
       await configure(path.join(agent, 'settings.json'), { packages: ['npm:pi-web-search', 'npm:pi-btw'] })

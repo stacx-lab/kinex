@@ -3,12 +3,11 @@ import assert from 'node:assert/strict'
 import { formatJSON, omitEmptyOptional } from '../dist/util/json.js'
 import { renderReading } from '../dist/tool/device/shared.js'
 import { Device } from '../dist/device/profile/schema.js'
-import { validateReading } from '../dist/device/dispatch.js'
 import { recordingOutput } from '../dist/record/output.js'
 
 test('JSON indents only two levels and retains JSON serialization semantics', () => {
-  const value = { state: { positions: [0, 1, 2], details: { source: 'driver', values: [1, 2] } } }
-  assert.equal(formatJSON(value), '{\n  "state": {\n    "positions": [0,1,2],\n    "details": {"source":"driver","values":[1,2]}\n  }\n}')
+  const value = { state: { positions: [0, 1, 2], details: { source: 'node', values: [1, 2] } } }
+  assert.equal(formatJSON(value), '{\n  "state": {\n    "positions": [0,1,2],\n    "details": {"source":"node","values":[1,2]}\n  }\n}')
   assert.equal(formatJSON(value, true), JSON.stringify(value))
   for (const item of [value, [value], { empty: {}, list: [], omitted: undefined, quote: '\n"\\' }, [undefined, null], null]) {
     assert.deepEqual(JSON.parse(formatJSON(item)), JSON.parse(JSON.stringify(item)))
@@ -26,21 +25,14 @@ test('optional cleanup is explicit, nonmutating and preserves meaningful falsy v
   assert.deepEqual(omitEmptyOptional([{ optional: [], keep: [] }], ['*.optional']), [{ keep: [] }])
 })
 
-test('device output defaults to full data and only drops empty optional feedback', () => {
-  const data = { execution_id: 'test', state: {
-    positions: [0], velocities: [], efforts: [], frame_poses: {}, faults: [], timestamp: 0, custom: [],
-  } }
-  const reading = { data, filePath: '/tmp/frame.png' }
+test('device output keeps every reading field and appends the captured file', () => {
+  const data = { header: { stamp: { sec: 1, nanosec: 0 } }, position: [0], velocity: [], effort: [] }
   assert.deepEqual(JSON.parse(renderReading({ data })), data)
-  const concise = JSON.parse(renderReading({ data }, false))
-  assert.deepEqual(concise, { ...data, state: { positions: [0], faults: [], timestamp: 0, custom: [] } })
-  assert.deepEqual(JSON.parse(renderReading({ data: { velocities: [0], frame_poses: { tool: [0, 1] } } }, false)), { velocities: [0], frame_poses: { tool: [0, 1] } })
-  assert.equal(renderReading(reading, false, true), JSON.stringify({ ...concise, file: '/tmp/frame.png' }))
-  assert.deepEqual(data.state.velocities, [])
+  assert.equal(renderReading({ data, filePath: '/tmp/frame.png' }, true), JSON.stringify({ ...data, file: '/tmp/frame.png' }))
 })
 
 test('recording output cleans only optional empty annotations and bookkeeping', () => {
-  const manifest = { id: 'recording', devices: {}, passive: {}, messageRange: {}, labels: [], task: '', bytes: 0, quotaHit: false, error: '' }
+  const manifest = { id: 'recording', devices: {}, passive: {}, messageRange: {}, task: '', bytes: 0, quotaHit: false, error: '' }
   const value = { manifest, applied: {}, refusals: {}, readings: { arm: { data: { faults: [] } } } }
   assert.deepEqual(JSON.parse(recordingOutput(value)), value)
   assert.deepEqual(JSON.parse(recordingOutput(value, false)), {
@@ -49,12 +41,4 @@ test('recording output cleans only optional empty annotations and bookkeeping', 
   assert.deepEqual(JSON.parse(recordingOutput({ running: null, recent: [manifest], refusals: { arm: 'unloaded' } }, false)), {
     running: null, recent: [{ id: 'recording', devices: {}, bytes: 0, quotaHit: false, error: '' }], refusals: { arm: 'unloaded' },
   })
-})
-
-test('camera observations require a finite timestamp and preserve it', () => {
-  const device = Device.parse({ name: 'camera', type: 'rgbd', meta: { created_at: '2026-10-01', updated_at: '2026-10-01' } })
-  const reading = timestamp => ({ deviceID: 'camera', kind: 'rgbd', data: { timestamp } })
-  assert.deepEqual(validateReading(device, reading(0)).data, { timestamp: 0 })
-  for (const timestamp of [undefined, null, true, NaN, Infinity])
-    assert.throws(() => validateReading(device, reading(timestamp)))
 })

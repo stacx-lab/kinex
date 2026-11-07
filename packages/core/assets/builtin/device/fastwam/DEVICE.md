@@ -6,89 +6,71 @@ description: FastWAM action inference for LIBERO and RoboTwin, including LIBERO 
 
 ## Setup
 
-Provision with `bash <builtin-dir>/setup.sh --dir .kinex/devices/fastwam
---compute cuda:0`. `--source /path/to/FastWAM` can reuse a local Git source;
-the device still receives its own checkout at the pinned revision.
-All downloads, Python dependencies and caches stay inside the instance directory.
-Allow about 50 GB for model artifacts plus environment/cache space. CUDA is required.
+Read the model type guide (`templates/model/DEVICE.md` in the device guide roots)
+first: it defines `compute`, artifacts and the load/unload contract this bundle
+follows. FastWAM needs CUDA. Provision one variant:
 
-The script emits `profile.generated.json`; register its contents using
-`profile_write`, leaving `loaded: false`. `/load fastwam` initializes the selected
-variant, `/ping fastwam` reports readiness, `/unload fastwam` releases GPU memory.
-Discovery and status do not load weights. Runtime is offline; rerun setup to repair
-missing/corrupted artifacts. No training datasets, simulator packages or training
-dependencies are required. The environment is separate from `.kinex/python`.
-
-Variants: `libero_uncond_2cam224` (default), `libero_optional_idm_2cam224`,
-`robotwin_uncond_3cam_384`. To change variant, unload, generate a new candidate
-with `venv/bin/python provision.py --variant VARIANT --compute cuda:0`, apply
-the updated profile through calibration, and load explicitly. All three checkpoints
-share one provisioned instance; only the selected variant is resident.
-
-## Inference
-
-`infer {obs: {images: [paths...], state: [numbers...]}, task: "instruction"}`
-returns `actions` (32 rows) and `inference_s`. Options: `seed` (default 0),
-`num_inference_steps` (10), `compile_action_infer` (false). Optional IDM also
-accepts `action_infer_mode: first_frame|idm` (default first_frame). IDM imagines
-future latents but does not decode or return videos. The original checkpoints use
-scheduler shift 5; Optional IDM uses 1. Inference uses BF16.
-
-LIBERO: two images in agent-view/wrist order, already oriented as upstream
-evaluation expects; the driver crops/resizes each to 224 square and concatenates
-horizontally. State is world grip-site xyz, world flange-body axis-angle, then
-two measured finger coordinates. Note that position and orientation use different
-native frames. Output rows contain world translation deltas (metres), world
-axis-angle rotation deltas (radians), and gripper direction (-1 open, +1 close).
-The driver applies upstream action denormalization, OSC clipping/scales and
-gripper sign/binarization; do not apply these twice.
-
-RoboTwin: head/left-wrist/right-wrist images, packed into a 384×320 composite;
-state and actions use upstream's 14-value order: left arm six joints, left
-gripper, right arm six joints, right gripper. Gripper values retain the upstream
-coordinate convention; map them only to devices declaring matching semantics.
-
-## Execution
-
-Pass the observation to `run_policy`. For the LIBERO Panda workspace:
-
-```json
-{
-  "model": "fastwam",
-  "observation": {"images": ["agent.png", "wrist.png"], "state": [0,0,0,0,0,0,0,0]},
-  "task": "open the top drawer of the cabinet and put the bowl in it",
-  "command": [
-    {"device": "arm", "space": "pose_delta", "frame": "world", "target_frame": "gripper:tcp"},
-    {"device": "gripper"}
-  ],
-  "action_hz": 20,
-  "max_actions": 10
-}
+```sh
+setup.sh --dir .kinex/devices/fastwam --python KINEX_PYTHON --compute cuda:0 --variant libero_uncond_2cam224
 ```
 
-Here `max_actions: 10` executes at most the first 10 predictions at 20 Hz,
-giving a 0.5-second execution horizon. Unused predictions are discarded;
-each inference uses the supplied observations. IK rejection may shorten the
-executed prefix further.
+It installs the pinned dependencies into the device's `site/`, checks out the
+pinned FastWAM source into `source/`, verifies the compute device, and downloads
+about 26 GB into `weights/`: the variant's checkpoint and dataset statistics plus
+the shared Wan2.2 VAE, UMT5 encoder and tokenizer. It then copies `node.py` and
+`env.sh`; the overlay exposes the packages and source to this node only and keeps
+Hugging Face offline, so load never downloads.
 
-Replace the example images/state with actual observations. A workspace perception
-tool must obtain them through available measurements and declared frames.
-The generic gripper read exposes aperture only; it cannot supply the two native
-finger coordinates this checkpoint requires. Use a model-specific observation
-adapter that supplies those measurements; do not invent them from aperture.
-RoboEnv LIBERO PNGs
-are vertically corrected already: horizontally flip them to match FastWAM's
-180-degree rotation of raw OpenGL images. Do not rotate the corrected PNGs twice.
+| Variant | Cameras | State | Action |
+| --- | --- | --- | --- |
+| `libero_uncond_2cam224` | 2 | 8 | 7 |
+| `libero_optional_idm_2cam224` | 2 | 8 | 7 |
+| `robotwin_uncond_3cam_384` | 3 | 14 | 14 |
 
-`run_policy` converts Cartesian actions through seeded IK before submitting
-absolute joint buffers. On IK failure, it submits the shared valid
-prefix for arm and gripper at the same action rate and returns `ik_failure` with
-the device, zero-based action index and error. IK rejection returns normally;
-an empty prefix leaves existing buffers intact.
-This differs from upstream OSC feedback;
-successful chunk execution does not establish benchmark task success.
-`inference_args` forwards additional model options, e.g. Optional IDM's mode.
+Write the profile below with the provisioned `variant` and `compute`. For another
+variant, replace the `checkpoint` and `dataset_stats` artifacts with that
+variant's `yuanty/fastwam` files. Validate, then load.
 
-Source: https://github.com/yuantianyuan01/FastWAM (MIT; license retained in checkout).
-Checkpoints: https://huggingface.co/yuanty/fastwam. Exact revisions, sizes and
-content hashes are in `artifacts.json`.
+### Operations
+
+- `infer`: `kinex_interfaces/srv/Json` taking `obs` `{images, state}`, `task` and
+  optional `seed` (0), `num_inference_steps` (10) and `compile_action_infer`
+  (false); Optional IDM also takes `action_infer_mode` (`first_frame` or `idm`).
+  `images` are the variant's camera image paths in the evaluator's orientation
+  and `state` its proprioception. It returns `inference_s` and 32 `actions`. LIBERO
+  actions are deltas of ±0.05 m translation and ±0.5 rad rotation followed by the
+  gripper command −1 (open) or +1 (close).
+
+### Profile
+
+```yaml
+name: fastwam
+type: model
+loaded: false
+description: FastWAM world-action model predicting 32-step action chunks from camera images, proprioception and a task instruction. Predictions are not executed; validate them before control.
+runtime:
+  overlays: [env.sh]
+  nodes: [{entry: node.py, factory: create}]
+  ready_timeout_s: 600
+operations:
+  infer:
+    description: "Predict an action chunk. Input {obs: {images: camera image paths in the evaluator's orientation, state: proprioception}, task: instruction, seed: default 0, num_inference_steps: default 10, compile_action_infer: default false}. Output {actions: 32 rows of 7 LIBERO actions (xyz deltas within ±0.05 m, rotation deltas within ±0.5 rad, gripper -1 open or +1 close), inference_s}."
+    transport: service
+    direction: input
+    endpoint: /kinex/fastwam/infer
+    type: kinex_interfaces/srv/Json
+    timeout_s: 120
+family: fastwam
+variant: libero_uncond_2cam224
+implementation: {repository: "https://github.com/yuantianyuan01/FastWAM", revision: 7faa71108368fbb3b6885649f112af607427a2d4}
+artifacts:
+  - {name: checkpoint, path: weights/yuanty/fastwam/libero_uncond_2cam224.pt, source: {kind: huggingface, repo: yuanty/fastwam, revision: 8eaceeb24c3cc92ff2a9c9a9d266a4941b836705, filename: libero_uncond_2cam224.pt}}
+  - {name: dataset_stats, path: weights/yuanty/fastwam/libero_uncond_2cam224_dataset_stats.json, source: {kind: huggingface, repo: yuanty/fastwam, revision: 8eaceeb24c3cc92ff2a9c9a9d266a4941b836705, filename: libero_uncond_2cam224_dataset_stats.json}}
+  - {name: vae, path: weights/Wan-AI/Wan2.2-TI2V-5B/Wan2.2_VAE.pth, source: {kind: huggingface, repo: Wan-AI/Wan2.2-TI2V-5B, revision: 921dbaf3f1674a56f47e83fb80a34bac8a8f203e, filename: Wan2.2_VAE.pth}}
+  - {name: text_encoder, path: weights/Wan-AI/Wan2.2-TI2V-5B/models_t5_umt5-xxl-enc-bf16.pth, source: {kind: huggingface, repo: Wan-AI/Wan2.2-TI2V-5B, revision: 921dbaf3f1674a56f47e83fb80a34bac8a8f203e, filename: models_t5_umt5-xxl-enc-bf16.pth}}
+  - {name: tokenizer, path: weights/Wan-AI/Wan2.1-T2V-1.3B/google/umt5-xxl/tokenizer.json, source: {kind: huggingface, repo: Wan-AI/Wan2.1-T2V-1.3B, revision: 37ec512624d61f7aa208f7ea8140a131f93afc9a, filename: google/umt5-xxl/tokenizer.json}}
+  - {name: tokenizer_config, path: weights/Wan-AI/Wan2.1-T2V-1.3B/google/umt5-xxl/tokenizer_config.json, source: {kind: huggingface, repo: Wan-AI/Wan2.1-T2V-1.3B, revision: 37ec512624d61f7aa208f7ea8140a131f93afc9a, filename: google/umt5-xxl/tokenizer_config.json}}
+  - {name: special_tokens_map, path: weights/Wan-AI/Wan2.1-T2V-1.3B/google/umt5-xxl/special_tokens_map.json, source: {kind: huggingface, repo: Wan-AI/Wan2.1-T2V-1.3B, revision: 37ec512624d61f7aa208f7ea8140a131f93afc9a, filename: google/umt5-xxl/special_tokens_map.json}}
+  - {name: spiece, path: weights/Wan-AI/Wan2.1-T2V-1.3B/google/umt5-xxl/spiece.model, source: {kind: huggingface, repo: Wan-AI/Wan2.1-T2V-1.3B, revision: 37ec512624d61f7aa208f7ea8140a131f93afc9a, filename: google/umt5-xxl/spiece.model}}
+compute: ???
+```

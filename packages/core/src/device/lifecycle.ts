@@ -1,12 +1,12 @@
 import path from "node:path"
 import { scoped } from "../scope.ts"
+import { serialize } from "../util/serialize.ts"
 import { ProfileStore } from "./profile/store.ts"
 import { queueActivation, deactivateDevice, probeDevice } from "./dispatch.ts"
 import type { Device } from "./profile/schema.ts"
 
 export interface Activation {
   device: Device
-  activating: boolean
   ready: Awaited<ReturnType<typeof queueActivation>>["ready"]
 }
 async function activation(cwd: string, device: Device, signal?: AbortSignal): Promise<Activation> {
@@ -18,7 +18,7 @@ export async function warmLoadedDevices(cwd: string, signal?: AbortSignal): Prom
   return Promise.all(devices.filter(device => device.loaded).map(device => activation(cwd, device, signal)))
 }
 // Serialize profile changes and full lifecycle completion, independently of
-// the driver lane (recorder shutdown may itself use that lane).
+// the node lifecycle (recorder shutdown may itself use that lane).
 const transitions = scoped(() => new Map<string, Promise<void>>())
 const locating = scoped(() => new Map<string, Promise<string>>())
 export async function deviceTransition<T>(cwd: string, name: string, run: () => Promise<T>, ready?: (value: T) => Promise<unknown>): Promise<T> {
@@ -31,12 +31,7 @@ export async function deviceTransition<T>(cwd: string, name: string, run: () => 
     locating().set(directory, workspace)
     void workspace.finally(() => locating().delete(directory)).catch(() => {})
   }
-  const key = path.join(await workspace, "devices", name)
-  const result = (transitions().get(key) ?? Promise.resolve()).then(run)
-  const tail = result.then(ready).then(() => {}, () => {})
-  transitions().set(key, tail)
-  void tail.then(() => { if (transitions().get(key) === tail) transitions().delete(key) })
-  return result
+  return serialize(transitions(), path.join(await workspace, "devices", name), run, result => ready ? result.then(ready) : result)
 }
 export async function loadDevice(cwd: string, name: string, signal?: AbortSignal): Promise<Activation> {
   return deviceTransition(cwd, name, async () => {
@@ -71,5 +66,5 @@ export async function lifecycleAction(cwd: string, device: Device, action: "load
   signal?.throwIfAborted()
   if (action === "load") return (await loadDevice(cwd, device.name, signal)).ready
   await unloadDevice(cwd, device.name)
-  return { deviceID: device.name, kind: device.type, data: { unloaded: true } }
+  return { deviceID: device.name, data: { unloaded: true } }
 }

@@ -12,11 +12,27 @@
   "produces": [
     {
       "role": "target",
-      "pointer": "/intrinsics/color/projection"
+      "pointer": "/color/projection"
     },
     {
       "role": "target",
-      "pointer": "/intrinsics/color/distortion"
+      "pointer": "/color/distortion"
+    },
+    {
+      "role": "target",
+      "pointer": "/left/projection"
+    },
+    {
+      "role": "target",
+      "pointer": "/left/distortion"
+    },
+    {
+      "role": "target",
+      "pointer": "/right/projection"
+    },
+    {
+      "role": "target",
+      "pointer": "/right/distortion"
     }
   ],
   "computes": [

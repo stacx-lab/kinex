@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises"
 import type { AgentSession } from "@earendil-works/pi-coding-agent"
 import type { contextUpdate } from "./context.ts"
+import COMPACTION from "./compaction.txt"
 
 type ContextMessage = NonNullable<Awaited<ReturnType<typeof contextUpdate>>["message"]>
 
@@ -13,7 +13,6 @@ export interface CompactionControl {
 }
 
 export async function createCompactionControl() {
-  const instructions = await readFile(new URL("./compaction.txt", import.meta.url), "utf8")
   let signal: AbortSignal | undefined
   let session: AgentSession | undefined
   let failure: Error | undefined
@@ -37,10 +36,10 @@ export async function createCompactionControl() {
         // split-turn summaries and retries. Normal conversation stays untouched.
         if (!signal || signal.aborted || options?.signal !== signal) return stream(model, context, options)
         const [first, ...rest] = context.messages
-        const rule = { type: "text" as const, text: instructions }
+        const rule = { type: "text" as const, text: COMPACTION }
         const messages = first?.role === "system"
-          ? [{ ...first, content: typeof first.content === "string" ? `${first.content}\n\n${instructions}` : [...first.content, rule] }, ...rest]
-          : [{ role: "system" as const, content: instructions, timestamp: 0 }, ...context.messages]
+          ? [{ ...first, content: typeof first.content === "string" ? `${first.content}\n\n${COMPACTION}` : [...first.content, rule] }, ...rest]
+          : [{ role: "system" as const, content: COMPACTION, timestamp: 0 }, ...context.messages]
         return stream(model, { ...context, messages }, options)
       }
     },

@@ -16,10 +16,10 @@ export const ImuMeasurement = z.strictObject({
   angular_velocity: field(SensorChannel.nullable()),
   linear_acceleration: field(ImuAcceleration.nullable()),
   orientation: field(ImuOrientation.nullable()),
-  magnetic_field: field(SensorChannel.nullable()).default(null),
+  magnetic_field: field(SensorChannel.nullable()),
 }).refine((v) => v.angular_velocity !== null || v.linear_acceleration !== null || v.orientation !== null,
   "at least one inertial measurement is required")
 export const imuShape = {
   measurement: field(ImuMeasurement),
-  sample_rate_hz: z.number().positive().nullable().default(null),
+  sample_rate_hz: field(z.number().positive().nullable()),
 }

@@ -1,6 +1,6 @@
 import { scoped } from "../scope.ts"
 import type { Device } from "./profile/schema.ts"
-import type { DeviceReading } from "./driver.ts"
+import type { DeviceReading } from "./reading.ts"
 
 // Observation of device traffic: every dispatchDevice settle (success or
 // failure) is reported to the listeners, plus the synthetic "deactivate" event
@@ -13,8 +13,8 @@ export interface DeviceEvent {
   device: Device
   action: string
   args: Record<string, unknown>
-  // Who dispatched: "sampler" / "stream" for the recorder's own traffic;
-  // undefined for the agent, tools, and lifecycle helpers.
+  // Who dispatched: "snap" for the recorder's own reads; undefined for the
+  // agent, tools and lifecycle helpers.
   origin?: string
   reading?: DeviceReading
   error?: string

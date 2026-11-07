@@ -2,8 +2,7 @@ import { parseArgs } from "node:util"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { DefaultPackageManager, type SettingsManager } from "@earendil-works/pi-coding-agent"
-import { setupPiExtensions } from "@kinex/setup/extensions"
-import { defaultExtensionPaths } from "./integration/default-extensions.ts"
+import { bundledExtensions, defaultExtensionPaths } from "./integration/default-extensions.ts"
 import { paths, settings } from "./settings.ts"
 import { upgradeKinex } from "./upgrade.ts"
 
@@ -63,7 +62,7 @@ export async function runPackageCommand(args: string[], cwd = process.cwd()): Pr
         console.log(`${pkg.scope}\t${pkg.source}${pkg.filtered ? " (resource filters)" : ""}\t${pkg.installedPath ?? "not installed"}`)
       }
       const defaults = new Set(defaultExtensionPaths(manager))
-      for (const bundled of setupPiExtensions()) {
+      for (const bundled of bundledExtensions()) {
         const manifest = JSON.parse(await readFile(path.join(bundled.path, "package.json"), "utf8"))
         console.log(`bundled\t${bundled.name}@${manifest.version}\t${defaults.has(bundled.path) ? "fallback active" : "overridden"}\t${bundled.path}`)
       }

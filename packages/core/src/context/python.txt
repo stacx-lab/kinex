@@ -1,6 +1,0 @@
-Kinex core Python: use the executable and library paths from the current Python
-context for robotics scripts, setting PYTHONPATH only for that command. Default
-Python execution prepares missing environments automatically; existing environments
-run directly. If dependencies are missing or need updating, repair the selected
-environment with uv add/uv sync using its project path. Explicit interpreters own
-their dependencies. Keep the ordinary shell environment unchanged.

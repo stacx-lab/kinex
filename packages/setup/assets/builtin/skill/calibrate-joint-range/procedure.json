@@ -3,21 +3,20 @@
   "roles": {
     "arm": {
       "types": [
-        "joint",
-        "dexterous_hand"
+        "joint"
       ]
     }
   },
   "requires": [
     {
       "role": "arm",
-      "pointer": "/intrinsics/model/format"
+      "pointer": "/model/format"
     }
   ],
   "produces": [
     {
       "role": "arm",
-      "pointer": "/intrinsics/model"
+      "pointer": "/model"
     }
   ],
   "computes": [

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Pivot / touch-point TCP fit.
 
-Every sample is a base→flange pose with the (unknown) tool tip on the SAME
-fixed point p:  R_i @ t + o_i = p  for all i. Subtracting pairs eliminates p:
-(R_i − R_j) t = o_j − o_i — stacked into one linear least-squares solve for the
-flange-local tip translation t.
+Every sample is a base→link pose of the sampled --frame with the unknown tool tip
+on the SAME fixed point p:  R_i @ t + o_i = p  for all i. Subtracting pairs
+eliminates p: (R_i − R_j) t = o_j − o_i — stacked into one linear least-squares
+solve for the link-local tip translation t.
 
---samples takes the calib_sample records file (calib/<routine>/samples.json):
-each record's kinematics contains the requested frame pose from FK at the sampled joints.
+--samples takes the calib_sample records file (calib/<run>/samples.json): each
+record's kinematics holds the --frame link pose in the device base from FK at the
+sampled joints.
 Output: {"ok": true, "tcp_translation_m": [x,y,z], "fixed_point_m": [x,y,z],
          "residual_mm": ..., "per_sample_mm": [...], "n": ...}
 """
@@ -17,8 +18,8 @@ import itertools
 import json
 import sys
 
-from kinex.geometry import quat_to_mat
-from kinex.motion import pose as validate_pose
+from kinex.lib.geometry import quat_to_mat
+from kinex.lib.geometry import pose as validate_pose
 
 
 def fail(message: str) -> None:
@@ -31,26 +32,25 @@ def pose_of(sample, frame):
     if sample.get("settled") is False:
         fail("sample was not settled")
     try:
-        if data.get("frame") != frame or data.get("reference_frame") is not None:
-            raise ValueError("Sample requires the requested frame relative to the device base")
+        if data.get("frame") != frame:
+            raise ValueError("Sample requires the requested link pose")
         return validate_pose(data.get("pose"), "kinematics.pose")
     except ValueError as error:
         fail(str(error))
-
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--samples", required=True)
     parser.add_argument("--mount", required=True, help="Known gripper mount in the sampled frame, as JSON")
-    parser.add_argument("--frame", default="flange", help="Declared device frame to fit")
+    parser.add_argument("--frame", required=True, help="Sampled URDF link to fit")
     parser.add_argument("--min-samples", type=int, default=4)
     args = parser.parse_args()
 
     try:
         import numpy as np
     except ImportError:
-        fail("missing deps in the selected interpreter — for core Python use uv add --project <python.project> numpy")
+        fail("Kinex Python lacks numpy; add it to the Kinex Python project")
 
     try:
         samples = json.load(open(args.samples))

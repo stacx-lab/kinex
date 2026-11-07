@@ -1,21 +1,18 @@
 import { currentSignal } from "@kinex/core/scope"
 import { NamedError } from "@kinex/core/util/error"
+import { serialize } from "@kinex/core/util/serialize"
 import { z } from "zod"
 import { Plan, StoredPlan, Outcome, Task, Fact, ID, Pointer, type PlanNode } from "./schema.ts"
 import { atomicJSON, digest, fail, inspectFacts, location, missingFacts, optionalText } from "./facts.ts"
 import { procedures, requirements } from "./procedures.ts"
 
-const writes = new Map<string, Promise<unknown>>()
-export async function serialized<T>(key: string, action: () => Promise<T>): Promise<T> {
-  const pending = (writes.get(key) ?? Promise.resolve()).catch(() => {}).then(action)
-  writes.set(key, pending)
-  try { return await pending } finally { if (writes.get(key) === pending) writes.delete(key) }
-}
+const writes = new Map<string, Promise<void>>()
+export const serialized = <T>(key: string, action: () => Promise<T>) => serialize(writes, key, action)
 export async function readPlan(cwd: string): Promise<StoredPlan | undefined> {
   const text = await optionalText(await location(cwd, "setup/plan.json"))
   return text === undefined ? undefined : StoredPlan.parse(JSON.parse(text))
 }
-export function ordered(plan: Plan): PlanNode[] {
+function ordered(plan: Plan): PlanNode[] {
   const nodes = new Map(plan.nodes.map(node => [node.id, node]))
   if (nodes.size !== plan.nodes.length) fail("Duplicate node IDs")
   const order: PlanNode[] = [], visited = new Set<string>(), visiting: string[] = []
@@ -49,7 +46,7 @@ function covers(output: Fact, input: Fact) {
   return output.kind === "profile" && input.kind === "profile" && output.device === input.device &&
     (input.pointer === output.pointer || input.pointer.startsWith(output.pointer + "/"))
 }
-export async function validatePlan(cwd: string, plan: Plan) {
+async function validatePlan(cwd: string, plan: Plan) {
   ordered(plan)
   const catalog = await procedures(cwd)
   for (const node of plan.nodes) {
@@ -90,7 +87,7 @@ export async function selectTask(cwd: string, task: typeof Task._output | null, 
     return saved
   })
 }
-export type NodeStatus = "ready" | "blocked" | "needs-input" | "partial" | "done" | "failed" | "stale"
+type NodeStatus = "ready" | "blocked" | "needs-input" | "partial" | "done" | "failed" | "stale"
 export const dependencies = (plan: StoredPlan, node: PlanNode) => digest(node.dependsOn.map(id => [id, plan.receipts[id]]))
 async function inspectValidPlan(cwd: string) {
   const plan = await readPlan(cwd)

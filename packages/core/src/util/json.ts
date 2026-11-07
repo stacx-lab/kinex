@@ -33,3 +33,15 @@ export function formatJSON(value: unknown, compact = false): string {
   // Normalize undefined properties, toJSON and array holes using JSON semantics.
   return render(JSON.parse(serialized), 0)
 }
+
+const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value)
+
+// Nested records merge; arrays and every other value replace.
+export function deepMerge(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...base }
+  for (const [key, value] of Object.entries(patch)) {
+    const existing = result[key]
+    result[key] = record(value) && record(existing) ? deepMerge(existing, value) : value
+  }
+  return result
+}

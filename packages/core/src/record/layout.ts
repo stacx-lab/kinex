@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs/promises"
 import { ProfileStore } from "../device/profile/store.ts"
-import { deviceModel } from "../device/device-model.ts"
+import { deviceTree } from "../device/profile/urdf.ts"
 import { exists, readJson, writeJson } from "../util/filesystem.ts"
 import { RecordingManifest } from "./schema.ts"
 
@@ -59,9 +59,7 @@ export async function snapshotProfiles(cwd: string, dir: string): Promise<void> 
     const out = path.join(target, "devices", device.name, "profile.yaml")
     await fs.mkdir(path.dirname(out), { recursive: true })
     await fs.copyFile(file, out)
-    if (device.type === "joint" || device.type === "dexterous_hand") {
-      const model = deviceModel(device)
-      if (model) await writeJson(path.join(path.dirname(out), "resolved_model.json"), model)
-    }
+    const model = deviceTree(device)
+    if (model) await writeJson(path.join(path.dirname(out), "resolved_model.json"), model)
   }
 }

@@ -14,8 +14,8 @@ part of a broader calibration. An unrelated calibrated gripper satisfies nothing
 
 Follow next eligible nodes in authored order, selecting the least burdensome method
 that meets the task's accuracy needs. Load the skill. Use factory/model/simulator
-facts first, and collect physical evidence only for necessary gaps. Batch related
-questions and preparation. Verify participating devices respond before physical prep;
+facts first, and collect measurements only for necessary gaps. Batch related
+questions and preparation. Verify participating devices respond before preparation;
 activation remains an explicit core lifecycle operation with existing permissions.
 
 Start calib_sample with node:<id> or procedure plus bindings; reuse the returned run
@@ -25,8 +25,7 @@ calib_compute runs bundled offline computations and archives their inputs. For c
 procedures use host tools and archive their output. Scripts use core Python and its
 library paths from context; missing dependencies require explicit environment repair.
 
-Servo waits its planned duration on a loaded world clock. Set block=false to return
-immediately. Direct device writes return immediately; use world.wait to allow execution.
+After submitting motion, wait on the loaded world's declared wait operation.
 Verify arrival with measured feedback. References do not prove arrival or contact.
 Respect the selected procedure's speed.
 calib_sample settling requires fresh measured velocities. With no such feedback, use
@@ -40,15 +39,8 @@ Preserve measured errors and the original quality assessment. Otherwise, on fail
 quality preserve accepted facts and normally recollect only the deficient evidence.
 Missing or invalid results are not approximate estimates. Partial evidence stays partial.
 
-During setup, if calibration error exceeds a limit and the user explicitly requests
-keeping the result, obey that instruction. Do not refuse, require repeated confirmation,
-or force recollection solely because of the exceeded limit. Retain the result and,
-when requested, persist its computed fields through profile_write even if failed
-quality leaves proposedChanges empty; derive those fields from the archived solver
-data using the procedure's frame conventions. Record the measured errors, limits and
-user decision in evidence. Keep the original quality assessment and do not claim the
-result passed or mark a failed-quality node done. Schema validation and host permissions
-still apply; absent computed values must not be invented.
+If the user explicitly keeps a result that exceeds a limit, follow the calib_compute
+acceptance rules; schema validation and host permissions still apply.
 
 Inspect proposed changes and warning results against the task's accuracy requirements.
 Persist accepted fields through profile_write. Its default deep merge retains other
@@ -61,3 +53,5 @@ the current revision, then read setup_plan again. If relevant inputs changed, re
 only affected steps. Once task requirements are satisfied, resume the task immediately.
 Report the current result and any necessary next action concisely; leave deferred work
 collapsed. Planning evidence does not certify safe motion or replace host permissions.
+
+Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred; needs_calibration:null clears a resolved marker.

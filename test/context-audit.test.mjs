@@ -1,3 +1,4 @@
+import {protocolCamera} from '../packages/core/test/fixtures/protocol.mjs'
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
@@ -78,15 +79,13 @@ async function wireProvider(t, api, { compat, steps = [] } = {}) {
 test('Anthropic receives partial camera batches with images and per-device errors as normal results', async t => {
   const cwd = await workspace(t)
   const requests = await wireProvider(t, 'anthropic-messages', { steps: [
-    { tool: 'devices', args: { calls: [{ deviceID: 'camera' }, { deviceID: 'missing' }] } },
+    { tool: 'devices', args: { calls: [{ deviceID: 'camera', action: 'read' }, { deviceID: 'missing', action: 'read' }] } },
     { text: 'batch inspected' },
   ] })
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await seed(app.owner.runtime)
-  await app.owner.runtime.profiles.writeDevice({ name: 'camera', type: 'rgb', loaded: true,
-    access: { connection: { kind: 'mock' } },
-    intrinsics: { color: { width: 2, height: 2, pixel_format: 'rgb8', image_format: 'png' } } })
+  await protocolCamera(app.owner.runtime, cwd)
   await bind(app)
   await app.host.session.prompt('read the camera and missing device')
   assert.equal(requests.length, 2)
@@ -106,7 +105,7 @@ for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages
   test(`${api}: full request prefixes survive device/skill state changes and session reopen`, async t => {
     const cwd = await workspace(t)
     const requests = await wireProvider(t, api)
-    const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+    const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
     t.after(() => app.dispose())
     await seed(app.owner.runtime)
     await bind(app)
@@ -145,7 +144,7 @@ for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages
 test('same-task discovery: new tools and skill catalogs appear on the next request', async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await bind(app)
   const skill = '---\nname: instant-skill\ndescription: Instant new skill\n---\nSKILL_BODY_V1'
@@ -198,7 +197,7 @@ for (const profile of [
       { tool: 'late' },
       { text: 'done' },
     ] })
-    const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+    const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
     t.after(() => app.dispose())
     await bind(app)
     await app.host.session.prompt('create, use, remove and redefine a tool')
@@ -240,7 +239,7 @@ test('same-task tool implementation edits take effect without changing the tool 
   await mkdir(directory, { recursive: true })
   const source = version => `export default {description:'Stable description',execute:async()=>({title:'stable',output:'IMPLEMENTATION_${version}'})}`
   await writeFile(path.join(directory, 'stable_tool.ts'), source('V1'))
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await bind(app)
   fake.steps.push(
@@ -272,7 +271,7 @@ test('same-task tool interface edits, discovery errors, recovery and deletion re
     description:'Updated interface',parameters:z.object({value:z.string()}),
     execute:async(args)=>({title:'new',output:'UPDATED:'+args.value})
   }`
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await bind(app)
   fake.steps.push(
@@ -302,7 +301,7 @@ test('same-task tool interface edits, discovery errors, recovery and deletion re
 test('a batch refresh appends context after every tool result and does not duplicate unchanged snapshots', async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
-  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
   t.after(() => app.dispose())
   await bind(app)
   fake.steps.push(
@@ -348,4 +347,43 @@ test('headless CLI discovers and executes a new tool with stdin closed', { timeo
   assert.equal(fake.requests.length, 3)
   assert.ok(fake.requests[1].tools.some(tool => tool.function.name === 'headless'))
   assert.match(JSON.stringify(fake.requests[2].messages.at(-1)), /HEADLESS_TOOL_OK/)
+})
+
+test('device load state never changes model prefixes or injects operation catalogs', async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  const app = await createApplication({cwd,model:'fake/test',mode:'auto'})
+  t.after(()=>app.dispose())
+  await seed(app.owner.runtime)
+  await app.owner.runtime.profiles.writeDevice({ description: 'GENERAL_DESCRIPTION_MARKER',
+    name:'clock',
+    type:'world',
+    loaded:false,
+    runtime:{nodes:[]},
+    operations:{
+      secret_clock:{description:'CATALOG_ONLY_MARKER',transport:'topic',direction:'output',type:'rosgraph_msgs/msg/Clock',endpoint:'/clock'},
+  },
+    frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
+  await bind(app)
+  for (const prompt of ['before load','after load','after unload','unchanged']) {
+    if (prompt==='after load') await (await app.owner.runtime.devices.load('sensor')).ready
+    if (prompt==='after unload') {
+      await app.owner.runtime.devices.unload('sensor')
+      await app.owner.runtime.profiles.writeDevice({name:'clock',description:'UPDATED_DESCRIPTION_MARKER'})
+    }
+    fake.steps.push({text:'observed'})
+    await app.host.session.prompt(prompt)
+  }
+  const first=fake.requests[0]
+  const prefix=request=>request.messages.filter(m=>['system','developer'].includes(m.role))
+  assert.match(JSON.stringify(prefix(first)), /`devices\/<name>\/`: `profile\.yaml` plus node sources/)
+  assert.doesNotMatch(JSON.stringify(prefix(first)), /lookup_transform/)
+  assert.match(first.tools.find(tool => tool.function.name === 'exec').function.description, /kinex\/helpers\/helpers\.txt/)
+  for(const request of fake.requests) {
+    assert.deepEqual(prefix(request),prefix(first))
+    assert.deepEqual(request.tools,first.tools)
+    assert.doesNotMatch(JSON.stringify(request),/CATALOG_ONLY_MARKER|GENERAL_DESCRIPTION_MARKER|UPDATED_DESCRIPTION_MARKER|secret_clock/)
+  }
+  const entries=app.host.session.sessionManager.getBranch().filter(e=>e.type==='custom_message'&&e.customType==='kinex-context')
+  assert.equal(entries.length,1)
 })

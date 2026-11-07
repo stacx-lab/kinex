@@ -1,0 +1,6 @@
+float64 duration_s
+---
+bool success
+string message
+float64 time_s
+float64 waited_s

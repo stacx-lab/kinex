@@ -5,8 +5,8 @@ import fsp from "node:fs/promises"
 // Append-only JSONL writing that never sits on the agent loop's critical path:
 // one promise chain per file (rows keep their order), awaited only by flush()
 // at stop. Frame staging is the one synchronous step — a byte snapshot taken
-// before the device lane releases, because builtin drivers reuse the same
-// still-frame path and truncate that inode on the next read.
+// before the device lane releases, so later rewrites of the producer's file
+// never change a recorded frame.
 
 export interface Writer {
   append(file: string, row: Record<string, unknown>): void
