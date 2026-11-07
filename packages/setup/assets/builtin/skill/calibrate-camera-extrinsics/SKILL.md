@@ -21,16 +21,21 @@ Verify participating devices answer before physical preparation. Plan motion wit
 `kinex.helpers.trajectory` using `fraction <= 0.15`, submit through the device's
 declared command operation, wait on the world clock and verify measured arrival.
 Record the named attachment frame, without applying TCP offset.
-Use `calib_sample` for robot evidence and camera artifacts. Retain both sample
-IDs and timestamps. Sequential captures are not claimed to be synchronized.
+At each pose, take `calib_sample` of the arm with `frame`, then of the camera; a
+retake replaces the previous capture. Sequential captures are not claimed to be
+synchronized. Use at least 5 diverse poses; 10–15 are typical. Prefer rotations
+separated by roughly 20 degrees.
 
-`scripts/detect_board.py` detects ChArUco/checkerboard observations. Archive selected
-pairs as `[{frame_pose:[x,y,z,qx,qy,qz,qw],rvec:[...],tvec:[...]}]` outside the
-sampler-owned samples.json. Exclude failed detections with reasons. Use at least
-5 diverse pairs; 10–15 are typical. Prefer rotations separated by roughly 20 degrees.
+Turn the captures into observations with one exec of `scripts/board_observations.py`
+(pass its absolute path under this skill's base directory as `file`) with argv
+`--samples .kinex/calib/<run>/samples.json --camera <camera> --arm <arm> --frame <frame>
+--output <file> --square-mm <measured>` plus board options. It pairs each settled arm
+pose with the camera capture after it, detects the board, unprojects corners through
+the camera's active geometry (any lens model), and reports rejected samples and the
+geometry calibration IDs; keep them in evidence. Add `--eye` to observe one stereo eye.
 
-Run `calib_compute operation:camera-extrinsics` with the run ID, pairs file, mode,
-and attachment `frame`. Require rotation residual <= 2 degrees and translation
+Run `calib_compute operation:camera-extrinsics` with the run ID, observations file,
+mode and attachment `frame`. Require rotation residual <= 2 degrees and translation
 residual <= 10 mm. Add diverse pairs only when quality requires them.
 
 For a rigid stereo pair, frames chain robot -> `base` -> reference eye -> other eye;
@@ -44,13 +49,13 @@ paired views of a still board, such as intrinsics captures, measure it without
 hand-eye error. Then run `operation:camera-stereo-extrinsics` with `eye_to_eye:keep`,
 mode and `frame`, so both eyes constrain the mount. Use `eye_to_eye:solve` only when
 no eye-to-eye transform exists; it measures both together. Stereo observations keep
-one entry per view where both eyes see the board, as
-`{frame_pose, left:{object_points,rays}, right:{object_points,rays}}`. Require RMS
+views where both eyes see the board; omit `--arm` and `--frame` for the eye-to-eye
+solve. Require RMS
 angular residual <= 0.5 degrees, inspect per-view residuals, and pass the camera's
 `nominal_baseline_m` when known.
 
-When the eyes rarely see the board together, solve each eye with
-`operation:camera-extrinsics` and `eye`. Proposals keep every known edge: a solve
+When the eyes rarely see the board together, solve each eye with `--eye` observations
+and `operation:camera-extrinsics` with `eye`. Proposals keep every known edge: a solve
 places `base` when the eye's chain to `base` is known (a factory eye-to-eye transform
 counts), and otherwise places the other eye relative to a measured reference.
 
@@ -64,14 +69,3 @@ If the user explicitly keeps a result beyond these limits, follow the
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.
 
-
-For board observations, fetch helpers.camera_geometry(io, camera) before
-acquisition; archive its descriptor/calibration ID. SDK-backed profiles may use
-descriptor dimensions for the offline detector's color section.
-Run detect_board.py without --rays to archive pixels and object points.
-In exec, call await geometry.unproject(pixels) and archive {"rays":[...]}.
-Run the same detector with --rays to obtain fitted camera_points; call
-await geometry.project(camera_points) and archive {"pixels":[...]}.
-Rerun with --rays and --projected to calculate pixel reprojection error.
-Keep image and board arguments identical. Reject invalid coordinates or stale
-calibration IDs. Scripts never connect to devices directly.
