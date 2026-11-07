@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { useUv } from '../../core/test/fixtures/python.mjs'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, stat, symlink } from 'node:fs/promises'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -286,12 +286,6 @@ test('stereo calibration solves one eye at a time and its proposals fit the prof
   const roundTrip = 'import json, sys\nfrom kinex.lib.camera_geometry import OpenCVGeometry as G\ng = G(json.loads(sys.argv[1]), fisheye=True)\nprint(json.dumps(g.project(g.unproject([[400., 300.]]))))'
   const [[u, v]] = JSON.parse(execFileSync(system, ['-c', roundTrip, JSON.stringify(device.left)], { env, encoding: 'utf8' }))
   assert.ok(Math.abs(u - 400) < 1e-3 && Math.abs(v - 300) < 1e-3)
-  const detect = (...args) => JSON.parse(spawnSync(system, [
-    new URL('../assets/builtin/skill/calibrate-camera-extrinsics/scripts/detect_board.py', import.meta.url).pathname,
-    '--image', images[0], '--profile', path.join(directory, '.kinex/devices/pair/profile.yaml'), '--square-mm', '30', ...args], { env, encoding: 'utf8' }).stdout)
-  assert.match(detect().error, /--eye/)
-  assert.match(detect('--eye', 'right').error, /no known right stream/)
-  assert.ok(detect('--eye', 'left').pixels.length >= 6)
   assert.equal(device.right, '???')
   assert.equal(device.frames.base.parent, 'arm:flange')
   assert.deepEqual(device.frames.base.translation_m.map(value => Math.round(value * 1000)), [30, -60, 50])
@@ -311,6 +305,11 @@ test('stereo calibration solves one eye at a time and its proposals fit the prof
   assert.equal(factory.left, undefined)
   assert.equal(factory.base.parent, 'arm:flange')
   assert.deepEqual(millimetres(factory.base.translation_m), [-27, -78, 50])
+})
+
+test('board observations pair captures with settled poses and unproject through node geometry', () => {
+  execFileSync(system, [new URL('./board_observations.py', import.meta.url).pathname],
+    { env: { ...process.env, PYTHONPATH: new URL('../../core/assets/python', import.meta.url).pathname, PYTHONDONTWRITEBYTECODE: '1' } })
 })
 
 test('camera solver recovers fisheye and Brown-Conrady models and rejects fisheye folds', () => {
