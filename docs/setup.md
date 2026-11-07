@@ -9,8 +9,9 @@ their own fingerprint checks. Sampler settling requires fresh measured velocitie
 and never advances simulation time; a locomotion device settles on the odometry its
 `runtime.observation` names. A timeout after a read saves `settled:false`; FK and
 archival still honor caller cancellation. Without a configured observation, camera
-samples read the native `image` topic and, for RGBD, the equally stamped `depth`;
-both files are archived before the sample is appended. Profile writes are
+samples read the native `image` topic and, for RGBD, the equally stamped `depth`, or
+a stereo camera's `left_image` and `right_image`; every file is archived before the
+sample is appended. Profile writes are
 validated; unrelated calibration never gates all operations. See the
 [setup evidence contracts](../packages/setup/README.md#plan-and-evidence-contracts).
 

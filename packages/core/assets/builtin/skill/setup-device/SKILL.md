@@ -6,7 +6,8 @@ resolves: access:world,access:locomotion,access:joint,access:gripper,access:suct
 
 # Set up a device
 
-Resolve the configured name and builtin type from user facts. In the ordered
+Resolve the configured name and builtin type from user facts. A stereo camera whose
+SDK publishes depth is `rgbd`; a raw pair is `rgb` with `layout: stereo`. In the ordered
 Device guide roots, search all `<root>/<name>/DEVICE.md` paths before the first
 `<root>/templates/<type>/DEVICE.md`. Read Setup and start from its Profile YAML.
 Type guides recommend operation names and semantics; implement those the device

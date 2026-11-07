@@ -3,7 +3,8 @@ node or procedure plus bindings; subsequent samples use the returned run ID. The
 device must be one of the bound participants. Inputs and participants cannot change
 within an attempt. Returns the new sample, run ID and count; camera attachments are
 copied into immutable attempt artifacts, including both RGB and depth files for
-RGBD readings. Both copies must succeed before a sample is appended.
+RGBD readings and left_file and right_file for stereo RGB. Every copy must succeed
+before a sample is appended.
 Use note to identify the collection step. Samples
 contain measured state and timestamps; this tool cannot command or load devices.
 
