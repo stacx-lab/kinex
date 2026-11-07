@@ -297,6 +297,20 @@ test('stereo calibration solves one eye at a time and its proposals fit the prof
   assert.deepEqual(device.frames.base.translation_m.map(value => Math.round(value * 1000)), [30, -60, 50])
   assert.deepEqual(device.frames.right, { parent: 'pair:base', translation_m: [0, 0, 0], rotation_xyzw: [0, 0, 0, 1] })
   assert.deepEqual(device.frames.left, eyeFrame('pair:right'))
+
+  // The second eye is placed relative to the reference and leaves the measured base alone.
+  const millimetres = values => values.map(value => Math.round(value * 1000) + 0)
+  const second = JSON.parse((await compute({ ...extrinsics, eye: 'left' })).output)
+  assert.deepEqual(Object.keys(second.proposedChanges[0].data.frames), ['left'])
+  assert.equal(second.proposedChanges[0].data.frames.left.parent, 'pair:right')
+  assert.deepEqual(millimetres(second.proposedChanges[0].data.frames.left.translation_m), [0, 0, 0])
+
+  // A known eye-to-eye transform (here a factory baseline) places base from either eye.
+  await runtime.profiles.writeDevice({ name: 'pair', frames: { left: { parent: 'pair:right', translation_m: [.06, 0, 0], rotation_xyzw: [0, 0, 0, 1] } } })
+  const factory = JSON.parse((await compute({ ...extrinsics, eye: 'left' })).output).proposedChanges[0].data.frames
+  assert.equal(factory.left, undefined)
+  assert.equal(factory.base.parent, 'arm:flange')
+  assert.deepEqual(millimetres(factory.base.translation_m), [-27, -78, 50])
 })
 
 test('camera solver recovers fisheye and Brown-Conrady models and rejects fisheye folds', () => {
@@ -319,12 +333,14 @@ test('joint stereo solve recovers the mount and eye-to-eye transform in both mod
   execFileSync(system, [new URL('./stereo_evidence.py', import.meta.url).pathname, evidence],
     { env: { ...process.env, PYTHONPATH: new URL('../../core/assets/python', import.meta.url).pathname, PYTHONDONTWRITEBYTECODE: '1' } })
   const millimetres = values => values.map(value => Math.round(value * 1000) + 0)
-  const input = (name, mode, target = 'pair', reference = 'left') => ({ operation: 'camera-stereo-extrinsics', procedure: 'calibrate-camera-extrinsics',
-    bindings: { target, arm: 'arm' }, samples: path.join(evidence, `stereo_${name}.json`), mode, frame: 'flange', reference })
-  assert.match((await compute(input('in_hand', 'eye_in_hand', 'mono'))).output, /only supported for stereo/)
+  const input = (name, mode, extra = {}) => ({ operation: 'camera-stereo-extrinsics', procedure: 'calibrate-camera-extrinsics',
+    bindings: { target: 'pair', arm: 'arm' }, samples: path.join(evidence, `stereo_${name}.json`), mode, frame: 'flange', eye_to_eye: 'solve', ...extra })
+  const run = async args => JSON.parse((await compute(args)).output)
+  assert.match((await compute(input('in_hand', 'eye_in_hand', { bindings: { target: 'mono', arm: 'arm' } }))).output, /not a stereo rgb camera/)
+  assert.match((await compute(input('in_hand', 'eye_in_hand', { bindings: { target: 'pair' } }))).output, /Bind arm/)
 
   for (const [name, mode, parent] of [['in_hand', 'eye_in_hand', 'arm:flange'], ['to_hand', 'eye_to_hand', 'arm:base']]) {
-    const value = JSON.parse((await compute(input(name, mode))).output)
+    const value = await run(input(name, mode))
     assert.equal(value.quality, 'passed', JSON.stringify(value.data))
     assert.equal(value.proposedChanges[0].data.frames.base.parent, parent)
     assert.deepEqual(millimetres(value.data.translation_m), [30, -60, 50])
@@ -338,14 +354,36 @@ test('joint stereo solve recovers the mount and eye-to-eye transform in both mod
   assert.deepEqual(millimetres(device.frames.right.translation_m), [60, 0, 0])
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:pair').detail.includes('frames.'), false)
 
-  // Choosing the other eye as the reference inverts the eye-to-eye transform.
-  const swapped = JSON.parse((await compute(input('in_hand', 'eye_in_hand', 'pair', 'right'))).output)
+  // keep holds the known eye-to-eye transform and solves only the mount.
+  const kept = await run(input('in_hand', 'eye_in_hand', { eye_to_eye: 'keep' }))
+  assert.equal(kept.quality, 'passed', JSON.stringify(kept.data))
+  assert.deepEqual(millimetres(kept.data.translation_m), [30, -60, 50])
+  assert.deepEqual(millimetres(kept.data.partner_translation_m), millimetres(device.frames.right.translation_m))
+  assert.equal(kept.proposedChanges[0].data.frames.right, undefined)
+  assert.match((await compute(input('in_hand', 'eye_in_hand', { eye_to_eye: 'keep', nominal_baseline_m: .06 }))).output, /only when solving/)
+
+  // The profile's chain names the reference; with right as reference the transform inverts.
+  await runtime.profiles.writeDevice({ name: 'pair', frames: { left: unknown('pair:right'), right: unknown('pair:base') } })
+  const swapped = await run(input('in_hand', 'eye_in_hand', { nominal_baseline_m: .06 }))
+  assert.ok(swapped.data.baseline_error_m < 1e-3)
   assert.equal(swapped.proposedChanges[0].data.frames.left.parent, 'pair:right')
   assert.equal(swapped.proposedChanges[0].data.frames.right.parent, 'pair:base')
   assert.ok(Math.abs(swapped.data.baseline_m - .06) < 1e-3)
-  await runtime.profiles.writeDevice(swapped.proposedChanges[0].data)
 
-  const biased = JSON.parse((await compute(input('biased', 'eye_in_hand'))).output)
+  const biased = await run(input('biased', 'eye_in_hand'))
   assert.equal(biased.quality, 'failed', JSON.stringify(biased.data.residual_deg))
   assert.deepEqual(biased.proposedChanges, [])
+
+  // Without a robot, paired views of a still board measure only the eye-to-eye transform.
+  const eyes = name => ({ operation: 'camera-eye-to-eye', procedure: 'calibrate-camera-extrinsics', bindings: { target: 'pair' },
+    samples: path.join(evidence, `stereo_${name}.json`), nominal_baseline_m: .06 })
+  const measured = await run(eyes('to_hand'))
+  assert.equal(measured.quality, 'passed', JSON.stringify(measured.data))
+  assert.equal(measured.data.translation_m, undefined)
+  assert.equal(measured.proposedChanges[0].data.method, 'stereo')
+  assert.deepEqual(Object.keys(measured.proposedChanges[0].data.frames), ['left'])
+  assert.equal(measured.proposedChanges[0].data.frames.left.parent, 'pair:right')
+  assert.ok(Math.abs(measured.data.baseline_m - .06) < 1e-3)
+  // A solved baseline that disagrees with the nominal one fails.
+  assert.equal((await run({ ...eyes('to_hand'), nominal_baseline_m: .08 })).quality, 'failed')
 })

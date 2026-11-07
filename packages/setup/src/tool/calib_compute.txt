@@ -25,6 +25,13 @@ unloaded imu or force_torque target and proposes the current bias plus each axis
 mean residual; specific-force accelerometers need gravity_m_s2, the expected
 static reading in the IMU frame.
 
+Stereo frame proposals keep the chain base -> reference eye -> other eye and never
+discard a known edge; apply each accepted proposal before the next solve.
+camera-eye-to-eye measures the other eye in the reference eye from paired views
+without an arm; camera-stereo-extrinsics with eye_to_eye:keep holds that transform
+and solves the mount. nominal_baseline_m fails a solved baseline that differs by
+more than 5% (at least 2 mm).
+
 Archive manual/factory facts or external solver results as evidence for setup_plan
 record. Reuse valid evidence and stop as soon as the current task is supported.
 

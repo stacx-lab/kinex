@@ -33,28 +33,26 @@ Run `calib_compute operation:camera-extrinsics` with the run ID, pairs file, mod
 and attachment `frame`. Require rotation residual <= 2 degrees and translation
 residual <= 10 mm. Add diverse pairs only when quality requires them.
 
-For a rigid stereo pair, frames chain robot -> `base` -> reference eye -> other eye.
-Choose the reference eye by observation quality, coverage and independent validation
-error. Place `base` wherever suits the installation. Declare plan outputs for `base`
-and both eyes, and validate the full chain with poses the solve did not use.
+For a rigid stereo pair, frames chain robot -> `base` -> reference eye -> other eye;
+the reference eye is the one whose parent is `<camera>:base`. Declare plan outputs for
+`base` and both eyes, validate the full chain with poses the solve did not use, and
+apply each accepted proposal before the next solve.
 
-Prefer the joint solve: both eyes constrain one model, so the eye-to-eye transform
-does not inherit two independent hand-eye errors, which matters most for triangulation.
-At each stationary pose, capture both eyes with `calib_sample`, run `detect_board.py
---eye` on each eye's file, and call `await geometry.unproject(pixels, eye)`. Exclude
-invalid rays with their object points. Archive one entry per pose as
-`{frame_pose, left:{object_points,rays}, right:{object_points,rays}}`, keeping only
-poses where both eyes see the board, then run `calib_compute
-operation:camera-stereo-extrinsics` with the pairs file, `reference`, mode and `frame`.
-Require RMS angular residual <= 0.5 degrees. Inspect per-view residuals, and compare `baseline_m` with the
-camera's nominal baseline. The proposal places `base` at the reference eye; choosing
-another `base` means composing the transforms yourself and keeping the chain.
+Establish the eye-to-eye transform first. Keep a factory transform recorded from the
+SDK. Otherwise run `calib_compute operation:camera-eye-to-eye`, which needs no arm:
+paired views of a still board, such as intrinsics captures, measure it without
+hand-eye error. Then run `operation:camera-stereo-extrinsics` with `eye_to_eye:keep`,
+mode and `frame`, so both eyes constrain the mount. Use `eye_to_eye:solve` only when
+no eye-to-eye transform exists; it measures both together. Stereo observations keep
+one entry per view where both eyes see the board, as
+`{frame_pose, left:{object_points,rays}, right:{object_points,rays}}`. Require RMS
+angular residual <= 0.5 degrees, inspect per-view residuals, and pass the camera's
+`nominal_baseline_m` when known.
 
-Use a staged solve only when the eyes rarely see the board together. Pass `--eye` to
-`detect_board.py`, the same stream to geometry calls, and `eye` to `calib_compute
-operation:camera-extrinsics`, then apply the reference eye's proposal. Solve the other
-eye the same way, compose its transform relative to the reference eye and write it
-with `profile_write` instead of applying that second proposal.
+When the eyes rarely see the board together, solve each eye with
+`operation:camera-extrinsics` and `eye`. Proposals keep every known edge: a solve
+places `base` when the eye's chain to `base` is known (a factory eye-to-eye transform
+counts), and otherwise places the other eye relative to a measured reference.
 
 The proposed mount is camera-in-parent; do not invert it. Eye-in-hand uses the
 arm attachment frame; eye-to-hand uses the arm base. A world mount requires an
