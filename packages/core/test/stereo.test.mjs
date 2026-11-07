@@ -13,23 +13,41 @@ import { useUv } from './fixtures/python.mjs'
 const color = (width, height) => ({ width, height, fps: 30,
   projection: { model: 'pinhole', fx: 100, fy: 100, cx: 1, cy: 1, skew: 0 }, distortion: { model: 'opencv_fisheye', coefficients: [0, 0, 0, 0] } })
 const frame = (x, parent = 'pair:base') => ({ parent, translation_m: [x, 0, 0], rotation_xyzw: [0, 0, 0, 1] })
-const stereo = { name: 'pair', description: '', type: 'rgb', loaded: false, meta: { created_at: '', updated_at: '' },
+const stereo = { name: 'pair', description: '', type: 'rgb', layout: 'stereo', loaded: false, meta: { created_at: '', updated_at: '' },
   left: color(4, 3), right: color(6, 5),
   frames: { base: { parent: null, translation_m: null, rotation_xyzw: null }, left: frame(0), right: frame(.1, 'pair:left') } }
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')
 
-test('an rgb camera is mono by default; stereo needs both eyes, both frames and no color', () => {
+test('an rgb camera states its layout; stereo needs both eyes and chained frames, never color', () => {
   const parsed = Device.parse(stereo)
   assert.equal(parsed.right.width, 6)
-  assert.equal(Device.parse({ ...stereo, left: undefined, right: undefined }).color, '???')
-  assert.equal(Device.safeParse({ ...stereo, right: undefined }).success, false)
+  assert.equal('color' in parsed, false)
+  const { left, right, layout, ...mono } = stereo
+  assert.equal(Device.parse({ ...mono, layout: 'mono' }).color, '???')
+  assert.equal(Device.safeParse(mono).success, false)
+  assert.equal(Device.safeParse({ ...stereo, layout: 'mono' }).success, false)
   assert.equal(Device.safeParse({ ...stereo, color: color(4, 3) }).success, false)
+  assert.equal(Device.parse({ ...stereo, right: undefined }).right, '???')
   assert.equal(Device.safeParse({ ...stereo, frames: { base: stereo.frames.base, left: stereo.frames.left } }).success, false)
   assert.equal(Device.safeParse({ ...stereo, left: '???', right: '???' }).success, true)
   const frames = (left, right) => ({ ...stereo, frames: { ...stereo.frames, left, right } })
   assert.equal(Device.safeParse(frames(frame(.1, 'pair:right'), frame(0))).success, true)
   assert.equal(Device.safeParse(frames(frame(0), frame(.1))).success, false)
   assert.equal(Device.safeParse(frames(frame(0, 'arm:flange'), frame(.1, 'pair:left'))).success, false)
+})
+
+test('changing an rgb layout replaces the profile instead of merging eyes into color', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-stereo-'))
+  const runtime = createKinexRuntime({ directory })
+  t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const { meta, left, right, frames, ...common } = stereo
+  await runtime.profiles.writeDevice({ ...common, layout: 'mono', color: color(4, 3), frames: { base: frames.base } })
+  const switched = await runtime.profiles.writeDevice({ ...common, left, right, frames })
+  assert.equal('color' in switched, false)
+  assert.equal(switched.left.width, 4)
+  const back = await runtime.profiles.writeDevice({ ...common, layout: 'mono', frames: { base: frames.base } })
+  assert.equal('left' in back, false)
+  assert.equal(back.color, '???')
 })
 
 test('stereo readiness requires each eye and its measured frame', async t => {

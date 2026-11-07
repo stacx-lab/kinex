@@ -5,7 +5,7 @@ from PIL import Image
 
 from kinex import profile
 from kinex.communication import seconds
-from kinex.lib.camera import array, frame, project, ray, rays, save
+from kinex.lib.camera import array, camera_stream, frame, project, ray, rays, save
 from kinex.helpers.camera_geometry import camera_geometry
 from kinex.lib.geometry import number, vector, xyzq_to_rt
 
@@ -26,10 +26,8 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     Example: await helpers.locate_object_3d(io, "camera", "detector", "red mug")
     """
     cam = profile(camera)
-    if (cam.get("left") is not None) != (eye is not None):
-        raise ValueError("eye is required for, and only supported by, a stereo camera")
+    stream = camera_stream(cam, eye)
     geometry = await camera_geometry(io, camera)
-    stream = eye or "color"
     color = geometry.streams[stream]
     cam = {**cam, "color": color}
     if cam.get("depth", {}).get("registration") == "native" and "depth" in geometry.streams:

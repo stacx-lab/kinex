@@ -153,8 +153,8 @@ export const ProfileStore = {
     const file = await ProfileStore.deviceFile(cwd, patch.name)
     const existing = (await readYaml(file)) ?? {}
     // Merging across union variants would interleave unrelated fact shapes —
-    // a retype replaces the file wholesale instead.
-    const retyped = typeof existing["type"] === "string" && typeof patch["type"] === "string" && existing["type"] !== patch["type"]
+    // a new type or camera layout replaces the file wholesale instead.
+    const retyped = ["type", "layout"].some(key => typeof existing[key] === "string" && typeof patch[key] === "string" && existing[key] !== patch[key])
     const merged = mergeSections(retyped ? {} : existing, patch, replace, Object.keys(patch), ["access", "runtime"])
     const now = new Date().toISOString()
     const meta = (retyped ? undefined : (merged["meta"] as Record<string, unknown> | undefined)) ?? { created_at: now }

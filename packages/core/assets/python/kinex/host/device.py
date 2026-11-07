@@ -112,16 +112,15 @@ class DeviceHost:
             return await self.stop()
         if action == "$sample":
             configured = self.profile["runtime"].get("observation")
-            if not configured and self.profile.get("left") is not None:
-                from kinex.lib.camera import stereo_frame
-                images = dict(zip(("left", "right"), await stereo_frame(self.io, self.profile["name"])))
-                sample = {f"{eye}_{key}": value for eye, image in images.items()
-                          for key, value in observation(image).items()}
-                # Timestamp the pair by its later eye; each eye retains its own stamp.
-                return {**sample, "timestamp": max(sample["left_timestamp"], sample["right_timestamp"])}
             if not configured and self.profile["type"] in ("rgb", "rgbd"):
+                from kinex.lib.camera import frame, save, stereo, stereo_frame
+                if stereo(self.profile):
+                    images = dict(zip(("left", "right"), await stereo_frame(self.io, self.profile["name"])))
+                    sample = {f"{eye}_{key}": value for eye, image in images.items()
+                              for key, value in observation(image).items()}
+                    # Timestamp the pair by its later eye; each eye retains its own stamp.
+                    return {**sample, "timestamp": max(sample["left_timestamp"], sample["right_timestamp"])}
                 # One acquisition: the image and, for rgbd, its equally stamped depth.
-                from kinex.lib.camera import frame, save
                 image, depth = await frame(self.io, self.profile["name"])
                 return {**observation(image), **({"depth_file": save(depth)} if depth is not None else {})}
             candidates = [(name, op) for name, op in self.profile["operations"].items()

@@ -30,7 +30,7 @@ export async function protocolDevice(runtime, directory, name = 'sensor', { hand
 export async function protocolCamera(runtime, directory, name = 'camera') {
   const file = path.join(directory, `${name}.png`)
   await writeFile(file, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'))
-  await protocolDevice(runtime, directory, name, { type:'rgb',
+  await protocolDevice(runtime, directory, name, { type:'rgb', layout:'mono',
     loaded:true,
     handler:`def dispatch(action, args, cancelled):\n    return {'file': ${JSON.stringify(file)}, 'timestamp': 1} if action in ('read', '$sample') else {'ready':True}\n`,
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })

@@ -1,7 +1,7 @@
 """Invocation-owned camera geometry; all remote calls use the caller's communication scope."""
 import numpy as np
 from kinex import profile
-from kinex.lib.camera import rays, project
+from kinex.lib.camera import project, rays, stereo
 
 
 class CameraGeometry:
@@ -55,7 +55,7 @@ async def camera_geometry(io, camera):
     if remote:
         streams = (await io.request(f"{camera}.geometry"))["streams"]
     else:
-        streams = {eye: record[eye] for eye in ("left", "right")} if record.get("left") is not None else {"color": record["color"]}
+        streams = {eye: record[eye] for eye in ("left", "right")} if stereo(record) else {"color": record["color"]}
         if record.get("depth", {}).get("registration") == "native":
             streams["depth"] = record["depth"]
     for name, descriptor in streams.items():

@@ -70,9 +70,9 @@ function factsCheck(device: Device): Check {
     }
     case "rgb":
     case "rgbd": {
-      if (device.type === "rgb" && (device.left !== undefined || device.right !== undefined)) {
+      if (device.type === "rgb" && device.layout === "stereo") {
         for (const [eye, stream] of [["left", device.left], ["right", device.right]] as const)
-          if (!stream || !known(stream) || hasMissing(stream, ["fov", "projection", "distortion"])) return { done: false, detail: `${eye} is incomplete` }
+          if (!known(stream) || hasMissing(stream, ["fov", "projection", "distortion"])) return { done: false, detail: `${eye} is incomplete` }
         return { done: true, detail: `stereo left and right (${device.source})` }
       }
       const color = device.color
