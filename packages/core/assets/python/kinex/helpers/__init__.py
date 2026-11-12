@@ -17,4 +17,8 @@ __all__ = sorted(_MODULES)
 def __getattr__(name):
     if name not in _MODULES:
         raise AttributeError(f"kinex.helpers has no helper {name!r}")
-    return getattr(import_module(f"{__name__}.{_MODULES[name]}"), name)
+    helper = getattr(import_module(f"{__name__}.{_MODULES[name]}"), name)
+    # Importing a submodule binds it on this package under its own name, so a helper named after its module
+    # (camera_geometry) would be the module from its second use on; bind the helper instead.
+    globals()[name] = helper
+    return helper

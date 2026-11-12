@@ -1,13 +1,16 @@
 """Stereo reads keep each eye's stamp and frame; localization uses the selected eye's geometry."""
 import asyncio
+from importlib import import_module
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace as NS
 import unittest
 from unittest.mock import patch
 
-from kinex.helpers import camera_geometry as geometry_module, images, perception
+from kinex.helpers import images, perception
 from kinex.lib.camera import frame, stereo_frame
+
+geometry_module = import_module("kinex.helpers.camera_geometry")  # the module; the package attribute is the helper
 
 
 def image(sec, frame_id, width=4, height=2):
