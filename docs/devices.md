@@ -153,6 +153,12 @@ surfaces are informational facts. Document pacing, epoch resets and terminal
 episode behavior on each relevant operation. Workflow loops use world time rather
 than a simulator-specific timer.
 
+The name is shared but the scope differs. rosbridge's `world` is a ROS node that
+runs the whole simulated environment and hosts every device's endpoints. Kinex's
+world device covers only its time operations (`/clock`, `world/wait`,
+`world/stop`); arms, grippers and cameras on the same node are separate Kinex
+devices.
+
 ## Models: inference as a device
 
 Persistent inference services are `model` devices; detection, segmentation and
