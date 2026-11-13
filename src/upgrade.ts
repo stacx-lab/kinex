@@ -90,7 +90,7 @@ export async function upgradeKinex(options: UpgradeOptions = {}): Promise<void> 
   if (difference <= 0) {
     report(`Kinex ${installed.version} is current (latest release: ${version}).`)
   } else {
-    const names = [`kinex-core-${version}.tgz`, `kinex-setup-${version}.tgz`, `kinex-${version}.tgz`]
+    const names = [`kinex-core-${version}.tgz`, `kinex-setup-${version}.tgz`, `kinex-self-improve-${version}.tgz`, `kinex-${version}.tgz`]
     const assets = release.assets
     if (!Array.isArray(assets)) throw new Error("Release has no assets")
     const urls = new Map<string, string>()
@@ -107,7 +107,7 @@ export async function upgradeKinex(options: UpgradeOptions = {}): Promise<void> 
       if (!match || checksums.has(match[2]!)) throw new Error("Invalid release SHA256SUMS")
       checksums.set(match[2]!, match[1]!.toLowerCase())
     }
-    report(`Downloading Kinex ${version} (standalone, core and setup)...`)
+    report(`Downloading Kinex ${version} (standalone, core, setup and self-improve)...`)
     // Verify every artifact before touching the installation or persistent cache.
     const archives: { name: string; bytes: Buffer }[] = []
     for (const name of names) {
