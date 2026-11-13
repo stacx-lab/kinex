@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="640" viewBox="0 0 900 640" role="img" aria-labelledby="title description">
-  <title id="title">Kinex: devices, tools and skills</title>
-  <desc id="description">An agent loads skills, calls tools and calls devices directly. Calls return results to the agent. Tools also operate devices and receive observations. Device nodes connect to physical hardware, simulators and model services. Examples are labeled and styled in italics.</desc>
+  <title id="title">Kinex: devices, control graph and skills</title>
+  <desc id="description">An agent loads skills, runs control-graph programs through exec and calls devices directly. Both return results to the agent. Control graphs also read and command devices and receive observations. Device nodes connect to physical hardware, simulators and model services. Examples are labeled and styled in italics.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
@@ -24,9 +24,9 @@
   <text x="400" y="152" class="example">Examples: setup-device · calibration · verification</text>
 
   <rect x="380" y="196" width="480" height="108" rx="12" fill="#dbeafe" stroke="#3b82f6"/>
-  <text x="400" y="228" class="heading">Tools</text>
-  <text x="400" y="258" class="body">Executable perception, computation and control</text>
-  <text x="400" y="284" class="example">Examples: locate_object_3d · calib_sample</text>
+  <text x="400" y="228" class="heading">Control graph</text>
+  <text x="400" y="258" class="body">Python programs: perception, computation, control</text>
+  <text x="400" y="284" class="example">Examples: exec · kinex.helpers · custom tools</text>
 
   <rect x="380" y="366" width="480" height="108" rx="12" fill="#dcfce7" stroke="#22c55e"/>
   <text x="400" y="398" class="heading">Devices</text>
@@ -36,14 +36,14 @@
   <rect x="20" y="188" width="235" height="150" rx="12" fill="#f1f5f9" stroke="#94a3b8"/>
   <text x="38" y="223" class="heading">Agent</text>
   <text x="38" y="253" class="body">Reasoning and planning</text>
-  <text x="38" y="283" class="body">Tool and device selection</text>
+  <text x="38" y="283" class="body">Writing control code</text>
   <text x="38" y="313" class="body">Interpreting results</text>
 
   <path d="M 138 188 V 118 H 380" class="arrow"/>
   <text x="282" y="106" class="label">load</text>
   <path d="M 255 250 H 380" class="arrow"/>
   <path d="M 380 250 H 255" class="arrow"/>
-  <text x="280" y="237" class="label">call tools</text>
+  <text x="280" y="237" class="label">exec</text>
   <text x="280" y="271" class="label">results</text>
   <path d="M 138 338 V 420 H 380" class="arrow"/>
   <path d="M 380 420 H 138 V 338" class="arrow"/>

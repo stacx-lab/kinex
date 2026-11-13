@@ -6,7 +6,7 @@ Kinex connects coding agents to physical robots and simulators through three lay
 - **Tools** execute operations that combine device access, computation and control.
 - **Skills** guide the agent through tasks using reusable procedures.
 
-![Kinex architecture: the agent loads skills and calls tools or devices directly; tools also operate devices, whose nodes exchange commands and observations with hardware, simulators and services.](../assets/architecture.svg)
+![Kinex architecture: the agent loads skills, runs control-graph programs through exec and calls devices directly; control graphs also operate devices, whose nodes exchange commands and observations with hardware, simulators and services.](../assets/architecture.svg)
 
 The agent loads skills as needed, then calls devices directly through `device` or
 `devices`, uses reusable tools, or combines operations in Python through `exec`.
