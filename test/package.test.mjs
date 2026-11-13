@@ -20,6 +20,7 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
   }
   const core = await pack(path.join(root, 'packages/core'))
   const setup = await pack(path.join(root, 'packages/setup'))
+  const selfImprove = await pack(path.join(root, 'packages/self-improve'))
   const standalone = await pack(root)
   const installed = path.join(directory, 'installed')
   let relocated = path.join(directory, 'relocated')
@@ -38,7 +39,7 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
   const setupWorkspace = path.join(relocated, 'setup-consumer')
   await mkdir(setupWorkspace)
   await t.test('setup composes, relocates and can be removed', () => checkSetupPackage(setupWorkspace, relocated, env, setup))
-  await install(relocated, setup, standalone)
+  await install(relocated, setup, selfImprove, standalone)
   await rename(relocated, relocated + '-standalone')
   relocated += '-standalone'
   for (const name of ['pi', 'opencode', 'codex']) await assert.rejects(stat(path.join(relocated, 'node_modules/@kinex', name)), { code: 'ENOENT' })
@@ -51,11 +52,11 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
   const manifest = JSON.parse(await readFile(path.join(relocated, 'node_modules/kinex/package.json'), 'utf8'))
   assert.deepEqual([manifest.dependencies['pi-web-search'], manifest.dependencies['pi-btw']], ['1.7.0', '0.7.1'])
   assert.equal((await invoke('--version')).stdout.trim(), manifest.version)
-  for (const name of ['core', 'setup']) {
+  for (const name of ['core', 'setup', 'self-improve']) {
     const dependency = JSON.parse(await readFile(path.join(relocated, `node_modules/@kinex/${name}/package.json`), 'utf8'))
     assert.equal(dependency.version, manifest.version)
     assert.equal(manifest.dependencies[`@kinex/${name}`], manifest.version)
-    if (name === 'setup') assert.equal(dependency.dependencies['@kinex/core'], manifest.version)
+    if (name !== 'core') assert.equal(dependency.dependencies['@kinex/core'], manifest.version)
   }
   assert.match((await invoke('--help')).stdout, /--enable-recording/)
   assert.match((await invoke('-p', '/devices')).stdout, /No devices/)
