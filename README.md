@@ -109,6 +109,22 @@ for RGB-D, `depth` topics and render a current frame for each new subscriber, so
 Kinex can read them while a stepped world is paused. See
 [ROS communication](docs/communication.md) for the operation and Python contracts.
 
+### Practise tasks and keep what was learned
+
+With a simulator prepared, `/self-improve` lets Kinex attempt a set of tasks,
+study its own attempts and distill them into a library of skills and tools:
+
+```text
+/self-improve robocasa/add-ice-cubes robocasa/adjust-heat --rounds 2
+/self-improve status
+/self-improve install L2
+```
+
+Each task runs as a trial judged by the simulator; a separate session then turns
+the trial records into the next library version, and later trials run with it.
+`install` copies a version into the current workspace's `.kinex/`. See
+[self-improve](packages/self-improve/README.md) for the files and limits.
+
 ## Use Kinex with Real-World Robots
 
 Open Kinex in your robot workspace and describe your hardware, how it connects,
