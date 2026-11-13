@@ -104,6 +104,15 @@ rate or leave it out when it is not needed. See
 | `/onboarding [description]` | Prepare the robot and task prerequisites.   |
 | `/calibrate [scope]`        | Resolve selected calibration prerequisites. |
 
+### Self-improvement
+
+| Command                                             | Purpose                                                              |
+| --------------------------------------------------- | -------------------------------------------------------------------- |
+| `/self-improve <tasks> [--rounds N] [--parallel N]` | Practise simulated tasks and distill a library of skills and tools. |
+| `/self-improve status [run]`                        | Show trials, distillations and tasks solved per library version.     |
+| `/self-improve install <version> [run]`             | Copy a published library version into this workspace.                |
+| `/self-improve resume [run]`                        | Continue a run from what is on disk.                                 |
+
 ## Shell commands
 
 | Command                                      | Purpose                                      |
