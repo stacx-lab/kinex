@@ -1,0 +1,1 @@
+Work only in this directory: do not look for the simulator's files, records or source, or for anything else outside it. You have at most $TIMEOUT seconds of wall time. Stop when the task is done, or when you can name why it can no longer be done, and say which in one short paragraph: the simulator's own check decides the outcome, not your report.
