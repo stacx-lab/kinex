@@ -1,4 +1,5 @@
 import { createKinexSetup, setupContribution, setupLibRoots, setupSkillRoots, setupToolNames } from "@kinex/setup"
+import { selfImproveContribution, selfImproveToolNames } from "@kinex/self-improve"
 import path from "node:path"
 import {
   createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices,
@@ -24,8 +25,8 @@ export interface ApplicationComposition {
 }
 
 const defaultComposition: ApplicationComposition = {
-  builtinSkillRoots: setupSkillRoots, builtinLibRoots: setupLibRoots, reservedToolNames: setupToolNames,
-  contributions: runtime => [coreContribution(runtime), setupContribution(createKinexSetup(runtime))],
+  builtinSkillRoots: setupSkillRoots, builtinLibRoots: setupLibRoots, reservedToolNames: [...setupToolNames, ...selfImproveToolNames],
+  contributions: runtime => [coreContribution(runtime), setupContribution(createKinexSetup(runtime)), selfImproveContribution(runtime)],
 }
 
 export interface ApplicationOptions {

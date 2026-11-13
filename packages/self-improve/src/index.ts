@@ -1,1 +1,1 @@
-export { roles, schedulerTools, currentRole, type Role } from "./roles.ts"
+export { selfImproveContribution, selfImproveToolNames } from "./integration.ts"
