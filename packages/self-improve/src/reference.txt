@@ -1,0 +1,11 @@
+# What reference/ holds
+
+- kinex-core.md: what a sub-agent can do in its environment. It is a Kinex session in a robot workspace: the device tools, `exec` for Python with `kinex.helpers`, and the host's shell and file tools.
+
+A library is installed into the sub-agent's workspace as it is, so it uses Kinex's own formats:
+
+- A skill is `skills/<name>/SKILL.md`: a frontmatter block (`---`, then `name: <name>` and `description: <one line>`, then `---`) followed by the text. Both keys are required.
+- A tool is `tools/<name>/` holding `tool.yaml` and its entry, `tool.py` unless `entry:` names another file. `tool.yaml` has `name` (lowercase snake_case, unique), `description`, `parameters` (a JSON Schema for the arguments object), and optionally `async: true` (the entry exports `async def main(args, io)` and reaches devices through `io`), `timeout_s` (default 120) and `devices` (device types that must be loaded). No other keys are accepted.
+- `brief.md` is plain text.
+
+improve_check loads the candidate the way Kinex would and reports what does not load. It does not run anything.
