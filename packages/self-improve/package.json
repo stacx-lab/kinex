@@ -1,0 +1,34 @@
+{
+  "name": "@kinex/self-improve",
+  "version": "1.1.3",
+  "license": "Apache-2.0",
+  "description": "Practise simulated robot tasks and distill the attempts into Kinex skills and tools",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@kinex/core": "1.1.3",
+    "zod": "^4.4.3",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0"
+  }
+}

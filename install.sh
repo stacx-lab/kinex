@@ -165,7 +165,7 @@ try {
     if (!install) console.log(`Kinex ${currentVersion} is already installed (latest: ${version}).`);
   }
   if (install) {
-    const names = [`kinex-core-${version}.tgz`, `kinex-setup-${version}.tgz`, `kinex-${version}.tgz`];
+    const names = [`kinex-core-${version}.tgz`, `kinex-setup-${version}.tgz`, `kinex-self-improve-${version}.tgz`, `kinex-${version}.tgz`];
     const base = `https://github.com/stacx-lab/kinex/releases/download/v${version}`;
     for (const name of [...names, 'SHA256SUMS']) {
       const matches = Array.isArray(release.assets) ? release.assets.filter(asset => asset?.name === name) : [];
