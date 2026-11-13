@@ -16,5 +16,6 @@ architecture, then read the topics relevant to your change.
 | [Agent integration and context](agent-integration.md) | Tools, device guidance, permissions, sessions, recording, compaction and Pi resources. |
 | [Installation and releases](distribution.md) | Package versions, the curl installer, upgrades, ROS interfaces and validation. |
 
-For API details and examples, see [core](../packages/core/README.md) and
-[setup](../packages/setup/README.md). Design history and progress belong in git.
+For API details and examples, see [core](../packages/core/README.md),
+[setup](../packages/setup/README.md) and
+[self-improve](../packages/self-improve/README.md). Design history and progress belong in git.

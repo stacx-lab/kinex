@@ -14,6 +14,9 @@ Design history and progress belong in git.
 - `packages/setup` owns onboarding and calibration procedures/assets, including
   calibration skills and evidence. Setup borrows core operational
   runtime resources through package exports.
+- `packages/self-improve` owns `/self-improve`: trials on simulated tasks,
+  distillation into library versions, and installing one. It reaches simulators
+  only through the rosbridge command and core only through package exports.
 - `src` composes standalone with published Pi SDKs; `src/integration` owns its
   product policy. Do not fork/reimplement providers, coding tools, loops or TUI.
 - Plugins for Pi, Claude Code and Codex live in the separate `../kinex-plugins`

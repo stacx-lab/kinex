@@ -115,6 +115,22 @@ kinex-sim launch libero/libero-spatial-01 --execution-mode stepped --domain-id 8
 Then open Kinex in the exported directory and give it the task.
 See [using kinex-sim with Kinex](https://github.com/stacx-lab/kinex-sim/blob/main/docs/kinex.md).
 
+### Practise tasks and keep what was learned
+
+With a simulator prepared, `/self-improve` lets Kinex attempt a set of tasks,
+study its own attempts and distill them into a library of skills and tools:
+
+```text
+/self-improve robocasa/add-ice-cubes robocasa/adjust-heat --rounds 2
+/self-improve status
+/self-improve install L2
+```
+
+Each task runs as a trial judged by the simulator; a separate session then turns
+the trial records into the next library version, and later trials run with it.
+`install` copies a version into the current workspace's `.kinex/`. See
+[self-improve](packages/self-improve/README.md) for the files and limits.
+
 ### Real-world robots
 
 Open Kinex in your robot workspace and describe your hardware, how it connects
