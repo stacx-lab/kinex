@@ -88,7 +88,7 @@ test('exec results show printed output, then the result or the failure once, as 
 test('all Kinex tools share JSON result formatting regardless of argument-summary support', () => {
   const value = { observation: { pose: { position: [1, 2, 3] } } }
   const expected = '{\n  "observation": {\n    "pose": {"position":[1,2,3]}\n  }\n}'
-  for (const name of ['devices', 'relative_pose', 'locate_object_3d', 'run_policy', 'workspace_tool']) {
+  for (const name of ['devices', 'relative_pose', 'locate_object_3d', 'workspace_tool']) {
     const result = { content: [{ type: 'text', text: JSON.stringify(value, null, 4) }] }
     assert.equal(plain(toolRenderers(name).renderResult(result, { expanded: true }, theme, context)).split('\n').map(line => line.trimEnd()).join('\n'), expected)
     assert.equal(plain(toolRenderers(name).renderResult({ content: [{ type: 'text', text: 'plain text result' }] }, { expanded: true }, theme, context)), 'plain text result')

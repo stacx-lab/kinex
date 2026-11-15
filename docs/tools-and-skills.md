@@ -29,7 +29,6 @@ name. They cannot load or unload devices and retain permissions and cancellation
 | --- | --- |
 | `relative_pose` | Express a frame or local pose relative to another frame. |
 | `locate_object_3d` | Combine a camera, detection model and depth to estimate an object's position in the camera frame. |
-| `run_policy` | Run policy inference once and submit the resulting valid action prefix across devices. |
 
 ### Python execution with `exec`
 
@@ -42,7 +41,7 @@ available through `kinex.args()`, and `argv` supplies script arguments.
 Scripts reach devices through `communication()`: `io.request`, `io.publish` and
 `io.subscribe` on declared operations, concurrently with asyncio when needed.
 `kinex.helpers`, indexed by `kinex/helpers/helpers.txt`, supplies frame,
-kinematics, motion, policy, image and perception functions; calling them inside
+kinematics, motion, image and perception functions; calling them inside
 exec shares its communication and cleanup. Host coding tools are outside this
 Python API.
 

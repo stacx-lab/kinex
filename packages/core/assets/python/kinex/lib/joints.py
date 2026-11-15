@@ -98,14 +98,3 @@ def project_seed(value, joints):
     values = vector(value, len(joints), "IK seed")
     return [max(j["limits"]["min"], min(j["limits"]["max"], v)) if j["limits"] else v
             for j, v in zip(joints, values)]
-
-
-def measured_positions(message, joints):
-    """Order a JointState without clamping or silently accepting duplicate names."""
-    if len(message.name) != len(message.position) or len(set(message.name)) != len(message.name):
-        raise ValueError("joint state requires unique names and matching positions")
-    positions = dict(zip(message.name, message.position))
-    names = [joint["name"] for joint in joints]
-    if any(name not in positions for name in names):
-        raise ValueError("joint state is missing modeled joints")
-    return joint_target([positions[name] for name in names], joints, check_limits=False)

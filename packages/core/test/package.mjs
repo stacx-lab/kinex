@@ -19,7 +19,7 @@ export async function checkCorePackage(directory, env, pack) {
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
   for (const name of ['node.py', 'env.sh', 'setup.sh', 'provision.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
     assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
-  for (const file of ['helpers/helpers.txt', 'helpers/__init__.py', 'helpers/frames.py', 'helpers/motion.py', 'helpers/policy.py', 'lib/kinematics.py', 'node.py', 'host/urdf.py'])
+  for (const file of ['helpers/helpers.txt', 'helpers/__init__.py', 'helpers/frames.py', 'helpers/motion.py', 'lib/kinematics.py', 'node.py', 'host/urdf.py'])
     assert.ok(pack.files.some(entry => entry.path === `assets/python/kinex/${file}`))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
   await writeFile(path.join(directory, 'consumer.mts'), `
@@ -85,7 +85,7 @@ export async function checkCorePackage(directory, env, pack) {
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
-      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.lib.camera; import kinex.helpers.policy; import kinex.lib.kinematics'], {
+      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.lib.camera; import kinex.lib.kinematics'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
       execFileSync('python3', ['-c', [

@@ -8,7 +8,7 @@ _MODULES = {
     "camera_geometry": "camera_geometry",
     "lookup_transform": "frames", "transform_pose": "frames", "relative_pose": "frames",
     "joint_model": "kinematics", "trajectory": "motion",
-    "run_policy": "policy", "locate_object_3d": "perception",
+    "locate_object_3d": "perception",
     "camera_frame": "images", "stereo_frame": "images", "image_array": "images", "save_image": "images",
 }
 __all__ = sorted(_MODULES)

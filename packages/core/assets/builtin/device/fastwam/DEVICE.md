@@ -1,7 +1,7 @@
 ---
 name: fastwam
 type: model
-description: FastWAM action inference for LIBERO and RoboTwin, including LIBERO Optional IDM. Returns predictions; run_policy owns IK and robot execution.
+description: FastWAM action inference for LIBERO and RoboTwin, including LIBERO Optional IDM. Returns predictions without executing them.
 ---
 
 ## Setup

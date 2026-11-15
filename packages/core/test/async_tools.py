@@ -20,107 +20,12 @@ def tool(name):
     return module
 
 
-class Stream:
-    def __init__(self):
-        self.closed = False
-
-    async def next(self, **_):
-        return NS(name=["j1", "j0"], position=[.1, 0.], header=NS(stamp=0))
-
-    def close(self):
-        self.closed = True
-
-
-class Protocol:
-    def __init__(self):
-        self.catalog = {"world.wait": {}}
-        self.events = []
-        self.streams = []
-
-    def subscribe(self, operation, **_):
-        self.events.append(("subscribe", operation))
-        stream = Stream()
-        self.streams.append(stream)
-        return stream
-
-    async def request(self, operation, **fields):
-        self.events.append(("request", operation, fields))
-        if operation == "model.infer":
-            return {"actions": [[.2, .3], [.4, .5]]}
-        return NS(success=True)
-
-    async def publish(self, operation, fields):
-        self.events.append(("publish", operation, fields))
-
-
-def profile(_):
-    from kinex.lib.urdf import read_tree
-    return {
-        "name": "arm", "type": "joint", "loaded": True, "runtime": {}, "home": None, "limits": "strict",
-        "model": {"format": "urdf", "path": "arm.urdf", "base_link": "base_link", "tip_link": "flange"},
-        "resolved_model": read_tree(None, "base_link", """<robot name="arm">
-  <link name="base_link"/><link name="upper"/><link name="lower"/><link name="flange"/>
-  <joint name="j0" type="revolute"><parent link="base_link"/><child link="upper"/><axis xyz="0 0 1"/>
-    <limit lower="-1" upper="1" velocity="1"/></joint>
-  <joint name="j1" type="revolute"><parent link="upper"/><child link="lower"/><origin xyz=".5 0 0"/>
-    <axis xyz="0 1 0"/><limit lower="-1" upper="1" velocity="1"/></joint>
-  <joint name="flange_joint" type="fixed"><parent link="lower"/><child link="flange"/><origin xyz=".5 0 0"/></joint>
-</robot>"""),
-    }
-
-
 class Tools(unittest.IsolatedAsyncioTestCase):
     def test_helper_index_lists_every_helper(self):
         index = (Path(helpers.__file__).parent / "helpers.txt").read_text()
         for name in helpers.__all__:
             self.assertTrue(callable(getattr(helpers, name)), name)
             self.assertIn(f"helpers.{name}(", index)
-
-    async def test_policy_validates_chunk_before_publishing(self):
-        policy, io = tool("run_policy"), Protocol()
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda value: value
-        with patch("kinex.helpers.policy.profile", profile), patch.dict(sys.modules, {
-            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
-            "rosidl_runtime_py.convert": convert,
-        }):
-            result = await policy.main({"model": "model", "observation": {},
-                                        "command": [{"device": "arm"}], "action_hz": 20}, io)
-        self.assertEqual(result["actions_submitted"], 2)
-        self.assertEqual(result["duration_s"], .1)
-        kind, operation, trajectory = io.events[-1]
-        self.assertEqual((kind, operation, trajectory["joint_names"]), ("publish", "arm.joint_target", ["j0", "j1"]))
-        self.assertEqual(len(trajectory["points"]), 2)
-
-    async def test_scalar_policy_targets_are_persistent_and_paced_by_world(self):
-        policy, io = tool("run_policy"), Protocol()
-        async def request(operation, **fields):
-            io.events.append(("request", operation, fields))
-            return {"actions": [[-1.], [1.]]} if operation == "model.infer" else NS(success=True)
-        io.request = request
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda value: value
-        facts = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0.}}
-        with patch("kinex.helpers.policy.profile", return_value=facts), patch.dict(sys.modules, {
-            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
-        }):
-            result = await policy.main({"model": "model", "observation": {},
-                                       "command": [{"device": "gripper"}], "action_hz": 10}, io)
-        self.assertEqual(result["actions_submitted"], 2)
-        self.assertEqual([event[2] for event in io.events if event[0] == "publish"],
-                         [{"data": .04}, {"data": 0.}])
-        self.assertEqual([event[2] for event in io.events if event[:2] == ("request", "world.wait")],
-                         [{"duration_s": .1}, {"duration_s": .1}])
-        self.assertFalse(any(event[1].endswith(".stop") for event in io.events))
-
-    async def test_end_effector_policy_without_world_wait_never_infers(self):
-        policy, io = tool("run_policy"), Protocol()
-        io.catalog = {}
-        facts = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0.}}
-        with patch("kinex.helpers.policy.profile", return_value=facts):
-            with self.assertRaisesRegex(ValueError, "world wait"):
-                await policy.main({"model": "model", "observation": {}, "command": [{"device": "gripper"}]}, io)
-        self.assertEqual(io.events, [])
 
     async def test_relative_pose_uses_tf2_relation_and_local_offsets(self):
         relative = tool("relative_pose")
@@ -131,76 +36,9 @@ class Tools(unittest.IsolatedAsyncioTestCase):
                       header=NS(stamp=NS(sec=2, nanosec=500000000)))
         with patch("kinex.helpers.frames.lookup_transform", lookup):
             result = await relative.main({"parent": {"frame": "base", "pose": [0, 0, .1, 0, 0, 0, 1]},
-                                          "child": {"frame": "camera", "pose": [0, 0, .2, 0, 0, 0, 1]}}, Protocol())
+                                          "child": {"frame": "camera", "pose": [0, 0, .2, 0, 0, 0, 1]}}, NS())
         self.assertEqual(result["pose"], [1., 0., .1, 0., 0., 0., 1.])
         self.assertEqual(result["timestamp"], 2.5)
-
-    async def test_policy_cartesian_chunk_uses_scoped_frames_and_typed_ik(self):
-        policy = tool("run_policy")
-
-        class Cartesian(Protocol):
-            async def request(self, operation, **fields):
-                if operation == "model.infer":
-                    return {"actions": [[.1, 0., 0., 0., 0., 0., 1.]]}
-                return await super().request(operation, **fields)
-
-        io, frames = Cartesian(), []
-
-        async def transform(io, pose, source, target, stamp):
-            frames.append((source, target))
-            return pose
-
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda value: value
-        with patch("kinex.helpers.policy.profile", profile), patch("kinex.helpers.frames.transform_pose", transform), patch.dict(sys.modules, {
-            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
-            "rosidl_runtime_py.convert": convert,
-        }), patch("kinex.lib.joints.JointModel.ik", autospec=True, return_value=[.2, .3]) as ik:
-            result = await policy.main({"model": "model", "observation": {},
-                                        "command": [{"device": "arm", "space": "pose"}], "action_hz": 20}, io)
-        self.assertEqual(frames, [("arm/flange", "arm/flange"), ("arm/base", "arm/base"), ("arm/base", "arm/base")])
-        self.assertEqual(ik.call_args.args[1:], ([.1, 0., 0., 0., 0., 0., 1.], [0., .1]))
-        self.assertEqual(result["actions_submitted"], 1)
-
-    async def test_policy_invalid_later_joint_target_never_publishes(self):
-        policy, io = tool("run_policy"), Protocol()
-        async def request(*args, **kwargs):
-            return {"actions": [[0., 0.], [5., 0.]]}
-        io.request = request
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda value: value
-        with patch("kinex.helpers.policy.profile", profile), patch.dict(sys.modules, {
-            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
-        }), self.assertRaises(ValueError):
-            await policy.main({"model": "model", "observation": {}, "command": [{"device": "arm"}]}, io)
-        self.assertFalse(any(event[0] == "publish" for event in io.events))
-
-    async def test_policy_malformed_ik_truncates_all_buffers_and_seeds_from_predecessor(self):
-        policy = tool("run_policy")
-        for failure_at in (0, 1):
-            io, seeds = Protocol(), []
-            async def request(operation, **fields):
-                return {"actions": [{"arm": [0, 0, 0, 0, 0, 0, 1], "other": [0., 0.]}] * 3}
-            def solve(model, goal, seed):
-                seeds.append(seed)
-                if len(seeds) > failure_at:
-                    raise ValueError("IK search exhausted")
-                return [.2, .3]
-            async def transform(io, pose, *args):
-                return pose
-            io.request = request
-            convert = ModuleType("rosidl_runtime_py.convert")
-            convert.message_to_ordereddict = lambda value: value
-            with patch("kinex.helpers.policy.profile", profile), patch("kinex.helpers.frames.transform_pose", transform), patch.dict(sys.modules, {
-                "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
-            }), patch("kinex.lib.joints.JointModel.ik", autospec=True, side_effect=solve):
-                result = await policy.main({"model": "model", "observation": {}, "action_hz": 20,
-                    "command": [{"device": "arm", "space": "pose"}, {"device": "other"}]}, io)
-            self.assertEqual(result["actions_submitted"], failure_at)
-            self.assertEqual(result["duration_s"], failure_at / 20)
-            self.assertEqual(seeds, [[0., .1], [.2, .3]][:failure_at + 1])
-            self.assertEqual(len([event for event in io.events if event[0] == "publish"]), 2 if failure_at else 0)
-
 
 
 class Transforms(unittest.IsolatedAsyncioTestCase):

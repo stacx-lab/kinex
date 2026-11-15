@@ -25,11 +25,6 @@ Motion
     Plan joint references and duration without device I/O.
     Implementation: motion.py
 
-Policy
-  await helpers.run_policy(io, model, observation, command, task=None, world="world", action_hz=10, max_actions=None, inference_args=None)
-    Infer once and submit the valid action prefix to the commanded devices.
-    Implementation: policy.py
-
 Images
   await helpers.camera_geometry(io, camera)
     Fetch descriptors before acquisition; reuse within this invocation.

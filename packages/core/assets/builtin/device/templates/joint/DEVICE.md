@@ -15,8 +15,8 @@ The sibling `links.py` node publishes every link on TF as `<device>/<link>`, wit
 the base link as `<device>/base`; other devices mount on these links, for example
 a gripper base on `arm:flange`. Link names must not repeat profile frame names.
 
-`model.tip_link` names the end-effector link that FK, IK and Cartesian policies
-use by default; set it to null for trees without one, such as a dexterous hand.
+`model.tip_link` names the end-effector link that FK and IK use by default; set it
+to null for trees without one, such as a dexterous hand.
 `home` gives every commanded joint a position, or is null. With `limits: strict`,
 the node and Kinex tools reject targets outside the URDF limits, allowing only a
 bounded inward recovery toward home (`kinex.lib.joints.recovery_targets`); use

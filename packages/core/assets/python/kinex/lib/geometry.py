@@ -76,11 +76,6 @@ def pose_to_rt(pose):
     return quat_to_mat(pose["rotation"]), list(pose["translation"])
 
 
-def rt_to_pose(rt):
-    R, t = rt
-    return {"translation": [float(v) for v in t], "rotation": mat_to_quat(R)}
-
-
 def xyzq_to_rt(flat):
     """[x, y, z, qx, qy, qz, qw] (named-frame pose) -> (R, t)."""
     return quat_to_mat(flat[3:7]), list(flat[0:3])

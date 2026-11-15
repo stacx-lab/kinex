@@ -5,7 +5,7 @@ import { UrdfModel, commandedJoints, type UrdfTree } from "./urdf.ts"
 const name = z.string().min(1)
 
 export const jointShape = {
-  // tip_link is the default FK/IK link and Cartesian policy frame; null for trees such as hands.
+  // tip_link is the default FK/IK link; null for trees such as hands.
   model: field(UrdfModel.extend({ tip_link: field(name.nullable()) })),
   home: field(z.record(name, z.number()).nullable()),
   // strict rejects targets outside URDF limits; native leaves them to the device.
@@ -18,7 +18,7 @@ export function jointErrors(device: Pick<JointFacts, "model" | "home">, tree: Ur
   const errors: string[] = []
   const tip = known(device.model) ? device.model.tip_link : null
   if (tip !== null && known(tip)) {
-    // FK/IK and Cartesian policies solve the joints from the base link to the tip.
+    // FK/IK solve the joints from the base link to the tip.
     const parents = new Map(tree.joints.map(joint => [joint.child, joint]))
     const path: UrdfTree["joints"] = []
     for (let joint = parents.get(tip); joint; joint = parents.get(joint.parent)) path.push(joint)

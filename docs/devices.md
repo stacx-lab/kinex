@@ -177,7 +177,6 @@ link. A gripper's `grip` names the actuated joint with its open and closed
 positions, and `frames.tcp` is the grasp point with +z approach. A suction tool
 has no URDF: `vacuum` says whether it switches on and off or accepts a level,
 `frames.tcp` is the cup contact centre, and its stop never releases a held object.
-Policy values in [-1, 1] release at -1 and grip at +1 for both.
 Guides recommend a `sensor_msgs/msg/JointState` `joint_state` and a
 `trajectory_msgs/msg/JointTrajectory` `joint_target` for joint devices, and a
 `std_msgs/msg/Float64` `target` with a `std_msgs/msg/Bool` `grasped` for end

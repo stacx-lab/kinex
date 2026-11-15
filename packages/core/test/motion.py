@@ -108,19 +108,6 @@ class QuaternionTests(unittest.TestCase):
 
 
 class MotionTests(unittest.TestCase):
-    def test_measured_positions_require_unique_complete_finite_joints(self):
-        from types import SimpleNamespace
-        from kinex.lib.joints import measured_positions
-
-        joints = [{"name": name, "type": "revolute", "limits": {"min": -1, "max": 1}}
-                  for name in ("j0", "j1")]
-        state = SimpleNamespace(name=["j1", "j0"], position=[.1, 0.])
-        self.assertEqual(measured_positions(state, joints), [0., .1])
-        for names, values in [(["j0", "j0"], [0., 0.]), (["j0"], [0.]),
-                              (["j0", "j1"], [0.]), (["j0", "j1"], [math.nan, 0.])]:
-            with self.subTest(names=names, values=values), self.assertRaises(ValueError):
-                measured_positions(SimpleNamespace(name=names, position=values), joints)
-
     def test_joint_home_recovery(self):
         from kinex.lib.joints import command, home_start_tolerance
         profile = copy.deepcopy(PROFILE)
@@ -149,7 +136,6 @@ class MotionTests(unittest.TestCase):
 
     def test_native_commands_pass_raw_targets_and_still_validate_structure(self):
         from kinex.lib.joints import command
-        from kinex.helpers.policy import _grip, _vacuum
 
         profile, joints = copy.deepcopy(PROFILE), copy.deepcopy(JOINTS)
         actions = [[100]]
@@ -161,16 +147,6 @@ class MotionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 command(profile, [[0], target], joints)
         self.assertTrue(trajectory(joints, [2.001], [100], .01, check_limits=False).actions)
-        gripper = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0}}
-        self.assertEqual([_grip(gripper, value) for value in (-1, 0, 1)], [.04, .02, 0])
-        for value in (-1.001, 1.001, True, math.nan, math.inf):
-            with self.assertRaises(ValueError):
-                _grip(gripper, value)
-        values = (-1, 0, .1, 1)
-        self.assertEqual([_vacuum({"vacuum": "binary"}, value) for value in values], [0, 0, 1, 1])
-        self.assertEqual([_vacuum({"vacuum": "proportional"}, value) for value in values], [0, .5, .55, 1])
-        with self.assertRaisesRegex(ValueError, "no vacuum control"):
-            _vacuum({"vacuum": "???"}, 0)
 
     def test_full_plan_duration_endpoint_and_speed_scaling(self):
         joints = [{"type": "revolute", "limits": {"min": -3, "max": 3}}] * 2
