@@ -8,6 +8,7 @@
 :root {
   --bg: #f6f6f3; --panel: #ffffff; --ink: #1c1e21; --muted: #667085; --line: #98a1ad; --border: #d8dce2;
   --io: #0f766e; --io-bg: #e4f3f0; --call: #4338ca; --call-bg: #ecebfd; --quiet: #eff0f2;
+  --ask: #a21caf; --ask-bg: #fbeafd;
   --warn: #a8570a; --warn-bg: #fcf1df; --bad: #b42318; --bad-bg: #fdecea; --good: #17663a; --good-bg: #e6f4ea;
   --select: #2563eb; --mark: #fff3bf;
 }
@@ -15,6 +16,7 @@
   :root {
     --bg: #15171b; --panel: #1e2126; --ink: #e6e8eb; --muted: #9aa3ae; --line: #6f7885; --border: #353b45;
     --io: #5eead4; --io-bg: #10302d; --call: #aab6ff; --call-bg: #26284d; --quiet: #272b32;
+    --ask: #f0abfc; --ask-bg: #3a1540;
     --warn: #fbbf24; --warn-bg: #3a2d10; --bad: #fca5a5; --bad-bg: #3b1b1b; --good: #86efac; --good-bg: #143021;
     --select: #7aa7ff; --mark: #4a4216;
   }
@@ -72,6 +74,10 @@ aside .doc p.kept { white-space: pre-wrap; }
 .io { background: var(--io-bg); border-color: var(--io); }
 .io .tag { color: var(--io); }
 .io.dynamic code { font-style: italic; }
+.subagent { background: var(--ask-bg); border-color: var(--ask); max-width: 420px; }
+.subagent .tag { color: var(--ask); }
+.subagent .said { flex-basis: 100%; }
+.subagent.dynamic .said { font-style: italic; }
 .call { background: var(--call-bg); border-color: var(--call); font-weight: 600; }
 .call .mark { color: var(--call); }
 .call.opaque { background: var(--panel); border-style: dashed; font-weight: 400; cursor: default; }
@@ -148,6 +154,7 @@ aside .doc p.kept { white-space: pre-wrap; }
   </div>
   <div class="legend">
     <span><i class="swatch" style="background:var(--io-bg);border-color:var(--io)"></i>device operation</span>
+    <span><i class="swatch" style="background:var(--ask-bg);border-color:var(--ask)"></i>subagent: a model's judgment</span>
     <span><i class="swatch" style="background:var(--call-bg);border-color:var(--call)"></i>call: click to open its chart</span>
     <span><i class="swatch" style="background:var(--quiet);border-color:var(--border)"></i>computation</span>
     <span><i class="swatch" style="background:var(--warn-bg);border-color:var(--warn)"></i>waiting and tasks</span>
@@ -248,6 +255,12 @@ const DRAW = {
   io: (step, context) => {
     const element = node(`button.node.io${step.dynamic ? ".dynamic" : ""}`, step, context, tag(VERBS[step.verb] ?? step.verb), code(step.operation))
     if (step.dynamic) element.title = "The operation is computed when the program runs"
+    return element
+  },
+  subagent: (step, context) => {
+    const element = node(`button.node.subagent${step.dynamic ? ".dynamic" : ""}`, step, context, tag("subagent"),
+      step.shows.length ? h("span.note", `sees ${step.shows.join(", ")}`) : null, h("span.said", step.instruction))
+    element.title = "A model answers this instruction; the program parses its reply"
     return element
   },
   compute: (step, context) => {

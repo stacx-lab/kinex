@@ -47,6 +47,13 @@ that commanded it; see [commands and cleanup](communication.md#commands-and-clea
 Hosts route `exec` through core's tool API so the Python runner applies this
 cleanup.
 
+A program's `subagent` call is a host capability, `host.subagent(request, signal)`
+in the runtime options: core passes the instruction, the shown text and image files
+and an optional model name, and takes back the reply and the model that gave it.
+Core never calls a model. The call is covered by the invocation's approval, is
+aborted with it, and gives the subagent no tools. A host without the capability
+leaves it unset and programs receive `subagent_unavailable`.
+
 ## Recording
 
 Manual recording is available; model recording is opt-in. Continuous capture

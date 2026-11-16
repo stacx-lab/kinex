@@ -276,6 +276,80 @@ def broken():
     await assert.rejects(run(invalid), /Usage: \/exec|JSON/)
 })
 
+test('a program asks the host subagent, alongside other calls, and handles its failures', { timeout: 30000 }, async t => {
+  const calls = []
+  const state = { aborted: 0 }
+  const until = (signal, milliseconds) => new Promise((resolve, reject) => {
+    const timer = milliseconds === undefined ? undefined : setTimeout(resolve, milliseconds)
+    signal.addEventListener('abort', () => { clearTimeout(timer); state.aborted++; reject(signal.reason) }, { once: true })
+  })
+  const subagent = async (request, signal) => {
+    calls.push(request)
+    if (request.instruction === 'slow') await until(signal, 400)
+    if (request.instruction === 'never') await until(signal)
+    if (request.instruction === 'broken') throw new Error('provider refused')
+    return { text: `reply to ${request.instruction}\n`, model: request.model ?? 'fake/default' }
+  }
+  const { runtime, directory } = await fixture(t, { host: { ...host, subagent } })
+  await writeFile(path.join(directory, 'frame.png'), Buffer.from('89504e470d0a1a0a', 'hex'))
+  await writeFile(path.join(directory, 'notes.txt'), 'not an image')
+  const result = await execScript(runtime, { args: { image: 'frame.png' }, python: `
+import asyncio
+from pathlib import Path
+from kinex import RPCError, runtime, subagent
+slow = asyncio.create_task(subagent("slow"))
+await asyncio.sleep(0)
+# A subagent that is still thinking holds back neither another subagent nor a host call.
+fast = await subagent("fast", show={"view": Path(args["image"]), "pose": [0.1, float("nan")], "note": "plain text"}, model="fake/small", thinking="low")
+devices = [device["name"] for device in runtime.devices()]
+early = slow.done()
+pair = await asyncio.gather(subagent("a"), subagent("b"))
+failures = []
+for instruction, options in [("broken", {}), ("never", {"timeout_s": 0.3}), ("image", {"show": {"view": Path("notes.txt")}}), ("", {}), ("many", {"show": {str(index): "x" for index in range(17)}})]:
+    try:
+        await subagent(instruction, **options)
+    except RPCError as error:
+        failures.append([str(error).splitlines()[0], error.code])
+return {"fast": fast, "devices": devices, "early": early, "slow": await slow, "pair": pair, "failures": failures}
+` })
+  assert.ok(!result.isError, result.output)
+  const { output, result: returned } = JSON.parse(result.output)
+  assert.deepEqual(returned, {
+    fast: 'reply to fast\n', devices: ['sensor'], early: false, slow: 'reply to slow\n', pair: ['reply to a\n', 'reply to b\n'],
+    failures: [
+      ['provider refused', 'subagent_failed'],
+      ['subagent gave no reply within 0.3 s', 'subagent_failed'],
+      [`subagent cannot be shown ${path.join(directory, 'notes.txt')}: it is not a readable image`, null],
+      [returned.failures[3][0], null],
+      [returned.failures[4][0], null],
+    ],
+  })
+  for (const index of [3, 4]) assert.match(returned.failures[index][0], /^invalid subagent call/)
+  // The host receives what the program shows, images as files; replies are part of the output.
+  assert.deepEqual(calls.find(call => call.instruction === 'fast'), { instruction: 'fast', model: 'fake/small', thinking: 'low', show: [
+    { name: 'view', image: { path: path.join(directory, 'frame.png'), mime: 'image/png' } },
+    { name: 'pose', text: '[0.1, null]' }, { name: 'note', text: 'plain text' },
+  ] })
+  assert.deepEqual(calls.find(call => call.instruction === 'slow'), { instruction: 'slow', show: [], model: undefined, thinking: undefined })
+  assert.deepEqual(calls.map(call => call.instruction), ['slow', 'fast', 'a', 'b', 'broken', 'never'])
+  // Each line appears when its reply does, so the slow one is last although it was asked first.
+  assert.deepEqual(output.replace(/\(\d+\.\d s\)/g, '(T)').split('\n'), [
+    'subagent fake/small (T): reply to fast', 'subagent fake/default (T): reply to a', 'subagent fake/default (T): reply to b',
+    'subagent failed: provider refused', 'subagent failed: subagent gave no reply within 0.3 s', 'subagent fake/default (T): reply to slow', '',
+  ])
+
+  // A call the program stops waiting for ends with the invocation.
+  const aborted = state.aborted
+  const abandoned = await execScript(runtime, { python: 'import asyncio\nfrom kinex import subagent\ntask = asyncio.create_task(subagent("never"))\nawait asyncio.sleep(0.2)\nreturn "done"' })
+  assert.deepEqual(JSON.parse(abandoned.output), { output: '', result: 'done' })
+  assert.equal(state.aborted, aborted + 1)
+
+  // A host without subagents says so, and the program can fall back.
+  const plain = await fixture(t, { host })
+  const fallback = await execScript(plain.runtime, { python: 'from kinex import RPCError, subagent\ntry:\n    return await subagent("anything")\nexcept RPCError as error:\n    return [str(error), error.code]' })
+  assert.deepEqual(JSON.parse(fallback.output).result, ['this host runs no subagents', 'subagent_unavailable'])
+})
+
 test('core discovery and context contain robotics tools and packaged assets', async t => {
   const { runtime } = await fixture(t)
   const { tools, problems } = await runtime.tools.list()

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { PermissionDeniedError, QuestionDeclinedError, failure, renderFailure } from "./errors.ts"
 import type { Question } from "./interaction.ts"
+import type { Subagent } from "./subagent.ts"
 
 export interface Context {
   sessionID: string
@@ -11,6 +12,8 @@ export interface Context {
   ask(input: { permission: string; description: string; metadata?: Record<string, unknown> }): Promise<void>
   // Live user interaction for the question tool; resolves with answers per question.
   questions(questions: Question[]): Promise<Record<string, string>>
+  // A model judgment for a running program; absent when the host runs no subagents.
+  subagent?: Subagent
 }
 
 export type Attachment = { mime: string } & (

@@ -20,6 +20,10 @@ const Io = z.strictObject({
 })
 const Call = z.strictObject({ kind: z.literal("call"), label: z.string(), target: z.string().nullable().describe("the called function's id; null when it is not charted"), ...at })
 const Compute = z.strictObject({ kind: z.literal("compute"), names: z.array(z.string()).describe("the names these statements assign"), ...at })
+const Subagent = z.strictObject({
+  kind: z.literal("subagent"), instruction: z.string().describe("the instruction's first line, or its expression when dynamic"), dynamic: z.boolean(),
+  shows: z.array(z.string()).describe("the names of the items shown to the subagent"), ...at,
+})
 const Wait = z.strictObject({ kind: z.literal("wait"), label: z.string(), ...at })
 const Exit = z.strictObject({ kind: z.literal("exit"), how: z.enum(["return", "raise", "break", "continue"]), label: z.string(), ...at })
 const Join = z.strictObject({ kind: z.literal("join"), task: z.string(), ...at })
@@ -43,7 +47,7 @@ const Parallel = z.strictObject({
   branches: z.array(z.strictObject({ each: z.string().nullable().describe("set when the branch runs once per item"), body: Block })),
 })
 const Spawn = z.strictObject({ kind: z.literal("spawn"), task: z.string().nullable(), ...at, body: Block })
-export const FlowStep = z.discriminatedUnion("kind", [Io, Call, Compute, Wait, Exit, Join, Cancel, Branch, Loop, Scope, Try, Parallel, Spawn])
+export const FlowStep = z.discriminatedUnion("kind", [Io, Subagent, Call, Compute, Wait, Exit, Join, Cancel, Branch, Loop, Scope, Try, Parallel, Spawn])
 export const FlowFunction = z.strictObject({
   id: z.string(),
   path: z.string().describe("module.function in kinex.lib, or file:function outside it"),

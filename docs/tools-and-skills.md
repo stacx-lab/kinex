@@ -142,6 +142,50 @@ the [control example](../packages/core/README.md#feedback-control-with-exec) for
 bounded loop returning multiple camera images, and [device contracts](devices.md)
 for the underlying interfaces.
 
+### Subagents in programs
+
+A program asks a model for a judgment with `subagent`, so a saved closed-loop task
+can decide what it sees without the main agent:
+
+```python
+# .kinex/lib/judge.py
+"""Judgments a model makes for a program."""
+import json
+from kinex import subagent
+
+async def centring(object: str, front, wrist) -> dict:
+    """Whether the object is centred in both views, with its pixel in each."""
+    reply = await subagent(
+        f"Find the {object} in both views. Answer as JSON: "
+        '{"verdict": "centred|off_centre|not_visible", "front_px": [x, y], "wrist_px": [x, y]}',
+        show={"front": front, "wrist": wrist})
+    return json.loads(reply)
+```
+
+`await subagent(instruction, show=None, model=None, thinking=None, timeout_s=60)`
+returns the reply as text. The subagent sees only the instruction and the named
+items in `show`: a camera image message or an image `Path` is shown as an image,
+any other value as text. It has no tools, no memory of other calls and none of the
+main agent's context. The program states the form of the reply, parses it and
+checks it before acting; a reply it cannot use is an ordinary Python error to
+retry, or a reason to return the images to the main agent. Calls run alongside
+other work (`asyncio.gather` included), count against the invocation's time limit,
+and end with the invocation. The program waits for a reply but the robot does not,
+so ask where the robot is at rest.
+
+Each reply is written to the invocation's output as
+`subagent <model> (<seconds> s): <reply>`, so whoever reads the result sees why the
+program went the way it did. A failed call raises `kinex.RPCError` with code
+`subagent_failed`, or `subagent_unavailable` on a host that runs no subagents.
+
+Core defines only the exchange; the host answers it. Standalone runs each call as
+a Pi session of its own, without tools, on the application's model runtime, so
+every provider and credential configured for Kinex serves it. `/subagent
+<provider/model> [thinking]` chooses the model for all later calls and
+`/subagent session` returns to the session's model, which is also the default; the
+choice is kept in `subagent.json` of the Kinex configuration directory. A call's
+`model` and `thinking` override it. The plugins' hosts run no subagents yet.
+
 ### Flow charts
 
 `/visualize tabletop.pick_place` draws a saved program for the user to read: a
@@ -152,6 +196,7 @@ A function's chart is a tree of steps rather than a graph of statements:
 
 | Step | From |
 | --- | --- |
+| Subagent | `subagent(...)`, with the first line of its instruction and the names of what it is shown |
 | Device operation | `io.request`, `io.publish`, `io.read`, a subscription's `next` or `latest`, labelled with the operation; a computed name shows its expression |
 | Call | A call to a library function, a function of the same file or, for a file outside the library, of a sibling module. One node, which opens into the callee's chart |
 | Computation | Consecutive statements that touch no device and call no program, folded into one node; branches and loops that only compute fold with them |
