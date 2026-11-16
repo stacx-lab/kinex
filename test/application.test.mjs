@@ -48,6 +48,25 @@ test('direct commands need no model and preserve the robotics workspace', async 
   for (const entry of ['.pi', '.kinex/python']) await assert.rejects(stat(path.join(cwd, entry)), { code: 'ENOENT' })
 })
 
+test('/exec in a new session waits for the loaded devices that are still connecting', async t => {
+  const cwd = await workspace(t)
+  const first = await createApplication({ cwd })
+  await seed(first.owner.runtime)
+  await bind(first)
+  await first.host.session.prompt('/load sensor')
+  await first.dispose()
+  // The device now takes a moment to start, as real nodes do.
+  await writeFile(path.join(cwd, '.kinex/devices/sensor/handler.py'), 'import time\ntime.sleep(1.5)\n')
+  await mkdir(path.join(cwd, '.kinex/lib'), { recursive: true })
+  await writeFile(path.join(cwd, '.kinex/lib/check.py'), '"""Checks."""\nfrom kinex import runtime\n\ndef ready():\n    """Which devices are ready."""\n    return {device["name"]: device["ready"] for device in runtime.devices()}\n')
+  const outputs = []
+  const app = await createApplication({ cwd, report: text => outputs.push(text) })
+  t.after(() => app.dispose())
+  await bind(app)
+  await app.host.session.prompt('/exec check.ready')
+  assert.deepEqual(JSON.parse(outputs.at(-1)).result, { sensor: true })
+})
+
 test('headless permission denial prevents coding side effects', async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)

@@ -5,6 +5,7 @@ import { workflows } from "./workflows/index.ts"
 import { libNode } from "./lib/catalog.ts"
 import { writeFlowPage } from "./lib/flow.ts"
 import { formatJSON } from "./util/json.ts"
+import { abortable } from "./util/abort.ts"
 
 export const roboticsCommands = [
   { name: "register", description: "Prepare an unloaded device profile", arguments: "<type-or-template>", kind: "workflow" },
@@ -67,6 +68,9 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
   if (name === "exec") {
     const [, program, rest = ""] = /^\s*(\S+)\s*([\s\S]*)$/.exec(args) ?? []
     if (!program) throw new Error("Usage: /exec <module.function> [name=value ...|{json}]")
+    // A program started as the session opens waits for the loaded devices that are still
+    // connecting; one that fails to connect is the program's to report.
+    await abortable(Promise.allSettled((await runtime.devices.warmLoaded()).map(activation => activation.ready)), context.signal)
     // The user's command is its own approval; cleanup and /stop still apply.
     const result = await runtime.tools.call("exec", { program, args: programArguments(rest) }, { sessionID: context.sessionID, signal: context.signal, ask: async () => {} })
     return { kind: "output", text: result.output, isError: result.isError }
