@@ -96,16 +96,38 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
 }
 
 // A JSON object, or name=value pairs whose values are JSON when they parse and text otherwise.
+// The pairs are scanned once, left to right: a user's text never drives a backtracking pattern.
 function programArguments(text: string): Record<string, unknown> {
   if (text.startsWith("{")) return JSON.parse(text) as Record<string, unknown>
-  const pair = /\s*([A-Za-z_]\w*)=("(?:[^"\\]|\\.)*"|'[^']*'|\S*)/y
   const values: Record<string, unknown> = {}
-  while (pair.lastIndex < text.length) {
-    const [, key, value] = pair.exec(text) ?? []
-    if (key === undefined || value === undefined) throw new Error("Usage: /exec <module.function> [name=value ...|{json}]")
-    try { values[key] = value.startsWith("'") ? value.slice(1, -1) : JSON.parse(value) } catch { values[key] = value }
+  const state = { at: 0 }
+  const take = (accept: (char: string) => boolean) => {
+    const start = state.at
+    while (state.at < text.length && accept(text[state.at]!)) state.at++
+    return text.slice(start, state.at)
   }
-  return values
+  const space = (char: string) => /\s/.test(char)
+  // A quoted value, quotes included, when its closing quote exists.
+  const quoted = () => {
+    const quote = text[state.at]
+    if (quote !== '"' && quote !== "'") return undefined
+    for (let end = state.at + 1; end < text.length; end += quote === '"' && text[end] === "\\" ? 2 : 1) {
+      if (text[end] !== quote) continue
+      const value = text.slice(state.at, end + 1)
+      state.at = end + 1
+      return value
+    }
+    return undefined
+  }
+  for (;;) {
+    take(space)
+    if (state.at >= text.length) return values
+    const key = take(char => /\w/.test(char))
+    if (!/^[A-Za-z_]/.test(key) || text[state.at] !== "=") throw new Error("Usage: /exec <module.function> [name=value ...|{json}]")
+    state.at++
+    const value = quoted() ?? take(char => !space(char))
+    try { values[key] = value.startsWith("'") && value.length > 1 && value.endsWith("'") ? value.slice(1, -1) : JSON.parse(value) } catch { values[key] = value }
+  }
 }
 
 async function record(runtime: KinexRuntime, tokens: string[], sessionID: string): Promise<string> {

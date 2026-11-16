@@ -262,12 +262,17 @@ def broken():
   assert.ok(!pairs.isError, pairs.text)
   assert.deepEqual(JSON.parse(pairs.text).result, { object: 'red block', target: 'blue pad', attempts: 3, pose: [.1, .2], flag: true, name: 'cube', empty: '' })
   assert.deepEqual(JSON.parse((await run('  tasks.echo  ')).text).result, {})
+  // Escaped quotes stay inside a value, and a quote that never closes is ordinary text.
+  assert.deepEqual(JSON.parse((await run(String.raw`tasks.echo text="a \"b\" c" open="red raw='it' _n=1`)).text).result, { text: 'a "b" c', open: '"red', raw: 'it', _n: 1 })
+  const started = performance.now()
+  await assert.rejects(run(`tasks.echo ${' '.repeat(200000)}${'A'.repeat(200000)}`), /Usage: \/exec/)
+  assert.ok(performance.now() - started < 2000, 'argument parsing is linear in its input')
   assert.deepEqual(JSON.parse((await run('tasks.echo {"nested": {"a": [1, "two words"]}}')).text).result, { nested: { a: [1, 'two words'] } })
   const failed = await run('tasks.broken')
   assert.equal(failed.isError, true)
   assert.match(JSON.parse(failed.text).error, /RuntimeError: task failed/)
   assert.equal((await run('echo')).isError, true)
-  for (const invalid of ['', 'tasks.echo stray', 'tasks.echo a=1 stray', 'tasks.echo {broken'])
+  for (const invalid of ['', 'tasks.echo stray', 'tasks.echo a=1 stray', 'tasks.echo 1a=2', 'tasks.echo =2', 'tasks.echo {broken'])
     await assert.rejects(run(invalid), /Usage: \/exec|JSON/)
 })
 
