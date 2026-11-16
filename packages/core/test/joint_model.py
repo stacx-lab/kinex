@@ -3,9 +3,9 @@ import math
 from types import SimpleNamespace as NS
 import unittest
 
-from kinex.lib.joints import JointModel, pose_at, pose_command
-from kinex.lib.geometry import pose_error, slerp
-from kinex.lib.urdf import read_tree
+from kinex.common.joints import JointModel, pose_at, pose_command
+from kinex.common.geometry import pose_error, slerp
+from kinex.common.urdf import read_tree
 
 ARM = """<robot name="arm">
   <link name="base_link"/><link name="upper"/><link name="flange"/><link name="tool"/>

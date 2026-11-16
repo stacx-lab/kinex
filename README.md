@@ -67,7 +67,7 @@ kinex
 Use `/login` to connect a model provider and `/model` to choose a model.
 Python execution uses a workspace-owned Pixi/RoboStack ROS environment on Linux
 x86-64: Jazzy by default, Humble with `python.provider: "ros-humble"`, or plain uv
-with `"uv"`; install Pixi or uv before first use. Exec, helpers and recording share Kinex Python; device SDK
+with `"uv"`; install Pixi or uv before first use. Exec, the program library and recording share Kinex Python; device SDK
 interpreters are optional overrides for device nodes only.
 See [environment setup](docs/communication.md#kinex-python).
 

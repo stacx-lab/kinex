@@ -18,7 +18,7 @@ by the solver must actually remain fixed during collection. Base/torso motion th
 changes it invalidates those pairs; holding commanded zero is not proof of rest.
 
 Verify participating devices answer before physical preparation. Plan motion with
-`kinex.helpers.trajectory` using `fraction <= 0.15`, submit through the device's
+`lib.motion.trajectory` using `fraction <= 0.15`, submit through the device's
 declared command operation, wait on the world clock and verify measured arrival.
 Record the named attachment frame, without applying TCP offset.
 At each pose, take `calib_sample` of the arm with `frame`, then of the camera; a

@@ -6,8 +6,9 @@ from types import ModuleType, SimpleNamespace as NS
 import unittest
 from unittest.mock import patch
 
-from kinex.helpers import images, perception
-from kinex.lib.camera import frame, stereo_frame
+from kinex.communication import ambient
+from kinex.lib import images, perception
+from kinex.common.camera import frame, stereo_frame
 
 
 def image(sec, frame_id, width=4, height=2):
@@ -68,8 +69,8 @@ class StereoFrames(unittest.IsolatedAsyncioTestCase):
         scope = Scope(left_image=Stream([]), right_image=Stream([image(3, "camera/right")]))
         self.assertEqual((await frame(scope, "camera", eye="right"))[0].header.frame_id, "camera/right")
         with patch.object(images, "profile", lambda _: STEREO):
-            with self.assertRaisesRegex(ValueError, "eye is required"):
-                await images.camera_frame(scope, "camera")
+            with self.assertRaisesRegex(ValueError, "eye is required"), ambient(scope):
+                await images.camera_frame("camera")
 
     async def test_snapshot_returns_both_eyes_and_the_later_stamp(self):
         msg = ModuleType("sensor_msgs.msg")
@@ -97,8 +98,8 @@ class StereoLocate(unittest.IsolatedAsyncioTestCase):
 
     async def test_locate_uses_the_selected_eye_stream(self):
         scope = self.scope()
-        with patch.object(perception, "profile", lambda _: STEREO), patch.object(images, "profile", lambda _: STEREO):
-            located = await perception.locate_object_3d(scope, "camera", "model", "mug", depth=2, eye="right")
+        with patch.object(perception, "profile", lambda _: STEREO), patch.object(images, "profile", lambda _: STEREO), ambient(scope):
+            located = await perception.locate_object_3d("camera", "model", "mug", depth=2, eye="right")
         Path(located["file"]).unlink()
         self.assertEqual(located["frame"], "camera/right")
         unproject = next(fields for reference, fields in scope.requests if reference == "camera.unproject")
@@ -107,11 +108,11 @@ class StereoLocate(unittest.IsolatedAsyncioTestCase):
 
     async def test_eye_must_match_the_camera(self):
         with patch.object(perception, "profile", lambda _: STEREO):
-            with self.assertRaisesRegex(ValueError, "eye is required"):
-                await perception.locate_object_3d(self.scope(), "camera", "model", "mug", depth=2)
+            with self.assertRaisesRegex(ValueError, "eye is required"), ambient(self.scope()):
+                await perception.locate_object_3d("camera", "model", "mug", depth=2)
         with patch.object(perception, "profile", lambda _: {"type": "rgb", "layout": "mono", "color": {}}):
-            with self.assertRaisesRegex(ValueError, "eye is required"):
-                await perception.locate_object_3d(self.scope(), "camera", "model", "mug", depth=2, eye="left")
+            with self.assertRaisesRegex(ValueError, "eye is required"), ambient(self.scope()):
+                await perception.locate_object_3d("camera", "model", "mug", depth=2, eye="left")
 
 
 if __name__ == "__main__":

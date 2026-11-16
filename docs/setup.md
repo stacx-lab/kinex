@@ -23,7 +23,7 @@ the sampler's own settling and evidence checks remain part of setup.
 
 ## ROS integration
 
-Core owns ROS node supervision, communication helpers and interfaces. Setup owns
+Core owns ROS node supervision, communication and interfaces. Setup owns
 onboarding and calibration procedures. New integrations declare explicit
 `runtime` and `operations` fields in device profiles; see
 [ROS communication](communication.md). Registration uses core's `setup-device`,
@@ -35,8 +35,8 @@ that borrow the simulator's endpoints and carry their calibration. Load them aft
 `rosbridge launch <task> --execution-mode stepped|realtime --domain-id N` starts
 the graph on the same domain.
 
-Device nodes and optional local sources live in `.kinex/devices/<name>/`; shared
-code may use `.kinex/lib/`. Use `profile_write` to register node factories;
+Device nodes and optional local sources live in `.kinex/devices/<name>/`; code
+shared with exec may live in `.kinex/lib/`, imported as `kinex.lib.<module>`. Use `profile_write` to register node factories;
 default nodes inherit Kinex Python. Declare interpreter/overlay overrides only for
 separate device SDKs. Unload before replacing runtime definitions, validate, then
 explicitly reload. Existing external stacks are borrowed; Kinex unload releases
@@ -48,7 +48,7 @@ Speed limits come from the hardware (vendor, controller or URDF). Onboarding and
 nodes never preset more conservative velocity caps; an additional cap uses a value
 the user chose when asked.
 
-Core owns async protocol helpers and the world-clock client. ROS activation stays
+Core owns the async protocol API and the world-clock client. ROS activation stays
 within owned subprocesses; shared host packages and overlays are never rolled back on unload.
 
 Dependency installation uses the host's permission-checked shell. Onboarding

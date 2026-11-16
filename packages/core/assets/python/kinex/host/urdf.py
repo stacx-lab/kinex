@@ -4,9 +4,9 @@ a link pose in its tree's base from {tree, link, positions}."""
 import json
 import sys
 
-from kinex.lib.geometry import flat
-from kinex.lib.kinematics import Chain
-from kinex.lib.urdf import positions, read_tree
+from kinex.common.geometry import flat
+from kinex.common.kinematics import Chain
+from kinex.common.urdf import positions, read_tree
 
 
 def pose(request):

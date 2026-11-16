@@ -46,7 +46,7 @@ and its setup contribution. Omitted values do not inherit standalone's defaults.
 
 Device preparation, including ROS dependencies and Kinex Python for ROS, follows
 core's [setup-device](../core/assets/builtin/skill/setup-device/SKILL.md) skill.
-Nodes consume core runtime helpers to remain operational without setup.
+Nodes consume core runtime modules to remain operational without setup.
 
 ## Tools and workflows
 

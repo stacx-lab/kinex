@@ -25,7 +25,7 @@ maximum residual <= 4 mm, nondegenerate geometry and proper rotation.
 The proposed mount is second-base-in-anchor-base. Apply only when that parent
 relationship is intended and does not introduce a frame cycle; otherwise explicitly
 compose into the chosen parent with established transforms. Verify using
-`relative_pose` and a held-out observation when available. Archive evidence and
+`lib.frames.relative_pose` and a held-out observation when available. Archive evidence and
 stop when the task's cross-arm requirement is satisfied. Single-arm tasks do not
 require this procedure.
 

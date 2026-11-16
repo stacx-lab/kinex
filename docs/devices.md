@@ -75,7 +75,7 @@ is the device base, and each link below it is a device frame named by the link,
 published from measured joint state, mimic joints included, by the template
 `links.py` node. Profile frames may use a link as a parent but must not reuse its
 name. References must exist and be acyclic. ROS IDs use `device/frame`;
-`kinex.helpers.lookup_transform` accepts these IDs or qualified `device:frame`
+`lib.frames.lookup_transform` accepts these IDs or qualified `device:frame`
 references. Query at observation stamps. Simulator nodes supply measurements and
 state; they do not own Kinex frame publication.
 
@@ -171,7 +171,7 @@ placement. Load places the model and unload releases it with the device process.
 ## Joints and end effectors
 
 A joint device commands the URDF's independent movable joints in document order,
-with strict or native limit handling; `helpers.joint_model` computes FK and IK
+with strict or native limit handling; `lib.kinematics.joint_model` computes FK and IK
 from the URDF. `tip_links` lists the links that end its chains, such as an arm's
 flange or a hand's fingertips; FK and IK default to a single tip. A gripper's
 `grip` names the actuated joint with its open and closed positions, and

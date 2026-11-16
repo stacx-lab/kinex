@@ -34,6 +34,19 @@ To restart device connections after changing profiles or restarting a simulator,
 use `/unload <device>` followed by `/load <device>`, or restart Kinex. Use `all` to
 reconnect the whole collection. `/reload` refreshes agent resources only.
 
+### Programs
+
+| Command                                        | Purpose                                                                 |
+| ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `/lib [module[.function]]`                     | Browse the program library: modules, a module's functions, a signature. |
+| `/exec <module.function> [name=value ...]`     | Run a library program without the model.                                |
+
+`/exec` passes `name=value` pairs as keyword arguments; a value is JSON when it
+parses (`attempts=3`, `pose=[0.1,0.2]`, `object="red block"`) and text otherwise,
+and one JSON object may replace the pairs. `/stop` cancels it like any other
+invocation. From the shell, `kinex run '/exec tabletop.pick_place object="red block"'`
+runs a saved program and exits.
+
 ### Recording and session export
 
 Capture device observations with `/record` and preserve the conversation with

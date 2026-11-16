@@ -76,33 +76,25 @@ finish();
       await mkdir(path.dirname(status.executable), { recursive: true })
       await symlink(python, status.executable)
     },
-    tool: async (source = 'import sys\nfrom kinex import finish\nfinish({"python": sys.executable})\n', interpreter) => {
-      const tool = path.join(directory, '.kinex/tools/probe')
-      await mkdir(tool, { recursive: true })
-      await writeFile(path.join(tool, 'tool.yaml'), JSON.stringify({ name: 'probe', description: 'Python environment probe', ...(interpreter ? { interpreter } : {}) }))
-      await writeFile(path.join(tool, 'tool.py'), source)
-      return tool
-    },
+    exec: (python = 'import sys\nreturn {"python": sys.executable}\n', input = {}) => runtime.tools.call('exec', { python, ...input }, { sessionID: 'python' }),
   }
 }
 
-test('existing default Python runs repeated and concurrent tools without uv or manifest synchronization', async t => {
+test('existing default Python runs repeated and concurrent exec without uv or manifest synchronization', async t => {
   const f = await fixture(t)
   await f.existing()
-  await f.tool()
   // No uv can be located; the absolute Python executable must still work.
   process.env.PATH = ''
-  const call = () => f.runtime.tools.call('probe', {}, { sessionID: 'python' })
   for (let i = 0; i < 2; i++) {
-    const result = await call()
+    const result = await f.exec()
     assert.ok(!result.isError, result.output)
   }
   await writeFile(path.join(f.status.project, 'pyproject.toml'), 'changed; deliberately not valid TOML')
   await writeFile(path.join(f.status.project, 'uv.lock'), 'changed lockfile')
-  const results = await Promise.all(Array.from({ length: 6 }, call))
+  const results = await Promise.all(Array.from({ length: 6 }, () => f.exec()))
   for (const result of results) {
     assert.ok(!result.isError, result.output)
-    assert.equal(JSON.parse(result.output).python, f.status.executable)
+    assert.equal(JSON.parse(result.output).result.python, f.status.executable)
   }
   assert.deepEqual(await f.calls(), [])
 })
@@ -205,21 +197,19 @@ test('explicit preparation synchronizes existing environments and execution wait
 test('missing imports report the interpreter without synchronization or replay', async t => {
   const f = await fixture(t)
   await f.existing()
-  const tool = await f.tool('from pathlib import Path\nwith Path("attempts").open("a") as f: f.write("attempt\\n")\nimport kinex_dependency_that_does_not_exist\n')
-  const result = await f.runtime.tools.call('probe', {}, { sessionID: 'python' })
+  const result = await f.exec('from pathlib import Path\nwith Path("attempts").open("a") as f: f.write("attempt\\n")\nimport kinex_dependency_that_does_not_exist\n')
   assert.equal(result.isError, true)
   assert.match(result.output, /kinex_dependency_that_does_not_exist/)
   assert.ok(result.output.includes(f.status.executable))
-  assert.equal(await readFile(path.join(tool, 'attempts'), 'utf8'), 'attempt\n')
+  assert.equal(await readFile(path.join(f.directory, 'attempts'), 'utf8'), 'attempt\n')
   assert.deepEqual(await f.calls(), [])
 })
 
-test('tool interpreter overrides are rejected without preparing another environment', async t => {
+test('exec interpreter overrides are rejected without preparing another environment', async t => {
   const f = await fixture(t)
-  await f.tool(undefined, python)
-  const catalog = await f.runtime.tools.list()
-  assert.ok(catalog.problems.some(problem => /interpreter/.test(problem)))
-  assert.ok(!catalog.tools.some(tool => tool.name === 'probe'))
+  const result = await f.exec(undefined, { interpreter: python })
+  assert.equal(result.isError, true)
+  assert.match(result.output, /interpreter/)
   await assert.rejects(stat(f.status.project), { code: 'ENOENT' })
   assert.deepEqual(await f.calls(), [])
 })
@@ -260,10 +250,9 @@ test('prepared ROS exec sources its own overlays and ignores ambient Python impo
   process.env.PYTHONPATH='/must/not/inherit/simulator'
   t.after(()=>{if(previous===undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH=previous})
   const result=await f.runtime.tools.call('exec',{python:`import os, sys
-from kinex import finish
 assert '/must/not/inherit/simulator' not in sys.path
 assert os.environ['KINEX_TEST_OVERLAY_0'] == os.environ['KINEX_TEST_OVERLAY_1'] == 'own'
-finish({'python':sys.executable})`},{sessionID:'ros-python'})
+return {'python':sys.executable}`},{sessionID:'ros-python'})
   assert.ok(!result.isError,result.output)
   assert.equal(JSON.parse(result.output).result.python,status.executable)
   assert.deepEqual(await f.calls(),[])

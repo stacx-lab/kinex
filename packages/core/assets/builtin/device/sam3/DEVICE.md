@@ -1,7 +1,7 @@
 ---
 name: sam3
 type: model
-description: SAM3 open-vocabulary segmentation — text-prompted (detect) and point-prompted (segment_point) masks with boxes and scores; the perception backend for tools like locate_object_3d.
+description: SAM3 open-vocabulary segmentation — text-prompted (detect) and point-prompted (segment_point) masks with boxes and scores; the perception backend for programs like lib.perception.locate_object_3d.
 ---
 
 ## Setup

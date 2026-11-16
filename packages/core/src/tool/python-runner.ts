@@ -6,11 +6,9 @@ import { abortable } from "../util/abort.ts"
 import { z } from "zod"
 import { pythonDiagnostic } from "../python/environment.ts"
 import { deviceTree, modelErrors } from "../device/profile/urdf.ts"
-import { deviceInputValues } from "./device-input.ts"
 import path from "node:path"
 import { formatJSON } from "../util/json.ts"
 import { ProfileStore } from "../device/profile/store.ts"
-import { matchesDeviceType } from "../device/profile/schema.ts"
 import { pythonLaunch } from "../python/launch.ts"
 import { imageMime } from "../util/media.ts"
 import { PermissionDeniedError, failure, failureMetadata } from "./errors.ts"
@@ -18,66 +16,29 @@ import { NamedError } from "../util/error.ts"
 import { readLine, LineTimeoutError } from "../util/lines.ts"
 import { create } from "../util/log.ts"
 import type { Context, Result } from "./tool.ts"
-import type { PyToolInfo, ToolManifest } from "./python-catalog.ts"
 
-const log = create("python-tool")
+const log = create("exec")
 
-class PyToolError extends NamedError {
+class ExecError extends NamedError {
   constructor(message: string, data: Record<string, unknown> = {}) {
-    super("PyToolError", message, data)
+    super("ExecError", message, data)
   }
 }
 
-// The manifest's `devices:` gate — device TYPES that must have a loaded
-// instance before the tool may run. Checked before the permission ask (never
-// prompt for a doomed run).
-async function missingDeviceTypes(cwd: string, manifest: PyToolInfo["manifest"]): Promise<string[]> {
-  if (manifest.devices.length === 0) return []
-  const robot = await ProfileStore.readManifest(cwd)
-  if (!robot) return [...manifest.devices]
-  const devices = await ProfileStore.listDevices(cwd)
-  const loaded = devices.filter((device) => device.loaded).map((device) => device.type)
-  // Richer device types satisfy their base contract (RGBD for RGB).
-  return manifest.devices.filter(
-    (type) => !loaded.some((have) => matchesDeviceType(have, type)),
-  )
-}
-
-async function validateInputs(cwd: string, info: PyToolInfo, args: Record<string, unknown>): Promise<void> {
-  // Validate without applying schema defaults; tools still receive the original args.
-  z.fromJSONSchema(info.manifest.parameters).parse(args)
-  for (const [parameter, input] of Object.entries(info.manifest.device_inputs)) {
-    for (const value of deviceInputValues(args, info.manifest.parameters, parameter)) {
-      if (typeof value !== "string") throw new PyToolError(`device input "${parameter}" must name a device`)
-      const name = input.frame ? value.split(/[:/]/)[0]! : value
-      const device = await ProfileStore.readDevice(cwd, name)
-      if (!device) throw new PyToolError(`device input "${parameter}": unknown device "${name}"`)
-      if (!input.types.some((type) => matchesDeviceType(device.type, type)))
-        throw new PyToolError(`device input "${parameter}" accepts ${input.types.join(" | ")}; "${name}" is ${device.type}`)
-      if (!device.loaded) throw new PyToolError(`device input "${parameter}": "${name}" is unloaded`)
-    }
-  }
-}
-
-const missingDevicesError = (name: string, missing: string[]) =>
-  `tool "${name}" requires a loaded device of type ${missing.join(", ")} — none is loaded. configure an instance or /load an existing device first`
-
-// The dialog carries invocation metadata, profiles and selected results.
+// The dialog carries invocation metadata, profiles and the returned result.
 // ROS payloads travel directly between Python nodes and devices.
 type Request = Record<string, unknown>
 type ExecutionContext = Context & { output?: (text: string) => void }
 type InvocationContext = ExecutionContext & { invocation: string }
-type PythonExecution = Pick<ToolManifest, "timeout_s"> & {
-  directory: string
-  entry: string[]
-  source?: string
-  script?: { file?: string; argv: string[] }
+export interface ExecInput {
+  python?: string
+  file?: string
+  program?: string
+  args: Record<string, unknown>
+  argv: string[]
+  timeout_s: number
 }
-
-function execution(info: PyToolInfo): PythonExecution {
-  const { timeout_s, entry } = info.manifest
-  return { timeout_s, directory: info.directory, entry: info.manifest.async ? ["-m", "kinex.host.run", "tool", path.join(info.directory, entry)] : [path.join(info.directory, entry)] }
-}
+interface Returned { result: unknown; files: string[] }
 
 async function dispatch(cwd: string, request: Request, ctx: InvocationContext): Promise<Record<string, unknown>> {
   const call = request["call"]
@@ -126,12 +87,12 @@ async function dispatch(cwd: string, request: Request, ctx: InvocationContext): 
 }
 
 // Run the dialog to completion; a failure stops every device the invocation commanded.
-async function invoke(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: ExecutionContext): Promise<unknown> {
+async function invoke(cwd: string, input: ExecInput, ctx: ExecutionContext): Promise<Returned> {
   const cancel = new AbortController()
   const invocation = registerInvocation(cancel)
   let failed = true
   try {
-    const result = await dialog(cwd, info, args, { ...ctx, invocation, abort: AbortSignal.any([ctx.abort, cancel.signal]) })
+    const result = await dialog(cwd, input, { ...ctx, invocation, abort: AbortSignal.any([ctx.abort, cancel.signal]) })
     failed = false
     return result
   } finally {
@@ -139,17 +100,19 @@ async function invoke(cwd: string, info: PythonExecution, args: Record<string, u
   }
 }
 
-// Preserve the returned JSON value, including null.
-async function dialog(cwd: string, info: PythonExecution, args: Record<string, unknown>, ctx: InvocationContext): Promise<unknown> {
-  const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(info.timeout_s * 1000))])
+// Preserve the returned JSON value, including null; a clean exit without one returns null.
+async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Promise<Returned> {
+  const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(input.timeout_s * 1000))])
   const scoped = { ...ctx, abort: signal }
   signal.throwIfAborted()
   const ros = await rosCatalog(cwd)
-  const runtime = await pythonLaunch(cwd, "tool", undefined, signal)
+  const runtime = await pythonLaunch(cwd, "exec", undefined, signal)
   signal.throwIfAborted()
-  const request = JSON.stringify({ args, source: info.source, file: info.script?.file, argv: info.script?.argv, ros }) + "\n"
-  const proc = spawnProcess([...runtime.command, ...info.entry], {
-    cwd: info.directory,
+  const request = JSON.stringify({
+    args: input.args, source: input.python, file: input.file && path.resolve(cwd, input.file), program: input.program, argv: input.argv, ros,
+  }) + "\n"
+  const proc = spawnProcess([...runtime.command, "-u", "-m", "kinex.host.run"], {
+    cwd,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -163,26 +126,19 @@ async function dialog(cwd: string, info: PythonExecution, args: Record<string, u
   if (signal.aborted) onAbort()
   const served = serveProcess(proc, ctx.output)
   const source = served.source
-  const deadline = Date.now() + info.timeout_s * 1000
+  const deadline = Date.now() + input.timeout_s * 1000
 
-  const conversation = (async (): Promise<unknown> => {
+  const conversation = (async (): Promise<Returned> => {
     for (;;) {
       const line = await abortable(readLine(source, deadline), signal).catch((error: unknown) => {
-        if (error instanceof LineTimeoutError || (error instanceof Error && error.name === "TimeoutError")) throw new PyToolError("tool timed out")
+        if (error instanceof LineTimeoutError || (error instanceof Error && error.name === "TimeoutError")) throw new ExecError("exec timed out")
         throw error
       })
       if (line === undefined) {
         const code = await abortable(proc.exited, signal)
         await served.drained
-        if (info.script && code === 0) return null
-        // Scripts already return stderr as output; only tools carry its tail.
-        const reason = served.stderr.tail.trim().slice(-4000)
-        const message = info.script ? `script exited with code ${code}` : reason || `tool exited without a {"return": ...} line`
-        throw new PyToolError(
-          ctx.abort.aborted
-            ? "tool interrupted"
-            : pythonDiagnostic(message, runtime.executable),
-        )
+        if (code === 0) return { result: null, files: [] }
+        throw new ExecError(ctx.abort.aborted ? "exec interrupted" : pythonDiagnostic(`script exited with code ${code}`, runtime.executable))
       }
       const message = (() => {
         try {
@@ -193,10 +149,8 @@ async function dialog(cwd: string, info: PythonExecution, args: Record<string, u
       })()
       if (typeof message !== "object" || message === null || Array.isArray(message)) continue // stray print — tolerated
       const parsed = message as Request
-      if ("return" in parsed) {
-        return parsed["return"]
-      }
-      if ("error" in parsed) throw new PyToolError(pythonDiagnostic(String(parsed["error"]), runtime.executable), failureMetadata(parsed))
+      if ("return" in parsed) return { result: parsed["return"], files: z.array(z.string()).parse(parsed["files"]) }
+      if ("error" in parsed) throw new ExecError(pythonDiagnostic(String(parsed["error"]), runtime.executable), failureMetadata(parsed))
       if ("call" in parsed) {
         const response = await abortable(dispatch(cwd, parsed, scoped), signal)
         proc.stdin.write(JSON.stringify(response) + "\n")
@@ -210,7 +164,7 @@ async function dialog(cwd: string, info: PythonExecution, args: Record<string, u
   proc.stdin.write(request)
   const sent = abortable(proc.stdin.flush(), signal).catch((error: unknown) => {
     signal.throwIfAborted()
-    throw new PyToolError(`cannot send tool request: ${error instanceof Error ? error.message : String(error)}`)
+    throw new ExecError(`cannot send exec request: ${error instanceof Error ? error.message : String(error)}`)
   })
   return Promise.all([sent, conversation]).then(([, result]) => result).finally(async () => {
     try {
@@ -221,22 +175,13 @@ async function dialog(cwd: string, info: PythonExecution, args: Record<string, u
     }
   }).then(result => {
     signal.throwIfAborted()
-    if (info.script && proc.exitCode !== 0) throw new PyToolError(`script exited with code ${proc.exitCode}`)
+    if (proc.exitCode !== 0) throw new ExecError(`script exited with code ${proc.exitCode}`)
     return result
   })
 }
 
-interface ScriptInput {
-  python?: string
-  file?: string
-  args: Record<string, unknown>
-  argv: string[]
-  timeout_s: number
-}
-
-export async function runScript(input: ScriptInput, ctx: Context): Promise<Result> {
+export async function runExec(input: ExecInput, ctx: Context): Promise<Result> {
   await ctx.ask({ permission: "python_tool", description: `run Python exec ${JSON.stringify(input)}` })
-  const script = { file: input.file ? path.resolve(ctx.directory, input.file) : undefined, argv: input.argv }
   let output = "", dropped = 0
   const capture = (text: string) => {
     output += text
@@ -246,12 +191,9 @@ export async function runScript(input: ScriptInput, ctx: Context): Promise<Resul
     while (JSON.stringify(output).length > 16_384) output = output.slice(Math.ceil(output.length / 4))
     dropped += length - output.length
   }
-  let result: unknown, error: ReturnType<typeof failure> | undefined
+  let returned: Returned | undefined, error: ReturnType<typeof failure> | undefined
   try {
-    result = await invoke(ctx.directory, {
-      directory: ctx.directory, entry: ["-u", "-m", "kinex.host.run", "exec"],
-      timeout_s: input.timeout_s, source: input.python, script,
-    }, input.args, { ...ctx, output: capture })
+    returned = await invoke(ctx.directory, input, { ...ctx, output: capture })
   } catch (caught) {
     if (caught instanceof PermissionDeniedError) throw caught
     error = failure(caught)
@@ -259,34 +201,17 @@ export async function runScript(input: ScriptInput, ctx: Context): Promise<Resul
   return {
     title: "exec (Python)",
     output: formatJSON({ output: `${dropped ? `(output truncated: ${dropped} characters dropped)\n` : ""}${output}`,
-      ...(error ?? { result }) }),
-    ...(error ? { isError: true } : await resultAttachments(result, ctx.directory)),
+      ...(error ?? { result: returned?.result ?? null }) }),
+    ...(error ? { isError: true } : await attachments(returned?.files ?? [], ctx.directory)),
   }
 }
 
-async function resultAttachments(returned: unknown, directory: string) {
-  const value = z.record(z.string(), z.unknown()).safeParse(returned).data
-  const file = value?.["file"]
-  const files = z.array(z.string()).safeParse(typeof file === "string" ? [file] : file).data ?? []
-  const attachments = (await Promise.all(files.map(async file => {
+// Returned images and image paths, in the order the result names them.
+async function attachments(files: string[], directory: string) {
+  const found = (await Promise.all(files.map(async file => {
     const resolved = path.resolve(directory, file)
     const mime = await imageMime(resolved)
     return mime ? [{ mime, path: resolved }] : []
   }))).flat()
-  return attachments.length ? { attachments } : {}
-}
-
-export async function runPyTool(cwd: string, info: PyToolInfo, args: Record<string, unknown>, ctx: Context): Promise<Result> {
-  const { name } = info.manifest
-  const missing = await missingDeviceTypes(cwd, info.manifest)
-  if (missing.length > 0) throw new PyToolError(missingDevicesError(name, missing))
-  await validateInputs(cwd, info, args)
-  await ctx.ask({ permission: "python_tool", description: `run Python tool ${name} ${JSON.stringify(args)}` })
-  await validateInputs(cwd, info, args)
-  const returned = await invoke(cwd, execution(info), args, ctx)
-  return {
-    title: `${name} (Python tool)`,
-    output: formatJSON(returned),
-    ...await resultAttachments(returned, cwd),
-  }
+  return found.length ? { attachments: found } : {}
 }

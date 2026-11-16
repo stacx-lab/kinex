@@ -1,16 +1,20 @@
-"""Object perception: locate detected objects in a stamped camera optical frame."""
+"""Locate detected objects in a stamped camera optical frame.
+
+Combines a camera, a detection or segmentation model device and depth. Points are in
+metres in the optical frame (+X right, +Y down, +Z forward); convert them with frames.
+"""
 
 import numpy as np
 from PIL import Image
 
-from kinex import profile
+from kinex import io, profile
 from kinex.communication import seconds
-from kinex.lib.camera import array, camera_stream, frame, project, ray, rays, save
-from kinex.helpers.images import camera_geometry
-from kinex.lib.geometry import number, vector, xyzq_to_rt
+from kinex.common.camera import array, camera_stream, frame, project, ray, rays, save
+from kinex.lib.images import camera_geometry
+from kinex.common.geometry import number, vector, xyzq_to_rt
 
 
-async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25, instance=0, eye=None):
+async def locate_object_3d(camera, model, prompt, depth=None, min_score=.25, instance=0, eye=None):
     """Locate a detected object in the camera optical frame (+X right, +Y down, +Z forward).
 
     camera is an rgb or rgbd device with calibrated color intrinsics; model serves a
@@ -23,11 +27,11 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     (visible_surface or box_region), frame, label, detection_score, detections,
     timestamp and the image file; rotation_xyzw is None.
 
-    Example: await helpers.locate_object_3d(io, "camera", "detector", "red mug")
+    Example: await lib.perception.locate_object_3d("camera", "detector", "red mug")
     """
     cam = profile(camera)
     stream = camera_stream(cam, eye)
-    geometry = await camera_geometry(io, camera)
+    geometry = await camera_geometry(camera)
     color = geometry.streams[stream]
     cam = {**cam, "color": color}
     if cam.get("depth", {}).get("registration") == "native" and "depth" in geometry.streams:
@@ -50,7 +54,7 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     if depth is not None:
         measured = await _locate(cam, region, depth=depth, geometry=geometry, stream=stream)
     else:
-        relation = (await _depth_to_color(io, image, depth_image)
+        relation = (await _depth_to_color(image, depth_image)
                     if cam["depth"]["registration"] == "native" else None)
         measured = await _locate(cam, region, depth_image=depth_image, depth_to_color=relation, geometry=geometry)
     return {**measured, "frame": image.header.frame_id, "reference": reference,
@@ -60,10 +64,10 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
             "file": file}
 
 
-async def _depth_to_color(io, image, depth_image):
+async def _depth_to_color(image, depth_image):
     """The depth-to-color optical transform at the image stamp as (R, t)."""
-    from kinex.helpers.frames import lookup_transform
-    tf = await lookup_transform(io, image.header.frame_id, depth_image.header.frame_id, image.header.stamp)
+    from kinex.lib.frames import lookup_transform
+    tf = await lookup_transform(image.header.frame_id, depth_image.header.frame_id, image.header.stamp)
     t, q = tf.transform.translation, tf.transform.rotation
     return xyzq_to_rt([t.x, t.y, t.z, q.x, q.y, q.z, q.w])
 

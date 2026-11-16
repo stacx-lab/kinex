@@ -6,7 +6,7 @@ The nearest `.kinex/` (here or an ancestor) holds the robot:
 - `workspace.yaml`: identity and keep-out zones.
 - `devices/<name>/`: `profile.yaml` plus node sources (`node.py`, URDF, ...).
 - `device/`, `tools/`, `skills/`: workspace guides, tools and skills; override builtins.
-- `lib/`: Python shared by exec, tools and nodes.
+- `lib/`: Python programs for exec, imported as `kinex.lib.<module>`; extend and override the builtin library.
 - `kinex.json`, `python/`: config and the Kinex Python environment.
 - `recordings/`: recordings.
 Write `profile.yaml` and `workspace.yaml` only with profile_write.
@@ -21,7 +21,8 @@ The world device owns time and waits. Use the device tool to load, unload, read 
 ## Python
 
 exec runs Kinex Python, separate from device and simulator environments; never patch sys.path.
-Discover devices with `kinex.runtime` and return only what you need via `finish()`.
+Discover devices with `runtime` and programs with the lib tool; return only what you need.
+Compose lib programs in exec and save what you will reuse to `lib/`.
 ROS resources a script creates end with it. Install missing ROS packages through setup.
 
 ## Principles

@@ -1,9 +1,9 @@
-"""Kinex invocation API for exec scripts and Python tools.
+"""Kinex invocation API for exec.
 
-Use communication() for async pub/sub and request/response, runtime for discovery
-and helpers for reusable functions. The host dialog carries invocation metadata,
-profiles and selected results. One execution approval covers the invocation;
-Python calls cannot change device lifecycle.
+Use io for async pub/sub and request/response, runtime for device discovery and lib
+for reusable programs; exec returns what the invoked code returns. The host dialog
+carries invocation metadata, profiles and that result. One execution approval covers
+the invocation; Python calls cannot change device lifecycle.
 """
 
 import json
@@ -11,16 +11,16 @@ import os
 import sys
 import threading
 import traceback
-from kinex.communication import communication
+from kinex.communication import communication, io
 from kinex.errors import RPCError, OperationError
-from kinex.lib.plain import plain
+from kinex.common.plain import plain
 
 _rpc_lock = threading.Lock()
 
 # Protocol channel: the real stdout, captured only INSIDE a tool dialog (the
-# harness marks its spawns with KINEX_TOOL_DIALOG=1). Everything print()ed
+# harness marks exec processes with KINEX_TOOL_DIALOG=1). Everything print()ed
 # afterwards lands on stderr, so debug output can never corrupt the dialog.
-# Outside a dialog (a device node or skill script importing kinex.lib) the
+# Outside a dialog (a device node or standalone script importing kinex) the
 # import stays side-effect-free and any protocol call raises instead.
 _out = None
 _in = None
@@ -33,15 +33,15 @@ if os.environ.get("KINEX_TOOL_DIALOG") == "1":
     # Consume startup before any RPC reads stdin, even if args() is never called.
     line = _in.readline()
     if not line:
-        raise RuntimeError("missing tool startup request")
+        raise RuntimeError("missing exec startup request")
     _request = json.loads(line)
     if not isinstance(_request, dict) or not isinstance(_request.get("args"), dict):
-        raise ValueError("tool startup request requires object args")
+        raise ValueError("exec startup request requires object args")
 
 
 def _emit(payload):
     if _out is None:
-        raise RuntimeError("not running inside a kinex tool dialog — the harness spawns tools with KINEX_TOOL_DIALOG=1")
+        raise RuntimeError("not running inside exec: the host dialog is unavailable")
     _out.write(json.dumps(plain(payload), allow_nan=False) + "\n")
     _out.flush()
 
@@ -71,13 +71,6 @@ def _rpc(payload):
     return response
 
 
-def args():
-    """The tool's arguments from its startup request."""
-    if _request is None:
-        raise RuntimeError("not running inside a kinex tool dialog")
-    return _request["args"]
-
-
 def profile(device, *, optional=False):
     """The device's parsed profile.yaml — the white-box read path for top-level
     calibrated facts (color projection, frames, URDF model and typed device facts).
@@ -88,20 +81,3 @@ def profile(device, *, optional=False):
 def robot():
     """The workspace robot's workspace manifest (identity and keep-out zones)."""
     return _rpc({"call": "robot"})["robot"]
-
-
-def finish(result=None, file=None):
-    """End successfully with JSON-ready data; ROS messages and NumPy values are converted.
-
-    `file` is an image path or ordered list of image paths; images are never data.
-    """
-    result = plain(result)
-    payload = {**(result or {}), "file": file} if file else result
-    _emit({"return": payload})
-    sys.exit(0)
-
-
-def fail(message):
-    """End the tool with an error the agent will see."""
-    _emit({"error": str(message)})
-    sys.exit(0)

@@ -1,10 +1,11 @@
 # Tools and skills
 
 For ROS devices, use the [async protocol API](communication.md). The world device
-owns timing, and relative_pose uses tf2 with ROS frame IDs.
+owns timing, and `lib.frames` uses tf2 with ROS frame IDs.
 
-`@kinex/core` provides tools for operating devices and a skill for preparing them.
-Tools execute code; skills supply instructions that the agent follows. These
+`@kinex/core` provides tools for operating devices, a library of Python programs
+and a skill for preparing devices. Tools execute code; skills supply instructions
+that the agent follows. These
 built-ins complement the host's coding tools, such as shell and file editing.
 
 ## Built-in tools
@@ -20,33 +21,103 @@ built-ins complement the host's coding tools, such as shell and file editing.
 | `record` | Start/stop observation capture, take snapshots and inspect recordings. Exposed to the model only when recording is enabled. |
 | `skill` | Load a named skill's instructions into the agent's context, warning about unmet calibration requirements. |
 
-### Perception and control
-
-These Python tools are interfaces to the `kinex.helpers` functions of the same
-name. They cannot load or unload devices and retain permissions and cancellation.
+### Programs: `lib` and `exec`
 
 | Tool | Purpose |
 | --- | --- |
-| `relative_pose` | Express a frame or local pose relative to another frame. |
-| `locate_object_3d` | Combine a camera, detection model and depth to estimate an object's position in the camera frame. |
+| `lib` | Browse the program library one level at a time: modules, then a module's functions, then a function's signature and docstring. Read-only; no approval. |
+| `exec` | Run Python in Kinex Python: source, a library program by name, or a file's `main`. |
 
-### Python execution with `exec`
+A **program** is a public function of a `kinex.lib` module. The library is one
+Python package with several roots: the workspace's `.kinex/lib`, its ancestors',
+the global configuration's and the builtin modules shipped with core. A module in
+a nearer root replaces one of the same name farther away. Builtin modules cover
+frames (`frames`), cameras (`images`), kinematics (`kinematics`), trajectory
+planning (`motion`) and object localization (`perception`). A quick snippet, a
+saved closed-loop task and a composition of both are the same thing: functions
+calling functions.
 
-Use `exec` to combine device calls, helpers and computation in one invocation.
-Supply exactly one of `python` (ordinary source) or `file` (a script path); no
-tool manifest or required function signature is needed. Optional `args` are
-available through `kinex.args()`, and `argv` supplies script arguments.
-`description` gives the invocation a short display label.
+### Browsing with `lib`
 
-Scripts reach devices through `communication()`: `io.request`, `io.publish` and
-`io.subscribe` on declared operations, concurrently with asyncio when needed.
-`kinex.helpers`, indexed by `kinex/helpers/helpers.txt`, supplies frame,
-kinematics, motion, image and perception functions; calling them inside
-exec shares its communication and cleanup. Host coding tools are outside this
-Python API.
+The library can have any depth and structure: the tree is exactly what Python's
+import system resolves, read from source without starting Python. `lib` takes one
+optional dotted `path` and returns one node:
+
+| Path | Node |
+| --- | --- |
+| omitted | The library: its top-level modules with origin and a one-line summary. |
+| `images` | A module: its docstring, its submodules and the names of the public functions it defines. |
+| `images.camera_frame` | A function: its `def` header as written, its docstring, and the source file and line. |
+
+```ts
+Module   = { kind: "module", path, file | null, origin | null, doc, modules: [{ name, origin | null, summary }], functions: [name] }
+Function = { kind: "function", path, file, line, signature, doc }
+Result   = { node: Module | Function, problems: [text] }
+```
+
+`origin` is `workspace`, `global` or `builtin`. A package is a module with
+submodules; a directory without `__init__.py` is a module with no file, merged
+across roots as Python merges it. Names starting with an underscore, non-Python
+files and nested or conditional definitions are not listed; classes are described
+by their module. A function is listed where it is defined. `problems` reports
+files whose names cannot be imported and a submodule that hides a function of the
+same name. Only the top-level module list enters the agent's context; everything
+deeper is read on demand.
+
+### Running with `exec`
+
+Supply exactly one of:
+
+- `python`: source run as the body of an async function. It may `await` and
+  `return`; `io`, `lib`, `runtime` and `args` are preset.
+- `program`: a library function as `module.function`, called with `args` as its
+  keyword arguments.
+- `file`: a Python file outside the library, such as a skill's script. Its `main`
+  is called with `args` as keyword arguments; `argv` fills `sys.argv[1:]`.
+
+```python
+state = await io.read("arm.joint_state")
+image, depth = await lib.images.camera_frame("camera_wrist")
+return {"positions": state.position, "wrist": image}
+```
+
+Whatever the code returns is the result: ROS messages, NumPy values and tuples
+become JSON and non-finite numbers `null`. A returned `sensor_msgs/Image`, or a
+`pathlib.Path` of an image file, is attached for the model in the order returned;
+include camera names and stamps to identify observations. Failure is an
+exception; its traceback appears once, in the error. Printing returns and
+attaches nothing.
+
+`io` is the invocation's communication scope, opened on first use: `io.read`,
+`io.subscribe`, `io.publish` and `io.request` on declared operations. Library
+functions use the same scope, so they take no `io` parameter and compose with
+ordinary Python, `asyncio.gather` included.
+
+Save reusable code as a module under `.kinex/lib`, at any depth: a docstring
+saying what the module contains, then functions with typed signatures and
+docstrings, `async` when they use `io`. A complete closed-loop task, such as a
+pick and place with its own retries, is saved the same way and then runs without
+the agent:
+
+```python
+# .kinex/lib/tabletop.py
+"""Tabletop manipulation for this cell. Poses are in arm/base."""
+from kinex.lib import frames, perception
+
+async def pick_place(object: str, target: str, arm: str = "arm") -> dict:
+    """Pick the detected object and place it on the target, retrying the grasp."""
+    ...
+```
+
+| Caller | Invocation |
+| --- | --- |
+| Agent | `exec {program: "tabletop.pick_place", args: {object: "red block", target: "blue pad"}}` |
+| User | `/exec tabletop.pick_place object="red block" target="blue pad"` |
+| Shell | `kinex run '/exec tabletop.pick_place object="red block" target="blue pad"'` |
+| Another program | `await lib.tabletop.pick_place("red block", "blue pad")` |
 
 Use bounded Python loops for feedback control and settling checks; their control
-flow, state and stopping conditions belong in the script. A typical sequence is:
+flow, state and stopping conditions belong in the code. A typical sequence is:
 
 1. Read measured state and compute or submit a control action.
 2. Wait through the world device's `wait` when needed, one wait at a time;
@@ -56,25 +127,15 @@ flow, state and stopping conditions belong in the script. A typical sequence is:
    success. Cached observations do not supply new evidence.
 4. Call the device's `stop` operation when the loop's exit requires it; a
    successful invocation leaves motion running.
-5. Read cameras with `helpers.camera_frame`, save selected images with
-   `helpers.save_image` and return their paths through
-   `kinex.finish(result, file=[...])` when the next decision needs visual input.
+5. Return the camera images the next decision needs.
 
-`finish` returns JSON-ready data, converting ROS messages, NumPy values and tuples
-and mapping non-finite numbers to `null`, plus one or more images in order. Include
-camera names and timestamps in the result to identify observations. Images read in
-Python stay ROS messages; `finish` rejects them as data, so attach them through
-saved file paths. Printing paths does not attach them. Direct `device`/`devices`
-camera reads attach images automatically.
-
-One execution approval covers an invocation's reads and commands; scripts cannot
+One execution approval covers an invocation's reads and commands; Python cannot
 load/unload devices or control recording. A failed, timed-out or cancelled
 invocation stops every device it commanded, and a device stop cancels the
 invocations that commanded it; see
 [commands and cleanup](communication.md#commands-and-cleanup). Each invocation
 uses a fresh process with a default 120-second wall-clock `timeout_s` and returns
-its bounded printed output with an optional JSON result or an error; an uncaught
-exception's traceback appears once, in the error.
+its bounded printed output with the result or an error.
 
 See [Python scripting](../packages/core/README.md#python-scripting) for all inputs,
 the [control example](../packages/core/README.md#feedback-control-with-exec) for a

@@ -294,7 +294,7 @@ test('stereo calibration solves one eye at a time and its proposals fit the prof
   assert.equal(device.left.distortion.model, 'opencv_fisheye')
   assert.equal(device.left.distortion.coefficients.length, 4)
   // The solved stream drives the node adapter, whose rays project back to their pixels.
-  const roundTrip = 'import json, sys\nfrom kinex.lib.camera_geometry import OpenCVGeometry as G\ng = G(json.loads(sys.argv[1]), fisheye=True)\nprint(json.dumps(g.project(g.unproject([[400., 300.]]))))'
+  const roundTrip = 'import json, sys\nfrom kinex.common.camera_geometry import OpenCVGeometry as G\ng = G(json.loads(sys.argv[1]), fisheye=True)\nprint(json.dumps(g.project(g.unproject([[400., 300.]]))))'
   const [[u, v]] = JSON.parse(execFileSync(system, ['-c', roundTrip, JSON.stringify(device.left)], { env, encoding: 'utf8' }))
   assert.ok(Math.abs(u - 400) < 1e-3 && Math.abs(v - 300) < 1e-3)
   assert.equal(device.right, '???')

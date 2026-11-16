@@ -1,18 +1,11 @@
-Run Python source or a script in the workspace's Kinex Python. Device environments and the world clock never choose this interpreter. Python cannot load/unload devices or control recording; lifecycle remains host-controlled. One execution approval covers composed operations.
-Discover interfaces on demand, without starting devices:
-  from kinex import runtime, finish
-  devices = runtime.devices()
-  # runtime.operations(device_name) lists declared operations, even if unloaded.
-  # runtime.describe(operation) resolves ROS payload schemas when needed.
-  finish({"devices": [{"name": d["name"], "loaded": d["loaded"]} for d in devices]})
-Use actual operation names from these queries, not names inferred from device types. Catalogs remain in Python until you explicitly return selected fields. Load required devices through the host before communication.
-For async protocol work, import communication, args, finish from kinex. For example, where args supplies a discovered command topic and its ROS payload:
-  async def main():
-      a = args()
-      async with communication() as io:
-          await io.publish(a["operation"], a["payload"])
-      finish({"sent": True})
-  # Execute with asyncio.run(main()). Sending is not measured arrival.
-Use io.subscribe(operation, depth=1) and await stream.next(timeout_s=...) for output topics (with or async with closes the stream early); await io.request(operation, **fields) for services. World wait operations own scheduling, one wait at a time. Observations and tf2 queries never advance world time. Bound work, inspect fresh measured feedback, and stop on terminal task status. Service rejections raise kinex.OperationError with operation, response and structured details; inspect the response and relevant feedback before deciding how to recover.
-Import helpers with from kinex import helpers. Read kinex/helpers/helpers.txt under the Python library directory in runtime context for available functions and implementation paths. Builtin Python tools are interfaces to these helpers; call them directly to share this invocation's communication and cleanup. Put workspace-specific helpers in .kinex/lib, which exec can import.
-Failure, timeout or cancellation stops every device this invocation commanded; success leaves their motion running. finish(value, file=paths) returns selected summaries as JSON, converting ROS messages and NumPy values, and images only through file paths, after leaving the communication scope. Do not print entire catalogs or raw streams unless requested.
+Run Python in the workspace's Kinex Python: python source, a kinex.lib program by name, or the main function of a file. Device environments and the world clock never choose this interpreter. Python cannot load/unload devices or control recording; lifecycle remains host-controlled. One execution approval covers composed operations.
+python is the body of an async function: await directly and return the result. io, lib, runtime and args are preset. For example:
+  state = await io.read("arm.joint_state")
+  image, depth = await lib.images.camera_frame("camera")
+  return {"positions": state.position, "image": image}
+The result is JSON-ready data: ROS messages, NumPy values and tuples are converted. A returned sensor_msgs/Image, or a pathlib.Path of an image file, is attached for you to see, in order; include camera names and stamps. Report failure by raising. Printing does not return or attach anything; do not print catalogs or raw streams unless requested.
+Discover devices on demand, without starting them: runtime.devices() lists devices and readiness, runtime.operations(name) the declared operations, even if unloaded, and runtime.describe("device.operation") the ROS payload schema. Use actual operation names from these queries, not names inferred from device types. Load required devices through the host first.
+io reaches devices: await io.read(operation) takes the next message of an output topic; io.subscribe(operation, depth=1) with await stream.next(timeout_s=...) follows one; await io.publish(operation, message) commands a topic with a ROS message or field mapping; await io.request(operation, **fields) calls a service. Sending is not measured arrival. World wait operations own scheduling, one wait at a time. Observations and tf2 queries never advance world time. Bound work, inspect fresh measured feedback, and stop on terminal task status. Service rejections raise kinex.OperationError with operation, response and structured details; inspect the response and relevant feedback before deciding how to recover.
+lib is the program library: every public function of a kinex.lib module is a program. Find modules and signatures with the lib tool, call them as lib.module.function(...) and compose them with ordinary Python, asyncio.gather included. program runs one by name with args as its keyword arguments, such as program "frames.relative_pose".
+Save reusable code as a module in the workspace's .kinex/lib, at any depth: a docstring saying what the module contains, then functions with typed signatures and docstrings, async when they use io. They take no io parameter; import io from kinex and other modules from kinex.lib. A complete closed-loop task belongs there too, so it runs again by name without rewriting it.
+Failure, timeout or cancellation stops every device this invocation commanded; success leaves their motion running.

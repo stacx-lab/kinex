@@ -38,6 +38,8 @@ test('exec calls show the description and the script as formatted source', () =>
     ['exec inspect arm state', '', 'from kinex import runtime', 'print(runtime.devices())'])
   assert.deepEqual(call({ description: '  ', file: 'scripts/inspect.py', argv: ['--arm', 'left arm', "it's"], args: { speed: .5 } }),
     ['exec', '', "python scripts/inspect.py --arm 'left arm' 'it'\\''s'", 'args {"speed":0.5}'])
+  assert.deepEqual(call({ description: 'pick the block', program: 'tabletop.pick_place', args: { object: 'red block' } }),
+    ['exec pick the block', '', 'lib.tabletop.pick_place', 'args {"object":"red block"}'])
   assert.deepEqual(call({ description: 'inspect' }), ['exec inspect'])
   assert.deepEqual(call({}), ['exec'])
   const source = Array.from({ length: 25 }, (_, i) => `x${i} = ${i}`).join('\n')
@@ -88,7 +90,7 @@ test('exec results show printed output, then the result or the failure once, as 
 test('all Kinex tools share JSON result formatting regardless of argument-summary support', () => {
   const value = { observation: { pose: { position: [1, 2, 3] } } }
   const expected = '{\n  "observation": {\n    "pose": {"position":[1,2,3]}\n  }\n}'
-  for (const name of ['devices', 'relative_pose', 'locate_object_3d', 'workspace_tool']) {
+  for (const name of ['devices', 'lib', 'workspace_tool']) {
     const result = { content: [{ type: 'text', text: JSON.stringify(value, null, 4) }] }
     assert.equal(plain(toolRenderers(name).renderResult(result, { expanded: true }, theme, context)).split('\n').map(line => line.trimEnd()).join('\n'), expected)
     assert.equal(plain(toolRenderers(name).renderResult({ content: [{ type: 'text', text: 'plain text result' }] }, { expanded: true }, theme, context)), 'plain text result')

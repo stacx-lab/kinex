@@ -8,9 +8,9 @@ import random
 import unittest
 from unittest.mock import Mock, patch
 
-from kinex.lib import kinematics
-from kinex.lib.joints import JointModel
-from kinex.lib.geometry import pose_error
+from kinex.common import kinematics
+from kinex.common.joints import JointModel
+from kinex.common.geometry import pose_error
 from joint_model import model as joint_model, simple
 
 

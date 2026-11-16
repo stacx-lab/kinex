@@ -14,7 +14,7 @@ import rosbag2_py
 
 from kinex.communication import communication, qos
 from kinex.host.recording import Recording
-from kinex.helpers.frames import relative_pose, transform_pose
+from kinex.lib.frames import relative_pose, transform_pose
 
 CATALOG = {
     "environment.time": {"transport": "topic", "direction": "output", "endpoint": "/recording_test/clock",
@@ -110,11 +110,11 @@ class RecordingTests(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import patch
         async def lookup(*args):
             return relation
-        with patch('kinex.helpers.frames.lookup_transform', lookup):
-            result = (await relative_pose(None, {'frame': 'camera', 'pose': child}, {'frame': 'world', 'pose': parent}))['pose']
+        with patch('kinex.lib.frames.lookup_transform', lookup):
+            result = (await relative_pose({'frame': 'camera', 'pose': child}, {'frame': 'world', 'pose': parent}))['pose']
             for actual, expected in zip(result[:3], [1, 0, 0]):
                 self.assertAlmostEqual(actual, expected)
-            result = await transform_pose(None, child, 'camera', 'world')
+            result = await transform_pose(child, 'camera', 'world')
         for actual, expected in zip(result[:3], [1, 1, 0]):
             self.assertAlmostEqual(actual, expected)
 

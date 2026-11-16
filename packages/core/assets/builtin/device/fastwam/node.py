@@ -12,7 +12,7 @@ from PIL import Image
 from rclpy.node import Node
 
 from kinex.node import json_service, node_name, placement
-from kinex.lib.geometry import vector
+from kinex.common.geometry import vector
 
 HERE = Path(__file__).resolve().parent
 OPTIONAL_IDM = "libero_optional_idm_2cam224"
