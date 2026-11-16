@@ -5,12 +5,18 @@ import threading
 from kinex_interfaces.srv import LookupTransform
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.clock import Clock as RosClock, ClockType
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
 from rosgraph_msgs.msg import Clock
 from tf2_ros import Buffer, LookupException, TransformException, TransformListener
 
 from kinex.communication import qos
+
+# World-time TF history. A scope resolves what it observes within one invocation (tf2's
+# default); the persistent service also answers stamps a model reuses across later calls.
+SCOPE_HISTORY_S = 10.
+SERVICE_HISTORY_S = 120.
 
 
 def nanoseconds(stamp):
@@ -22,8 +28,9 @@ def device_of(frame):
 
 
 class FrameBuffer(Buffer):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, history_s=SCOPE_HISTORY_S):
+        super().__init__(cache_time=Duration(seconds=history_s))
+        self.history_s = history_s
         self.fixed = {}
         self.latest = {}
         self.future = {}
@@ -107,6 +114,8 @@ class FrameBuffer(Buffer):
             available, reason = super().can_transform_core(target, source, time)
         if available:
             return "the transform became available as the wait ended; retry"
+        if "past" in reason:
+            reason += f" Kinex keeps {self.history_s:g} s of world-time TF history."
         return reason
 
     def timed_out(self, target, source, time, waited_s):
@@ -148,9 +157,9 @@ class FrameBuffer(Buffer):
                     self.set_transform(value, authority)
 
 
-def listen(node):
+def listen(node, history_s=SCOPE_HISTORY_S):
     from rclpy.qos import DurabilityPolicy, QoSProfile
-    buffer = FrameBuffer()
+    buffer = FrameBuffer(history_s)
     # Several devices publish TF in one world step; a shallow reader queue drops samples.
     return buffer, TransformListener(buffer, node, qos=QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
@@ -158,7 +167,7 @@ def listen(node):
 class FrameGraphNode(Node):
     def __init__(self, clock, endpoint, context):
         super().__init__("kinex_frames", context=context)
-        self.buffer, self.listener = listen(self)
+        self.buffer, self.listener = listen(self, SERVICE_HISTORY_S)
         self.stamp = None
         self.pending = set()
         self.calls = ReentrantCallbackGroup()

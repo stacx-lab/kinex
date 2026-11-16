@@ -251,7 +251,9 @@ Kinex automatically owns a persistent tf2 service
 clock. Import `helpers` from `kinex` and use
 `await helpers.lookup_transform(io, target, source, stamp=None, timeout_s=5)`,
 which returns `TransformStamped`. Its internal endpoint is passed to exec outside
-the device catalog; no world operation or device factory registers it. A
+the device catalog; no world operation or device factory registers it. The
+service retains 120 s of world-time history, so a stamp from an earlier call
+remains answerable; a standalone scope's local history keeps tf2's 10 s. A
 world-clock rewind invalidates dynamic history while retaining fixed calibration.
 
 The simulator supplies state and measurements, or node geometry descriptors, not TF or a transform-lookup
