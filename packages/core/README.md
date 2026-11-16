@@ -261,7 +261,9 @@ modules on first use. Programs take no scope parameter: they import `io` from
 call, as `{node, problems}`: a module with its docstring, submodules and function
 names, or a function with its signature, docstring, file and line. They read
 source and never start Python. `/exec module.function name=value ...` runs a
-program for the user without the model.
+program for the user without the model, and `/visualize module.function` writes its
+[flow chart](../../docs/tools-and-skills.md#flow-charts) as a self-contained page;
+`flowChart(directory, target)` returns the same chart as data.
 
 For pure joint kinematics and trajectory planning in exec:
 

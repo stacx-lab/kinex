@@ -142,6 +142,32 @@ the [control example](../packages/core/README.md#feedback-control-with-exec) for
 bounded loop returning multiple camera images, and [device contracts](devices.md)
 for the underlying interfaces.
 
+### Flow charts
+
+`/visualize tabletop.pick_place` draws a saved program for the user to read: a
+self-contained HTML page derived from source alone, so nothing runs and no device
+is touched. It is a user command, not a model tool.
+
+A function's chart is a tree of steps rather than a graph of statements:
+
+| Step | From |
+| --- | --- |
+| Device operation | `io.request`, `io.publish`, `io.read`, a subscription's `next` or `latest`, labelled with the operation; a computed name shows its expression |
+| Call | A call to a library function, a function of the same file or, for a file outside the library, of a sibling module. One node, which opens into the callee's chart |
+| Computation | Consecutive statements that touch no device and call no program, folded into one node; branches and loops that only compute fold with them |
+| Branch, loop, try, scope | `if`/`match`, `for`/`while`, `try`, `with`; a test that only leaves (`if error: raise`) is one guard node |
+| Concurrency | `asyncio.gather` and `asyncio.wait` as branches between two bars, `create_task` as a task running alongside until it is awaited or cancelled, `asyncio.timeout`/`wait_for` and subscriptions as scopes |
+| Exit | `return`, `raise`, `break`, `continue` |
+
+An `await` on its own is an ordinary step: only the constructs above run things at
+the same time. The chart shows what the source says. A function passed as a
+value, a method of an object and anything in `kinex.common` cannot be opened: it
+is a plain node where the program awaits it and part of the computation otherwise.
+Failure cleanup (stopping the commanded devices) is not drawn. Calls are named by
+library path however the code imports them. `kinex.host.flow` produces the
+chart as the `Flow` schema of `@kinex/core/lib/flow`; the page is the viewer asset
+with that data embedded.
+
 ## Built-in skill
 
 Core ships [setup-device](../packages/core/assets/builtin/skill/setup-device/SKILL.md).
