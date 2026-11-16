@@ -16,6 +16,7 @@ import { NamedError } from "../util/error.ts"
 import { readLine, LineTimeoutError } from "../util/lines.ts"
 import { create } from "../util/log.ts"
 import type { Context, Result } from "./tool.ts"
+import { SubagentCall } from "./subagent.ts"
 
 const log = create("exec")
 
@@ -83,7 +84,37 @@ async function dispatch(cwd: string, request: Request, ctx: InvocationContext): 
     const model = deviceTree(device)
     return { ok: true, profile: model ? { ...device, resolved_model: model } : device }
   }
-  return { ok: false, error: `unknown call "${String(call)}" — use runtime_devices, runtime_device, runtime_operations, ros_enroll, profile or robot` }
+  return { ok: false, error: `unknown call "${String(call)}" — use runtime_devices, runtime_device, runtime_operations, ros_enroll, profile, robot or subagent` }
+}
+
+// A program's question to a model. Its failures are the program's to handle, so they
+// are answers, never the end of the invocation.
+async function subagent(cwd: string, request: Request, ctx: InvocationContext): Promise<Record<string, unknown>> {
+  const parsed = SubagentCall.safeParse(request)
+  if (!parsed.success) return { ok: false, error: `invalid subagent call: ${z.prettifyError(parsed.error)}` }
+  if (!ctx.subagent) return { ok: false, error: "this host runs no subagents", code: "subagent_unavailable" }
+  const { instruction, model, thinking, timeout_s } = parsed.data
+  const show = await Promise.all(parsed.data.show.map(async item => {
+    if (!("image" in item)) return item
+    const file = path.resolve(cwd, item.image)
+    const mime = await imageMime(file)
+    return mime ? { name: item.name, image: { path: file, mime } } : file
+  }))
+  const unreadable = show.find(item => typeof item === "string")
+  if (unreadable) return { ok: false, error: `subagent cannot be shown ${unreadable}: it is not a readable image` }
+  const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(timeout_s * 1000))])
+  const started = Date.now()
+  try {
+    const reply = await abortable(ctx.subagent({ instruction, show: show.filter(item => typeof item !== "string"), model: model ?? undefined, thinking: thinking ?? undefined }, signal), signal)
+    // The reply decides what the program does next, so it is part of the invocation's output.
+    ctx.output?.(`subagent ${reply.model} (${((Date.now() - started) / 1000).toFixed(1)} s): ${reply.text.trim()}\n`)
+    return { ok: true, text: reply.text }
+  } catch (error) {
+    if (ctx.abort.aborted) throw error
+    const message = signal.aborted ? `subagent gave no reply within ${timeout_s} s` : error instanceof Error ? error.message : String(error)
+    ctx.output?.(`subagent failed: ${message}\n`)
+    return { ok: false, error: message, code: "subagent_failed" }
+  }
 }
 
 // Run the dialog to completion; a failure stops every device the invocation commanded.
@@ -128,6 +159,18 @@ async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Pr
   const source = served.source
   const deadline = Date.now() + input.timeout_s * 1000
 
+  // Answers carry the call's id and are written one at a time. A subagent call is
+  // answered when its model replies, while the dialog goes on serving other calls.
+  const answers = { written: Promise.resolve() }
+  const ended = new AbortController()
+  const asking = { ...scoped, abort: AbortSignal.any([signal, ended.signal]) }
+  const answer = (id: unknown, response: Record<string, unknown>) => {
+    answers.written = answers.written.catch(() => {}).then(async () => {
+      proc.stdin.write(JSON.stringify({ ...response, id }) + "\n")
+      await proc.stdin.flush()
+    })
+    return answers.written
+  }
   const conversation = (async (): Promise<Returned> => {
     for (;;) {
       const line = await abortable(readLine(source, deadline), signal).catch((error: unknown) => {
@@ -151,10 +194,13 @@ async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Pr
       const parsed = message as Request
       if ("return" in parsed) return { result: parsed["return"], files: z.array(z.string()).parse(parsed["files"]) }
       if ("error" in parsed) throw new ExecError(pythonDiagnostic(String(parsed["error"]), runtime.executable), failureMetadata(parsed))
+      if (parsed["call"] === "subagent") {
+        // An unanswered call ends with the dialog; its process is gone by then.
+        void subagent(cwd, parsed, asking).then(response => answer(parsed["id"], response)).catch(() => {})
+        continue
+      }
       if ("call" in parsed) {
-        const response = await abortable(dispatch(cwd, parsed, scoped), signal)
-        proc.stdin.write(JSON.stringify(response) + "\n")
-        await abortable(Promise.resolve(proc.stdin.flush()), signal)
+        await abortable(answer(parsed["id"], await abortable(dispatch(cwd, parsed, scoped), signal)), signal)
         continue
       }
       // JSON but neither request nor terminal — tolerate like a stray print.
@@ -167,6 +213,7 @@ async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Pr
     throw new ExecError(`cannot send exec request: ${error instanceof Error ? error.message : String(error)}`)
   })
   return Promise.all([sent, conversation]).then(([, result]) => result).finally(async () => {
+    ended.abort()
     try {
       await terminate(served, !signal.aborted)
       await served.drained

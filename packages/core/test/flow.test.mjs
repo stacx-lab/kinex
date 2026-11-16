@@ -85,7 +85,7 @@ const PATTERNS = `"""Concurrency patterns."""
 import asyncio
 from asyncio import gather
 
-from kinex import io, lib
+from kinex import io, lib, subagent
 from kinex.lib.tasks import pick_place
 from .grasp import close as grip
 
@@ -123,6 +123,18 @@ def score(state):
 async def again(count):
     if count:
         await again(count - 1)
+
+
+PROMPT = "Which pixel is the handle?"
+
+
+async def judged(object, front, wrist):
+    reply = await subagent("""
+        Is the mug centred in both views?
+        Answer yes or no.""", show={"front": front, "wrist": wrist, object: 1}, model="fake/small")
+    if reply.strip() != "yes":
+        return await subagent(f"Find the {object}.", show={"front": await io.read("front.color")})
+    return await subagent(PROMPT)
 `
 
 async function fixture(t) {
@@ -151,6 +163,7 @@ const shape = steps => steps.map(step => {
   switch (step.kind) {
     case 'io': return `${step.verb} ${step.operation}${step.dynamic ? ' (dynamic)' : ''}`
     case 'call': return `call ${step.label}${step.target ? '' : ' (opaque)'}`
+    case 'subagent': return `subagent ${step.instruction}${step.dynamic ? ' (dynamic)' : ''} <- ${step.shows.join(',')}`
     case 'compute': return `compute ${step.names.join(',')}`
     case 'wait': return step.label
     case 'exit': return `${step.how} ${step.label}`.trim()
@@ -241,6 +254,14 @@ test('concurrency, dynamic names and unresolved calls have their own steps', asy
   assert.equal(targets['motion.ready'].file, path.join(f.lib, 'motion.py'))
   assert.deepEqual(shape(targets.score.body), ['compute handle,weights', 'return sum(state.position)'])
 
+  // A subagent call is its own step: its instruction's first line and the names of what it is shown.
+  assert.deepEqual(shape((await f.chart('tasks.patterns.judged')).functions[`${path.join(f.lib, 'tasks/patterns.py')}::judged`].body), [
+    'subagent Is the mug centred in both views? <- front,wrist,object',
+    { if: [["reply.strip() != 'yes'", ['read front.color', "subagent f'Find the {object}.' (dynamic) <- front", "return await subagent(f'Find the {object}.', show={'front': await …"]]], else: [] },
+    'subagent PROMPT (dynamic) <- ',
+    'return await subagent(PROMPT)',
+  ])
+
   const again = await f.chart('tasks.patterns.again')
   assert.deepEqual(Object.keys(again.functions), [again.entry])
   assert.equal(again.functions[again.entry].body[0].arms[0].body[0].target, again.entry)
@@ -293,7 +314,7 @@ test('/visualize writes a self-contained page that carries the chart', async t =
 
   // The viewer draws every kind of step the schema defines.
   const kinds = FlowStep.options.map(option => option.shape.kind.value)
-  assert.equal(kinds.length, 13)
+  assert.equal(kinds.length, 14)
   const drawn = /const DRAW = \{([\s\S]*?)\n\}/.exec(page)[1]
   for (const kind of kinds) assert.match(drawn, new RegExp(`\\n  ${kind}[:,]`), kind)
 })

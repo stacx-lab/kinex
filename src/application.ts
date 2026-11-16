@@ -8,6 +8,7 @@ import { paths, sessionDirectory, settings } from "./settings.ts"
 import { prepareAuthPath } from "./auth.ts"
 import { resolveSession } from "./sessions.ts"
 import { RoboticsOwner } from "./integration/owner.ts"
+import { createSubagents } from "./integration/subagent.ts"
 import { kinexExtension } from "./integration/extension.ts"
 import { createCompactionControl } from "./integration/compaction.ts"
 import { defaultExtensionPaths } from "./integration/default-extensions.ts"
@@ -53,6 +54,10 @@ export async function createApplication(options: ApplicationOptions) {
   const modelRuntime = await ModelRuntime.create({
     authPath, modelsPath: path.join(storage.agent, "models.json"),
     modelsStorePath: path.join(storage.state, "models-cache.json"), allowModelNetwork: false,
+  })
+  owner.subagents = createSubagents({
+    modelRuntime, agentDir: storage.agent, file: path.join(storage.config, "subagent.json"),
+    directory: () => owner.runtime?.directory ?? cwd, sessionModel: () => owner.model,
   })
   const sessionDir = sessionDirectory(cwd)
   const manager = sessionPath ? SessionManager.open(sessionPath, sessionDir)

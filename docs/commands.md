@@ -41,6 +41,7 @@ reconnect the whole collection. `/reload` refreshes agent resources only.
 | `/lib [module[.function]]`                     | Browse the program library: modules, a module's functions, a signature. |
 | `/exec <module.function> [name=value ...]`     | Run a library program without the model.                                |
 | `/visualize <module.function> [output.html]`   | Draw a program's flow chart as a page to open in a browser.             |
+| `/subagent [<provider/model> [thinking]]`      | Show or choose the model that subagents in programs use.                |
 
 `/exec` passes `name=value` pairs as keyword arguments; a value is JSON when it
 parses (`attempts=3`, `pose=[0.1,0.2]`, `object="red block"`) and text otherwise,
@@ -55,6 +56,11 @@ and call is a node; clicking a call opens that function's own chart in place, an
 clicking any node shows its source lines. `/visualize path/to/script.py[:function]` charts
 a function of a file outside the library, `main` by default. See
 [flow charts](tools-and-skills.md#flow-charts).
+
+`/subagent` shows the model that [subagents in programs](tools-and-skills.md#subagents-in-programs)
+use. `/subagent <provider/model> [thinking]` chooses it for every later call, with
+thinking `off` unless given, and `/subagent session` returns to the session's model.
+The choice persists across sessions and workspaces.
 
 ### Recording and session export
 

@@ -1,6 +1,7 @@
 export { createKinexRuntime, type KinexRuntime, type RuntimeOptions, type ToolInvocation, type RuntimeEvent } from "./runtime.ts"
 export type { Context, Def, Result, Attachment } from "./tool/tool.ts"
 export { define } from "./tool/tool.ts"
+export type { Subagent, SubagentRequest, SubagentReply, SubagentItem } from "./tool/subagent.ts"
 export { NamedError } from "./util/error.ts"
 export { PermissionDeniedError, QuestionDeclinedError } from "./tool/errors.ts"
 export type { Device, RobotManifest } from "./device/profile/schema.ts"

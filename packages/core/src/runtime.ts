@@ -27,7 +27,7 @@ export interface RuntimeOptions {
   reservedToolNames?: readonly string[]
   settings?: CoreSettings
   enableRecording?: boolean
-  host?: Partial<Pick<Context, "ask" | "questions">> & Pick<RecorderHost, "exportTrace">
+  host?: Partial<Pick<Context, "ask" | "questions" | "subagent">> & Pick<RecorderHost, "exportTrace">
 }
 
 export interface ToolInvocation {
@@ -84,6 +84,7 @@ export function createKinexRuntime(options: RuntimeOptions) {
       directory, sessionID: call.sessionID, abort: signal,
       ask: call.ask ?? options.host?.ask ?? (async ({ permission }) => { throw new PermissionDeniedError(permission) }),
       questions: call.questions ?? options.host?.questions ?? (async () => { throw new QuestionDeclinedError() }),
+      subagent: options.host?.subagent,
     }
     return execute(def, input, ctx).then((result) => {
       observe({ type: "tool", name: def.id, callID, status: result.isError ? "error" : "completed", isError: result.isError })
