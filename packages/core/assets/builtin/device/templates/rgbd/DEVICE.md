@@ -25,7 +25,7 @@ depth with its own geometry; never mix raw depth pixels with rectified color.
 A reader subscribes to `image` and `depth` and pairs the frames with equal stamps;
 snapshots archive both and perception tools measure from them. Publish both from
 one acquisition with the same stamp; a simulator publishes a current pair to each
-new subscriber, as for rgb.
+new subscriber and repeats it while paused, as for rgb.
 
 The sibling `node.py` adapts an existing ROS RGB-D driver with registered depth;
 copy it into the device directory and set `COLOR` and `DEPTH` to its topics.

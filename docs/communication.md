@@ -275,9 +275,10 @@ streams; `helpers.stereo_frame(io, camera)` reads both, and `camera_frame` takes
 `helpers.camera_frame(io, camera)` subscribes and returns
 the next image and, for rgbd, the depth with the same stamp; the same
 `kinex.lib.camera.frame` backs device snapshots and `locate_object_3d`. A live
-camera streams; a simulator publishes a current frame to each new subscriber, so
-a paused world can be read without advancing it. Images stay as ROS payloads in
-Python. `helpers.image_array` converts them for computation; `helpers.save_image`
+camera streams; a simulator publishes a current frame to each new subscriber and
+repeats it while paused, so a paused world can be read without advancing it.
+Images stay as ROS payloads in Python. `helpers.image_array` converts them for
+computation; `helpers.save_image`
 writes a selected image. Return paths with `finish(result, file=...)` after
 leaving the scope to attach images to the model.
 
