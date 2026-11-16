@@ -102,6 +102,20 @@ def pose(value, name="pose"):
     return value[:3] + quaternion(value[3:], name)
 
 
+def slerp(a, b, s):
+    """The unit quaternion a fraction s of the way from a to b along the shorter arc."""
+    dot = sum(x * y for x, y in zip(a, b))
+    if dot < 0:
+        b, dot = [-v for v in b], -dot
+    if dot > 1 - 1e-9:
+        q = [x + s * (y - x) for x, y in zip(a, b)]
+    else:
+        angle = math.acos(dot)
+        q = [(math.sin((1 - s) * angle) * x + math.sin(s * angle) * y) / math.sin(angle) for x, y in zip(a, b)]
+    norm = math.hypot(*q)
+    return [v / norm for v in q]
+
+
 def flat(rt):
     return list(rt[1]) + mat_to_quat(rt[0])
 

@@ -190,9 +190,10 @@ operation cannot leave unawaited coroutines.
 ## Commands and cleanup
 
 Command topics use standard ROS message types, such as
-`trajectory_msgs/msg/JointTrajectory`, `std_msgs/msg/Float64`,
-`geometry_msgs/msg/Twist` and `std_msgs/msg/String` (JSON for free-form
-commands); the operation description is their contract. `publish` sends one
+`trajectory_msgs/msg/JointTrajectory`, `trajectory_msgs/msg/MultiDOFJointTrajectory`
+(tip link poses), `std_msgs/msg/Float64`, `geometry_msgs/msg/Twist` and
+`std_msgs/msg/String` (JSON for free-form commands); the operation description is
+their contract. `publish` sends one
 message once a subscriber is matched; sending does not establish physical arrival.
 Device nodes validate each command and log rejections. Owned nodes serve their
 inputs and the Trigger `stop` with `kinex.node.command_service(node, operations,

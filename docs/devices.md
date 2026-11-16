@@ -178,11 +178,19 @@ flange or a hand's fingertips; FK and IK default to a single tip. A gripper's
 `frames.tcp` is the grasp point with +z approach. A suction tool
 has no URDF: `vacuum` says whether it switches on and off or accepts a level,
 `frames.tcp` is the cup contact centre, and its stop never releases a held object.
-Guides recommend a `sensor_msgs/msg/JointState` `joint_state` and a
-`trajectory_msgs/msg/JointTrajectory` `joint_target` for joint devices, and a
-`std_msgs/msg/Float64` `target` with a `std_msgs/msg/Bool` `grasped` for end
+Guides recommend a `sensor_msgs/msg/JointState` `joint_state` for joint devices
+and a `std_msgs/msg/Float64` `target` with a `std_msgs/msg/Bool` `grasped` for end
 effectors. No typed fact implies a mandatory operation or supplies a default
 payload.
+
+Joint devices take joint targets, pose targets or both, as their controller
+supports. A `trajectory_msgs/msg/JointTrajectory` `joint_target` commands the
+joints. A `trajectory_msgs/msg/MultiDOFJointTrajectory` `pose_target` commands
+tip link poses in `<device>/base` and reuses the controller's own Cartesian
+control instead of Kinex IK; a tip whose orientation the controller does not track
+ignores the rotation. With both, the latest command of either kind replaces the
+active one. Reachability stays with the controller, and an optional
+`sensor_msgs/msg/MultiDOFJointState` `pose_state` reports the tip poses it measures.
 
 ## Locomotion
 
