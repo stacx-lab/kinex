@@ -13,9 +13,9 @@ async def lookup_transform(io, target, source, stamp=None, timeout_s=5):
     Frames may be ROS IDs or qualified device:frame references. A ROS Time
     message selects a world timestamp; None selects the latest transform.
     timeout_s bounds the wait (0..30 seconds), without advancing world time.
-    Missing frames, timeouts and cancellation propagate to the caller.
-    Supervised calls use Kinex's persistent frame service; standalone clients
-    use their communication scope's local history and cleanup.
+    Missing frames, timeouts and cancellation propagate to the caller; a failed
+    lookup names its cause. Supervised calls use Kinex's persistent frame service;
+    standalone clients use their communication scope's local history and cleanup.
 
     Example: await helpers.lookup_transform(io, "arm:base", "camera:base")
     """
@@ -39,7 +39,10 @@ async def lookup_transform(io, target, source, stamp=None, timeout_s=5):
     time = Time.from_msg(stamp) if stamp is not None else Time()
     buffer = io.transforms()
     if timeout_s:
-        await io._future(buffer.wait_for_transform_async(target, source, time), timeout_s)
+        try:
+            await io._future(buffer.wait_for_transform_async(target, source, time), timeout_s)
+        except TimeoutError:
+            raise TimeoutError(buffer.timed_out(target, source, time, timeout_s)) from None
     return buffer.lookup_transform(target, source, time)
 
 

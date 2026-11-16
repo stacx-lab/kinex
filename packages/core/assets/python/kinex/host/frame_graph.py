@@ -17,6 +17,10 @@ def nanoseconds(stamp):
     return stamp.sec * 1_000_000_000 + stamp.nanosec
 
 
+def device_of(frame):
+    return frame.split("/", 1)[0]
+
+
 class FrameBuffer(Buffer):
     def __init__(self):
         super().__init__()
@@ -56,22 +60,57 @@ class FrameBuffer(Buffer):
                     if child.split("/", 1)[0] == name:
                         del mapping[child]
 
-    def connected(self, target, source):
+    def edges(self):
         # tf2 retains static caches even after clear(). Track live topology so
         # unloaded calibration cannot be resolved from that retained cache.
         # All transform values and temporal interpolation still belong to tf2.
-        edges = {child: value.header.frame_id for mapping in (self.fixed, self.latest)
-                 for child, (value, _) in mapping.items()}
+        return {child: value.header.frame_id for mapping in (self.fixed, self.latest)
+                for child, (value, _) in mapping.items()}
+
+    def connected(self, target, source):
+        edges = self.edges()
         known = set(edges) | set(edges.values())
         def ancestors(frame):
             result = set()
             while frame in known and frame not in result:
-                if frame.split("/", 1)[0] in self.blocked:
+                if device_of(frame) in self.blocked:
                     break
                 result.add(frame)
                 frame = edges.get(frame)
             return result
         return bool(ancestors(target) & ancestors(source))
+
+    def explain(self, target, source, time):
+        """Why source cannot be expressed in target at time; for failed lookups only."""
+        with self.lock:
+            edges = self.edges()
+            known = set(edges) | set(edges.values())
+            for frame in (target, source):
+                if device_of(frame) in self.blocked:
+                    return f"{device_of(frame)} is not loaded"
+            for frame in (target, source):
+                device = device_of(frame)
+                if frame not in known:
+                    published = sorted(name for name in known if device_of(name) == device)
+                    if not published:
+                        return f"{frame} is not on TF, nor is any frame of {device}"
+                    return f"{frame} is not on TF; {device} has {', '.join(published)}"
+            if not self.connected(target, source):
+                def top(frame):
+                    seen = set()
+                    while frame in edges and frame not in seen and device_of(frame) not in self.blocked:
+                        seen.add(frame)
+                        frame = edges[frame]
+                    return frame + (f" of unloaded {device_of(frame)}" if device_of(frame) in self.blocked else "")
+                return (f"{target} and {source} are not connected: {target} is under {top(target)} and "
+                        f"{source} under {top(source)}; a mount of unknown calibration publishes no edge")
+            available, reason = super().can_transform_core(target, source, time)
+        if available:
+            return "the transform became available as the wait ended; retry"
+        return reason
+
+    def timed_out(self, target, source, time, waited_s):
+        return f"transform lookup timed out after {waited_s:g} s: {self.explain(target, source, time)}"
 
     def can_transform_core(self, target, source, time):
         with self.lock:
@@ -82,8 +121,11 @@ class FrameBuffer(Buffer):
     def lookup_transform_core(self, target, source, time):
         with self.lock:
             if not self.connected(target, source):
-                raise LookupException("frame is unloaded or unavailable")
-            return super().lookup_transform_core(target, source, time)
+                raise LookupException(self.explain(target, source, time))
+            try:
+                return super().lookup_transform_core(target, source, time)
+            except TransformException as error:
+                raise type(error)(self.explain(target, source, time)) from None
 
     def observe_clock(self, stamp):
         with self.lock:
@@ -157,7 +199,10 @@ class FrameGraphNode(Node):
             response.transform = self.buffer.lookup_transform(
                 request.target_frame, request.source_frame, Time.from_msg(request.stamp))
             response.success = True
-        except (TransformException, ValueError, RuntimeError, TimeoutError) as error:
+        except TimeoutError:
+            response.message = self.buffer.timed_out(
+                request.target_frame, request.source_frame, Time.from_msg(request.stamp), request.wait_s)
+        except (TransformException, ValueError, RuntimeError) as error:
             response.message = str(error)
         finally:
             if timer is not None:
