@@ -31,7 +31,7 @@ async function custom(cwd, name, body) {
 for (const denied of [
   { name: 'device', args: { deviceID: 'sensor', action: 'load' } },
   { name: 'profile_write', args: { kind: 'robot', data: { identity: { name: 'must not change' } } } },
-  { name: 'denied_controller', args: {} },
+  { name: 'exec', args: { python: 'raise RuntimeError("must not run")' } },
 ]) {
   test(`${denied.name} denial stops mixed-batch siblings and the session can continue`, async t => {
     const { cwd, fake, app } = await fixture(t, 'ask')
@@ -39,10 +39,6 @@ for (const denied of [
     await custom(cwd, 'sibling', `import {writeFile} from 'node:fs/promises';import path from 'node:path';export default {
       description:'Sibling marker',execute:async(_,ctx)=>{await writeFile(path.join(ctx.directory,'core-started'),'started');return {title:'marker',output:'started'}}
     }`)
-    const directory = path.join(cwd, '.kinex/tools/denied_controller')
-    await mkdir(directory, { recursive: true })
-    await writeFile(path.join(directory, 'tool.yaml'), 'name: denied_controller\ndescription: Permission test\n')
-    await writeFile(path.join(directory, 'tool.py'), 'raise RuntimeError("must not run")\n')
     await bind(app)
     fake.steps.push({ tools: [{ name: 'write', args: { path: 'completed.txt', content: 'completed' } }, denied, { name: 'sibling' }, marker] })
     await app.host.session.prompt('exercise a denied batch')

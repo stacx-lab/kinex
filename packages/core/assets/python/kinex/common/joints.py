@@ -3,10 +3,10 @@
 import math
 from pathlib import Path
 
-from kinex.lib import urdf
-from kinex.lib.geometry import flat, pose, slerp, vector
-from kinex.lib.kinematics import DEFAULTS, Chain
-from kinex.lib.urdf import joint_target
+from kinex.common import urdf
+from kinex.common.geometry import flat, pose, slerp, vector
+from kinex.common.kinematics import DEFAULTS, Chain
+from kinex.common.urdf import joint_target
 
 HOME_RECOVERY_TOLERANCE = math.radians(1)
 

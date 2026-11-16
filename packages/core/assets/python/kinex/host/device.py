@@ -5,7 +5,7 @@ import json
 import sys
 
 from kinex.communication import communication, seconds
-from kinex.lib.plain import plain
+from kinex.common.plain import plain
 
 
 def observation(message):
@@ -13,7 +13,7 @@ def observation(message):
     if isinstance(message, dict):
         return message
     from sensor_msgs.msg import Image, JointState
-    from kinex.lib.camera import save
+    from kinex.common.camera import save
     if isinstance(message, Image):
         return {"file": save(message), "timestamp": seconds(message.header.stamp),
                 "frame_id": message.header.frame_id, "width": message.width, "height": message.height}
@@ -47,7 +47,7 @@ class DeviceHost:
             node = getattr(module, definition.get("factory", "create"))(profile, self.io.context)
             self.io.extra_nodes.append(node)
             self.io.executor.add_node(node)
-        from kinex.lib.frames import publish_profile
+        from kinex.common.frames import publish_profile
         publish_profile(self.io.node, profile)
         await self.ready()
         return {"ready": True}
@@ -113,7 +113,7 @@ class DeviceHost:
         if action == "$sample":
             configured = self.profile["runtime"].get("observation")
             if not configured and self.profile["type"] in ("rgb", "rgbd"):
-                from kinex.lib.camera import frame, save, stereo, stereo_frame
+                from kinex.common.camera import frame, save, stereo, stereo_frame
                 if stereo(self.profile):
                     images = dict(zip(("left", "right"), await stereo_frame(self.io, self.profile["name"])))
                     sample = {f"{eye}_{key}": value for eye, image in images.items()

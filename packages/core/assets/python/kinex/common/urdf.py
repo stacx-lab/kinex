@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 from xml.etree import ElementTree
 
-from kinex.lib.geometry import compose_rt, quat_to_mat, vector, xyzq_to_rt
+from kinex.common.geometry import compose_rt, quat_to_mat, vector, xyzq_to_rt
 
 MOVABLE = {"revolute", "continuous", "prismatic"}
 

@@ -24,7 +24,7 @@ SDK reconnect handlers halt publication if calibration changes. Consumers fetch
 descriptors before acquisition and reuse IDs within an invocation. Profile
 snapshots, if present, must match. Archive SDK version and calibration provenance.
 
-In the node factory call kinex.lib.camera_geometry.serve_geometry(node, profile,
+In the node factory call kinex.common.camera_geometry.serve_geometry(node, profile,
 adapters), mapping color/native depth or left/right to immutable adapters:
 - RealSenseGeometry(active_video_profile.get_intrinsics(), optical_frame) uses
   the installed SDK directly, preserving reported model and coefficients.

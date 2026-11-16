@@ -12,9 +12,9 @@ function run(source, input, dialog = false) {
   return spawnSync(python, ['-c', source], { input, env, encoding: 'utf8', timeout: 5000 })
 }
 
-test('tool startup rejects missing, malformed and non-object arguments', () => {
+test('exec startup rejects missing, malformed and non-object arguments', () => {
   for (const [input, error] of [
-    ['', /missing tool startup request/],
+    ['', /missing exec startup request/],
     ['broken\n', /JSONDecodeError/],
     ['[]\n', /requires object args/],
     ['{"args":null}\n', /requires object args/],

@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto'
 const globals = await mkdtemp(path.join(os.tmpdir(), 'kinex-node-home-'))
 process.env.KINEX_CONFIG_DIR = path.join(globals, 'config')
 after(() => rm(globals, { recursive: true, force: true }))
-const { createKinexRuntime, PermissionDeniedError } = await import('../dist/index.js')
+const { createKinexRuntime, PermissionDeniedError, executeRoboticsCommand } = await import('../dist/index.js')
 
 const host = { ask: async () => {}, questions: async () => ({}) }
 async function fixture(t, { preparePython = true, ...options } = {}) {
@@ -33,48 +33,76 @@ async function fixture(t, { preparePython = true, ...options } = {}) {
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   return { runtime, directory }
 }
-async function pythonTool(directory, name, code, timeout = 10) {
-  const dir = path.join(directory, '.kinex/tools', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'tool.yaml'), `name: ${name}\ndescription: test\ntimeout_s: ${timeout}\nparameters: {type: object}\n`)
-  await writeFile(path.join(dir, 'tool.py'), code)
-  return dir
-}
-
 const execScript = (runtime, input, invocation = {}) => runtime.tools.call('exec',
   input, { sessionID: 'exec-test', ...invocation })
 
-test('exec runs ordinary source and files with normal globals, arguments and runtime access', async t => {
+test('exec runs source as an async body, a file\'s main and lib programs with arguments and runtime access', async t => {
   const { runtime, directory } = await fixture(t, {host})
-  const source = `import sys, os, __main__
-from kinex import args, robot
+  const source = `import asyncio, sys, os
+from kinex import robot
 assert __name__ == '__main__'
-assert __main__.__dict__ is globals()
 assert sys.stdin.read() == '' and os.read(0, 1) == b''
-assert args() == {'value': 7}
-assert sys.argv[1:] == ['hello', 'two words']
+assert args == {'value': 7}
+await asyncio.sleep(0)
 print(robot()['identity']['id'])
 print('ordinary script')
+def double(value):
+    return value * 2
+return {'doubled': double(args['value']), 'devices': [device['name'] for device in runtime.devices()], 'lib': lib.motion.__name__}
 `
-  const options = { description: 'inspect runtime', args: { value: 7 }, argv: ['hello', 'two words'] }
-  const inline = await execScript(runtime, { python: source, ...options })
+  const result = { doubled: 14, devices: ['sensor'], lib: 'kinex.lib.motion' }
+  const inline = await execScript(runtime, { description: 'inspect runtime', python: source, args: { value: 7 } })
   assert.ok(!inline.isError, inline.output)
-  assert.deepEqual(JSON.parse(inline.output), { output: 'node-test\nordinary script\n', result: null })
+  assert.deepEqual(JSON.parse(inline.output), { output: 'node-test\nordinary script\n', result })
   const scripts = path.join(directory, 'scripts')
   await mkdir(scripts)
   await writeFile(path.join(scripts, 'helper.py'), 'value = 9\n')
-  await writeFile(path.join(scripts, 'my script.py'), `${source}
-from helper import value
+  await writeFile(path.join(scripts, 'my script.py'), `import sys
 from pathlib import Path
-assert value == 9 and Path(__file__).name == 'my script.py'
-assert Path.cwd() == Path(__file__).parent.parent
+from helper import value
+async def main(scale, offset=0):
+    assert value == 9 and Path(__file__).name == 'my script.py' and __name__ != '__main__'
+    assert Path.cwd() == Path(__file__).parent.parent
+    return {'argv': sys.argv[1:], 'value': value * scale + offset}
+if __name__ == '__main__':
+    raise SystemExit('exec calls main itself')
 `)
-  const file = await execScript(runtime, { file: 'scripts/my script.py', ...options })
+  const file = await execScript(runtime, { file: 'scripts/my script.py', args: { scale: 2 }, argv: ['hello', 'two words'] })
   assert.ok(!file.isError, file.output)
-  assert.deepEqual(JSON.parse(file.output), JSON.parse(inline.output))
+  assert.deepEqual(JSON.parse(file.output), { output: '', result: { argv: ['hello', 'two words'], value: 18 } })
+  await writeFile(path.join(scripts, 'no_main.py'), 'value = 1\n')
+  assert.match(JSON.parse((await execScript(runtime, { file: 'scripts/no_main.py' })).output).error, /defines no main function/)
+  const lib = path.join(directory, '.kinex/lib')
+  await mkdir(path.join(lib, 'tasks/tabletop'), { recursive: true })
+  await writeFile(path.join(lib, 'tasks/tabletop/place.py'), `"""Placement programs."""
+from kinex.lib import motion
+from kinex.lib.tasks.tabletop._shared import offset
+
+async def place(target: str, height_m: float = 0.1) -> dict:
+    """Place the held object on the target."""
+    return {'target': target, 'height_m': height_m + offset, 'planner': motion.trajectory.__name__}
+
+def describe():
+    return 'sync programs run too'
+`)
+  await writeFile(path.join(lib, 'tasks/tabletop/_shared.py'), 'offset = 1\n')
+  const program = await execScript(runtime, { program: 'tasks.tabletop.place.place', args: { target: 'pad' } })
+  assert.ok(!program.isError, program.output)
+  assert.deepEqual(JSON.parse(program.output).result, { target: 'pad', height_m: 1.1, planner: 'trajectory' })
+  assert.equal(JSON.parse((await execScript(runtime, { program: 'tasks.tabletop.place.describe' })).output).result, 'sync programs run too')
+  const composed = await execScript(runtime, { python: 'import asyncio\nplace = lib.tasks.tabletop.place.place\nreturn await asyncio.gather(place("a"), place("b", height_m=1))' })
+  assert.deepEqual(JSON.parse(composed.output).result.map(item => [item.target, item.height_m]), [['a', 1.1], ['b', 2]])
+  for (const [name, error] of [['tasks.tabletop.place.missing', /no program tasks\.tabletop\.place\.missing/], ['absent.run', /no program absent\.run/],
+    ['tasks.tabletop._shared.offset', /no program/]]) {
+    const missing = await execScript(runtime, { program: name })
+    assert.equal(missing.isError, true)
+    assert.match(JSON.parse(missing.output).error, error)
+  }
+  const bound = await execScript(runtime, { program: 'tasks.tabletop.place.place', args: { height: 1 } })
+  assert.match(JSON.parse(bound.output).error, /TypeError[\s\S]*height/)
   const plain = await execScript(runtime, { python: 'print("no runtime imports")' })
   assert.equal(JSON.parse(plain.output).output, 'no runtime imports\n')
-  for (const python of ['pass', 'import sys; sys.exit(0)', 'import os; os._exit(0)']) {
+  for (const python of ['pass', '', 'return', 'import sys; sys.exit(0)', 'import os; os._exit(0)'].filter(Boolean)) {
     const result = await execScript(runtime, { python })
     assert.ok(!result.isError, result.output)
     assert.deepEqual(JSON.parse(result.output), { output: '', result: null })
@@ -85,12 +113,12 @@ test('exec isolates raw and subprocess output from RPC, bounds logs and carries 
   const { runtime } = await fixture(t, {host})
   const python = `# ${'🦾画像'.repeat(100000)}
 import os, sys, subprocess
-from kinex import robot, finish
+from kinex import robot
 print('{"return": "fake"}')
 os.write(1, b'{"call":"device","device":"missing"}\\n')
 subprocess.run([sys.executable, '-c', 'import kinex; print("ordinary child")'], check=True)
 assert robot()['identity']['id'] == 'node-test'
-finish({'actual': True})
+return {'actual': True}
 `
   const response = await execScript(runtime, { python })
   assert.ok(!response.isError, response.output)
@@ -109,32 +137,28 @@ print('🦾 END')
   assert.ok(noisy.output.length < 30000)
 })
 
-test('exec preserves optional results and image attachments, and reports exit and RPC errors', async t => {
+test('exec returns optional results and attaches returned image paths, and reports exit and RPC errors', async t => {
   const { runtime, directory } = await fixture(t, {host})
   const image = path.join(directory, 'frame.png')
   await writeFile(image, Buffer.from('89504e470d0a1a0a', 'hex'))
-  const response = await execScript(runtime, { python: 'from kinex import args, finish\nprint("before finish")\nfinish({"value": 0}, file=args()["image"])', args: { image: 'frame.png' } })
+  const response = await execScript(runtime, { python: 'from pathlib import Path\nprint("before return")\nreturn {"value": 0, "image": Path(args["image"])}', args: { image: 'frame.png' } })
   assert.ok(!response.isError, response.output)
-  assert.deepEqual(JSON.parse(response.output), { output: 'before finish\n', result: { value: 0, file: 'frame.png' } })
+  assert.deepEqual(JSON.parse(response.output), { output: 'before return\n', result: { value: 0, image: 'frame.png' } })
   assert.deepEqual(response.attachments, [{ mime: 'image/png', path: image }])
   const second = path.join(directory, 'second.png')
   await writeFile(second, Buffer.from('89504e470d0a1a0a', 'hex'))
+  await writeFile(path.join(directory, 'notes.txt'), 'not an image')
   for (const files of [['second.png', 'frame.png'], []]) {
-    const multiple = await execScript(runtime, { python: 'from kinex import args, finish\nfinish({"value": 0}, file=args()["files"])', args: { files } })
+    const multiple = await execScript(runtime, { python: 'from pathlib import Path\nreturn {"value": 0, "files": [Path(file) for file in args["files"]], "notes": Path("notes.txt"), "text": "frame.png"}', args: { files } })
     assert.ok(!multiple.isError, multiple.output)
     assert.deepEqual(multiple.attachments ?? [], files.map(file => ({ mime: 'image/png', path: path.join(directory, file) })))
-    assert.equal(JSON.parse(multiple.output).result.value, 0)
+    assert.deepEqual(JSON.parse(multiple.output).result, { value: 0, files, notes: 'notes.txt', text: 'frame.png' })
   }
-  await pythonTool(directory, 'images', 'from kinex import finish\nfinish(file=["second.png", "frame.png"])')
-  const direct = await runtime.tools.call('images', {}, { sessionID: 's' })
-  assert.ok(!direct.isError, direct.output)
-  assert.deepEqual(direct.attachments, [second, image].map(path => ({ mime: 'image/png', path })))
   for (const [python, error] of [
-    ['print("before failure"); raise ValueError("broken script")', /^Traceback[\s\S]*ValueError: broken script$/],
+    ['print("before failure"); raise ValueError("broken script")', /^Traceback \(most recent call last\):\n  File "<exec>", line 1, in main\n[\s\S]*ValueError: broken script$/],
     ['import sys; print("before failure"); sys.exit(7)', /^script exited with code 7$/],
-    ['print("before failure"); from kinex import fail; fail("explicit failure")', /^explicit failure$/],
     ['if:', /^Traceback[\s\S]*SyntaxError/],
-    ['from kinex import finish; finish({1, 2})', /^Traceback[\s\S]*not JSON serializable/],
+    ['return {1, 2}', /^Traceback[\s\S]*not JSON serializable/],
   ]) {
     const result = await execScript(runtime, { python })
     assert.equal(result.isError, true, result.output)
@@ -157,7 +181,8 @@ test('exec validates before approval and denial does not prepare Python or run c
   const { runtime, directory } = await fixture(t, { preparePython: false })
   const catalog = await runtime.tools.list()
   assert.ok(catalog.tools.some(tool => tool.name === 'exec'))
-  for (const input of [{}, { python: '' }, { python: 'pass', file: 'script.py' }, { python: 'pass', kind: 'controller' }, { python: 'pass', timeout_s: 0 }]) {
+  for (const input of [{}, { python: '' }, { python: 'pass', file: 'script.py' }, { python: 'pass', program: 'motion.trajectory' }, { program: 'trajectory' },
+    { program: 'motion..trajectory' }, { python: 'pass', kind: 'controller' }, { python: 'pass', timeout_s: 0 }]) {
     const result = await runtime.tools.call('exec', input, { sessionID: 's', ask: async () => assert.fail('invalid input must not prompt') })
     assert.equal(result.isError, true)
   }
@@ -170,7 +195,7 @@ test('exec reaps owned children even when they retain output pipes', { timeout: 
   const { runtime, directory } = await fixture(t, {host})
   for (const python of [
     'print("parent done")',
-    'from kinex import finish; finish({"done": True})',
+    'return {"done": True}',
     'import time; time.sleep(30)',
   ]) {
     const result = await execScript(runtime, { timeout_s: python.includes('time.sleep') ? 2 : 5, python: `import subprocess, sys
@@ -188,61 +213,62 @@ ${python}
   }
 })
 
-test('Python startup carries large Unicode arguments', async t => {
-  const { runtime, directory } = await fixture(t, {host})
-  await pythonTool(directory, 'digest', `import hashlib, os, subprocess, sys
-from kinex import args, finish, robot
+test('exec startup carries large Unicode arguments past noisy output', async t => {
+  const { runtime } = await fixture(t, {host})
+  const python = `import hashlib, os, subprocess, sys
+from kinex import robot
+os.write(1, b'diagnostic\\n' * 100000)
+os.write(2, b'diagnostic\\n' * 100000)
 robot()  # Must not consume the startup request as an RPC response.
-a = args()
-assert args() == a
-assert len(sys.argv) == 1
 assert 'KINEX_TOOL_DIALOG' not in os.environ
 child = subprocess.run([sys.executable, '-c', 'import kinex; print("ordinary import")'], capture_output=True, text=True, check=True)
 assert child.stdout.strip() == 'ordinary import'
-finish({'length': len(a['value']), 'sha256': hashlib.sha256(a['value'].encode()).hexdigest()})
-`)
+return {'length': len(args['value']), 'sha256': hashlib.sha256(args['value'].encode()).hexdigest()}
+`
   for (const value of ['small', 'x'.repeat(3 * 1024 * 1024), '🦾画像'.repeat(100000)]) {
-    const response = await runtime.tools.call('digest', { value }, { sessionID: 's' })
+    const response = await execScript(runtime, { python, args: { value } })
     assert.ok(!response.isError, response.output)
-    assert.deepEqual(JSON.parse(response.output), {
+    assert.deepEqual(JSON.parse(response.output).result, {
       length: [...value].length, sha256: createHash('sha256').update(value).digest('hex'),
     })
   }
 })
 
-test('large startup writes tolerate noisy tools and report early exit', async t => {
-  const { runtime, directory } = await fixture(t, {host})
-  await pythonTool(directory, 'noisy', `import os
-os.write(1, b'diagnostic\\n' * 100000)
-os.write(2, b'diagnostic\\n' * 100000)
-from kinex import args, finish
-finish(len(args()['value']))
-`)
-  const args = { value: 'x'.repeat(3 * 1024 * 1024) }
-  const response = await runtime.tools.call('noisy', args, { sessionID: 's' })
-  assert.ok(!response.isError, response.output)
-  assert.equal(JSON.parse(response.output), args.value.length)
-  await pythonTool(directory, 'exits', 'raise RuntimeError("exit before startup")\n')
-  const exited = await runtime.tools.call('exits', args, { sessionID: 's' })
-  assert.equal(exited.isError, true)
-  assert.match(exited.output, /cannot send tool request|exit before startup/)
-
-})
-
 test('blocked startup writes respect cancellation and deadlines', { timeout: 20000 }, async t => {
   for (const mode of ['cancel', 'timeout']) await t.test(mode, async t => {
-    const { runtime, directory } = await fixture(t, {host})
-    const code = 'import time\ntime.sleep(30)\n'
-    await pythonTool(directory, 'blocked', code, 1)
-    const args = { value: 'x'.repeat(3 * 1024 * 1024) }
+    const { runtime } = await fixture(t, {host})
     const start = Date.now()
-    const result = await runtime.tools.call('blocked', args, { sessionID: 's',
-      ...(mode === 'cancel' ? { signal: AbortSignal.timeout(300) } : {}),
-    })
+    const result = await execScript(runtime, { python: 'import time\ntime.sleep(30)\n', args: { value: 'x'.repeat(3 * 1024 * 1024) }, timeout_s: mode === 'cancel' ? 30 : 1 },
+      mode === 'cancel' ? { signal: AbortSignal.timeout(300) } : {})
     assert.equal(result.isError, true)
     assert.match(result.output, /abort|interrupt|timed out|timeout/i)
     assert.ok(Date.now() - start < 8000)
   })
+})
+
+test('the /exec command runs a lib program for the user without model approval', async t => {
+  const { runtime, directory } = await fixture(t)
+  await mkdir(path.join(directory, '.kinex/lib'), { recursive: true })
+  await writeFile(path.join(directory, '.kinex/lib/tasks.py'), `"""Tasks."""
+def echo(**values):
+    """Return the arguments."""
+    return values
+def broken():
+    raise RuntimeError('task failed')
+`)
+  const context = { sessionID: 'user', confirm: async () => true }
+  const run = async text => executeRoboticsCommand(runtime, 'exec', text, context)
+  const pairs = await run(`tasks.echo object="red block" target='blue pad' attempts=3 pose=[0.1,0.2] flag=true name=cube empty=`)
+  assert.ok(!pairs.isError, pairs.text)
+  assert.deepEqual(JSON.parse(pairs.text).result, { object: 'red block', target: 'blue pad', attempts: 3, pose: [.1, .2], flag: true, name: 'cube', empty: '' })
+  assert.deepEqual(JSON.parse((await run('  tasks.echo  ')).text).result, {})
+  assert.deepEqual(JSON.parse((await run('tasks.echo {"nested": {"a": [1, "two words"]}}')).text).result, { nested: { a: [1, 'two words'] } })
+  const failed = await run('tasks.broken')
+  assert.equal(failed.isError, true)
+  assert.match(JSON.parse(failed.text).error, /RuntimeError: task failed/)
+  assert.equal((await run('echo')).isError, true)
+  for (const invalid of ['', 'tasks.echo stray', 'tasks.echo a=1 stray', 'tasks.echo {broken'])
+    await assert.rejects(run(invalid), /Usage: \/exec|JSON/)
 })
 
 test('core discovery and context contain robotics tools and packaged assets', async t => {
@@ -344,8 +370,7 @@ test('runtime discovery is read-only and exec does not borrow device interpreter
     },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const source = `import sys
-from kinex import runtime, finish
-finish({"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operations("clock")})`
+return {"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operations("clock")}`
   const result = await execScript(runtime,{python:source})
   assert.ok(!result.isError,result.output)
   const value = JSON.parse(result.output).result
@@ -354,6 +379,6 @@ finish({"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operat
   assert.equal(value.ops.time.type,'rosgraph_msgs/msg/Clock')
   const override = await runtime.tools.call('exec',{python:'raise Exception("must not run")',interpreter:'/must/not/run'},{sessionID:'override'})
   assert.equal(override.isError,true)
-  const noDevices = await execScript(runtime,{python:'import asyncio\nfrom kinex import communication\nasync def main():\n async with communication(): pass\nasyncio.run(main())'})
+  const noDevices = await execScript(runtime,{python:'await io.read("clock.time")'})
   assert.equal(JSON.parse(noDevices.output).code,'devices_not_ready')
 })

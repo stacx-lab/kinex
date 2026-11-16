@@ -6,9 +6,8 @@ import math
 import random
 import unittest
 
-from kinex.lib.geometry import pose, quaternion
-from kinex.helpers import trajectory
-from kinex.helpers.motion import planning_limits
+from kinex.common.geometry import pose, quaternion
+from kinex.lib.motion import planning_limits, trajectory
 
 
 PROFILE = {"name": "arm", "type": "joint", "home": None, "limits": "strict"}
@@ -57,7 +56,7 @@ class QuaternionTests(unittest.TestCase):
                 pose(value)
 
     def test_full_precision_geometry_and_json_round_trips_remain_unit(self):
-        from kinex.lib.geometry import mat_to_quat, quat_to_mat
+        from kinex.common.geometry import mat_to_quat, quat_to_mat
 
         rng = random.Random(0)
         for _ in range(100):
@@ -77,7 +76,7 @@ class QuaternionTests(unittest.TestCase):
 
     def test_locomotion_commands_follow_modes_and_limits(self):
         from types import SimpleNamespace as NS
-        from kinex.lib.locomotion import accepted, posture, transition, velocity
+        from kinex.common.locomotion import accepted, posture, transition, velocity
 
         profile = {"limits": "strict", "velocity": {"units": "si", "axes": {"vx": {"min": -1, "max": 1}, "wz": None}},
                    "posture": {"height": {"min": -.1, "max": .05}, "pitch": {"min": -.3, "max": .3}},
@@ -109,7 +108,7 @@ class QuaternionTests(unittest.TestCase):
 
 class MotionTests(unittest.TestCase):
     def test_joint_home_recovery(self):
-        from kinex.lib.joints import command, home_start_tolerance
+        from kinex.common.joints import command, home_start_tolerance
         profile = copy.deepcopy(PROFILE)
         profile.update(home={"j": 0})
         joints = copy.deepcopy(JOINTS)
@@ -135,7 +134,7 @@ class MotionTests(unittest.TestCase):
             trajectory(joints, [2.001], [0], .01, start_tolerance=tolerance)
 
     def test_native_commands_pass_raw_targets_and_still_validate_structure(self):
-        from kinex.lib.joints import command
+        from kinex.common.joints import command
 
         profile, joints = copy.deepcopy(PROFILE), copy.deepcopy(JOINTS)
         actions = [[100]]

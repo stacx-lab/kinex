@@ -1,11 +1,15 @@
-"""Harness-owned, synchronized rest-to-rest joint trajectory generation."""
+"""Synchronized rest-to-rest joint trajectory planning, without device I/O.
+
+Scripts encode and submit a plan through the device's declared command operation,
+wait on the world clock and verify measured arrival.
+"""
 
 import math
 from dataclasses import dataclass
 
-from kinex.lib.geometry import number, vector
-from kinex.lib.joints import recovery_targets
-from kinex.lib.urdf import joint_target
+from kinex.common.geometry import number, vector
+from kinex.common.joints import recovery_targets
+from kinex.common.urdf import joint_target
 
 
 @dataclass(frozen=True)
@@ -52,7 +56,7 @@ def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None,
     joints. With check_limits, start_tolerance permits bounded recovery from
     an out-of-limit start; the target must satisfy limits.
 
-    Example: helpers.trajectory(joints, start, target, period_s=0.01)
+    Example: plan = lib.motion.trajectory(arm.joints, start, target, period_s=0.01)
     """
     start = joint_target(start, joints, check_limits=False)
     target = joint_target(target, joints, check_limits=check_limits)

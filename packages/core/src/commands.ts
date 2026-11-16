@@ -2,6 +2,8 @@ import type { KinexRuntime } from "./runtime.ts"
 import { parseSpecs } from "./record/spec.ts"
 import { recordingOutput, recordingSummary } from "./record/output.ts"
 import { workflows } from "./workflows/index.ts"
+import { libNode } from "./lib/catalog.ts"
+import { formatJSON } from "./util/json.ts"
 
 export const roboticsCommands = [
   { name: "register", description: "Prepare an unloaded device profile", arguments: "<type-or-template>", kind: "workflow" },
@@ -12,6 +14,8 @@ export const roboticsCommands = [
   { name: "ping", description: "Inspect live device status", arguments: "<device|all>", kind: "operation" },
   { name: "stop", description: "Stop actuators", arguments: "[device]", kind: "operation" },
   { name: "record", description: "Capture observations", arguments: "start|snap|stop|status [--verbose] ...", kind: "operation" },
+  { name: "lib", description: "Browse the program library", arguments: "[module[.function]]", kind: "operation" },
+  { name: "exec", description: "Run a library program", arguments: "<module.function> [name=value ...|{json}]", kind: "operation" },
 ] as const
 
 export type RoboticsCommand = typeof roboticsCommands[number]["name"]
@@ -54,6 +58,17 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
     return { kind: "output", text: result.output, isError: result.isError }
   }
   if (name === "record") return output(await record(runtime, tokens, context.sessionID))
+  if (name === "lib") {
+    if (tokens.length > 1) throw new Error("Usage: /lib [module[.function]]")
+    return output(formatJSON(await runtime.operation(() => libNode(runtime.directory, tokens[0]))))
+  }
+  if (name === "exec") {
+    const [, program, rest = ""] = /^\s*(\S+)\s*([\s\S]*)$/.exec(args) ?? []
+    if (!program) throw new Error("Usage: /exec <module.function> [name=value ...|{json}]")
+    // The user's command is its own approval; cleanup and /stop still apply.
+    const result = await runtime.tools.call("exec", { program, args: programArguments(rest) }, { sessionID: context.sessionID, signal: context.signal, ask: async () => {} })
+    return { kind: "output", text: result.output, isError: result.isError }
+  }
   const device = tokens[0]
   if (!device || tokens.length !== 1) throw new Error(`Usage: /${name} <device|all>`)
   const names = device === "all"
@@ -69,6 +84,19 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
   }))
   return { kind: "output", isError: results.some(result => result.status === "rejected"), text: results.map((result, index) =>
     result.status === "fulfilled" ? result.value : `${names[index]}: ${String(result.reason)}`).join("\n") || "No matching devices" }
+}
+
+// A JSON object, or name=value pairs whose values are JSON when they parse and text otherwise.
+function programArguments(text: string): Record<string, unknown> {
+  if (text.startsWith("{")) return JSON.parse(text) as Record<string, unknown>
+  const pair = /\s*([A-Za-z_]\w*)=("(?:[^"\\]|\\.)*"|'[^']*'|\S*)/y
+  const values: Record<string, unknown> = {}
+  while (pair.lastIndex < text.length) {
+    const [, key, value] = pair.exec(text) ?? []
+    if (key === undefined || value === undefined) throw new Error("Usage: /exec <module.function> [name=value ...|{json}]")
+    try { values[key] = value.startsWith("'") ? value.slice(1, -1) : JSON.parse(value) } catch { values[key] = value }
+  }
+  return values
 }
 
 async function record(runtime: KinexRuntime, tokens: string[], sessionID: string): Promise<string> {

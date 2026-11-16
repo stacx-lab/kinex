@@ -1,10 +1,12 @@
 """Invocation-scoped asyncio pub/sub and request/response over ROS 2.
 
-Imports are inert. ROS is initialized only when entering communication().
-World operations are the sole source of workflow timing.
+Imports are inert. exec owns one scope per invocation, reached as `kinex.io` and opened
+on first use; a standalone client enters communication() itself. World operations are
+the sole source of workflow timing.
 """
 import asyncio
 from collections import deque
+import contextlib
 import contextvars
 import json
 import threading
@@ -161,12 +163,16 @@ class Communication:
         self.handlers = set()
         self.spin_error = None
         self.extra_nodes = []
+        self.opened = False
         self.closed = False
         self.tf = None
 
-    async def __aenter__(self):
+    def open(self):
+        """Acquire ROS resources once, inside the running event loop."""
+        if self.opened:
+            return self
         if self.supervised and not self.catalog:
-            raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host before communication().",
+            raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host before using io.",
                            code="devices_not_ready")
         try:
             import rclpy
@@ -201,6 +207,11 @@ class Communication:
         self.executor.add_node(self.node)
         self.thread = threading.Thread(target=self._spin, daemon=True)
         self.thread.start()
+        self.opened = True
+        return self
+
+    async def __aenter__(self):
+        self.open()
         self.token = _active.set(self)
         return self
 
@@ -268,6 +279,11 @@ class Communication:
         stream = Subscription(self, self.operation(operation, "topic", "output"), depth)
         self.subscriptions.append(stream)
         return stream
+
+    async def read(self, operation, *, timeout_s=None):
+        """The next message on an output topic; timeout_s defaults to the operation's."""
+        with self.subscribe(operation) as stream:
+            return await stream.next(timeout_s=stream.spec.get("timeout_s", 10) if timeout_s is None else timeout_s)
 
     async def _enroll(self, operation):
         """Report a commanded device so the host stops it if this invocation fails."""
@@ -419,7 +435,10 @@ class Communication:
                 self.tf.observe_clock(self.world_stamp)
         return self.tf
 
-    async def __aexit__(self, kind, error, traceback):
+    async def close(self, error=None):
+        """Release the scope: success flushes commands, failure stops every commanded device."""
+        if not self.opened or self.closed:
+            return
         succeeded = error is None or isinstance(error, SystemExit) and error.code in (None, 0)
         failure = self.spin_error if succeeded else error
         try:
@@ -454,9 +473,44 @@ class Communication:
             self.node.destroy_node()
             self.context.try_shutdown()
             await asyncio.to_thread(self.thread.join, 2)
-            if _active.get() is self:
-                _active.reset(self.token)
+
+    async def __aexit__(self, kind, error, traceback):
+        try:
+            await self.close(error)
+        finally:
+            _active.reset(self.token)
 
 
 def communication(catalog=None, *, domain_id=None):
+    """A scope for a standalone client to enter; inside exec, use `kinex.io`."""
     return Communication(catalog, domain_id=domain_id)
+
+
+@contextlib.contextmanager
+def ambient(scope):
+    """Make a scope the active one for a block, as exec does for an invocation."""
+    token = _active.set(scope)
+    try:
+        yield scope
+    finally:
+        _active.reset(token)
+
+
+def scope():
+    """The active communication scope, opened on first use."""
+    active = _active.get()
+    if active is None:
+        raise RuntimeError("no communication scope: run through exec or enter communication()")
+    if isinstance(active, Communication):
+        active.open()
+    return active
+
+
+class _Ambient:
+    """`kinex.io`: the active scope's subscribe, read, publish, request and serve."""
+
+    def __getattr__(self, name):
+        return getattr(scope(), name)
+
+
+io = _Ambient()

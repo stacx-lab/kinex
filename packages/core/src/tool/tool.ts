@@ -31,9 +31,6 @@ export interface Def<Args extends z.ZodType = z.ZodType> {
   recordingOrigin?: "agent"
   description: string
   parameters: Args
-  // Raw JSON Schema sent to the model instead of z.toJSONSchema(parameters) —
-  // python tools carry their schema in tool.yaml; their runner validates it.
-  jsonSchema?: Record<string, unknown>
   execute(args: z.infer<Args>, ctx: Context): Promise<Result>
 }
 

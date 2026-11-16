@@ -6,7 +6,7 @@ import sys
 import cv2
 import numpy as np
 
-from kinex.lib.geometry import mat_to_quat
+from kinex.common.geometry import mat_to_quat
 
 
 def transform(rotation, translation):

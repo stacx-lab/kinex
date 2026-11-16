@@ -120,7 +120,7 @@ class ReferenceNodes(unittest.TestCase):
         self.assertEqual(((result := await second).success, result.waited_s), (True, .5))
 
     def test_joint_node_streams_pose_targets_until_a_joint_target_or_stop_replaces_them(self):
-        from kinex.lib.urdf import read_tree
+        from kinex.common.urdf import read_tree
         sys.modules.update(joint_modules())
         tree = read_tree(None, "base_link", """<robot name="arm"><link name="base_link"/><link name="link"/>
   <link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="link"/>

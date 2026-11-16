@@ -22,7 +22,7 @@ from sensor_msgs.msg import JointState, MultiDOFJointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from kinex.communication import qos
-from kinex.lib.joints import JointModel, command, pose_at, pose_command
+from kinex.common.joints import JointModel, command, pose_at, pose_command
 from kinex.node import command_service, node_name
 
 STATE = "/joint_states"

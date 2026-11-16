@@ -20,7 +20,7 @@ import argparse
 import json
 import sys
 
-from kinex.lib.geometry import mat_to_quat, quat_to_mat
+from kinex.common.geometry import mat_to_quat, quat_to_mat
 
 
 def fail(message: str) -> None:

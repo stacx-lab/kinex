@@ -18,7 +18,7 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 from kinex.communication import qos
-from kinex.lib.locomotion import accepted, posture, transition, velocity
+from kinex.common.locomotion import accepted, posture, transition, velocity
 from kinex.node import command_service, node_name
 
 CMD_VEL = "/cmd_vel"

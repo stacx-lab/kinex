@@ -1,7 +1,7 @@
 import { NamedError } from "./error.ts"
 
 // Buffered line reading over a subprocess stdout stream, shared by the ROS
-// device hosts and the Python tool runner. The deadline is ABSOLUTE (epoch ms);
+// device hosts and the exec runner. The deadline is ABSOLUTE (epoch ms);
 // callers map LineTimeoutError and EOF (undefined) onto their own typed errors.
 
 export class LineTimeoutError extends NamedError {

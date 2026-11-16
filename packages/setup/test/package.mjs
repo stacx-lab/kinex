@@ -69,7 +69,7 @@ await useUv(process.env.KINEX_CONFIG_DIR)
 const runtime = createKinexRuntime({directory: process.cwd(), host:{ask: async () => {}}})
 try {
   const tools = (await runtime.tools.list()).tools.map(tool => tool.name)
-  for (const name of ['profile_write','device','devices','device_stop','relative_pose','locate_object_3d']) assert.ok(tools.includes(name), name)
+  for (const name of ['profile_write','device','devices','device_stop','exec','lib']) assert.ok(tools.includes(name), name)
   for (const name of ['setup_plan','calib_compute','calib_sample']) assert.ok(!tools.includes(name), name)
   assert.ok(await runtime.skills.load('setup-device'))
   assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'calibrate-tcp-offset'))

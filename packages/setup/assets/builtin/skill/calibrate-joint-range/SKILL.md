@@ -19,7 +19,7 @@ operator hand-guiding with stationary `calib_sample` readings. A powered sweep
 requires clear surroundings, payload removed, an operator at the e-stop, one joint
 at a time, and observation for self-collision. Use small type-appropriate increments
 (2–5 degrees in radians for revolute joints, small metre increments for prismatic
-joints). Plan with `kinex.helpers.trajectory` using `fraction=0.05`, submit
+joints). Plan with `lib.motion.trajectory` using `fraction=0.05`, submit
 through the device's declared command operation, wait on the world clock and
 verify arrival after each step.
 Stop immediately on fault, no progress, near-stop report or operator interruption;

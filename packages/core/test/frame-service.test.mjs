@@ -26,7 +26,7 @@ frames: {...{base: {parent: null, translation_m: null, rotation_xyzw: null}}} })
   const events = async () => (await readFile(path.join(directory,'.kinex','events.jsonl'),'utf8')).trim().split('\n').map(JSON.parse)
   assert.equal((await events()).filter(event => event.action === '$frames').length, 1)
   const snapshot = async () => {
-    const result = await runtime.tools.call('exec', {python:'from kinex import _request, finish\nfinish(_request["ros"]["frames"])'}, {
+    const result = await runtime.tools.call('exec', {python:'from kinex import _request\nreturn _request["ros"]["frames"]'}, {
       sessionID:'frames',ask:async()=>{},
     })
     assert.ok(!result.isError, result.output)

@@ -40,7 +40,8 @@ Borrowed services are never terminated.
 
 The nearest `.kinex/` directory owns the workspace's `workspace.yaml` assembly
 and `devices/<name>/` inventory, each a `profile.yaml` with its node sources and
-URDFs. It also holds `lib/` for Python shared by exec, tools and nodes,
+URDFs. It also holds `lib/`, the workspace's part of the `kinex.lib` program
+library, importable by exec and nodes,
 `kinex.json` configuration, the `python/` environment and `recordings/`. Without
 one, the workspace path is `<working-directory>/.kinex`; reads do not create it.
 Reusable content discovery searches nearest project → ancestors → global →
@@ -48,28 +49,29 @@ packaged assets, with concrete device provisioning instances before type
 templates. Read-only discovery must not create a nearer workspace or initialize
 Python.
 
-Custom tools use `.kinex/tools/`: Python tools occupy
-`<name>/{tool.yaml,tool.py}`, and JS/TS tools live directly in that directory.
+Custom JS/TS tools live in `.kinex/tools/`. Python programs live in `.kinex/lib/`
+as modules of `kinex.lib`, at any depth; a nearer root's module replaces a farther
+or builtin one of the same name, as Python resolves the package's search path.
 Custom skills use `.kinex/skills/<name>/SKILL.md`, searched recursively. Device
 guides use `.kinex/device/<name>/DEVICE.md` for instances and
 `.kinex/device/templates/<type>/DEVICE.md` for types. Global configuration uses
-the same `tools/`, `skills/` and `device/` directories. Packaged assets use their
-internal `builtin/tool`, `builtin/skill` and `builtin/device` paths.
-Ordinary scripts passed to `exec` need no discovery entry or manifest.
+the same `tools/`, `lib/`, `skills/` and `device/` directories. Packaged assets use
+their internal `builtin/skill` and `builtin/device` paths and the `kinex/lib`
+Python package. Programs need no discovery entry or manifest.
 
 Core lazily prepares `.kinex/python`: independent Pixi/RoboStack Jazzy by default,
 Humble when workspace configuration selects `ros-humble`, or uv with `uv`. Exec,
-helpers, ROS clients, tf2 and recording use Kinex Python, independent of device
+the program library, ROS clients, tf2 and recording use Kinex Python, independent of device
 load state. Only device processes may select separate SDK interpreters.
 Concurrent first use waits for preparation; incomplete bootstraps retry. Existing
 prepared environments run without synchronization until their ROS distribution or
 interface sources change; `python.prepare()` explicitly synchronizes dependencies and rebuilds
 interfaces from clean. Host shells retain their environment. The `kinex` root and
-`kinex.helpers` form the exec API, which reaches devices only through
-`kinex.communication`; `kinex.node` serves device nodes, `kinex.lib` holds shared
+`kinex.lib` form the exec API, which reaches devices only through
+`kinex.communication`; `kinex.node` serves device nodes, `kinex.common` holds shared
 internals and `kinex.host` the processes the runtime launches.
 
-User commands and permission-checked model tools control lifecycle; Python tools
+User commands and permission-checked model tools control lifecycle; Python
 cannot. The host records the devices each Python invocation commands: a failed,
 timed-out or cancelled invocation stops them, and a device stop cancels the
 invocations that commanded it (see

@@ -20,12 +20,12 @@ flange or tool link, or each fingertip of a hand; use `[]` when there are none.
 FK and IK default to the only tip; with several, callers name the link.
 `home` gives every commanded joint a position, or is null. With `limits: strict`,
 the node and Kinex tools reject targets outside the URDF limits, allowing only a
-bounded inward recovery toward home (`kinex.lib.joints.recovery_targets`); use
+bounded inward recovery toward home (`kinex.common.joints.recovery_targets`); use
 `native` when the device enforces or clamps its own limits and targets may reach
 them.
 
 Agents read the resolved tree as `profile(name)["resolved_model"]` and compute
-FK and IK from it with `helpers.joint_model(name)`, so a device need not serve
+FK and IK from it with `lib.kinematics.joint_model(name)`, so a device need not serve
 kinematics. A controller with its own kinematics may declare `fk` or `ik` as
 ordinary optional operations, for example MoveIt's
 `moveit_msgs/srv/GetPositionFK` and `GetPositionIK`, stating links, frames and

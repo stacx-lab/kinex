@@ -20,7 +20,7 @@ test('headless context includes one short Python instruction without onboarding 
   const request = fake.requests[0]
   const system = JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
   assert.equal(system.match(/exec runs Kinex Python/g)?.length, 1)
-  assert.match(system, /Discover devices with `kinex\.runtime`/)
+  assert.match(system, /Discover devices with `runtime` and programs with the lib tool/)
   assert.doesNotMatch(system, /Default pyproject\.toml|\{\{PROJECT\}\}/)
   const context = await app.owner.runtime.context()
   assert.ok(JSON.stringify(request).includes(context.python.executable))
@@ -37,7 +37,7 @@ test('direct commands need no model and preserve the robotics workspace', async 
   await bind(app)
   const commands = app.host.session.extensionRunner.getRegisteredCommands().map(command => command.name)
   assert.ok(!commands.some(name => name.startsWith('kinex-')), 'only short Kinex command names are exposed')
-  for (const name of ['register', 'unregister', 'devices', 'load', 'unload', 'ping', 'stop', 'record', 'onboarding', 'calibrate', 'mode']) {
+  for (const name of ['register', 'unregister', 'devices', 'load', 'unload', 'ping', 'stop', 'record', 'lib', 'exec', 'onboarding', 'calibrate', 'mode']) {
     assert.equal(commands.filter(command => command === name).length, 1, `${name} is registered once`)
   }
   assert.ok(!commands.includes('reload'), 'Pi exclusively owns /reload')
@@ -105,7 +105,7 @@ export default { description: 'Capture test image', execute: async () => ({title
     await writeFile(image, png)
     await writeFile(second, secondPng)
     fake.steps.push({ tool: 'exec', args: {
-      python: 'from kinex import finish\nfinish({"observed": True}, file=["second.png", "frame.png"])',
+      python: 'from pathlib import Path\nreturn {"observed": True, "files": [Path("second.png"), Path("frame.png")]}',
     } })
   } else {
     await seed(app.owner.runtime)

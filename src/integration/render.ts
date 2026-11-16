@@ -2,7 +2,7 @@ import { highlightCode, keyHint, truncateToVisualLines, type Theme, type ToolDef
 import { Container, Spacer, Text, TruncatedText, stripTerminalSequences, truncateToWidth, type Component } from "@earendil-works/pi-tui"
 import { formatJSON } from "@kinex/core/util/json"
 
-const tools = new Set(["device", "devices", "record", "device_stop", "exec"])
+const tools = new Set(["device", "devices", "record", "device_stop", "exec", "lib"])
 const string = (value: unknown) => typeof value === "string" ? value : ""
 const clean = (value: string) => stripTerminalSequences(value).replace(/\r/g, "")
 const singleLine = (value: string) => clean(value).replace(/[\n\t]/g, " ")
@@ -11,6 +11,7 @@ const quote = (arg: string) => /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.repl
 
 function summary(name: string, args: Record<string, unknown>): string {
   if (name === "exec") return string(args.description).trim()
+  if (name === "lib") return string(args.path)
   if (name === "device") return `${string(args.action) || "read"} ${string(args.deviceID)}`.trim()
   if (name === "devices") return `${Array.isArray(args.calls) ? args.calls.length : 0} calls`
   if (name === "device_stop") return string(args.deviceID) || "all"
@@ -55,7 +56,7 @@ function stack(...children: Component[]): Container {
   return container
 }
 
-// The script is the call's body: highlighted inline source, or the command that runs a file.
+// The script is the call's body: highlighted inline source, the lib program, or the command that runs a file.
 function execCall(args: Record<string, unknown>, theme: Theme, expanded: boolean): Component[] {
   const body: Component[] = []
   const python = string(args.python)
@@ -63,6 +64,8 @@ function execCall(args: Record<string, unknown>, theme: Theme, expanded: boolean
     const code = highlightCode(clean(python).replace(/\t/g, "   ").trimEnd(), "python").join("\n")
     body.push(expanded ? new Text(code, 0, 0) : preview(code, theme, 10, "start"))
   }
+  const program = string(args.program)
+  if (program) body.push(new Text(highlightCode(`lib.${singleLine(program)}`, "python").join("\n"), 0, 0))
   const file = string(args.file)
   if (file) {
     const argv = Array.isArray(args.argv) ? args.argv.map(string) : []

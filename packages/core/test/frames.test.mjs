@@ -153,7 +153,7 @@ test('static TF excludes unknown transforms and roots', async () => {
 import sys
 from types import SimpleNamespace
 from unittest.mock import patch
-from kinex.lib import frames
+from kinex.common import frames
 sent = []
 broadcaster = SimpleNamespace(sendTransform=lambda values: sent.extend(values))
 profile = {"name": "tool", "frames": {

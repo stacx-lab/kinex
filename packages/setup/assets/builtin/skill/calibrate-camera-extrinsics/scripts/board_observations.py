@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Turn calib_sample captures into board observations for calib_compute.
 
-Run through exec: file=<this skill>/scripts/board_observations.py, argv=[...]. At each
+Run through exec: file=<this skill>/scripts/board_observations.py, argv=[...]; exec
+calls main. At each
 pose, sample the arm with --frame, then the camera; the last camera sample before the
 next arm sample is the view, so a retake replaces the earlier capture. Arm samples that
 did not settle are rejected. Detected corners are unprojected through the camera's
@@ -11,18 +12,17 @@ active geometry, so any lens model works.
   mono, or one stereo eye with --eye: {"frame_pose": [x,y,z,qx,qy,qz,qw], "rvec", "tvec"}
   stereo: {"frame_pose"?, "left": {"object_points", "rays"}, "right": {...}}
 Without --arm every stereo camera sample is a view without frame_pose (camera-eye-to-eye).
-finish() returns {output, views, rejected, calibration_id}.
+main returns {output, views, rejected, calibration_id}.
 """
 import argparse
-import asyncio
 import json
 import os
 
 import numpy as np
 
-from kinex import communication, finish, profile
-from kinex.helpers.images import camera_geometry
-from kinex.lib.camera import camera_stream, stereo
+from kinex import profile
+from kinex.lib.images import camera_geometry
+from kinex.common.camera import camera_stream, stereo
 
 
 def parse(argv=None):
@@ -136,14 +136,14 @@ def board_pose(observation):
     return {"rvec": rvec.reshape(3).tolist(), "tvec": tvec.reshape(3).tolist()} if solved else "solvePnP failed"
 
 
-async def observations(io, args):
+async def observations(args):
     camera = profile(args.camera)
     streams = ["left", "right"] if stereo(camera) and args.eye is None else [camera_stream(camera, args.eye)]
     if len(streams) == 1 and args.arm is None:
         raise ValueError("single-stream observations need --arm and --frame for hand-eye calibration")
     with open(args.samples) as handle:
         views, rejected = pair(json.load(handle), args.camera, args.arm, args.frame)
-    geometry = await camera_geometry(io, args.camera)
+    geometry = await camera_geometry(args.camera)
     detect = detector(args)
     entries = []
     for sample, arm in views:
@@ -165,11 +165,4 @@ async def observations(io, args):
 
 
 async def main():
-    args = parse()
-    async with communication() as io:
-        result = await observations(io, args)
-    finish(result)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    return await observations(parse())

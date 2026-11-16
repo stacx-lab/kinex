@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from kinex.lib.camera import array, frame, save
-from kinex.helpers.perception import _locate
+from kinex.common.camera import array, frame, save
+from kinex.lib.perception import _locate
 
 def locate(*args, **kwargs):
     return asyncio.run(_locate(*args, **kwargs))
