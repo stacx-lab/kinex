@@ -262,7 +262,10 @@ Supply `timestamp` for a measurement at a particular world time; omitting it
 explicitly requests the latest available transform. Kinex retains the tf2 service
 across exec calls, so a new invocation can query a paused world without waiting
 for another physics tick. Missing relationships and unavailable timestamps are
-errors.
+errors. A lookup waits its whole timeout, then names the cause: a frame not on TF
+with the frames its device has published, an unloaded device, frames in
+disconnected trees (a mount of unknown calibration publishes no edge), or the
+time range tf2 holds.
 
 Cameras are native ROS topics: `image`, `depth` for rgbd and, where a source
 provides it, `camera_info`. Camera projection and distortion live in the profile,
