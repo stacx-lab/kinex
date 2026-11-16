@@ -23,8 +23,11 @@ Raw images remain unchanged for model consumers. Publish `rgb8`; a node adapting
 A reader subscribes to `image` and takes the next frame; snapshots and perception
 tools read it this way. A live camera streams continuously. A simulator, whose world
 may be paused, publishes a current frame to each new subscriber (for example on the
-publisher's matched event) and declares `reliable` QoS so that frame is delivered;
-reading never advances world time.
+publisher's matched event) and declares `reliable` QoS. DDS can deliver that frame
+before the reader has discovered the publisher, which drops it, so while subscribed
+and paused the simulator also repeats its current frame at a short interval (for
+example 0.2 s), as a live camera keeps streaming a still scene. Reading never
+advances world time.
 
 The sibling `node.py` adapts an existing ROS camera driver to this contract; copy
 it into the device directory and map each image operation to the driver's topic in

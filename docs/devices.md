@@ -208,9 +208,11 @@ Devices remain unlocalized roots: odometry drifts and is never a global pose.
 Cameras publish `image` (`rgb8`) and, for rgbd, `depth` (`16UC1` in
 `scale_m_per_unit`, 0 for missing samples) from one acquisition with equal stamps,
 in calibrated optical frames. Readers subscribe and take the next frame; a
-simulator publishes a current frame to each new subscriber with reliable QoS, so
-reading a paused world never advances it. A stereo rgb camera publishes `left_image`
-and `right_image` in `<device>/left` and `<device>/right` instead of `image`; each
+simulator publishes a current frame to each new subscriber with reliable QoS and
+repeats it while paused, so reading a paused world never advances it, also from a
+reader that subscribed before discovering the camera. A stereo rgb camera
+publishes `left_image` and `right_image` in `<device>/left` and `<device>/right`
+instead of `image`; each
 keeps its own stamp, and a paired read does not imply hardware synchronization. IMU
 and force/torque nodes publish
 `sensor_msgs/msg/Imu` or `geometry_msgs/msg/WrenchStamped` in `<device>/base`

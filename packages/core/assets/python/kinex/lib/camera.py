@@ -76,9 +76,9 @@ async def frame(io, camera, *, timeout_s=None, eye=None):
     """The camera's next image and, for an rgbd camera, its depth from the same acquisition.
 
     Subscribing yields a current frame: live cameras stream, and simulators publish one
-    to each new subscriber, also while the world is paused. Depth is paired with the image
-    of equal stamp. eye selects a stereo camera's left or right image. timeout_s defaults
-    to the image operation's timeout_s.
+    to each new subscriber and repeat it while the world is paused. Depth is paired with
+    the image of equal stamp. eye selects a stereo camera's left or right image. timeout_s
+    defaults to the image operation's timeout_s.
     """
     names = [f"{eye}_image"] if eye else ["image"] + (["depth"] if f"{camera}.depth" in io.catalog else [])
     streams = [io.subscribe(f"{camera}.{name}") for name in names]

@@ -105,9 +105,10 @@ rosbridge launch libero/libero-spatial-01 --execution-mode stepped --domain-id 8
 Launch a task for the exported robot on the same ROS domain, then open Kinex in
 the exported directory, run `/load all` and give it the task. The launched world
 owns the execution mode. Its cameras publish native `image`, `camera_info` and,
-for RGB-D, `depth` topics and render a current frame for each new subscriber, so
-Kinex can read them while a stepped world is paused. See
-[ROS communication](docs/communication.md) for the operation and Python contracts.
+for RGB-D, `depth` topics and render a current frame for each new subscriber,
+repeating it while paused, so Kinex can read them while a stepped world is
+paused. See [ROS communication](docs/communication.md) for the operation and
+Python contracts.
 
 ## Use Kinex with Real-World Robots
 
