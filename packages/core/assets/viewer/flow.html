@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow chart</title>
+<style>
+:root {
+  --bg: #f6f6f3; --panel: #ffffff; --ink: #1c1e21; --muted: #667085; --line: #98a1ad; --border: #d8dce2;
+  --io: #0f766e; --io-bg: #e4f3f0; --call: #4338ca; --call-bg: #ecebfd; --quiet: #eff0f2;
+  --warn: #a8570a; --warn-bg: #fcf1df; --bad: #b42318; --bad-bg: #fdecea; --good: #17663a; --good-bg: #e6f4ea;
+  --select: #2563eb; --mark: #fff3bf;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b; --panel: #1e2126; --ink: #e6e8eb; --muted: #9aa3ae; --line: #6f7885; --border: #353b45;
+    --io: #5eead4; --io-bg: #10302d; --call: #aab6ff; --call-bg: #26284d; --quiet: #272b32;
+    --warn: #fbbf24; --warn-bg: #3a2d10; --bad: #fca5a5; --bad-bg: #3b1b1b; --good: #86efac; --good-bg: #143021;
+    --select: #7aa7ff; --mark: #4a4216;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+button { font: inherit; color: inherit; }
+
+header { padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+#trail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; font-size: 15px; margin-right: auto; }
+#trail button { border: 0; background: none; padding: 2px 4px; border-radius: 4px; cursor: pointer; color: var(--call); font-weight: 600; }
+#trail button:hover { background: var(--call-bg); }
+#trail .sep { color: var(--muted); font-weight: 400; }
+.tools { display: flex; gap: 8px; }
+.tools button { border: 1px solid var(--border); background: var(--panel); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.tools button:hover { border-color: var(--line); }
+.legend { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 12px; align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid; display: inline-block; }
+#problems { flex-basis: 100%; color: var(--warn); background: var(--warn-bg); border-radius: 6px; padding: 6px 10px; font-size: 12px; white-space: pre-wrap; }
+
+main { flex: 1; min-height: 0; display: flex; }
+#chart { flex: 1; min-width: 0; overflow: auto; }
+.canvas { display: inline-flex; flex-direction: column; align-items: center; min-width: 100%; padding: 28px 32px 48px; }
+aside { width: 440px; max-width: 45%; border-left: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 16px; }
+aside h2 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+aside .where { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; margin: 2px 0 10px; }
+aside .signature { display: block; padding: 8px 10px; background: var(--quiet); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+aside .doc { margin: 10px 0; color: var(--muted); font-size: 13px; }
+aside .doc p { margin: 0 0 8px; }
+aside .doc p.kept { white-space: pre-wrap; }
+#lines { margin: 12px 0 0; border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; padding: 6px 0; }
+#lines div { display: flex; white-space: pre; padding-right: 12px; min-width: max-content; }
+#lines div.on { background: var(--mark); }
+#lines i { flex: none; width: 44px; padding-right: 12px; text-align: right; color: var(--muted); font-style: normal; user-select: none; }
+@media (max-width: 860px) {
+  main { flex-direction: column; }
+  aside { width: auto; max-width: none; border-left: 0; border-top: 1px solid var(--border); max-height: 45%; }
+}
+
+/* A sequence runs downward; wires carry the arrowheads. */
+.seq { display: flex; flex-direction: column; align-items: center; }
+.wire { flex: none; width: 2px; height: 22px; background: var(--line); position: relative; }
+.wire::after { content: ""; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); border: 5px solid transparent; border-top: 7px solid var(--line); border-bottom: 0; }
+.stub { flex: none; width: 2px; height: 12px; background: var(--line); }
+.fill { flex: 1 0 12px; width: 2px; background: var(--line); }
+
+.node { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; max-width: 380px; text-align: left; padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--panel); cursor: pointer; }
+.node code { overflow-wrap: anywhere; }
+.node:hover { border-color: var(--line); }
+.selected { outline: 2px solid var(--select); outline-offset: 2px; }
+.tag { font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+.io { background: var(--io-bg); border-color: var(--io); }
+.io .tag { color: var(--io); }
+.io.dynamic code { font-style: italic; }
+.call { background: var(--call-bg); border-color: var(--call); font-weight: 600; }
+.call .mark { color: var(--call); }
+.call.opaque { background: var(--panel); border-style: dashed; font-weight: 400; cursor: default; }
+.compute { background: var(--quiet); color: var(--muted); border-color: transparent; font-size: 13px; }
+.wait, .task { background: var(--warn-bg); border-color: var(--warn); }
+.wait .tag, .task .tag { color: var(--warn); }
+.exit { border-radius: 16px; padding: 5px 14px; }
+.exit.return { background: var(--good-bg); border-color: var(--good); }
+.exit.return .tag { color: var(--good); }
+.exit.raise { background: var(--bad-bg); border-color: var(--bad); }
+.exit.raise .tag { color: var(--bad); }
+.exit.break, .exit.continue { background: var(--quiet); }
+.terminal { padding: 4px 16px; border-radius: 999px; background: var(--ink); color: var(--bg); font-size: 12px; font-weight: 600; }
+.decision { border-color: var(--warn); border-radius: 16px; flex-wrap: nowrap; max-width: 480px; }
+.decision code { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.decision .tag, .guard .tag { color: var(--warn); }
+.guard { border-style: dashed; border-color: var(--warn); flex-wrap: nowrap; max-width: 560px; }
+.guard code { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.guard .then { flex: 0 1 auto; min-width: 0; white-space: nowrap; }
+.guard .then { display: inline-flex; align-items: baseline; gap: 6px; color: var(--bad); }
+.guard .then .tag { color: inherit; }
+.note { font-weight: 400; color: var(--muted); font-size: 12px; }
+.guard .then.return { color: var(--good); }
+.guard .then.break, .guard .then.continue { color: var(--muted); }
+
+/* Branches: arms hang from a rail and rejoin on another; both are measured after layout. */
+.branch, .parallel { display: flex; flex-direction: column; align-items: center; }
+.arms { display: flex; justify-content: center; align-items: stretch; position: relative; }
+.arm { display: flex; flex-direction: column; align-items: center; padding: 0 14px; }
+.rail { position: absolute; height: 2px; background: var(--line); left: var(--from, 50%); width: var(--span, 0); }
+.rail.top { top: 0; }
+.rail.bottom { bottom: 0; }
+.chip { padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); color: var(--muted); font-size: 12px; max-width: 280px; overflow-wrap: anywhere; text-align: center; }
+.bar { align-self: stretch; height: 5px; border-radius: 3px; background: var(--ink); }
+.caption { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+/* Frames hold what belongs together: a loop, a scope, a try, an opened call. */
+.frame { display: flex; flex-direction: column; align-items: center; position: relative; padding: 8px 18px 14px; border: 1.5px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--panel) 55%, transparent); }
+.head { align-self: stretch; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 10px; padding: 2px 4px; border: 0; background: none; border-radius: 6px; text-align: left; font-size: 13px; font-weight: 600; cursor: pointer; }
+.head:hover { background: var(--quiet); }
+.head .note { font-weight: 400; color: var(--muted); font-size: 12px; }
+.section { align-self: stretch; margin: 12px 0 8px; padding-top: 8px; border-top: 1px dashed var(--border); color: var(--muted); font-size: 12px; font-weight: 600; }
+.loop { border-color: var(--line); }
+.loop > .head { padding-left: 22px; }
+.round { position: relative; align-self: stretch; display: flex; flex-direction: column; align-items: center; padding: 0 22px; }
+.round > .back { position: absolute; left: 0; top: -22px; bottom: 6px; width: 12px; border: 2px solid var(--line); border-right: 0; border-radius: 8px 0 0 8px; }
+.round > .back::after { content: ""; position: absolute; top: -6px; right: -6px; border: 5px solid transparent; border-left: 7px solid var(--line); border-right: 0; }
+.scope { border-style: dashed; border-color: var(--line); }
+.try { border-color: var(--line); }
+.handlers { display: flex; gap: 12px; justify-content: center; align-items: flex-start; }
+.handler { border-style: dashed; border-color: var(--bad); }
+.handler > .head { color: var(--bad); }
+.fn { border-color: var(--call); background: color-mix(in srgb, var(--call-bg) 35%, transparent); }
+.fn > .head { color: var(--call); }
+.fn > .head .mono { font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
+.focus { position: absolute; top: 6px; right: 8px; border: 0; background: none; cursor: pointer; color: var(--call); border-radius: 6px; padding: 2px 6px; font-size: 12px; }
+.focus:hover { background: var(--call-bg); }
+.fn > .head { padding-right: 64px; }
+.spawn { display: grid; grid-template-columns: 1fr auto 1fr; }
+.spawn > .axis { display: flex; flex-direction: column; align-items: center; }
+.spawn > .axis > .fill { flex-basis: 0; }
+.lane { justify-self: start; display: flex; align-items: flex-start; }
+.lane::before { content: ""; flex: none; width: 28px; margin-top: 16px; border-top: 2px dashed var(--warn); }
+.lane > .frame { border-style: dashed; border-color: var(--warn); }
+.lane > .frame > .head { color: var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <nav id="trail" aria-label="Opened functions"></nav>
+  <div class="tools">
+    <button id="expand" type="button">Open all calls</button>
+    <button id="collapse" type="button">Close all</button>
+  </div>
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--io-bg);border-color:var(--io)"></i>device operation</span>
+    <span><i class="swatch" style="background:var(--call-bg);border-color:var(--call)"></i>call: click to open its chart</span>
+    <span><i class="swatch" style="background:var(--quiet);border-color:var(--border)"></i>computation</span>
+    <span><i class="swatch" style="background:var(--warn-bg);border-color:var(--warn)"></i>waiting and tasks</span>
+    <span>Click any step to see its source.</span>
+  </div>
+  <div id="problems" hidden></div>
+</header>
+<main>
+  <section id="chart" aria-label="Flow chart"></section>
+  <aside aria-label="Source">
+    <h2 id="title"></h2>
+    <div class="where" id="where"></div>
+    <code class="signature" id="signature"></code>
+    <div class="doc" id="doc"></div>
+    <div id="lines" class="mono"></div>
+  </aside>
+</main>
+<script>const FLOW = /*FLOW*/null</script>
+<script>
+"use strict"
+const functions = FLOW ? FLOW.functions : {}
+const trail = FLOW ? [FLOW.entry] : []
+const $ = id => document.getElementById(id)
+
+// h("div.frame.loop", child, ...): an element with classes and children; strings become text.
+function h(spec, ...children) {
+  const [tag, ...classes] = spec.split(".")
+  const element = document.createElement(tag)
+  if (classes.length) element.className = classes.join(" ")
+  if (tag === "button") element.type = "button"
+  element.append(...children.filter(child => child !== null && child !== undefined && child !== ""))
+  return element
+}
+const tag = text => h("span.tag", text)
+const code = text => h("code", text)
+const wire = () => h("div.wire")
+const ends = steps => steps.length > 0 && steps.at(-1).kind === "exit"
+
+// Show a function's source beside the chart, with a step's lines marked.
+function show(element, id, line, end) {
+  document.querySelector(".selected")?.classList.remove("selected")
+  element?.classList.add("selected")
+  const fn = functions[id]
+  $("title").textContent = fn.path
+  $("where").textContent = `${fn.file}:${line ?? fn.line}`
+  $("signature").textContent = fn.signature
+  // Paragraphs reflow to the panel; one with indented lines keeps its layout.
+  $("doc").replaceChildren(...fn.doc.split(/\n\s*\n/).filter(Boolean).map(text =>
+    /\n\s/.test(text) ? h("p.kept", text) : h("p", text.replace(/\n/g, " "))))
+  const rows = fn.source.split("\n").map((text, index) => {
+    const number = fn.line + index
+    const row = h("div", h("i", String(number)), text)
+    if (line !== undefined && number >= line && number <= end) row.className = "on"
+    return row
+  })
+  $("lines").replaceChildren(...rows)
+  $("lines").querySelector(".on")?.scrollIntoView({ block: "center" })
+}
+
+// A clickable step; clicking marks its lines in the function that contains it.
+function node(spec, step, context, ...children) {
+  const element = h(spec, ...children)
+  element.addEventListener("click", () => show(element, context.fn, step.line, step.end))
+  return element
+}
+
+function block(steps, context) {
+  const sequence = h("div.seq")
+  steps.forEach((step, index) => {
+    if (index) sequence.append(wire())
+    sequence.append(draw(step, context))
+  })
+  return sequence
+}
+
+// One column below a rail or bar: an optional label, the steps, and a line onward unless it ends.
+function arm(label, steps, context) {
+  const column = h("div.arm", h("div.stub"), label ? h("div.chip", label) : null)
+  if (steps.length) column.append(wire(), block(steps, context))
+  if (ends(steps)) column.classList.add("ends")
+  else column.append(h("div.fill"))
+  return column
+}
+
+function frame(spec, head, step, context, ...children) {
+  return h(spec, node("button.head", step, context, ...head), ...children)
+}
+
+const VERBS = { next: "next message", latest: "latest message" }
+const EXITS = { break: "leave the loop", continue: "next iteration" }
+
+function exit(step) {
+  return [tag(step.how), step.label ? code(step.label) : EXITS[step.how] ? h("span.note", EXITS[step.how]) : null]
+}
+
+const draw = (step, context) => DRAW[step.kind](step, context)
+const DRAW = {
+  io: (step, context) => {
+    const element = node(`button.node.io${step.dynamic ? ".dynamic" : ""}`, step, context, tag(VERBS[step.verb] ?? step.verb), code(step.operation))
+    if (step.dynamic) element.title = "The operation is computed when the program runs"
+    return element
+  },
+  compute: (step, context) => {
+    const names = step.names.slice(0, 4).join(", ") + (step.names.length > 4 ? ", …" : "")
+    return node("button.node.compute", step, context, "compute", names ? code(names) : null)
+  },
+  wait: (step, context) => node("button.node.wait", step, context, tag("wait"), step.label),
+  join: (step, context) => node("button.node.task", step, context, tag("wait for task"), code(step.task)),
+  cancel: (step, context) => node("button.node.task", step, context, tag("cancel task"), code(step.task)),
+  exit: (step, context) => node(`button.node.exit.${step.how}`, step, context, ...exit(step)),
+  call,
+  branch: (step, context) => {
+    const [first] = step.arms
+    // A single test that only leaves is a guard, drawn as one step.
+    if (step.arms.length === 1 && !step.orelse.length && first.body.length === 1 && first.body[0].kind === "exit")
+{
+      const guard = node("button.node.guard", step, context, tag("if"), code(first.condition), h(`span.then.${first.body[0].how}`, "→ ", ...exit(first.body[0])))
+      guard.title = `if ${first.condition}: ${first.body[0].how} ${first.body[0].label}`
+      return guard
+    }
+    const single = step.arms.length === 1
+    const arms = step.arms.map(item => arm(single ? "yes" : item.condition, item.body, context))
+    arms.push(arm(single ? "no" : "otherwise", step.orelse, context))
+    const decision = node("button.node.decision", step, context, tag("if"), single ? code(first.condition) : "the first that holds")
+    if (single) decision.title = first.condition
+    return h("div.branch", decision, h("div.stub"), h("div.arms.railed", h("div.rail.top"), ...arms, h("div.rail.bottom")))
+  },
+  loop: (step, context) => frame("div.frame.loop", ["↻ ", code(step.header)], step, context,
+    h("div.round", h("div.back"), block(step.body, context)),
+    ...(step.orelse.length ? [h("div.section", "when the loop ends without a break"), block(step.orelse, context)] : [])),
+  scope: (step, context) => frame("div.frame.scope", [step.label, step.timeout ? h("span.note", "raises TimeoutError when exceeded") : null], step, context, block(step.body, context)),
+  try: (step, context) => frame("div.frame.try", ["try"], step, context,
+    block(step.body, context),
+    ...(step.handlers.length ? [h("div.section", "if it fails"), h("div.handlers", ...step.handlers.map(handler =>
+      frame("div.frame.handler", [`on ${handler.exception}`], step, context, block(handler.body, context))))] : []),
+    ...(step.orelse.length ? [h("div.section", "if it does not fail"), block(step.orelse, context)] : []),
+    ...(step.final.length ? [h("div.section", "finally, in every case"), block(step.final, context)] : [])),
+  parallel: (step, context) => h("div.parallel",
+    h("div.bar"),
+    h("div.arms", ...step.branches.map(branch => arm(branch.each, branch.body, context))),
+    h("div.bar"),
+    node("button.caption", step, context, step.mode === "all" ? "at the same time; continues when all finish" : "at the same time; continues when the first finishes")),
+  spawn: (step, context) => {
+    const name = step.task ? ` ${step.task}` : ""
+    const lane = frame("div.frame", [`task${name}`, h("span.note", "keeps running alongside")], step, context, block(step.body, context))
+    const start = node("button.node.task", step, context, tag("start task"), step.task ? code(step.task) : null)
+    return h("div.spawn", h("div"), h("div.axis", start, h("div.fill")), h("div.lane", lane))
+  },
+}
+
+// A call is one node; opening it puts the callee's own chart in its place.
+function call(step, context) {
+  const target = functions[step.target]
+  if (!target) {
+    const element = node("button.node.call.opaque", step, context, code(`${step.label}()`))
+    element.title = "Not charted: outside the library, or chosen when the program runs"
+    return element
+  }
+  const holder = h("div.holder")
+  const recursive = context.chain.includes(step.target)
+  const closed = node("button.node.call.closed", step, context, h("span.mark", "▸"), code(`${step.label}()`), recursive ? h("span.note", "recursive") : null)
+  closed.title = target.doc.split("\n")[0] || target.signature
+  closed.setAttribute("aria-expanded", "false")
+  const open = () => {
+    const inner = { fn: step.target, chain: [...context.chain, step.target] }
+    const head = h("button.head", "▾ ", target.path, h("span.mono", target.signature))
+    head.setAttribute("aria-expanded", "true")
+    head.addEventListener("click", () => { holder.replaceChildren(closed); rails() })
+    const focus = h("button.focus", "open ⤢")
+    focus.title = "Show this function as the whole chart"
+    focus.addEventListener("click", () => { trail.push(step.target); render() })
+    holder.replaceChildren(h("div.frame.fn", head, focus, block(target.body, inner)))
+    rails()
+  }
+  closed.addEventListener("click", open)
+  closed.expand = recursive ? null : open
+  holder.append(closed)
+  return holder
+}
+
+// Rails join the arms of a branch: the top one spans every arm, the bottom one the arms that continue.
+function rails() {
+  for (const arms of document.querySelectorAll(".arms.railed")) {
+    const box = arms.getBoundingClientRect()
+    const columns = [...arms.children].filter(child => child.classList.contains("arm")).map(child => {
+      const bounds = child.getBoundingClientRect()
+      return { x: bounds.left - box.left + bounds.width / 2, open: !child.classList.contains("ends") }
+    })
+    const span = (rail, points) => {
+      rail.hidden = points.length < 2
+      rail.style.setProperty("--from", `${Math.min(...points) - 1}px`)
+      rail.style.setProperty("--span", `${Math.max(...points) - Math.min(...points) + 2}px`)
+    }
+    const open = columns.filter(column => column.open).map(column => column.x)
+    span(arms.querySelector(":scope > .rail.top"), columns.map(column => column.x))
+    span(arms.querySelector(":scope > .rail.bottom"), open.length ? [...open, box.width / 2] : [])
+  }
+}
+
+function render() {
+  const fn = functions[trail.at(-1)]
+  document.title = `${functions[trail[0]].path} · flow chart`
+  $("trail").replaceChildren(...trail.flatMap((id, index) => {
+    const crumb = index === trail.length - 1 ? h("span", functions[id].path) : h("button", functions[id].path)
+    crumb.addEventListener("click", () => { if (index < trail.length - 1) { trail.length = index + 1; render() } })
+    return index ? [h("span.sep", "›"), crumb] : [crumb]
+  }))
+  const context = { fn: fn.id, chain: [fn.id] }
+  const canvas = h("div.canvas", h("div.terminal", "start"), wire(), block(fn.body, context))
+  if (!ends(fn.body)) canvas.append(...(fn.body.length ? [wire()] : []), h("div.terminal", "end"))
+  $("chart").replaceChildren(canvas)
+  show(null, fn.id)
+  rails()
+}
+
+if (FLOW) {
+  if (FLOW.problems.length) {
+    $("problems").hidden = false
+    $("problems").textContent = FLOW.problems.join("\n")
+  }
+  $("expand").addEventListener("click", () => {
+    // Opening a call reveals more calls; recursive ones stay closed.
+    for (let rounds = 0; rounds < 50; rounds++) {
+      const closed = [...document.querySelectorAll(".call.closed")].filter(element => element.expand)
+      if (!closed.length) break
+      closed.forEach(element => element.expand())
+    }
+  })
+  $("collapse").addEventListener("click", render)
+  new ResizeObserver(rails).observe($("chart"))
+  render()
+} else {
+  $("chart").textContent = "This page holds no flow chart. Generate one with /visualize."
+}
+</script>
+</body>
+</html>

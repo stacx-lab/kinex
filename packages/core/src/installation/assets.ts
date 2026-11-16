@@ -8,4 +8,5 @@ export const Assets = {
   builtin: (name: string) => path.join(Assets.root, "builtin", name),
   ros: (...segments: string[]) => path.join(Assets.root, "ros", ...segments),
   python: (...segments: string[]) => path.join(Assets.root, "python", ...segments),
+  viewer: (name: string) => path.join(Assets.root, "viewer", name),
 }

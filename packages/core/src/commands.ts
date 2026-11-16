@@ -3,6 +3,7 @@ import { parseSpecs } from "./record/spec.ts"
 import { recordingOutput, recordingSummary } from "./record/output.ts"
 import { workflows } from "./workflows/index.ts"
 import { libNode } from "./lib/catalog.ts"
+import { writeFlowPage } from "./lib/flow.ts"
 import { formatJSON } from "./util/json.ts"
 
 export const roboticsCommands = [
@@ -16,6 +17,7 @@ export const roboticsCommands = [
   { name: "record", description: "Capture observations", arguments: "start|snap|stop|status [--verbose] ...", kind: "operation" },
   { name: "lib", description: "Browse the program library", arguments: "[module[.function]]", kind: "operation" },
   { name: "exec", description: "Run a library program", arguments: "<module.function> [name=value ...|{json}]", kind: "operation" },
+  { name: "visualize", description: "Draw a program's flow chart", arguments: "<module.function|file.py[:function]> [output.html]", kind: "operation" },
 ] as const
 
 export type RoboticsCommand = typeof roboticsCommands[number]["name"]
@@ -68,6 +70,13 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
     // The user's command is its own approval; cleanup and /stop still apply.
     const result = await runtime.tools.call("exec", { program, args: programArguments(rest) }, { sessionID: context.sessionID, signal: context.signal, ask: async () => {} })
     return { kind: "output", text: result.output, isError: result.isError }
+  }
+  if (name === "visualize") {
+    const [target, destination] = tokens
+    if (!target || tokens.length > 2) throw new Error("Usage: /visualize <module.function|file.py[:function]> [output.html]")
+    const { file, flow } = await runtime.operation(() => writeFlowPage(runtime.directory, target, destination, context.signal))
+    const count = Object.keys(flow.functions).length
+    return output([`Flow chart of ${flow.functions[flow.entry]!.path} (${count} ${count === 1 ? "function" : "functions"}): ${file}`, ...flow.problems].join("\n"))
   }
   const device = tokens[0]
   if (!device || tokens.length !== 1) throw new Error(`Usage: /${name} <device|all>`)

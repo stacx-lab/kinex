@@ -42,7 +42,8 @@ The nearest `.kinex/` directory owns the workspace's `workspace.yaml` assembly
 and `devices/<name>/` inventory, each a `profile.yaml` with its node sources and
 URDFs. It also holds `lib/`, the workspace's part of the `kinex.lib` program
 library, importable by exec and nodes,
-`kinex.json` configuration, the `python/` environment and `recordings/`. Without
+`kinex.json` configuration, the `python/` environment, `recordings/` and the
+`flow/` charts `/visualize` writes. Without
 one, the workspace path is `<working-directory>/.kinex`; reads do not create it.
 Reusable content discovery searches nearest project → ancestors → global →
 packaged assets, with concrete device provisioning instances before type
