@@ -23,6 +23,9 @@ def tool(name):
 class Tools(unittest.IsolatedAsyncioTestCase):
     def test_helper_index_lists_every_helper(self):
         index = (Path(helpers.__file__).parent / "helpers.txt").read_text()
+        modules = {path.stem for path in Path(helpers.__file__).parent.glob("*.py")}
+        # Importing a submodule binds it on the package, hiding a lazily loaded helper of its name.
+        self.assertFalse(modules & set(helpers.__all__))
         for name in helpers.__all__:
             self.assertTrue(callable(getattr(helpers, name)), name)
             self.assertIn(f"helpers.{name}(", index)

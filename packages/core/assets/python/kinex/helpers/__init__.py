@@ -5,7 +5,7 @@ Each helper loads its module on first use, so importing helpers stays cheap.
 from importlib import import_module
 
 _MODULES = {
-    "camera_geometry": "camera_geometry",
+    "camera_geometry": "images",
     "lookup_transform": "frames", "transform_pose": "frames", "relative_pose": "frames",
     "joint_model": "kinematics", "trajectory": "motion",
     "locate_object_3d": "perception",
