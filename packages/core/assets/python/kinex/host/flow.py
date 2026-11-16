@@ -3,7 +3,8 @@ as JSON, the structured flow of a function and of every function it can reach.
 
 Source is parsed, never imported, so charting a program runs none of it. A function's
 flow is a tree of steps: device operations, calls that open into the callee's own flow,
-folded computation, and the branches, loops, scopes and concurrency around them.
+subagent judgments, folded computation, and the branches, loops, scopes and concurrency
+around them.
 """
 import ast
 import json
@@ -225,6 +226,13 @@ class Function:
         io = self.operation(call)
         if io:
             return self.inputs(call, 1) + [{"kind": "io", **io, **at}]
+        if name == "kinex.subagent" and call.args:
+            first = call.args[0]
+            literal = isinstance(first, ast.Constant) and isinstance(first.value, str) and first.value.strip()
+            shown = next((keyword.value for keyword in call.keywords if keyword.arg == "show"), None)
+            shows = [text(key, 30) if not isinstance(key, ast.Constant) else str(key.value) for key in shown.keys if key] if isinstance(shown, ast.Dict) else []
+            instruction = first.value.strip().splitlines()[0] if literal else text(first, 120)
+            return self.inputs(call, 1) + [{"kind": "subagent", "instruction": instruction, "dynamic": not literal, "shows": shows, **at}]
         func = call.func
         if isinstance(func, ast.Attribute) and func.attr in STREAM:
             source = self.operation(func.value) if isinstance(func.value, ast.Call) else None

@@ -39,6 +39,7 @@ Design history and progress belong in git.
   `kinex.host`. A program is a public function of a `kinex.lib` module; the
   library's tree is what Python imports, and the `lib` tool reads it without
   starting Python. exec is the only runner: no per-program model tools or manifests.
+  A program's subagent is a host capability without tools; core never calls a model.
 - Keep dynamic state out of stable prompt prefixes. Refresh capabilities within
   tasks and restore context after compaction without bypassing host permissions.
 
