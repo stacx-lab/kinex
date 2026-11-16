@@ -15,7 +15,7 @@ class JointModel:
     """A joint device's commanded joints, in URDF document order, and its link FK/IK.
 
     Poses are [x, y, z, qx, qy, qz, qw] of a URDF link in <device>/base; link
-    defaults to the model's tip_link.
+    defaults to the model's only tip link.
     """
 
     def __init__(self, profile, directory=None):
@@ -28,12 +28,13 @@ class JointModel:
             self.tree = urdf.read_tree(Path(directory) / model["path"], model["base_link"])
         self.joints = urdf.commanded(self.tree)
         self.names = [joint["name"] for joint in self.joints]
-        self.tip = model["tip_link"]
+        self.tips = model["tip_links"]
 
     def chain(self, link):
-        link = link or self.tip
         if not link:
-            raise ValueError("name a link; the model declares no tip_link")
+            if len(self.tips) != 1:
+                raise ValueError(f"name a link; the model declares {len(self.tips) or 'no'} tip links")
+            link = self.tips[0]
         return Chain(self.tree, link)
 
     def fk(self, positions, link=None):

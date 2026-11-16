@@ -32,7 +32,7 @@ test('planning is inert without a plan, even with URDF descriptions; operations 
   assert.equal((await setup.plan.inspect()).taskSatisfied, null)
   await assert.rejects(stat(path.join(directory, '.kinex')), { code: 'ENOENT' })
   await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
-  await writeFile(path.join(directory, '.kinex/devices/arm/profile.yaml'), 'name: arm\ntype: joint\nmodel:\n  format: urdf\n  path: missing.urdf\n  base_link: base\n  tip_link: tip\n')
+  await writeFile(path.join(directory, '.kinex/devices/arm/profile.yaml'), 'name: arm\ntype: joint\nmodel:\n  format: urdf\n  path: missing.urdf\n  base_link: base\n  tip_links: [tip]\n')
   await setup.plan.save({ version: 1, nodes: [node('inspect', { inputs: [fact('arm', '/model/path')] })], task: null }, 0)
   assert.equal((await setup.plan.inspect()).next.length, 0)
   await assert.rejects(stat(path.join(directory, '.kinex/python')), { code: 'ENOENT' })

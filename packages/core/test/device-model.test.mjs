@@ -129,12 +129,12 @@ test('joint URDF trees validate home and links and serve helper kinematics', asy
   await copyFile(fileURLToPath(new URL('./fixtures/ik/panda.urdf', import.meta.url)), path.join(device, 'arm.urdf'))
   const root = { parent: null, translation_m: null, rotation_xyzw: null }
   const arm = { description: '', name: 'arm', type: 'joint', loaded: false, limits: 'native',
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' },
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] },
     home: Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`robot0_joint${i + 1}`, i === 3 ? -1.5 : 0])),
     stop: { behavior: 'hold', affected_devices: ['arm'] }, frames: { base: root } }
   for (const [patch, error] of [
     [{ home: { robot0_joint1: 0 } }, /home must name every commanded joint/],
-    [{ model: { ...arm.model, tip_link: 'missing' } }, /tip_link missing must be a link below base_link/],
+    [{ model: { ...arm.model, tip_links: ['missing'] } }, /tip_links missing must be a link below base_link/],
     [{ frames: { base: root, flange: { ...root, translation_m: '???', rotation_xyzw: '???', parent: 'arm:base' } } }, /arm:flange: URDF link collides with a profile frame/],
     [{ frames: { base: root, tool: { ...root, translation_m: '???', rotation_xyzw: '???', parent: 'arm:typo' } } }, /arm:tool: unknown parent frame arm:typo/],
   ]) await assert.rejects(runtime.profiles.writeDevice({ ...arm, ...patch }), error)

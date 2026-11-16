@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline tip_link reach estimate in the joint device base frame from its URDF."""
+"""Offline reach estimate of each tip link in the joint device base frame from its URDF."""
 
 import argparse
 import json
@@ -17,18 +17,22 @@ def estimate(file, count, percentile):
         raise ValueError("samples must be positive and percentile in (0,100]")
     profile = yaml.safe_load(file.read_text())
     model = JointModel(profile, file.parent)
-    if not model.tip:
-        raise ValueError("offline reach requires a model tip_link")
+    if not model.tips:
+        raise ValueError("offline reach requires model tip_links")
     # Only continuous joints lack URDF limits.
     bounds = [[j["limits"]["min"], j["limits"]["max"]] if j["limits"] else [-math.pi, math.pi] for j in model.joints]
     rng = np.random.default_rng(0)
     configurations = rng.uniform(np.array(bounds)[:, 0], np.array(bounds)[:, 1], (count, len(bounds)))
-    positions = np.array([model.fk(q.tolist())[:3] for q in configurations])
     trim = (100 - percentile) / 2
-    return {"ok": True, "frame": profile["name"], "samples": count,
-            "percentile": percentile, "aabb_min": np.percentile(positions, trim, axis=0).tolist(),
-            "aabb_max": np.percentile(positions, 100 - trim, axis=0).tolist(),
-            "max_reach_m": float(np.percentile(np.linalg.norm(positions, axis=1), percentile))}
+
+    def reach(tip):
+        positions = np.array([model.fk(q.tolist(), tip)[:3] for q in configurations])
+        return {"aabb_min": np.percentile(positions, trim, axis=0).tolist(),
+                "aabb_max": np.percentile(positions, 100 - trim, axis=0).tolist(),
+                "max_reach_m": float(np.percentile(np.linalg.norm(positions, axis=1), percentile))}
+
+    return {"ok": True, "frame": profile["name"], "samples": count, "percentile": percentile,
+            "tips": {tip: reach(tip) for tip in model.tips}}
 
 
 def main():

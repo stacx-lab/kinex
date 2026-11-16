@@ -15,8 +15,9 @@ The sibling `links.py` node publishes every link on TF as `<device>/<link>`, wit
 the base link as `<device>/base`; other devices mount on these links, for example
 a gripper base on `arm:flange`. Link names must not repeat profile frame names.
 
-`model.tip_link` names the end-effector link that FK and IK use by default; set it
-to null for trees without one, such as a dexterous hand.
+`model.tip_links` lists the links that end the device's kinematic chains: an arm's
+flange or tool link, or each fingertip of a hand; use `[]` when there are none.
+FK and IK default to the only tip; with several, callers name the link.
 `home` gives every commanded joint a position, or is null. With `limits: strict`,
 the node and Kinex tools reject targets outside the URDF limits, allowing only a
 bounded inward recovery toward home (`kinex.lib.joints.recovery_targets`); use
@@ -77,7 +78,7 @@ operations:
     direction: input
     endpoint: /kinex/arm/stop
     type: std_srvs/srv/Trigger
-model: {format: urdf, path: ???, base_link: ???, tip_link: ???}
+model: {format: urdf, path: ???, base_link: ???, tip_links: ???}
 home: ???
 limits: strict
 stop: {behavior: hold, affected_devices: [arm]}

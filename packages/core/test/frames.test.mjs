@@ -47,7 +47,7 @@ test('frame validation catches local and cross-device missing references and cyc
 
 test('URDF links are device frames, checked once the model resolves', async () => {
   const { resolvedTrees } = await import('../dist/device/profile/urdf.js')
-  const model = { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }
+  const model = { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] }
   const arm = Device.parse({ ...profile({ base: frame('world:base'), tool: frame('arm:flange') }, 'arm'), type: 'joint', model })
   const gripper = Device.parse(profile({ base: frame('arm:flange') }, 'gripper'))
   const world = Device.parse(profile({}, 'world'))

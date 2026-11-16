@@ -70,7 +70,7 @@ class QuaternionTests(unittest.TestCase):
     def test_joint_ik_normalizes_rounded_goals(self):
         from joint_model import model, simple
 
-        arm = model(simple(limits='lower="-2" upper="2"'), "flange")
+        arm = model(simple(limits='lower="-2" upper="2"'), ("flange",))
         target = [.878, .479, 0, 0, 0, .247, .969]  # FK at 0.5 rad, rounded to 3 decimals.
         solved = arm.ik(target, [0], position_tolerance_m=1e-3, rotation_tolerance_rad=1e-3)
         self.assertAlmostEqual(solved[0], .5, delta=2e-3)

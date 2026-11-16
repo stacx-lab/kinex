@@ -10,7 +10,7 @@ Bind `arm` to the joint device. Prefer its device-owned URDF or vendor metadata.
 resolves the selected URDF offline; no device activation is needed. Preserve the
 model reference. Home is a separate named configuration, never inferred from URDF.
 
-`scripts/estimate_reach.py` optionally samples tip_link FK reach in the device base frame.
+`scripts/estimate_reach.py` optionally samples each tip link's FK reach in the device base frame.
 This is analysis without collision checking; do not persist it as world bounds.
 
 Measure limits only when the task needs missing or explicitly requested measured

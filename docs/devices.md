@@ -172,9 +172,10 @@ placement. Load places the model and unload releases it with the device process.
 
 A joint device commands the URDF's independent movable joints in document order,
 with strict or native limit handling; `helpers.joint_model` computes FK and IK
-from the URDF, and `tip_link` is the default end-effector link. A hand has no tip
-link. A gripper's `grip` names the actuated joint with its open and closed
-positions, and `frames.tcp` is the grasp point with +z approach. A suction tool
+from the URDF. `tip_links` lists the links that end its chains, such as an arm's
+flange or a hand's fingertips; FK and IK default to a single tip. A gripper's
+`grip` names the actuated joint with its open and closed positions, and
+`frames.tcp` is the grasp point with +z approach. A suction tool
 has no URDF: `vacuum` says whether it switches on and off or accepts a level,
 `frames.tcp` is the cup contact centre, and its stop never releases a held object.
 Guides recommend a `sensor_msgs/msg/JointState` `joint_state` and a

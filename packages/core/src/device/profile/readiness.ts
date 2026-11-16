@@ -86,8 +86,9 @@ function factsCheck(device: Device): Check {
       if (anyMissing(device.model, device.home, device.stop)) return { done: false, detail: "URDF model, home or stop is incomplete" }
       const tree = deviceTree(device)
       if (!tree) return { done: false, detail: modelErrors.get(device) ?? "joint URDF is unresolved" }
-      const tip = known(device.model) ? device.model.tip_link : null
-      return { done: true, detail: `${commandedJoints(tree).length} joints, ${device.limits} limits${tip ? `, tip ${tip}` : ""}` }
+      const tips = known(device.model) && known(device.model.tip_links) ? device.model.tip_links : []
+      const listed = tips.length ? `, ${tips.length === 1 ? "tip" : "tips"} ${tips.join(", ")}` : ""
+      return { done: true, detail: `${commandedJoints(tree).length} joints, ${device.limits} limits${listed}` }
     }
     case "gripper": {
       if (anyMissing(device.model, device.grip, device.stop)) return { done: false, detail: "URDF model, grip or stop is incomplete" }

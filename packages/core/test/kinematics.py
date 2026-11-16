@@ -23,7 +23,7 @@ TIGHT = {"position_tolerance_m": 1e-6, "rotation_tolerance_rad": 1e-6}
 
 class SearchTests(unittest.TestCase):
     def setUp(self):
-        self.model = joint_model(simple(), "flange")
+        self.model = joint_model(simple(), ("flange",))
         self.joints = self.model.joints
         self.options = {**kinematics.DEFAULTS, **TIGHT}
         self.clock = patch.object(kinematics, "monotonic", return_value=0)

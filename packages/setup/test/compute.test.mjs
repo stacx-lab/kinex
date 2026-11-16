@@ -146,7 +146,7 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
   await runtime.profiles.writeDevice({ description: '',
     name: 'arm',
     type: 'joint',
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' },
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await runtime.profiles.writeDevice({ description: '',
     name: 'tool',
@@ -251,7 +251,7 @@ test('stereo calibration solves one eye at a time and its proposals fit the prof
   await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
   await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>')
   await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint',
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, frames: { base } })
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] }, frames: { base } })
   await runtime.profiles.writeDevice({ description: '', name: 'mono', type: 'rgb', layout: 'mono', frames: { base } })
   const eyeFrame = parent => ({ parent, translation_m: '???', rotation_xyzw: '???' })
   await runtime.profiles.writeDevice({ description: '', name: 'pair', type: 'rgb', layout: 'stereo', left: '???', right: '???',
@@ -333,7 +333,7 @@ test('joint stereo solve recovers the mount and eye-to-eye transform in both mod
   await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
   await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>')
   await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint',
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, frames: { base } })
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] }, frames: { base } })
   await runtime.profiles.writeDevice({ description: '', name: 'mono', type: 'rgb', layout: 'mono', frames: { base } })
   const unknown = parent => ({ parent, translation_m: '???', rotation_xyzw: '???' })
   await runtime.profiles.writeDevice({ description: '', name: 'pair', type: 'rgb', layout: 'stereo', left: '???', right: '???',

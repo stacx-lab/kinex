@@ -11,8 +11,9 @@ def joint_model(device):
     rate limits; names holds their names. fk(positions, link=None) returns the
     link pose [x, y, z, qx, qy, qz, qw] in <device>/base. ik(pose, seed,
     link=None, **options) returns commanded positions nearest the seed, or
-    raises ValueError when no verified solution is found. link defaults to the
-    model's tip_link. Measured links are also on TF as <device>/<link>.
+    raises ValueError when no verified solution is found. tips lists the model's
+    tip links; link defaults to the only one and must be named when there are
+    several. Measured links are also on TF as <device>/<link>.
 
     Example: arm = helpers.joint_model("arm"); q = arm.ik(arm.fk(seed), seed)
     """

@@ -241,8 +241,9 @@ reliable, transient-local QoS so Kinex readers can join while the world is pause
 Kinematics need no device service. `helpers.joint_model(device)` loads the
 resolved URDF: `fk(positions, link=None)` returns a link pose in `<device>/base`
 and `ik(pose, seed, link=None)` runs the bounded solver within URDF limits and
-verifies its result with FK; the link defaults to `model.tip_link`. A controller
-with native kinematics may declare `fk` or `ik` as ordinary optional operations.
+verifies its result with FK; the link defaults to the only `model.tip_links`
+entry. A controller with native kinematics may declare `fk` or `ik` as ordinary
+optional operations.
 
 Kinex automatically owns a persistent tf2 service
 (`kinex_interfaces/srv/LookupTransform`) for each runtime ROS domain with a world

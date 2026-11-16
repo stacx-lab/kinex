@@ -28,8 +28,8 @@ def simple(kind="revolute", limits='lower="-1" upper="1"', axis="0 0 1"):
   <joint name="flange_joint" type="fixed"><parent link="link"/><child link="flange"/><origin xyz="1 0 0"/></joint></robot>"""
 
 
-def model(xml=ARM, tip="tool"):
-    return JointModel({"type": "joint", "model": {"tip_link": tip}, "resolved_model": read_tree(None, "base_link", xml)})
+def model(xml=ARM, tips=("tool",)):
+    return JointModel({"type": "joint", "model": {"tip_links": list(tips)}, "resolved_model": read_tree(None, "base_link", xml)})
 
 
 class JointModelTests(unittest.TestCase):
@@ -66,8 +66,12 @@ class JointModelTests(unittest.TestCase):
             arm.ik(arm.fk([0, 0, .02], "right"), [0, 0, 0], "right")
         with self.assertRaisesRegex(ValueError, "not a link below"):
             arm.fk([0, 0, 0], "missing")
-        with self.assertRaisesRegex(ValueError, "no tip_link"):
-            model(tip=None).fk([0, 0, 0])
+        with self.assertRaisesRegex(ValueError, "declares no tip links"):
+            model(tips=()).fk([0, 0, 0])
+        hand = model(tips=("tool", "left"))
+        with self.assertRaisesRegex(ValueError, "declares 2 tip links"):
+            hand.fk([0, 0, 0])
+        self.assert_pose(hand.fk([0, 0, .03], "left"), [1, .03, 0, 0, 0, 0, 1])
 
     def test_unresolved_models_and_unknown_options_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "arm has no resolved URDF model"):
@@ -78,9 +82,9 @@ class JointModelTests(unittest.TestCase):
 
     def test_continuous_and_prismatic_ik(self):
         tight = {"position_tolerance_m": 1e-7, "rotation_tolerance_rad": 1e-7}
-        wheel = model(simple("continuous", 'effort="1"'), "flange")
+        wheel = model(simple("continuous", 'effort="1"'), ("flange",))
         self.assertAlmostEqual(wheel.ik(wheel.fk([.2]), [10 * math.pi], **tight)[0], 10 * math.pi + .2, places=5)
-        slider = model(simple("prismatic", 'lower="0" upper="1"', "1 0 0"), "flange")
+        slider = model(simple("prismatic", 'lower="0" upper="1"', "1 0 0"), ("flange",))
         self.assertAlmostEqual(slider.ik(slider.fk([.8]), [.1], **tight)[0], .8, places=5)
 
 
