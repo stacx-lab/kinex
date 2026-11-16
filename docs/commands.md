@@ -46,7 +46,8 @@ reconnect the whole collection. `/reload` refreshes agent resources only.
 parses (`attempts=3`, `pose=[0.1,0.2]`, `object="red block"`) and text otherwise,
 and one JSON object may replace the pairs. `/stop` cancels it like any other
 invocation. From the shell, `kinex run '/exec tabletop.pick_place object="red block"'`
-runs a saved program and exits.
+runs a saved program and exits. `/exec` first waits for the workspace's loaded devices
+that are still connecting, so a program run as Kinex starts finds them ready.
 
 `/visualize` reads the program's source without running it and writes one self-contained
 page, by default `.kinex/flow/<module.function>.html`. Each device operation, wait
