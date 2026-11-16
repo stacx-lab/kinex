@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 import numpy as np
-from kinex.helpers.camera_geometry import camera_geometry
+from kinex.helpers.images import camera_geometry
 from kinex.helpers.perception import _locate
 from kinex.lib.camera import ray
 
@@ -23,7 +23,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
                 return {"rays":[[(u-1)/2,(v-1)/2,1] if u>=0 else None for u,v in args["pixels"]]}
             return {"pixels":[[x/z*2+1,y/z*2+1] for x,y,z in args["points"]]}
         io=SimpleNamespace(catalog={"camera.geometry":{}},request=request)
-        with patch("kinex.helpers.camera_geometry.profile",return_value={"color":{"width":4,"height":3}}):
+        with patch("kinex.helpers.images.profile",return_value={"color":{"width":4,"height":3}}):
             geometry=await camera_geometry(io,"camera")
         result=await geometry.unproject([[1,1]]*8193)
         self.assertEqual(result.shape,(8193,3))
@@ -31,7 +31,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(np.isnan((await geometry.unproject([[-1,0]]))[0]).all())
         result=await _locate({"color":STREAM},np.ones((3,4),bool),depth=2,geometry=geometry)
         np.testing.assert_allclose(await geometry.project([result["point"]]),[result["pixel"]])
-        with patch("kinex.helpers.camera_geometry.profile",return_value={"color":{"width":5}}):
+        with patch("kinex.helpers.images.profile",return_value={"color":{"width":5}}):
             with self.assertRaisesRegex(ValueError,"differ"):
                 await camera_geometry(io,"camera")
 
@@ -63,7 +63,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
         depth = {"registration":"native","width":4,"height":3,"quantity":"z",
                  "scale_m_per_unit":.001,"invalid_value":0,"valid_range_m":{"min":.1,"max":5},"reliable_range_m":"???"}
         record={"color":"???","depth":depth}
-        with patch("kinex.helpers.camera_geometry.profile",return_value=record):
+        with patch("kinex.helpers.images.profile",return_value=record):
             geometry=await camera_geometry(io,"camera")
         for registration in ["native","color"]:
             result=await _locate({"color":descriptor,"depth":{**depth,"registration":registration}},
@@ -83,7 +83,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
         for error in [TimeoutError(), asyncio.CancelledError()]:
             async def request(*args,**kwargs):
                 raise error
-            with patch("kinex.helpers.camera_geometry.profile",return_value={"color":STREAM}):
+            with patch("kinex.helpers.images.profile",return_value={"color":STREAM}):
                 with self.assertRaises(type(error)):
                     await camera_geometry(SimpleNamespace(catalog={"camera.geometry":{}},request=request),"camera")
 
@@ -98,6 +98,12 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,"stale"):
             handlers["unproject"]("color","old",[[1,1]])
         self.assertEqual(handlers["project"]("color",descriptor["calibration_id"],[[0,0,-1],[0,0,1]])["pixels"],[None,[1,1]])
+
+    def test_helper_stays_callable_once_perception_has_loaded(self):
+        from kinex import helpers
+        import kinex.helpers.perception  # noqa: F401 -- what locate_object_3d's first use loads
+        for _ in range(2):
+            self.assertTrue(callable(helpers.camera_geometry))
 
 if __name__=="__main__":
     unittest.main()

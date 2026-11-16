@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from kinex.helpers import camera_geometry as geometry_module
+from kinex.helpers import images
 from kinex.lib.camera_geometry import OpenCVGeometry
 
 script = Path(__file__).resolve().parents[1] / "assets/builtin/skill/calibrate-camera-extrinsics/scripts/board_observations.py"
@@ -59,7 +59,7 @@ class Observations(unittest.TestCase):
         args = board.parse(["--samples", str(files[0]), "--camera", "camera", "--output", str(files[1]), "--square-mm", "30", *argv])
         camera = {"type": "rgb", "layout": layout}
         streams = ["left", "right"] if layout == "stereo" else ["color"]
-        with patch.object(board, "profile", lambda _: camera), patch.object(geometry_module, "profile", lambda _: camera):
+        with patch.object(board, "profile", lambda _: camera), patch.object(images, "profile", lambda _: camera):
             result = asyncio.run(board.observations(Scope(streams), args))
         return result, json.loads(files[1].read_text())
 

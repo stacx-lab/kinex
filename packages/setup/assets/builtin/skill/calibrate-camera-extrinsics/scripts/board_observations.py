@@ -21,7 +21,7 @@ import os
 import numpy as np
 
 from kinex import communication, finish, profile
-from kinex.helpers.camera_geometry import camera_geometry
+from kinex.helpers.images import camera_geometry
 from kinex.lib.camera import camera_stream, stereo
 
 

@@ -6,7 +6,7 @@ from types import ModuleType, SimpleNamespace as NS
 import unittest
 from unittest.mock import patch
 
-from kinex.helpers import camera_geometry as geometry_module, images, perception
+from kinex.helpers import images, perception
 from kinex.lib.camera import frame, stereo_frame
 
 
@@ -97,7 +97,7 @@ class StereoLocate(unittest.IsolatedAsyncioTestCase):
 
     async def test_locate_uses_the_selected_eye_stream(self):
         scope = self.scope()
-        with patch.object(perception, "profile", lambda _: STEREO), patch.object(geometry_module, "profile", lambda _: STEREO):
+        with patch.object(perception, "profile", lambda _: STEREO), patch.object(images, "profile", lambda _: STEREO):
             located = await perception.locate_object_3d(scope, "camera", "model", "mug", depth=2, eye="right")
         Path(located["file"]).unlink()
         self.assertEqual(located["frame"], "camera/right")

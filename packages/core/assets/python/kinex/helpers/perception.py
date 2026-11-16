@@ -6,7 +6,7 @@ from PIL import Image
 from kinex import profile
 from kinex.communication import seconds
 from kinex.lib.camera import array, camera_stream, frame, project, ray, rays, save
-from kinex.helpers.camera_geometry import camera_geometry
+from kinex.helpers.images import camera_geometry
 from kinex.lib.geometry import number, vector, xyzq_to_rt
 
 
