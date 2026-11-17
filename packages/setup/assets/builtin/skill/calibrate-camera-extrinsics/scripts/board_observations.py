@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Turn calib_sample captures into board observations for calib_compute.
 
-Run through exec: file=<this skill>/scripts/board_observations.py, argv=[...]; exec
-calls main. At each
+Run through exec: file=<this skill>/scripts/board_observations.py, argv=[...]. At each
 pose, sample the arm with --frame, then the camera; the last camera sample before the
 next arm sample is the view, so a retake replaces the earlier capture. Arm samples that
 did not settle are rejected. Detected corners are unprojected through the camera's
@@ -12,15 +11,16 @@ active geometry, so any lens model works.
   mono, or one stereo eye with --eye: {"frame_pose": [x,y,z,qx,qy,qz,qw], "rvec", "tvec"}
   stereo: {"frame_pose"?, "left": {"object_points", "rays"}, "right": {...}}
 Without --arm every stereo camera sample is a view without frame_pose (camera-eye-to-eye).
-main returns {output, views, rejected, calibration_id}.
+finish() returns {output, views, rejected, calibration_id}.
 """
 import argparse
+import asyncio
 import json
 import os
 
 import numpy as np
 
-from kinex import profile
+from kinex import finish, profile
 from kinex.lib.images import camera_geometry
 from kinex.common.camera import camera_stream, stereo
 
@@ -165,4 +165,8 @@ async def observations(args):
 
 
 async def main():
-    return await observations(parse())
+    finish(await observations(parse()))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

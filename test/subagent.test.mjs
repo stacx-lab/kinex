@@ -10,15 +10,18 @@ const isolation = await isolate()
 after(isolation.cleanup)
 const { createApplication } = await import('../dist/application.js')
 
-const JUDGE = `"""Judgments a model makes for a program."""
+const JUDGE = `"""Whether the mug in an image stands upright, as a model judges it."""
+import asyncio
 from pathlib import Path
-from kinex import subagent
+from kinex import args, finish, subagent
 
 
-async def upright(image: str, model: str = None) -> dict:
-    """Whether the mug in the image stands upright."""
+async def main(image, model=None):
     reply = await subagent("Is the mug upright? Answer yes or no.", show={"wrist": Path(image), "tolerance_deg": 5}, model=model)
-    return {"upright": reply.strip() == "yes"}
+    finish({"upright": reply.strip() == "yes"})
+
+
+asyncio.run(main(**args()))
 `
 
 test('a program asks a subagent that runs as its own Pi session on the model /subagent chose', { timeout: 60000 }, async t => {
@@ -33,8 +36,8 @@ test('a program asks a subagent that runs as its own Pi session on the model /su
   t.after(() => app.dispose())
   await seed(app.owner.runtime)
   await bind(app)
-  await mkdir(path.join(cwd, '.kinex/lib'), { recursive: true })
-  await writeFile(path.join(cwd, '.kinex/lib/judge.py'), JUDGE)
+  await mkdir(path.join(cwd, '.kinex/programs'), { recursive: true })
+  await writeFile(path.join(cwd, '.kinex/programs/judge.py'), JUDGE)
   await writeFile(path.join(cwd, 'frame.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'))
   const command = async text => {
     outputs.length = 0
@@ -44,7 +47,7 @@ test('a program asks a subagent that runs as its own Pi session on the model /su
   const judge = async (reply, extra = '') => {
     fake.requests.length = 0
     fake.steps.push({ text: reply })
-    const value = JSON.parse(await command(`/exec judge.upright image=frame.png${extra}`))
+    const value = JSON.parse(await command(`/exec .kinex/programs/judge.py image=frame.png${extra}`))
     assert.equal(fake.requests.length, 1)
     return { ...value, request: fake.requests[0] }
   }
@@ -79,9 +82,9 @@ test('a program asks a subagent that runs as its own Pi session on the model /su
 
   // What the program cannot be given is an answer it can handle, not a crash of the host.
   fake.requests.length = 0
-  const blind = JSON.parse(await command('/exec judge.upright image=frame.png model=fake/blind'))
+  const blind = JSON.parse(await command('/exec .kinex/programs/judge.py image=frame.png model=fake/blind'))
   assert.deepEqual([blind.error, blind.code], ['fake/blind does not read images', 'subagent_failed'])
-  assert.match(JSON.parse(await command('/exec judge.upright image=frame.png model=nowhere/none')).error, /nowhere/)
+  assert.match(JSON.parse(await command('/exec .kinex/programs/judge.py image=frame.png model=nowhere/none')).error, /nowhere/)
   assert.equal(fake.requests.length, 0)
 
   for (const invalid of ['/subagent nowhere/none', '/subagent fake/small extreme', '/subagent session low', '/subagent fake/small low extra'])
@@ -94,7 +97,7 @@ test('a program asks a subagent that runs as its own Pi session on the model /su
   await command('/subagent fake/small')
   fake.requests.length = 0
   fake.steps.push({ text: 'no' })
-  const pending = promisify(execFile)(process.execPath, [fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url)), 'run', '/exec judge.upright image=frame.png'],
+  const pending = promisify(execFile)(process.execPath, [fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url)), 'run', '/exec .kinex/programs/judge.py image=frame.png'],
     { cwd, env: process.env, timeout: 40000 })
   pending.child.stdin.end()
   const run = await pending

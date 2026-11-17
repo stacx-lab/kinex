@@ -76,7 +76,7 @@ finish();
       await mkdir(path.dirname(status.executable), { recursive: true })
       await symlink(python, status.executable)
     },
-    exec: (python = 'import sys\nreturn {"python": sys.executable}\n', input = {}) => runtime.tools.call('exec', { python, ...input }, { sessionID: 'python' }),
+    exec: (python = 'import sys\nfrom kinex import finish\nfinish({"python": sys.executable})\n', input = {}) => runtime.tools.call('exec', { python, ...input }, { sessionID: 'python' }),
   }
 }
 
@@ -250,9 +250,10 @@ test('prepared ROS exec sources its own overlays and ignores ambient Python impo
   process.env.PYTHONPATH='/must/not/inherit/simulator'
   t.after(()=>{if(previous===undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH=previous})
   const result=await f.runtime.tools.call('exec',{python:`import os, sys
+from kinex import finish
 assert '/must/not/inherit/simulator' not in sys.path
 assert os.environ['KINEX_TEST_OVERLAY_0'] == os.environ['KINEX_TEST_OVERLAY_1'] == 'own'
-return {'python':sys.executable}`},{sessionID:'ros-python'})
+finish({'python':sys.executable})`},{sessionID:'ros-python'})
   assert.ok(!result.isError,result.output)
   assert.equal(JSON.parse(result.output).result.python,status.executable)
   assert.deepEqual(await f.calls(),[])
