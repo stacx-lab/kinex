@@ -30,14 +30,22 @@ export async function listTasks(command: string, simulator?: string): Promise<Ta
 }
 
 // rosbridge starts simulators detached, so one this process opened is stopped
-// when the process exits before its trial closed it.
+// when the process exits before its trial closed it. Exit is the process's, so
+// this list is too; the listener comes with the first simulator, and loading
+// Kinex registers none.
 const open = new Map<string, string>()
-process.once("exit", () => {
-  for (const [run, command] of open) {
-    const [file = "rosbridge", ...first] = command.trim().split(/\s+/)
-    spawn(file, [...first, "stop", run], { detached: true, stdio: "ignore" }).unref()
-  }
-})
+const exit = { watched: false }
+function stopAtExit(run: string, command: string) {
+  open.set(run, command)
+  if (exit.watched) return
+  exit.watched = true
+  process.once("exit", () => {
+    for (const [id, stop] of open) {
+      const [file = "rosbridge", ...first] = stop.trim().split(/\s+/)
+      spawn(file, [...first, "stop", id], { detached: true, stdio: "ignore" }).unref()
+    }
+  })
+}
 
 // rosbridge does not publish instructions; a simulator that has one prints it to the run log when the episode starts.
 async function instruction(log: unknown, task: string): Promise<string> {
@@ -50,7 +58,7 @@ export async function openSim(command: string, input: { task: string; robot: str
   const record = await rosbridge(command, ["launch", input.task, "--execution-mode", "stepped", "--stop-on-success", "--detach",
     ...(input.seed === undefined ? [] : ["--seed", String(input.seed)])])
   const run = String(record.id)
-  open.set(run, command)
+  stopAtExit(run, command)
   const close = async (): Promise<Verdict> => {
     // The outcome of an episode that has not ended is recorded when its run stops.
     await rosbridge(command, ["stop", run]).finally(() => open.delete(run))
