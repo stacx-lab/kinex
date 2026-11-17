@@ -267,11 +267,11 @@ test('concurrency, dynamic names and unresolved calls have their own steps', asy
   assert.equal(again.functions[again.entry].body[0].arms[0].body[0].target, again.entry)
 })
 
-test('a file outside the library charts its main, another function, and its sibling modules', async t => {
+test('a file outside the library charts one of its functions and its sibling modules', async t => {
   const f = await fixture(t)
   await f.write('scripts/steps.py', 'from kinex import io\n\nasync def nudge(arm):\n    await io.publish(arm + ".joint_target", {})\n')
   await f.write('scripts/run.py', 'import steps\nfrom kinex.lib.tasks.grasp import close\n\nasync def main(arm="left"):\n    await steps.nudge(arm)\n    return await close(None)\n\ndef helper():\n    return 1\n')
-  const flow = await f.chart('scripts/run.py')
+  const flow = await f.chart('scripts/run.py:main')
   const entry = flow.functions[flow.entry]
   assert.equal(entry.path, 'run.py:main')
   assert.deepEqual(shape(entry.body), ['call steps.nudge', 'call tasks.grasp.close', 'return await close(None)'])
@@ -289,6 +289,42 @@ test('a file outside the library charts its main, another function, and its sibl
   const partial = await f.chart('tasks.patterns.sweep')
   assert.match(partial.problems[0], /motion\.py/)
   assert.ok(partial.functions[partial.entry].body.some(step => step.kind === 'branch'))
+})
+
+test('a program file charts its top-level statements, opens main and ends at finish', async t => {
+  const f = await fixture(t)
+  await f.write('.kinex/programs/look.py', `"""Look at the arm and report its joints."""
+import asyncio
+from kinex import args, finish, io, lib
+
+LIMIT = 3
+
+
+async def main():
+    state = await io.read("arm.joint_state")
+    if not state.position:
+        finish({"seen": False})
+    image, _ = await lib.images.camera_frame(args()["camera"])
+    finish({"positions": state.position}, file=[image])
+
+
+asyncio.run(main())
+`)
+  const flow = await f.chart('.kinex/programs/look.py')
+  assert.deepEqual(flow.problems, [])
+  const entry = flow.functions[flow.entry]
+  assert.deepEqual([entry.path, entry.name, entry.line, entry.end, entry.signature, entry.doc], ['look.py', 'look.py', 1, 16, '', 'Look at the arm and report its joints.'])
+  assert.deepEqual(shape(entry.body), ['compute LIMIT', 'call main'])
+  const main = flow.functions[entry.body.at(-1).target]
+  assert.equal(main.path, 'look.py:main')
+  assert.deepEqual(shape(main.body), [
+    'read arm.joint_state',
+    { if: [['not state.position', ["finish {'seen': False}"]]], else: [] },
+    'call images.camera_frame',
+    "finish {'positions': state.position}, file=[image]",
+  ])
+  // One of the file's functions is still charted by name.
+  assert.equal((await f.chart('.kinex/programs/look.py:main')).entry, main.id)
 })
 
 test('/visualize writes a self-contained page that carries the chart', async t => {
@@ -310,6 +346,9 @@ test('/visualize writes a self-contained page that carries the chart', async t =
   const named = await executeRoboticsCommand(f.runtime, 'visualize', 'tasks.grasp.close charts/close.html', context)
   assert.ok(named.text.endsWith(`(2 functions): ${chosen}`))
   assert.match(await readFile(chosen, 'utf8'), /tasks\.grasp\._width/)
+  await f.write('.kinex/programs/stop.py', 'from kinex import finish\nfinish()\n')
+  const program = await executeRoboticsCommand(f.runtime, 'visualize', '.kinex/programs/stop.py', context)
+  assert.ok(program.text.endsWith(`Flow chart of stop.py (1 function): ${path.join(f.directory, '.kinex/flow/stop.py.html')}`))
   for (const usage of ['', 'a b c']) await assert.rejects(executeRoboticsCommand(f.runtime, 'visualize', usage, context), /Usage: \/visualize/)
 
   // The viewer draws every kind of step the schema defines.

@@ -1,8 +1,9 @@
 """Flow charts for the TypeScript runtime: `flow.py FILE FUNCTION LIB_ROOT...` prints,
-as JSON, the structured flow of a function and of every function it can reach.
+as JSON, the structured flow of a function, or of the whole program in FILE when
+FUNCTION is empty, and of every function it can reach.
 
-Source is parsed, never imported, so charting a program runs none of it. A function's
-flow is a tree of steps: device operations, calls that open into the callee's own flow,
+Source is parsed, never imported, so charting a program runs none of it. A flow is a
+tree of steps: device operations, calls that open into the callee's own flow,
 subagent judgments, folded computation, and the branches, loops, scopes and concurrency
 around them.
 """
@@ -53,8 +54,8 @@ class Module:
         with open(file, encoding="utf-8") as handle:
             self.source = handle.read()
         self.lines = self.source.splitlines()
-        tree = ast.parse(self.source, file)
-        self.functions = {node.name: node for node in tree.body if isinstance(node, DEFS)}
+        self.tree = ast.parse(self.source, file)
+        self.functions = {node.name: node for node in self.tree.body if isinstance(node, DEFS)}
         self.name = self.package = None
         for root in roots:
             relative = os.path.relpath(file, root)
@@ -66,7 +67,7 @@ class Module:
                 break
         # Every name an import binds, as the dotted name it stands for.
         self.aliases = {}
-        for node in ast.walk(tree):
+        for node in ast.walk(self.tree):
             if isinstance(node, ast.Import):
                 for item in node.names:
                     self.aliases[item.asname or item.name.partition(".")[0]] = item.name if item.asname else item.name.partition(".")[0]
@@ -120,17 +121,20 @@ class Charts:
         return self.locate(alias, module, (*seen, (module.file, function))) if alias else None
 
     def chart(self, module, qualified, node, outer=None):
-        """Chart a function once and return its identifier."""
+        """Chart a function, or a whole program from its module node, once and return its identifier."""
         identifier = f"{module.file}::{qualified}"
         if identifier not in self.functions and len(self.functions) < LIMIT:
+            file = os.path.basename(module.file)
+            if isinstance(node, ast.Module):
+                path, signature, line, end = file, "", 1, len(module.lines)
+            else:
+                path = f"{module.name[len(LIB) + 1:]}.{qualified}".lstrip(".") if module.name else f"{file}:{qualified}"
+                signature = (f"{'async ' if isinstance(node, ast.AsyncFunctionDef) else ''}def {node.name}({ast.unparse(node.args)})"
+                             + (f" -> {ast.unparse(node.returns)}" if node.returns else ""))
+                line, end = node.lineno, node.end_lineno
             entry = self.functions[identifier] = {
-                "id": identifier,
-                "path": f"{module.name[len(LIB) + 1:]}.{qualified}".lstrip(".") if module.name else f"{os.path.basename(module.file)}:{qualified}",
-                "name": qualified.rpartition(".")[2], "file": module.file, "line": node.lineno, "end": node.end_lineno,
-                "signature": f"{'async ' if isinstance(node, ast.AsyncFunctionDef) else ''}def {node.name}({ast.unparse(node.args)})"
-                             + (f" -> {ast.unparse(node.returns)}" if node.returns else ""),
-                "doc": ast.get_docstring(node) or "",
-                "source": "\n".join(module.lines[node.lineno - 1:node.end_lineno]),
+                "id": identifier, "path": path, "name": qualified.rpartition(".")[2] or file, "file": module.file, "line": line, "end": end,
+                "signature": signature, "doc": ast.get_docstring(node) or "", "source": "\n".join(module.lines[line - 1:end]),
             }
             entry["body"] = Function(self, module, qualified, node, outer).block(node.body)
         return identifier if identifier in self.functions else None
@@ -150,7 +154,7 @@ class Function:
         while pending:
             child = pending.pop()
             if isinstance(child, DEFS):
-                self.nested[child.name] = (f"{qualified}.{child.name}", child, self)
+                self.nested[child.name] = (f"{qualified}.{child.name}".lstrip("."), child, self)
             elif not isinstance(child, OPAQUE):
                 pending.extend(ast.iter_child_nodes(child))
 
@@ -233,6 +237,9 @@ class Function:
             shows = [text(key, 30) if not isinstance(key, ast.Constant) else str(key.value) for key in shown.keys if key] if isinstance(shown, ast.Dict) else []
             instruction = first.value.strip().splitlines()[0] if literal else text(first, 120)
             return self.inputs(call, 1) + [{"kind": "subagent", "instruction": instruction, "dynamic": not literal, "shows": shows, **at}]
+        if name == "kinex.finish":
+            label = ", ".join(text(part, 40) for part in (*call.args, *call.keywords))
+            return self.inputs(call) + [{"kind": "exit", "how": "finish", "label": label, **at}]
         func = call.func
         if isinstance(func, ast.Attribute) and func.attr in STREAM:
             source = self.operation(func.value) if isinstance(func.value, ast.Call) else None
@@ -397,10 +404,10 @@ def main(file, function, roots):
     module = charts.module(file)
     if module is None:
         sys.exit(charts.problems[0])
-    if function not in module.functions:
+    if function and function not in module.functions:
         defined = ", ".join(module.functions) or "no functions"
         sys.exit(f"{file} defines no function {function}; it defines {defined}")
-    entry = charts.chart(module, function, module.functions[function])
+    entry = charts.chart(module, function, module.functions[function] if function else module.tree)
     return {"entry": entry, "functions": charts.functions, "problems": charts.problems}
 
 
