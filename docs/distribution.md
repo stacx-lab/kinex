@@ -24,7 +24,11 @@ npm installs report recovery commands.
 
 ## Releases and validation
 
-Core, setup and standalone share a version with exact internal dependencies.
+Core, setup, self-improve and standalone share a version with exact internal
+dependencies. A release has three archives, core, setup and standalone, because
+every released Kinex updates from those alone: self-improve ships inside the
+standalone archive (`bundleDependencies`) and takes core and its libraries as peer
+dependencies, so the archive carries no second copy of core.
 Plugins for Pi, Claude Code and Codex release independently in
 [kinex-plugins](https://github.com/stacx-lab/kinex-plugins) and consume checksummed
 core/setup snapshots.

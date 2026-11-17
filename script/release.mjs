@@ -17,7 +17,10 @@ if (!process.argv.includes('--check')) {
   if (directory === path.join(root, 'dist') || directory.startsWith(path.join(root, 'dist') + path.sep)) throw new Error('Pack outside dist to avoid recursive tarballs')
   await mkdir(directory, { recursive: true })
   const checksums = []
-  for (const pkg of packages) {
+  // Every released Kinex updates from the standalone, core and setup archives
+  // alone, so a package standalone bundles ships inside its archive, not as one.
+  const bundled = packages.find(pkg => pkg.location === '').bundleDependencies ?? []
+  for (const pkg of packages.filter(pkg => !bundled.includes(pkg.name))) {
     const [packed] = JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', directory], { cwd: path.join(root, pkg.location), encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }))
     const bytes = await readFile(path.join(directory, packed.filename))
     checksums.push(`${createHash('sha256').update(bytes).digest('hex')}  ${packed.filename}`)
