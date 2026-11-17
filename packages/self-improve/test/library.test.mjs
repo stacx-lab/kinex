@@ -9,6 +9,7 @@ import { writeTranscript } from '../dist/transcript.js'
 import { openJob, finishJob, start, wait, isRunning, resultOf, spaced } from '../dist/job.js'
 import { trialsDir, distillationsDir } from '../dist/layout.js'
 import { judged } from '../dist/trial.js'
+import { reference } from '../dist/distill.js'
 
 async function directory(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'kinex-self-improve-'))
@@ -197,4 +198,25 @@ test('what a worker kept is copied apart from the library it was shipped, and re
   await collect(root, { selection: 'x', rounds: 1, parallel: 1, trialTimeoutS: 60, distillTimeoutS: 60, rosbridge: 'rosbridge' }, { base: 'L1', trials: [job.id], fresh: [job.id], timeoutS: 60 }, records)
   assert.deepEqual((await readdir(path.join(records, job.id))).sort(), ['history.json', 'history.md', 'learned', 'learned.md', 'result.json', 'summary.md'])
   assert.equal(await readFile(path.join(records, job.id, 'learned/.kinex/lib/grasp.py'), 'utf8'), '# Grasp helpers.\ndef pick(): ...\n')
+})
+
+test('the reference holds the Python package, the built-in tools and the robot workspace, without caches', async t => {
+  const root = await directory(t)
+  const rig = path.join(root, 'trial/.kinex')
+  await put(path.join(rig, 'workspace.yaml'), 'identity: {}\n')
+  await put(path.join(rig, 'devices/arm/profile.yaml'), 'operations: {}\n')
+  await put(path.join(rig, 'devices/arm/__pycache__/links.pyc'), 'cache')
+  await put(path.join(rig, 'lib/own.py'), 'a worker file, not reference')
+  const directory_ = path.join(root, 'reference')
+  await reference(directory_, rig)
+  assert.deepEqual((await readdir(directory_)).sort(), ['INDEX.md', 'builtin-tool', 'kinex-core.md', 'python-kinex', 'workspace'])
+  assert.match(await readFile(path.join(directory_, 'python-kinex/helpers/helpers.txt'), 'utf8'), /from kinex import helpers/)
+  assert.match(await readFile(path.join(directory_, 'python-kinex/__init__.py'), 'utf8'), /communication/)
+  for (const tool of await readdir(path.join(directory_, 'builtin-tool'))) assert.ok((await readdir(path.join(directory_, 'builtin-tool', tool))).includes('tool.yaml'), tool)
+  assert.deepEqual((await readdir(path.join(directory_, 'workspace'))).sort(), ['devices', 'workspace.yaml'])
+  assert.deepEqual(await readdir(path.join(directory_, 'workspace/devices/arm')), ['profile.yaml'])
+  assert.ok(!(await readdir(directory_, { recursive: true })).some(entry => entry.includes('__pycache__')))
+  for (const part of ['python-kinex/', 'builtin-tool/', 'workspace/']) assert.match(await readFile(path.join(directory_, 'INDEX.md'), 'utf8'), new RegExp(`^- ${part}:`, 'm'))
+  await reference(path.join(root, 'bare'), undefined)
+  assert.ok(!(await readdir(path.join(root, 'bare'))).includes('workspace'))
 })
