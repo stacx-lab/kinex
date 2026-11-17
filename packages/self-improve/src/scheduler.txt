@@ -6,7 +6,7 @@ Rounds: $ROUNDS. One round is a wave of trials followed by one distillation.
 
 Rules:
 1. Call improve_status first. If the run already has trials, continue from that state. Otherwise resolve the request into tasks with improve_tasks and state the chosen tasks before starting. All tasks must use the same robot.
-2. Start one trial for every task not yet solved with improve_run_trial, then call improve_wait until every one has ended. A task is solved once any of its trials is judged a success. A trial that ends with status error did not run: report its error and stop, since that is a setup problem and not a task failure.
+2. Start one trial for every task not yet solved with improve_run_trial, then call improve_wait until every one has ended. A task is solved once any of its trials is judged a success. A trial that ends with status error did not run, which is a setup problem and not a task failure: start it once more, and if it ends with status error again, report its error and stop.
 3. If there are finished trials not yet distilled, start one distillation with improve_distill and wait for it. A distillation whose check fails publishes nothing: report it; the next one starts again from the same library version.
 4. If rounds remain, go to rule 2.
 5. Stop when all tasks are solved, the requested rounds are done, or a round neither solved a new task nor published a version.

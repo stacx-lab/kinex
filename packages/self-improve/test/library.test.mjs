@@ -7,6 +7,7 @@ import { check, createLibrary, install, installedBrief, newestVersion, publish, 
 import { renderHistory, renderStatus, scan } from '../dist/records.js'
 import { openJob, finishJob, start, wait, isRunning, resultOf } from '../dist/job.js'
 import { trialsDir, distillationsDir } from '../dist/layout.js'
+import { judged } from '../dist/trial.js'
 
 async function directory(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'kinex-self-improve-'))
@@ -86,6 +87,15 @@ test('the state of a run is read from its job folders', async t => {
   assert.match(renderStatus(root, status, () => false), /- t003, sim\/a, L0, abandoned/)
   assert.match(text, /- d001, base L0, 1 trials \(1 new\), published nothing \(check failed: payload\/skills\/x: no SKILL.md\)/)
   assert.match(text, /- d002, base L0, 1 trials \(1 new\), published L1/)
+})
+
+test('a judged episode makes a trial done, whatever the worker exited with', () => {
+  const exit = { status: 'error', exitCode: 1, wallS: 9 }
+  assert.deepEqual(judged(exit, { success: true, steps: 1699 }), { ...exit, status: 'done', note: 'worker exited 1; see output.log' })
+  assert.deepEqual(judged(exit, { success: false }), { ...exit, status: 'done', note: 'worker exited 1; see output.log' })
+  assert.deepEqual(judged(exit, { success: false, steps: 0 }), { ...exit, error: 'worker exited 1 before the simulation advanced; see output.log' })
+  const timeout = { status: 'timeout', exitCode: 143, wallS: 3600 }
+  assert.equal(judged(timeout, { success: false, steps: 0 }), timeout)
 })
 
 test('work starts within its limit, and waiting does not end it', async () => {
