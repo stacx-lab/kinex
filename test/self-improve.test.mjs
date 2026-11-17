@@ -136,6 +136,7 @@ test('/self-improve runs trials, distills a library and reruns with it', { timeo
     assert.deepEqual((await readdir(path.join(workspaceDirectory, 'records/t001'))).sort(), ['history.json', 'history.md', 'learned', 'learned.md', 'output.log', 'prompt.md', 'result.json', 'summary.md'])
     assert.match(await readFile(path.join(workspaceDirectory, 'records/t001/learned/.kinex/lib/press.py'), 'utf8'), /def press/)
     assert.match(await readFile(path.join(workspaceDirectory, 'reference/INDEX.md'), 'utf8'), /tool\.yaml/)
+    assert.match(await readFile(path.join(workspaceDirectory, 'reference/python-kinex/helpers/helpers.txt'), 'utf8'), /from kinex import helpers/)
     const prompt = await readFile(path.join(root, 'distillations/d001/record/prompt.md'), 'utf8')
     assert.doesNotMatch(prompt, /\[\[/)
     assert.match(prompt, /- sim\/open-door: open the door\n- sim\/press-button: press the button/)
