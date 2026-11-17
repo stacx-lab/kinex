@@ -7,8 +7,8 @@ import { pythonDir, versionDir } from "./layout.ts"
 import { install } from "./library.ts"
 import type { TrialInput } from "./records.ts"
 import type { Run } from "./run.ts"
-import { runSession } from "./session.ts"
-import { openSim } from "./sim.ts"
+import { runSession, type SessionExit } from "./session.ts"
+import { openSim, type Verdict } from "./sim.ts"
 import WORKER from "./worker.txt"
 
 // Kinex keeps its Python at <workspace>/.kinex/python and builds it on first use,
@@ -33,6 +33,17 @@ function preparePython(workspace: string, signal?: AbortSignal): Promise<unknown
   return ready
 }
 
+// Whether a trial ran is the simulator's to say, not the worker's exit code: a
+// worker that exits non-zero after its episode advanced (a device that loaded
+// late, say) was still judged, and its exit is kept as a note. Only a worker
+// that failed before the simulation moved leaves a trial that did not run.
+export function judged(session: SessionExit, verdict: Verdict): SessionExit & { note?: string; error?: string } {
+  if (session.status !== "error") return session
+  const exit = `worker exited ${session.exitCode}`
+  return verdict.steps === 0 ? { ...session, error: `${exit} before the simulation advanced; see output.log` }
+    : { ...session, status: "done", note: `${exit}; see output.log` }
+}
+
 /** One trial: a fresh episode of one task, a fresh worker with one library version, the simulator's verdict. */
 export async function runTrial(run: Run, job: Job, input: TrialInput): Promise<Result> {
   const sim = await openSim(run.config.rosbridge, input, job.workspace)
@@ -43,5 +54,6 @@ export async function runTrial(run: Run, job: Job, input: TrialInput): Promise<R
     const prompt = `${sim.instruction}\n\n${WORKER.trim().replaceAll("$TIMEOUT", String(input.timeoutS))}`
     return runSession("worker", job.workspace, job.record, prompt, Date.now() + input.timeoutS * 1000)
   })().catch(async (error: unknown) => { await sim.close().catch(() => {}); throw error })
-  return finishJob(job, { ...session, instruction: sim.instruction, ...await sim.close() })
+  const verdict = await sim.close()
+  return finishJob(job, { ...judged(session, verdict), instruction: sim.instruction, ...verdict })
 }

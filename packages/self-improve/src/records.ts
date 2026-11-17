@@ -18,6 +18,8 @@ export interface TrialView extends TrialInput {
   instruction?: string
   wallS?: number
   error?: string
+  /** What went wrong outside the task in a trial that was still judged. */
+  note?: string
   usage?: Usage
 }
 export interface DistillationView extends DistillInput {
@@ -63,7 +65,7 @@ const outcome = (view: { status?: string }, running: boolean) => view.status ?? 
 export function describeTrial(trial: TrialView, running: boolean): string {
   const verdict = trial.status === undefined || trial.status === "error" ? outcome(trial, running) : `${trial.success ? "success" : "failure"}${trial.status === "timeout" ? " (timeout)" : ""}`
   return [trial.id, trial.task, trial.library, verdict, trial.reason, trial.steps === undefined ? undefined : `${trial.steps} steps`,
-    trial.wallS === undefined ? undefined : `${trial.wallS} s`, trial.usage ? dollars([trial]) : undefined, trial.error].filter(Boolean).join(", ")
+    trial.wallS === undefined ? undefined : `${trial.wallS} s`, trial.usage ? dollars([trial]) : undefined, trial.error, trial.note].filter(Boolean).join(", ")
 }
 
 export function describeDistillation(distillation: DistillationView, running: boolean): string {
@@ -153,7 +155,7 @@ export async function collect(root: string, config: Config, input: DistillInput,
     for (const file of [promptFile(record), outputFile(record), resultFile(path.dirname(record))]) await cp(file, path.join(copy, path.basename(file))).catch(() => {})
     await renderHistory(sessionFile(record), copy)
     index.push(JSON.stringify({ trial: trial.id, task: trial.task, library: trial.library, status: trial.status, success: trial.success === true,
-      reason: trial.reason, steps: trial.steps, wallS: trial.wallS, cost: trial.usage?.cost, new: input.fresh.includes(trial.id) }))
+      reason: trial.reason, steps: trial.steps, wallS: trial.wallS, cost: trial.usage?.cost, note: trial.note, new: input.fresh.includes(trial.id) }))
   }
   await writeFile(path.join(directory, "INDEX.jsonl"), index.join("\n") + "\n")
   const tasks = [...new Set(trials.map(trial => trial.task))].sort()
@@ -176,7 +178,8 @@ export async function collect(root: string, config: Config, input: DistillInput,
   first success or at the simulator's step limit for the task, if it has one.
 - ${config.seed === undefined ? "Every trial of a task starts from the same state: the simulator's default state for that task." : `Every trial of a task starts from the same state (seed ${config.seed}).`}
 - The simulator's own success check decides the outcome (result.json: success, steps, reason). status \`timeout\` means the
-  wall time ran out; status \`error\` means the trial itself failed to run and says nothing about the task.
+  wall time ran out; status \`error\` means the trial itself failed to run and says nothing about the task. A \`note\`
+  records a failure outside the task (a device that loaded late, say) in a trial that was still judged.
 - Every trial shipped one library version (INDEX.jsonl); L0 is the empty library.
 - A task counts as solved once any of its trials succeeded.
 - The \`new\` flags in INDEX.jsonl mark the trials no published library has incorporated yet.
