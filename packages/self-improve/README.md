@@ -81,9 +81,12 @@ distillations/d001/
 - rosbridge prints a task's instruction to its run log only for simulators that
   have one (RoboCasa); otherwise the worker is given the task's name. Its task list
   does not report splits, so `improve_tasks` selects by simulator, pattern and count.
+- Trials run up to `--parallel` at a time, but their workers start `startGapS`
+  apart (10 s): each loads a ROS process per device, and workers that load in the
+  same moment run past the devices' ready limit.
 - `config.json` can be edited between sessions: `seed`, `trialTimeoutS` (3600),
-  `distillTimeoutS` (7200), `rounds`, `parallel`. `KINEX_ROSBRIDGE` names the
-  rosbridge command when a run is created (default `rosbridge` on `PATH`).
+  `distillTimeoutS` (7200), `startGapS` (10), `rounds`, `parallel`. `KINEX_ROSBRIDGE`
+  names the rosbridge command when a run is created (default `rosbridge` on `PATH`).
 
 ## Composition
 

@@ -80,6 +80,15 @@ export function startJob(job: Job, lane: string, limit: number, run: () => Promi
   start(job.id, lane, limit, () => run().catch((error: unknown) => finishJob(job, { status: "error", error: error instanceof Error ? error.message : String(error) })))
 }
 
+// Work that must not begin at the same moment takes turns: each caller's turn
+// comes no sooner than `gapS` after the turn before it in the same lane.
+const turns = new Map<string, Promise<void>>()
+export function spaced(lane: string, gapS: number): Promise<void> {
+  const turn = turns.get(lane) ?? Promise.resolve()
+  turns.set(lane, turn.then(() => new Promise<void>(resolve => setTimeout(resolve, gapS * 1000))))
+  return turn
+}
+
 export const isRunning = (id: string) => running.has(id)
 export const runningIDs = () => [...running.keys()]
 export const resultOf = (id: string) => ended.get(id)
