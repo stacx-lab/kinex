@@ -178,6 +178,9 @@ test('/self-improve runs trials, distills a library and reruns with it', { timeo
     assert.match(status, /- d001, base L0, 2 trials \(2 new\), published L1/)
     assert.match(status, /Finished trials not yet distilled: t003, t004/)
     const target = await workspace(t)
+    // A version the run never published is refused, not installed as an empty library.
+    await assert.rejects(invoke(target, '/self-improve install L99'), /No library version L99 in .*; versions: L0, L1/)
+    await assert.rejects(readFile(path.join(target, '.kinex/self-improve/brief.md')), { code: 'ENOENT' })
     assert.match((await invoke(target, '/self-improve install L1')).stdout, /Installed L1 .*skills press; tools none/)
     assert.equal(await readFile(path.join(target, '.kinex/skills/press/SKILL.md'), 'utf8'), SKILL)
     assert.match(await readFile(path.join(target, '.kinex/self-improve/brief.md'), 'utf8'), /BRIEF_MARKER/)

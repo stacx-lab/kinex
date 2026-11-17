@@ -3,7 +3,7 @@ import type { KinexContribution } from "@kinex/core/integration"
 import { toModelSchema } from "@kinex/core/tool/registry"
 import { isRunning, runningIDs } from "./job.ts"
 import { versionDir } from "./layout.ts"
-import { install, installedBrief } from "./library.ts"
+import { install, installedBrief, versions } from "./library.ts"
 import SCHEDULER from "./scheduler.txt"
 import STOPPED from "./stopped.txt"
 import { renderStatus, scan } from "./records.ts"
@@ -57,6 +57,9 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
     if (first === "install") {
       if (!second) throw new Error(USAGE)
       const run = await openRun(third)
+      // A folder that is not a published version would install as an empty library.
+      const known = await versions(run.root)
+      if (!known.includes(second)) throw new Error(`No library version ${second} in ${run.root}; versions: ${known.join(", ")}`)
       const installed = await install(versionDir(run.root, second), runtime.directory)
       return { kind: "output", text: `Installed ${second} of ${run.root}: skills ${installed.skills.join(", ") || "none"}; tools ${installed.tools.join(", ") || "none"}` }
     }
