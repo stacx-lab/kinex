@@ -47,6 +47,7 @@ aside { width: 440px; max-width: 45%; border-left: 1px solid var(--border); back
 aside h2 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
 aside .where { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; margin: 2px 0 10px; }
 aside .signature { display: block; padding: 8px 10px; background: var(--quiet); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+aside .signature:empty { display: none; }
 aside .doc { margin: 10px 0; color: var(--muted); font-size: 13px; }
 aside .doc p { margin: 0 0 8px; }
 aside .doc p.kept { white-space: pre-wrap; }
@@ -85,8 +86,8 @@ aside .doc p.kept { white-space: pre-wrap; }
 .wait, .task { background: var(--warn-bg); border-color: var(--warn); }
 .wait .tag, .task .tag { color: var(--warn); }
 .exit { border-radius: 16px; padding: 5px 14px; }
-.exit.return { background: var(--good-bg); border-color: var(--good); }
-.exit.return .tag { color: var(--good); }
+.exit.return, .exit.finish { background: var(--good-bg); border-color: var(--good); }
+.exit.return .tag, .exit.finish .tag { color: var(--good); }
 .exit.raise { background: var(--bad-bg); border-color: var(--bad); }
 .exit.raise .tag { color: var(--bad); }
 .exit.break, .exit.continue { background: var(--quiet); }
@@ -100,7 +101,7 @@ aside .doc p.kept { white-space: pre-wrap; }
 .guard .then { display: inline-flex; align-items: baseline; gap: 6px; color: var(--bad); }
 .guard .then .tag { color: inherit; }
 .note { font-weight: 400; color: var(--muted); font-size: 12px; }
-.guard .then.return { color: var(--good); }
+.guard .then.return, .guard .then.finish { color: var(--good); }
 .guard .then.break, .guard .then.continue { color: var(--muted); }
 
 /* Branches: arms hang from a rail and rejoin on another; both are measured after layout. */
@@ -244,7 +245,7 @@ function frame(spec, head, step, context, ...children) {
 }
 
 const VERBS = { next: "next message", latest: "latest message" }
-const EXITS = { break: "leave the loop", continue: "next iteration" }
+const EXITS = { break: "leave the loop", continue: "next iteration", finish: "the program ends" }
 
 function exit(step) {
   return [tag(step.how), step.label ? code(step.label) : EXITS[step.how] ? h("span.note", EXITS[step.how]) : null]
@@ -338,6 +339,8 @@ function call(step, context) {
   closed.addEventListener("click", open)
   closed.expand = recursive ? null : open
   holder.append(closed)
+  // A program's own calls start open: its chart is what main does.
+  if (!recursive && !functions[context.fn].signature) open()
   return holder
 }
 
