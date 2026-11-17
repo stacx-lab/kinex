@@ -73,13 +73,13 @@ readiness; normal calls never restart failed nodes.
 Unload before changing definitions. Core fingerprints runtime fields, profile
 facts, node entrypoint source and the URDF; changed definitions require explicit
 reload. Read device and operation descriptions directly from profiles. Discovery
-remains read-only. Inside exec, `runtime` is preset: use
+remains read-only. A program imports `runtime` from `kinex`: use
 `runtime.devices()` for configured devices and host-known readiness,
 `runtime.device(name)` for one device's description and state,
 `runtime.operations(device)` for declared operations (including unloaded devices),
 and `runtime.describe("device.operation")` for protocol metadata and recursive
 ROS payload definitions. These queries never load devices or advance time.
-Catalogs stay in Python unless the code returns them; they are not
+Catalogs stay in Python unless the program finishes with them; they are not
 injected into the system prompt or exported as per-operation model tools.
 The host TypeScript API retains `runtime.devices.operations()`.
 
@@ -89,7 +89,7 @@ inject no usage text.
 
 ## Kinex Python
 
-Exec, the program library, ROS clients, tf2 and recording always use `.kinex/python`.
+Exec, the function library, ROS clients, tf2 and recording always use `.kinex/python`.
 It defaults to ROS Jazzy; configure `.kinex/kinex.json` for Humble (`ros-humble`),
 plain uv (`uv`) or extra interfaces:
 
@@ -116,21 +116,28 @@ option.
 ## Async communication
 
 ```python
-state = io.subscribe("arm.joint_state", depth=1)
-sample = await state.next(timeout_s=2)
-# Payload fields follow the declared ROS types; Json operations
-# exchange plain objects described by the operation.
-response = await io.request("model.infer", image=image_path)
-await io.publish("arm.joint_target", target_message)
-await io.request("world.wait", duration_s=0.05)
-return {"summary": "selected result"}
+import asyncio
+from kinex import finish, io
+
+async def main():
+    state = io.subscribe("arm.joint_state", depth=1)
+    sample = await state.next(timeout_s=2)
+    # Payload fields follow the declared ROS types; Json operations
+    # exchange plain objects described by the operation.
+    response = await io.request("model.infer", image=image_path)
+    await io.publish("arm.joint_target", target_message)
+    await io.request("world.wait", duration_s=0.05)
+    finish({"summary": "selected result"})
+
+asyncio.run(main())
 ```
 
-This is exec source: the body of an async function, with `io` preset.
-`image_path` and `target_message` above are application inputs. Python reaches
-devices only through `kinex.communication`. exec owns one scope per invocation,
-`io`, opened on first use and closed when the code ends; library programs import
-it with `from kinex import io` and take no scope parameter. `io.read(operation)`
+This is an exec program. `image_path` and `target_message` above are application
+inputs. Python reaches devices only through `kinex.communication`. exec owns one
+scope per invocation, `io`, opened on first use inside the program's event loop
+and released when the program ends, so a program runs one `asyncio.run(main())`;
+programs and library functions import it with `from kinex import io` and take no
+scope parameter. `io.read(operation)`
 takes the next message of an output topic. A standalone client outside exec
 enters `async with communication(catalog) as io`, which makes its scope the
 active one for the library functions it calls. A `kinex_interfaces/srv/Json`
@@ -141,9 +148,9 @@ response object; owned nodes serve it with
 control flow. Use ordinary functions, branching and asyncio task groups.
 Messages may be native ROS messages or field mappings; see [values](#values) for
 what a mapping may hold. A subscription used with
-`with` or `async with` closes on exit; the scope closes any others. A returned
-result converts ROS messages, poses and NumPy values to JSON and non-finite numbers to
-`null`; returned images become attachments. Subscriptions expose
+`with` or `async with` closes on exit; the scope closes any others. `finish`
+converts ROS messages, poses and NumPy values in its result to JSON and non-finite
+numbers to `null`; images are attached only through its `file`. Subscriptions expose
 `next`, `latest(max_age_s=...)` and idempotent `close`. Both ROS and Python queues
 are bounded. Receipt-age checks detect transport staleness; observation timestamps
 belong to world time.
@@ -152,10 +159,10 @@ belong to world time.
 must be under `io.namespace + "/"`. Handlers and communication resources
 are removed when the scope closes. Persistent services belong to device nodes.
 
-Reusable code is a program: a public function of a `kinex.lib` module, builtin or
-in a workspace's `.kinex/lib`. Programs share the invocation's scope and cleanup,
-call each other as ordinary functions and have no persistent lifecycle; see
-[programs](tools-and-skills.md#programs-lib-and-exec).
+Reusable code is a public function of a `kinex.lib` module, builtin or in a
+workspace's `.kinex/lib`. Library functions share the invocation's scope and
+cleanup, call each other as ordinary functions and have no persistent lifecycle; see
+[programs and the library](tools-and-skills.md#programs-and-the-library-exec-and-lib).
 
 The `kinex` package separates audiences. The root and `kinex.lib` (browsed with
 the `lib` tool) are the exec API; `kinex.node` serves device node
@@ -180,14 +187,14 @@ Library functions take a value in any equivalent form and return it in one: a
 vector may be a list, a tuple, a message's array field or an array; a pose may be
 a `RigidTransform`, its seven numbers or a `Pose`, `Transform`, `PoseStamped` or
 `TransformStamped`; a time may be seconds, a stamp or a stamped message.
-`pose(value)` and `seconds(value)`, preset in exec and importable from `kinex`,
-make these conversions for a program's own use.
+`pose(value)` and `seconds(value)`, imported from `kinex`, make these conversions
+for a program's own use.
 
 `io.publish` and `io.request` encode a field mapping by each field's declared
 type: seconds for a `Time` or `Duration`, a pose for a `Pose` or `Transform`, one
 `RigidTransform` holding several poses for an array of them, numbers for a
 `Point`, `Vector3` or `Quaternion`, and arrays for numeric fields. The mapping
-is read, never changed. A returned result writes poses as their seven numbers
+is read, never changed. A program's result writes poses as their seven numbers
 and times as seconds; `kinex.plain(value)` gives that JSON-ready form to a
 program that writes a file of its own.
 
@@ -311,7 +318,7 @@ Cameras are native ROS topics: `image`, `depth` for rgbd and, where a source
 provides it, `camera_info`. Camera projection and distortion live in the profile,
 or node geometry descriptors, not TF or `camera_info`.
 `lib.images.camera_geometry(camera)` fetches the active descriptors once per
-invocation; its `project` and `unproject` call the camera node's geometry services,
+program; its `project` and `unproject` call the camera node's geometry services,
 or compute locally only for explicitly undistorted pinhole profiles.
 A stereo camera uses `left_image` and `right_image` with `left` and `right` geometry
 streams; `lib.images.stereo_frame(camera)` reads both, and `camera_frame` takes `eye`.
@@ -322,7 +329,7 @@ camera streams; a simulator publishes a current frame to each new subscriber and
 repeats it while paused, so a paused world can be read without advancing it.
 Images stay as ROS payloads in Python. `lib.images.image_array` converts them for
 computation and `lib.images.save_image` writes one to a file, for example to pass
-to a model device. Return an image to attach it for the model.
+to a model device. Pass an image to `finish(file=...)` to attach it for the model.
 
 ## Native validation
 

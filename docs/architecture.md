@@ -9,8 +9,8 @@ Kinex connects coding agents to physical robots and simulators through three lay
 ![Kinex architecture: the agent loads skills, runs control-graph programs through exec and calls devices directly; control graphs also operate devices, whose nodes exchange commands and observations with hardware, simulators and services.](../assets/architecture.svg)
 
 The agent loads skills as needed, then calls devices directly through `device` or
-`devices`, or runs Python programs through `exec`: source written for the moment or
-functions saved in the program library.
+`devices`, or runs Python programs through `exec`: written for the moment or saved
+as files, and built from the function library.
 These paths return results and selected images to the agent and preserve the
 runtime's permission checks. The host owns the agent loop, sessions and permission
 decisions.
@@ -59,23 +59,22 @@ See [device contracts](devices.md) for frames, motion and node behavior.
 
 Tools are executable operations with names, descriptions and input schemas. They
 perform computation or sequences of device calls without requiring the agent to
-choose every intermediate step. The `exec` tool runs Python with runtime access:
-source written as the body of an async function, a library program by name, or a
-file's `main`. Code can compose perception and control programs, wait on the
-world clock, check measured feedback in bounded loops, and return structured
-results with multiple images. The agent interprets those observations before
+choose every intermediate step. The `exec` tool runs a complete Python program
+with runtime access, given as source or as a saved file. A program can compose
+perception and control functions, wait on the world clock, check measured
+feedback in bounded loops, and end with `finish`, which returns a structured
+result and the images it names. The agent interprets those observations before
 choosing the next action.
 
-The program library is the `kinex.lib` package: builtin modules plus the
-workspace's `.kinex/lib`. Every public function of a module is a program, with
-its signature and docstring as its interface; no manifest or registration exists.
-Programs reach devices through the invocation's one communication scope, `io`,
-with `read`, `subscribe`, `publish`, `request` and `serve`, so they call each
-other as ordinary functions and ordinary Python branching and asyncio task groups
-define the workflow. A quick inspection, a saved closed-loop task and a
-composition of several are the same unit. The agent browses the library level by
-level with the `lib` tool; the user runs a saved program with `/exec`, without the
-agent. Perception and control share one execution approval. An invocation's
+The function library is the `kinex.lib` package: builtin modules plus the
+workspace's `.kinex/lib`. A public function's signature and docstring are its
+interface; no manifest or registration exists. Programs and library functions
+reach devices through the invocation's one communication scope, `io`, with
+`read`, `subscribe`, `publish`, `request` and `serve`, so functions call each
+other as ordinary Python and ordinary branching and asyncio task groups define
+the workflow. The agent browses the library level by level with the `lib` tool;
+the user runs a saved program with `/exec`, without the agent. Perception and
+control share one execution approval. An invocation's
 temporary communication resources end with it; model state persists in devices.
 
 `lib.frames` queries tf2; camera geometry comes from profile intrinsics or the
@@ -83,7 +82,7 @@ camera node's geometry services.
 
 `exec` preserves permissions and cancellation, and a failed
 invocation stops the devices it commanded; Python cannot load or unload devices.
-Scripts own their stopping conditions and must explicitly stop motion when
+Programs own their stopping conditions and must explicitly stop motion when
 successful completion requires it.
 The agent-facing `device` tool and trusted user commands provide lifecycle
 control. Other tools support profile updates and calibration. See

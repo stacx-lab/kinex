@@ -36,30 +36,33 @@ reconnect the whole collection. `/reload` refreshes agent resources only.
 
 ### Programs
 
-| Command                                        | Purpose                                                                 |
-| ---------------------------------------------- | ----------------------------------------------------------------------- |
-| `/lib [module[.function]]`                     | Browse the program library: modules, a module's functions, a signature. |
-| `/exec <module.function> [name=value ...]`     | Run a library program without the model.                                |
-| `/visualize <module.function> [output.html]`   | Draw a program's flow chart as a page to open in a browser.             |
-| `/subagent [<provider/model> [thinking]]`      | Show or choose the model that subagents in programs use.                |
+| Command                                              | Purpose                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------ |
+| `/exec <file.py> [name=value ...]`                   | Run a saved program without the model.                                   |
+| `/lib [module[.function]]`                           | Browse the function library: modules, a module's functions, a signature. |
+| `/visualize <file.py[:function]\|module.function> [output.html]` | Draw the flow chart of a program or function as a page to open in a browser. |
+| `/subagent [<provider/model> [thinking]]`            | Show or choose the model that subagents in programs use.                 |
 
-`/exec` passes `name=value` pairs as keyword arguments; a value is JSON when it
-parses (`attempts=3`, `pose=[0.1,0.2]`, `object="red block"`) and text otherwise,
-and one JSON object may replace the pairs. `/stop` cancels it like any other
-invocation. From the shell, `kinex run '/exec tabletop.pick_place object="red block"'`
-runs a saved program and exits. `/exec` first waits for the workspace's loaded devices
+`/exec` runs a program file, by convention one under `.kinex/programs`, and passes
+`name=value` pairs as the arguments the program reads with `args()`; a value is
+JSON when it parses (`attempts=3`, `pose=[0.1,0.2]`, `object="red block"`) and text
+otherwise, and one JSON object may replace the pairs. `/stop` cancels it like any
+other invocation. From the shell,
+`kinex run '/exec .kinex/programs/pick_place.py object="red block"'` runs a saved
+program and exits. `/exec` first waits for the workspace's loaded devices
 that are still connecting, so a program run as Kinex starts finds them ready.
 
 In the terminal a command is drawn as the tool row it resembles: pending with its
 elapsed time while it runs, then its result or failure. While the agent is idle,
 Escape cancels the running command; during an agent run Escape ends both. The model
-reads the result as text that names the user's command, with image results as file paths.
+reads the result as text that names the user's command and lists attached images as file
+paths; the images themselves are drawn under the row where the terminal can.
 
-`/visualize` reads the program's source without running it and writes one self-contained
-page, by default `.kinex/flow/<module.function>.html`. Each device operation, wait
-and call is a node; clicking a call opens that function's own chart in place, and
-clicking any node shows its source lines. `/visualize path/to/script.py[:function]` charts
-a function of a file outside the library, `main` by default. See
+`/visualize` reads source without running it and writes one self-contained page, by
+default under `.kinex/flow/`. `/visualize path/to/program.py` charts a whole program,
+`path/to/file.py:function` one of a file's functions and `module.function` a library
+function. Each device operation, wait and call is a node; clicking a call opens that
+function's own chart in place, and clicking any node shows its source lines. See
 [flow charts](tools-and-skills.md#flow-charts).
 
 `/subagent` shows the model that [subagents in programs](tools-and-skills.md#subagents-in-programs)

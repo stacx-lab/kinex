@@ -7,7 +7,7 @@ Design history and progress belong in git.
 ## Ownership
 
 - `packages/core/src` owns device management and operation; core assets own runtime
-  Python with the builtin program library, `kinex_interfaces`, provisioning bundles,
+  Python with the builtin function library, `kinex_interfaces`, provisioning bundles,
   device guides with reference nodes, and setup-device, which also covers ROS device
   onboarding. Core
   must not import setup, a host agent or UI.
@@ -36,9 +36,11 @@ Design history and progress belong in git.
   [calibration](docs/setup.md) contracts.
 - Python reaches devices only through `kinex.communication`. Keep the exec API
   (the `kinex` root and `kinex.lib`) apart from `kinex.node`, `kinex.common` and
-  `kinex.host`. A program is a public function of a `kinex.lib` module; the
-  library's tree is what Python imports, and the `lib` tool reads it without
-  starting Python. exec is the only runner: no per-program model tools or manifests.
+  `kinex.host`. A program is a complete script that ends with `finish`, the only
+  way it returns a result and attaches images; exec runs programs, given as source
+  or by path, and never calls a library function itself. `kinex.lib` holds reusable
+  functions: its tree is what Python imports, and the `lib` tool reads it without
+  starting Python. No per-program model tools or manifests.
   A program's subagent is a host capability without tools; core never calls a model.
 - Keep dynamic state out of stable prompt prefixes. Refresh capabilities within
   tasks and restore context after compaction without bypassing host permissions.
