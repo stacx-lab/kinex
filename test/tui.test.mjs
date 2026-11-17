@@ -43,6 +43,43 @@ test('real PTY renders Kinex, SDK tools/replies and device command completion', 
   await assert.rejects(stat(path.join(cwd, '.pi')), { code: 'ENOENT' })
 })
 
+test('real PTY draws a user command as a row that runs, finishes, fails and cancels on Escape', { timeout: 40000 }, async t => {
+  const cwd = await workspace(t)
+  const fake = await fakeProvider(t, isolation.root)
+  fake.steps.push({ text: 'KINEX_TUI_READY' })
+  const settingsFile = path.join(isolation.root, 'config', 'agent', 'settings.json')
+  const settings = await readFile(settingsFile, 'utf8')
+  t.after(() => writeFile(settingsFile, settings))
+  await writeFile(settingsFile, JSON.stringify({ ...JSON.parse(settings), tuiMode: 'regular' }))
+  const runtime = createKinexRuntime({ directory: cwd })
+  await seed(runtime)
+  await runtime.dispose()
+  await mkdir(path.join(cwd, '.kinex/lib'), { recursive: true })
+  await writeFile(path.join(cwd, '.kinex/lib/check.py'), [
+    '"""Checks."""', 'import asyncio', '',
+    'async def slow(label: str = "x"):', '    """Wait, then answer."""', '    await asyncio.sleep(1.2)', '    return {"label": label}', '',
+    'async def fail():', '    """Raise."""', '    raise RuntimeError("boom")', '',
+    'async def forever():', '    """Never return."""', '    await asyncio.sleep(600)', '',
+  ].join('\n'))
+  const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', 'TUI smoke'], {
+    cwd, timeout: 35000, maxBuffer: 8 * 1024 * 1024,
+    env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TIMEOUT: '30', TUI_TEST_TRIGGER: 'KINEX_TUI_READY', TUI_TEST_KEYS: JSON.stringify([
+      [0.1, '/exec check.slow label="red block"\r'], ['took', '/exec check.fail\r'], ['boom', '/exec check.forever\r'],
+      ['esc to cancel', '\x1b'], ['Cancelled by the user', '/devices\r'], ['sensor: other', '/quit\r'],
+    ]) },
+  })
+  const text = stripTerminalSequences(stdout)
+  assert.match(text, /exec check\.slow label="red block"/)
+  assert.match(text, /\d s · esc to cancel/)
+  assert.match(text, /"label": "red block"/)
+  assert.match(text, /took 1\.\d s/)
+  assert.match(text, /RuntimeError: boom/)
+  assert.match(text, /Cancelled by the user/)
+  assert.doesNotMatch(text, /User ran|\[kinex\]/)
+  assert.doesNotMatch(text + stderr, /TypeError|ReferenceError|Extension error/)
+  assert.equal(fake.requests.length, 1)
+})
+
 for (const tuiMode of ['regular', 'fullscreen']) test(`real PTY ${tuiMode} keeps recording on the directory row with expandable tools`, { timeout: 30000 }, async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
