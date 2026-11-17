@@ -59,3 +59,8 @@ export async function reserve(directory: string, prefix: string): Promise<string
     if (created) return id
   }
 }
+
+// A session killed at its deadline can end in a half-written line: such a line is skipped, not fatal.
+export function parseLine(line: string): unknown {
+  try { return JSON.parse(line) } catch { return undefined }
+}
