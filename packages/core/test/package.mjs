@@ -75,7 +75,7 @@ export async function checkCorePackage(directory, env, pack) {
       const capabilities = coreContribution(runtime)
       assert.ok(capabilities.commands.some(command => command.name === 'unregister'))
       assert.equal('conventions' in await runtime.context(),false)
-      const listed = await runtime.tools.call('exec', { python: 'return runtime.devices()' }, {sessionID:'package'})
+      const listed = await runtime.tools.call('exec', { python: 'from kinex import finish, runtime; finish(runtime.devices())' }, {sessionID:'package'})
       assert.ok(!listed.isError, listed.output)
       assert.equal(JSON.parse(listed.output).result[0].name, 'world')
       const reading = await runtime.tools.call('device', { deviceID: 'world', action: 'read' }, {sessionID:'package'})

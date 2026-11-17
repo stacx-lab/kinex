@@ -20,7 +20,7 @@ test('headless context includes one short Python instruction without onboarding 
   const request = fake.requests[0]
   const system = JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
   assert.equal(system.match(/exec runs Kinex Python/g)?.length, 1)
-  assert.match(system, /Discover devices with `runtime` and programs with the lib tool/)
+  assert.match(system, /Discover devices with `runtime` and lib functions with the lib tool/)
   assert.doesNotMatch(system, /Default pyproject\.toml|\{\{PROJECT\}\}/)
   const context = await app.owner.runtime.context()
   assert.ok(JSON.stringify(request).includes(context.python.executable))
@@ -57,19 +57,19 @@ test('/exec in a new session waits for the loaded devices that are still connect
   await first.dispose()
   // The device now takes a moment to start, as real nodes do.
   await writeFile(path.join(cwd, '.kinex/devices/sensor/handler.py'), 'import time\ntime.sleep(1.5)\n')
-  await mkdir(path.join(cwd, '.kinex/lib'), { recursive: true })
-  await writeFile(path.join(cwd, '.kinex/lib/check.py'), '"""Checks."""\nfrom kinex import runtime\n\ndef ready():\n    """Which devices are ready."""\n    return {device["name"]: device["ready"] for device in runtime.devices()}\n')
+  await mkdir(path.join(cwd, '.kinex/programs'), { recursive: true })
+  await writeFile(path.join(cwd, '.kinex/programs/ready.py'), 'from kinex import finish, runtime\nfinish({device["name"]: device["ready"] for device in runtime.devices()})\n')
   const outputs = []
   const app = await createApplication({ cwd, report: text => outputs.push(text) })
   t.after(() => app.dispose())
   await bind(app)
-  await app.host.session.prompt('/exec check.ready')
+  await app.host.session.prompt('/exec .kinex/programs/ready.py')
   assert.deepEqual(JSON.parse(outputs.at(-1)).result, { sensor: true })
   // The model reads who ran the command and what it returned; the row is drawn from the details.
   const entry = app.host.session.sessionManager.getBranch().findLast(item => item.type === 'custom_message' && item.customType === 'kinex')
-  assert.equal(entry.content, `User ran /exec check.ready:\n${outputs.at(-1)}`)
+  assert.equal(entry.content, `User ran /exec .kinex/programs/ready.py:\n${outputs.at(-1)}`)
   const { durationMs, ...details } = entry.details
-  assert.deepEqual(details, { name: 'exec', args: 'check.ready', isError: false, images: [] })
+  assert.deepEqual(details, { name: 'exec', args: '.kinex/programs/ready.py', isError: false, images: [] })
   assert.ok(durationMs > 0)
 })
 
@@ -130,7 +130,7 @@ export default { description: 'Capture test image', execute: async () => ({title
     await writeFile(image, png)
     await writeFile(second, secondPng)
     fake.steps.push({ tool: 'exec', args: {
-      python: 'from pathlib import Path\nreturn {"observed": True, "files": [Path("second.png"), Path("frame.png")]}',
+      python: 'from kinex import finish\nfinish({"observed": True}, file=["second.png", "frame.png"])',
     } })
   } else {
     await seed(app.owner.runtime)

@@ -12,7 +12,7 @@ function summary(name: string, args: Record<string, unknown>): string[] {
   if (name === "exec") {
     // A program's arguments read as the user would type them after /exec.
     const given = [...(Array.isArray(args.argv) ? args.argv.map(string) : []), ...Object.entries(object(args.args)).map(([key, value]) => `${key}=${JSON.stringify(value)}`)]
-    return [string(args.program) || string(args.file), given.join(" "), string(args.description)]
+    return [string(args.file), given.join(" "), string(args.description)]
   }
   if (name === "question") return [Array.isArray(args.questions) ? args.questions.map(question => string(object(question).header)).filter(Boolean).join(", ") : ""]
   if (name === "lib") return [string(args.path)]
@@ -106,11 +106,11 @@ function failureText(error: string, theme: Theme): string {
   return [...lines.slice(0, -1).map(line => theme.fg("muted", line)), theme.fg("error", lines.at(-1)!)].join("\n")
 }
 
-// The exec envelope reads as printed output, then the result or the failure.
+// The exec envelope reads as printed output, then the result with the files attached to it, or the failure.
 function execResult(text: string, theme: Theme, expanded: boolean): string | undefined {
   const value = object(parse(text))
   if (typeof value.output !== "string" || !("result" in value || "error" in value)) return undefined
-  const { output, result, error, code, details } = value
+  const { output, result, file, error, code, details } = value
   const printed = clean(output).trimEnd()
   const blocks = printed ? [printedText(printed, theme)] : []
   if (typeof error === "string") {
@@ -118,6 +118,7 @@ function execResult(text: string, theme: Theme, expanded: boolean): string | und
     blocks.push(`${failureText(clean(error).trim(), theme)}${failure}`)
   }
   else if (result !== null && result !== undefined) blocks.push(resultText(expanded ? result : brief(result), theme))
+  if (Array.isArray(file)) blocks.push(file.map(item => theme.fg("muted", `file ${string(item)}`)).join("\n"))
   return blocks.join("\n\n")
 }
 

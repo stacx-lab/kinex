@@ -107,9 +107,9 @@ test('gripper URDF trees resolve mimic joints, validate the grip and expose the 
   ]) await assert.rejects(runtime.profiles.writeDevice({ ...gripper, ...patch }), error)
   await runtime.profiles.writeDevice({ ...gripper, grip })
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:gripper').detail, '5 URDF links, grip finger_joint')
-  const result = await runtime.tools.call('exec', { python: `from kinex import profile
+  const result = await runtime.tools.call('exec', { python: `from kinex import finish, profile
 model = profile("gripper")["resolved_model"]
-return {"links": model["links"], "mimic": [joint["mimic"] for joint in model["joints"] if joint.get("mimic")]}` }, { sessionID: 'gripper', ask: async () => {} })
+finish({"links": model["links"], "mimic": [joint["mimic"] for joint in model["joints"] if joint.get("mimic")]})` }, { sessionID: 'gripper', ask: async () => {} })
   assert.ok(!result.isError, result.output)
   assert.deepEqual(JSON.parse(result.output).result, { links: ['base_link', 'left_finger', 'right_finger', 'left_pad', 'right_pad'],
     mimic: [{ joint: 'finger_joint', multiplier: 1, offset: 0 }] })
@@ -140,11 +140,12 @@ test('joint URDF trees validate home and links and serve helper kinematics', asy
   ]) await assert.rejects(runtime.profiles.writeDevice({ ...arm, ...patch }), error)
   await runtime.profiles.writeDevice({ ...arm, frames: { base: root, tool: { parent: 'arm:flange', translation_m: [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] } } })
   assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:arm').detail, '7 joints, native limits, tip flange')
-  const result = await runtime.tools.call('exec', { python: `arm = lib.kinematics.joint_model("arm")
+  const result = await runtime.tools.call('exec', { python: `from kinex import finish, lib
+arm = lib.kinematics.joint_model("arm")
 seed = [0, 0, 0, -1.5, 0, 1.5, 0]
 goal = arm.fk([.1, .2, 0, -1.4, 0, 1.6, .1])
 reached = goal.inv() * arm.fk(arm.ik(goal, seed))
-return {"names": arm.names, "error": float(abs(reached.translation).max() + reached.rotation.magnitude())}` }, { sessionID: 'arm', ask: async () => {} })
+finish({"names": arm.names, "error": float(abs(reached.translation).max() + reached.rotation.magnitude())})` }, { sessionID: 'arm', ask: async () => {} })
   assert.ok(!result.isError, result.output)
   const { names, error } = JSON.parse(result.output).result
   assert.deepEqual(names, Array.from({ length: 7 }, (_, i) => `robot0_joint${i + 1}`))

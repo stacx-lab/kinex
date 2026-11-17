@@ -54,22 +54,19 @@ test('real PTY draws a user command as a row that runs, finishes, fails and canc
   const runtime = createKinexRuntime({ directory: cwd })
   await seed(runtime)
   await runtime.dispose()
-  await mkdir(path.join(cwd, '.kinex/lib'), { recursive: true })
-  await writeFile(path.join(cwd, '.kinex/lib/check.py'), [
-    '"""Checks."""', 'import asyncio', '',
-    'async def slow(label: str = "x"):', '    """Wait, then answer."""', '    await asyncio.sleep(1.2)', '    return {"label": label}', '',
-    'async def fail():', '    """Raise."""', '    raise RuntimeError("boom")', '',
-    'async def forever():', '    """Never return."""', '    await asyncio.sleep(600)', '',
-  ].join('\n'))
+  await mkdir(path.join(cwd, 'programs'))
+  await writeFile(path.join(cwd, 'programs/slow.py'), 'import time\nfrom kinex import args, finish\ntime.sleep(1.2)\nfinish(args())\n')
+  await writeFile(path.join(cwd, 'programs/fail.py'), 'raise RuntimeError("boom")\n')
+  await writeFile(path.join(cwd, 'programs/forever.py'), 'import time\ntime.sleep(600)\n')
   const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, '--auto', '--model', 'fake/test', 'TUI smoke'], {
     cwd, timeout: 35000, maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TIMEOUT: '30', TUI_TEST_TRIGGER: 'KINEX_TUI_READY', TUI_TEST_KEYS: JSON.stringify([
-      [0.1, '/exec check.slow label="red block"\r'], ['took', '/exec check.fail\r'], ['boom', '/exec check.forever\r'],
+      [0.1, '/exec programs/slow.py label="red block"\r'], ['took', '/exec programs/fail.py\r'], ['boom', '/exec programs/forever.py\r'],
       ['esc to cancel', '\x1b'], ['Cancelled by the user', '/devices\r'], ['sensor: other', '/quit\r'],
     ]) },
   })
   const text = stripTerminalSequences(stdout)
-  assert.match(text, /exec check\.slow label="red block"/)
+  assert.match(text, /exec programs\/slow\.py label="red block"/)
   assert.match(text, /\d s · esc to cancel/)
   assert.match(text, /"label": "red block"/)
   assert.match(text, /took 1\.\d s/)

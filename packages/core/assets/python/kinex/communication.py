@@ -15,6 +15,7 @@ import threading
 import time
 import uuid
 from kinex.common.geometry import vector
+from kinex.common.plain import TIMES, ros_type
 from kinex.errors import RPCError, OperationError
 
 _active = contextvars.ContextVar("kinex_communication", default=None)
@@ -37,7 +38,6 @@ def seconds(value):
     return stamp.sec + stamp.nanosec / 1e9
 
 
-TIMES = ("builtin_interfaces/Time", "builtin_interfaces/Duration")
 # A pose's two parts under the names each message type gives them.
 POSES = {"geometry_msgs/Pose": ("position", "orientation"), "geometry_msgs/Transform": ("translation", "rotation")}
 VECTORS = {"geometry_msgs/Point": "xyz", "geometry_msgs/Vector3": "xyz", "geometry_msgs/Quaternion": "xyzw"}
@@ -53,7 +53,7 @@ def _fields(cls, value):
     """
     if isinstance(value, cls):
         return value
-    kind = f"{cls.__module__.split('.')[0]}/{cls.__name__}"
+    kind = ros_type(cls)
     if kind in TIMES and isinstance(value, Real) and not isinstance(value, bool):
         return duration(value)
     if kind in POSES and not isinstance(value, dict):
@@ -132,8 +132,7 @@ class Subscription:
                 self.dropped += 1
             self.inbox.append((message, time.monotonic()))
             if not self.scheduled:
-                self.scheduled = True
-                self.io.loop.call_soon_threadsafe(self._deliver)
+                self.scheduled = self.io._post(self._deliver)
 
     def _deliver(self):
         with self.lock:
@@ -221,6 +220,8 @@ class Communication:
     def open(self):
         """Acquire ROS resources once, inside the running event loop."""
         if self.opened:
+            if self.loop.is_closed():
+                raise RuntimeError("io belongs to the program's event loop, which has ended: use one asyncio.run(main())")
             return self
         if self.supervised and not self.catalog:
             raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host before using io.",
@@ -266,12 +267,19 @@ class Communication:
         self.token = _active.set(self)
         return self
 
+    def _post(self, callback, *args):
+        """Hand a callback from a ROS thread to the event loop; False once that loop has closed."""
+        try:
+            self.loop.call_soon_threadsafe(callback, *args)
+        except RuntimeError:
+            return False
+        return True
+
     def _clock_received(self, message):
         with self.clock_lock:
             self.clock_pending = message
             if not self.clock_scheduled:
-                self.clock_scheduled = True
-                self.loop.call_soon_threadsafe(self._clock_deliver)
+                self.clock_scheduled = self._post(self._clock_deliver)
 
     def _clock_deliver(self):
         with self.clock_lock:
@@ -300,7 +308,7 @@ class Communication:
         except ExternalShutdownException:
             pass
         except Exception as error:
-            self.loop.call_soon_threadsafe(self._failed, error)
+            self._post(self._failed, error)
 
     def _failed(self, error):
         if self.closed:
@@ -358,7 +366,7 @@ class Communication:
                     future.set_result(done.result())
                 except Exception as error:
                     future.set_exception(error)
-            self.loop.call_soon_threadsafe(deliver)
+            self._post(deliver)
         ros_future.add_done_callback(complete)
         try:
             async with asyncio.timeout(timeout_s):
@@ -465,6 +473,8 @@ class Communication:
             # ROS futures yield executor workers; asyncio executes the handler.
             from rclpy.task import Future
             bridge = Future(executor=self.executor)
+            if self.loop.is_closed():  # the program has ended; its request stays unanswered
+                return await bridge
             pending = asyncio.run_coroutine_threadsafe(run(), self.loop)
             self.handlers.add(pending)
             def complete(done):
@@ -490,6 +500,8 @@ class Communication:
         """Release the scope: success flushes commands, failure stops every commanded device."""
         if not self.opened or self.closed:
             return
+        # exec closes its scope after the program's own loop has ended.
+        self.loop = asyncio.get_running_loop()
         succeeded = error is None or isinstance(error, SystemExit) and error.code in (None, 0)
         failure = self.spin_error if succeeded else error
         try:

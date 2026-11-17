@@ -1,12 +1,12 @@
-"""Kinex invocation API for exec.
+"""Kinex API for exec programs.
 
-Use io for async pub/sub and request/response, runtime for device discovery, lib for
-reusable programs and subagent for a judgment only a model can make; exec returns what
-the invoked code returns. Programs compute with NumPy arrays, poses (pose) and seconds
-(seconds); io and the result convert them to and from ROS fields and JSON, and plain
-gives the JSON form to a program that writes its own. The host dialog carries invocation metadata, profiles, subagent
-calls and that result. One execution approval covers
-the invocation; Python calls cannot change device lifecycle.
+A program imports what it uses: io for pub/sub and request/response, runtime for device
+discovery, lib for reusable functions, subagent for a judgment only a model can make,
+args for its arguments and finish to end with its result. Programs compute with NumPy
+arrays, poses (pose) and seconds (seconds); io and finish convert them to and from ROS
+fields and JSON, and plain gives the JSON form to a program that writes its own. The
+host dialog carries invocation metadata, profiles, subagent calls and the result. One
+execution approval covers the invocation; Python cannot change device lifecycle.
 """
 
 import asyncio
@@ -17,11 +17,10 @@ import queue
 import sys
 import threading
 import traceback
-from pathlib import Path
 
 from kinex.communication import communication, io, seconds
 from kinex.errors import RPCError, OperationError
-from kinex.common.plain import IMAGES, plain
+from kinex.common.plain import image_file, plain
 from kinex.values import pose
 
 # Protocol channel: the real stdout, captured only INSIDE a tool dialog (the
@@ -160,14 +159,43 @@ def robot():
     return _rpc({"call": "robot"})["robot"]
 
 
+class _Finished(SystemExit):
+    """finish's exit, carrying what exec returns once the program's scope is released."""
+
+    def __init__(self, payload):
+        super().__init__(0)
+        self.payload = payload
+
+
+def args():
+    """The args this exec was given."""
+    if _request is None:
+        raise RuntimeError("not running inside exec")
+    return _request["args"]
+
+
+def finish(result=None, file=None):
+    """End the program with its result; call it from main().
+
+    result is JSON-ready data: messages, poses, arrays and times are converted. Images
+    are never data: file attaches an image path or image message, or a list of them.
+    """
+    if _out is None:
+        raise RuntimeError("not running inside exec: the host dialog is unavailable")
+    files = [image_file(item) for item in ([] if file is None else file if isinstance(file, (list, tuple)) else [file])]
+    if None in files:
+        raise TypeError("finish file takes image paths and image messages")
+    payload = {"return": plain(result), "files": files}
+    json.dumps(payload, allow_nan=False)  # an unserialisable result fails here, at the call
+    raise _Finished(payload)
+
+
 def _shown(name, value):
     """One named item for a subagent: an image as a file, anything else as text."""
-    kind = f"{type(value).__module__.split('.')[0]}/{type(value).__name__}" if hasattr(value, "get_fields_and_field_types") else None
-    if kind in IMAGES or isinstance(value, Path):
-        files = []
-        plain(value, files)
-        return {"name": name, "image": files[0]}
-    return {"name": name, "text": value if isinstance(value, str) else json.dumps(plain(value, []), allow_nan=False)}
+    if isinstance(value, str):
+        return {"name": name, "text": value}
+    image = image_file(value)
+    return {"name": name, "image": image} if image else {"name": name, "text": json.dumps(plain(value), allow_nan=False)}
 
 
 async def subagent(instruction, *, show=None, model=None, thinking=None, timeout_s=60):

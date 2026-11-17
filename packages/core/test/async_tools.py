@@ -262,6 +262,42 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(endpoints, [("/world/stop", {})])
 
 
+class ProgramLoop(unittest.TestCase):
+    """exec releases its scope after the program's own event loop has ended."""
+
+    def test_a_scope_closes_in_a_new_loop_after_its_own_ended(self):
+        import threading
+        rclpy, duration = ModuleType("rclpy"), ModuleType("rclpy.duration")
+        duration.Duration = lambda **_: None
+        for error, acknowledged, stopped in ((None, True, False), (RuntimeError("failure"), True, True), (None, False, True)):
+            io, calls = scope({}), []
+            io.enrolled.add("arm")
+            io.publishers = {"arm.joint_target": NS(wait_for_all_acked=lambda timeout: acknowledged)}
+            io.clock_lock, io.clock_scheduled = threading.Lock(), False
+
+            async def program():
+                io.loop = asyncio.get_running_loop()
+
+            async def stop(devices):
+                calls.append((devices, io.loop is asyncio.get_running_loop()))
+
+            io._stop = stop
+            asyncio.run(program())
+            # A message arriving between the loops is dropped, and leaves its delivery free to be scheduled again.
+            io._clock_received(NS())
+            self.assertFalse(io.clock_scheduled)
+            with self.assertRaisesRegex(RuntimeError, "one asyncio.run"):
+                io.open()
+            with patch.dict(sys.modules, {"rclpy": rclpy, "rclpy.duration": duration}):
+                if error is None and not acknowledged:
+                    with self.assertRaisesRegex(TimeoutError, "arm.joint_target"):
+                        asyncio.run(io.close(error))
+                else:
+                    asyncio.run(io.close(error))
+            self.assertEqual(calls, [(["arm"], True)] if stopped else [])
+            self.assertTrue(io.closed)
+
+
 class Dialog(unittest.IsolatedAsyncioTestCase):
     async def test_subscription_closes_as_a_context_manager(self):
         import threading
@@ -289,7 +325,7 @@ class Dialog(unittest.IsolatedAsyncioTestCase):
 
     def test_plain_converts_messages_poses_arrays_records_and_non_finite_numbers(self):
         from dataclasses import dataclass
-        from kinex.common.plain import plain
+        from kinex.common.plain import image_file, plain
 
         def message(module, kind, /, **fields):
             cls = type(kind, (), {"get_fields_and_field_types": lambda self: dict.fromkeys(fields, "")})
@@ -312,16 +348,18 @@ class Dialog(unittest.IsolatedAsyncioTestCase):
                          {"state": {"header": {"frame_id": "camera/color", "stamp": 2.5}, "name": ["j1"], "position": [.5, None]},
                           "pair": [2., None], "tcp": [1, 2, 3, 0, 0, 0, 1], "path": [[0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 1]],
                           "plan": {"actions": [[0, 1]], "duration_s": 2.5}, "raw": [1, 2]})
+        self.assertEqual(plain({"plot": Path("plot.png")}), {"plot": "plot.png"})
+        # Images are files, never data, at any depth; finish and subagent take them as files.
         image = message("sensor_msgs.msg._image", "Image", header=header(), data=b"")
-        for value in (image, Path("plot.png")):
-            with self.assertRaisesRegex(TypeError, "exec result"):
-                plain({"image": value})
-        response, files = message("example_interfaces.srv._frame", "Frame_Response", image=image), []
+        for value in (image, [image], message("example_interfaces.srv._frame", "Frame_Response", image=image)):
+            with self.assertRaisesRegex(TypeError, "images are not data"):
+                plain({"view": value})
         with patch("kinex.common.camera.save", lambda image: "/tmp/frame.png"):
-            value = plain({"view": response, "plot": Path("plot.png"), "depth": (image, 1.5)}, files)
-        reference = {"file": "/tmp/frame.png", "frame": "camera/color", "stamp": 2.5}
-        self.assertEqual(value, {"view": {"image": reference}, "plot": "plot.png", "depth": [reference, 1.5]})
-        self.assertEqual(files, ["/tmp/frame.png", "plot.png", "/tmp/frame.png"])
+            self.assertEqual([image_file(value) for value in (image, "plot.png", Path("plot.png"), state, 3)],
+                             ["/tmp/frame.png", "plot.png", "plot.png", None, None])
+        compressed = image_file(message("sensor_msgs.msg._compressed_image", "CompressedImage", format="rgb8; png compressed", data=b"\x89PNG"))
+        self.addCleanup(Path(compressed).unlink)
+        self.assertEqual((Path(compressed).suffix, Path(compressed).read_bytes()), (".png", b"\x89PNG"))
 
 
 class Messages(unittest.TestCase):

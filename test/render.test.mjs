@@ -24,19 +24,19 @@ test('important tools show action and target, including streamed arguments and a
     assert.doesNotThrow(() => plain(toolRenderers('record').renderCall(args, theme, context)))
   }
   assert.equal(plain(toolRenderers('unknown_custom_tool').renderCall({}, theme, context)), 'unknown_custom_tool')
-  for (const [name, args, subject] of [['exec', { program: 'demo.views' }, 'demo.views'], ['exec', { file: 'scripts/inspect.py' }, 'scripts/inspect.py'], ['device', { deviceID: 'arm' }, 'read arm']]) {
+  for (const [name, args, subject] of [['exec', { file: 'scripts/inspect.py' }, 'scripts/inspect.py'], ['device', { deviceID: 'arm' }, 'read arm']]) {
     const colors = new Map()
     toolRenderers(name).renderCall(args, { ...theme, fg: (color, text) => { colors.set(text, color); return text } }, context)
     assert.equal(colors.get(subject), 'accent')
   }
 })
 
-test('an exec title names the program or file, then its arguments, then the description in italics', () => {
+test('an exec title names the program file, then its arguments, then the description in italics', () => {
   const styles = []
   const traced = { ...theme, fg: (color, text) => { styles.push([color, text]); return text }, italic: text => `<i>${text}</i>` }
   const title = args => { styles.length = 0; return plain(toolRenderers('exec').renderCall(args, traced, context)) }
-  assert.equal(title({ description: 'pick the block', program: 'tabletop.pick_place', args: { object: 'red block', attempts: 2 } }),
-    'exec tabletop.pick_place object="red block" attempts=2 <i>pick the block</i>')
+  assert.equal(title({ description: 'pick the block', file: 'programs/pick.py', args: { object: 'red block', attempts: 2 } }),
+    'exec programs/pick.py object="red block" attempts=2 <i>pick the block</i>')
   assert.deepEqual(styles.map(([color]) => color), ['toolTitle', 'accent', 'muted', 'muted'])
   assert.equal(title({ description: '  ', file: 'scripts/inspect.py', argv: ['--arm', 'left'], args: { speed: .5 } }), 'exec scripts/inspect.py --arm left speed=0.5')
   assert.equal(title({ description: 'inspect arm state', python: 'print(1)' }).split('\n')[0].trimEnd(), 'exec <i>inspect arm state</i>')
@@ -47,8 +47,8 @@ test('exec calls show inline source under the title, bounded until expanded', ()
   const call = (args, expanded = false) => renderers.renderCall(args, theme, { ...context, expanded }).render(100).map(line => stripTerminalSequences(line).trimEnd())
   assert.deepEqual(call({ description: 'inspect arm state', python: 'from kinex import runtime\nprint(runtime.devices())' }),
     ['exec inspect arm state', '', 'from kinex import runtime', 'print(runtime.devices())'])
-  assert.deepEqual(call({ description: 'pick the block', program: 'tabletop.pick_place', args: { object: 'red block' } }, true),
-    ['exec tabletop.pick_place object="red block" pick the block'])
+  assert.deepEqual(call({ description: 'pick the block', file: 'programs/pick.py', args: { object: 'red block' } }, true),
+    ['exec programs/pick.py object="red block" pick the block'])
   assert.deepEqual(call({ description: 'inspect' }), ['exec inspect'])
   assert.deepEqual(call({}), ['exec'])
   const source = Array.from({ length: 25 }, (_, i) => `x${i} = ${i}`).join('\n')
@@ -84,6 +84,9 @@ test('exec results show printed output, then the result or the failure once, as 
   assert.deepEqual(show({ output: '', result: [1, 2] }), ['', '[1,2]'])
   assert.deepEqual(show({ output: '', result: 'done\nok' }), ['', 'done', 'ok'])
   assert.deepEqual(show({ output: '', result: null }), [])
+  // The files finish attached are named after the result.
+  assert.deepEqual(show({ output: '', result: { ok: true }, file: ['/tmp/wrist.png', 'plot.png'] }), ['', '{', '  "ok": true', '}', '', 'file /tmp/wrist.png', 'file plot.png'])
+  assert.deepEqual(show({ output: '', result: null, file: ['plot.png'] }), ['', 'file plot.png'])
   const traceback = 'Traceback (most recent call last):\n  File "<exec>", line 1\nRuntimeError: boom'
   assert.deepEqual(show({ output: 'hi\n', error: traceback }, { isError: true }), ['', 'hi', '', ...traceback.split('\n')])
   assert.deepEqual(show({ output: '', error: 'wait failed', code: 'OperationError', details: 'sequential' }, { isError: true }),
@@ -138,12 +141,12 @@ test('a user command is drawn as a tool row: pending while it runs, then its out
   const traced = { ...theme, bg: (color, text) => { backgrounds.push(color); return text }, fg: (color, text) => { colors.set(text, color); return text } }
   const lines = (row, options = {}) => commandRow(row, traced, { expanded: false, outputPad: 1, ...options }).render(60).map(line => stripTerminalSequences(line).trimEnd())
   const status = { render: () => ['', 'running'], invalidate() {} }
-  assert.deepEqual(lines({ name: 'exec', args: 'demo.views object="black bowl"' }, { status }), ['', ' exec demo.views object="black bowl"', '', ' running', ''])
+  assert.deepEqual(lines({ name: 'exec', args: 'programs/views.py object="black bowl"' }, { status }), ['', ' exec programs/views.py object="black bowl"', '', ' running', ''])
   assert.deepEqual([...new Set(backgrounds)], ['toolPendingBg'])
-  assert.deepEqual([colors.get('demo.views'), colors.get('object="black bowl"')], ['accent', 'muted'])
+  assert.deepEqual([colors.get('programs/views.py'), colors.get('object="black bowl"')], ['accent', 'muted'])
   backgrounds.length = 0
-  const done = lines({ name: 'exec', args: 'demo.views', result: { text: JSON.stringify({ output: '', result: { ok: true } }), isError: false, durationMs: 4600 } })
-  assert.deepEqual(done, ['', ' exec demo.views', '', ' {', '   "ok": true', ' }', '', ' took 4.6 s', ''])
+  const done = lines({ name: 'exec', args: 'programs/views.py', result: { text: JSON.stringify({ output: '', result: { ok: true } }), isError: false, durationMs: 4600 } })
+  assert.deepEqual(done, ['', ' exec programs/views.py', '', ' {', '   "ok": true', ' }', '', ' took 4.6 s', ''])
   assert.ok(!done.join('\n').includes('User ran'))
   assert.deepEqual([...new Set(backgrounds)], ['toolSuccessBg'])
   backgrounds.length = 0
@@ -155,10 +158,10 @@ test('a user command is drawn as a tool row: pending while it runs, then its out
   assert.match(lines(long, { expanded: true }).join('\n'), /"k19": 19/)
 })
 
-test('a user command row shows the images its program returned where the terminal can', t => {
+test('a user command row shows the images its program attached where the terminal can', t => {
   const capabilities = getCapabilities()
   t.after(() => setCapabilities(capabilities))
-  const row = { name: 'exec', args: 'demo.views', result: { text: JSON.stringify({ output: '', result: null }), isError: false, images: [{ mimeType: 'image/png', data: 'aW1hZ2U=' }] } }
+  const row = { name: 'exec', args: 'programs/views.py', result: { text: JSON.stringify({ output: '', result: null }), isError: false, images: [{ mimeType: 'image/png', data: 'aW1hZ2U=' }] } }
   const height = () => commandRow(row, { ...theme, bg: (_color, text) => text }, { expanded: false, outputPad: 1 }).render(60).length
   setCapabilities({ ...capabilities, images: null })
   const without = height()

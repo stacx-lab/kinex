@@ -16,7 +16,7 @@ import { NamedError } from "../util/error.ts"
 import { readLine, LineTimeoutError } from "../util/lines.ts"
 import { create } from "../util/log.ts"
 import type { Context, Result } from "./tool.ts"
-import { SubagentCall } from "./subagent.ts"
+import { SubagentCall, type SubagentItem } from "./subagent.ts"
 
 const log = create("exec")
 
@@ -26,7 +26,7 @@ class ExecError extends NamedError {
   }
 }
 
-// The dialog carries invocation metadata, profiles and the returned result.
+// The dialog carries invocation metadata, profiles and the program's result.
 // ROS payloads travel directly between Python nodes and devices.
 type Request = Record<string, unknown>
 type ExecutionContext = Context & { output?: (text: string) => void }
@@ -34,7 +34,6 @@ type InvocationContext = ExecutionContext & { invocation: string }
 export interface ExecInput {
   python?: string
   file?: string
-  program?: string
   args: Record<string, unknown>
   argv: string[]
   timeout_s: number
@@ -94,18 +93,18 @@ async function subagent(cwd: string, request: Request, ctx: InvocationContext): 
   if (!parsed.success) return { ok: false, error: `invalid subagent call: ${z.prettifyError(parsed.error)}` }
   if (!ctx.subagent) return { ok: false, error: "this host runs no subagents", code: "subagent_unavailable" }
   const { instruction, model, thinking, timeout_s } = parsed.data
-  const show = await Promise.all(parsed.data.show.map(async item => {
-    if (!("image" in item)) return item
+  const show: SubagentItem[] = []
+  for (const item of parsed.data.show) {
+    if (!("image" in item)) { show.push(item); continue }
     const file = path.resolve(cwd, item.image)
     const mime = await imageMime(file)
-    return mime ? { name: item.name, image: { path: file, mime } } : file
-  }))
-  const unreadable = show.find(item => typeof item === "string")
-  if (unreadable) return { ok: false, error: `subagent cannot be shown ${unreadable}: it is not a readable image` }
+    if (!mime) return { ok: false, error: `subagent cannot be shown ${file}: it is not a readable image` }
+    show.push({ name: item.name, image: { path: file, mime } })
+  }
   const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(timeout_s * 1000))])
   const started = Date.now()
   try {
-    const reply = await abortable(ctx.subagent({ instruction, show: show.filter(item => typeof item !== "string"), model: model ?? undefined, thinking: thinking ?? undefined }, signal), signal)
+    const reply = await abortable(ctx.subagent({ instruction, show, model: model ?? undefined, thinking: thinking ?? undefined }, signal), signal)
     // The reply decides what the program does next, so it is part of the invocation's output.
     ctx.output?.(`subagent ${reply.model} (${((Date.now() - started) / 1000).toFixed(1)} s): ${reply.text.trim()}\n`)
     return { ok: true, text: reply.text }
@@ -131,7 +130,7 @@ async function invoke(cwd: string, input: ExecInput, ctx: ExecutionContext): Pro
   }
 }
 
-// Preserve the returned JSON value, including null; a clean exit without one returns null.
+// What finish returned, including null; a clean exit without finish returns null.
 async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Promise<Returned> {
   const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(input.timeout_s * 1000))])
   const scoped = { ...ctx, abort: signal }
@@ -140,7 +139,7 @@ async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Pr
   const runtime = await pythonLaunch(cwd, "exec", undefined, signal)
   signal.throwIfAborted()
   const request = JSON.stringify({
-    args: input.args, source: input.python, file: input.file && path.resolve(cwd, input.file), program: input.program, argv: input.argv, ros,
+    args: input.args, source: input.python, file: input.file && path.resolve(cwd, input.file), argv: input.argv, ros,
   }) + "\n"
   const proc = spawnProcess([...runtime.command, "-u", "-m", "kinex.host.run"], {
     cwd,
@@ -161,15 +160,15 @@ async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Pr
 
   // Answers carry the call's id and are written one at a time. A subagent call is
   // answered when its model replies, while the dialog goes on serving other calls.
-  const answers = { written: Promise.resolve() }
+  let written = Promise.resolve()
   const ended = new AbortController()
   const asking = { ...scoped, abort: AbortSignal.any([signal, ended.signal]) }
   const answer = (id: unknown, response: Record<string, unknown>) => {
-    answers.written = answers.written.catch(() => {}).then(async () => {
+    written = written.catch(() => {}).then(async () => {
       proc.stdin.write(JSON.stringify({ ...response, id }) + "\n")
       await proc.stdin.flush()
     })
-    return answers.written
+    return written
   }
   const conversation = (async (): Promise<Returned> => {
     for (;;) {
@@ -206,7 +205,7 @@ async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Pr
       // JSON but neither request nor terminal — tolerate like a stray print.
     }
   })()
-  // Drain the dialog while sending: a tool may print before importing kinex.
+  // Drain the dialog while sending: a program may print before importing kinex.
   proc.stdin.write(request)
   const sent = abortable(proc.stdin.flush(), signal).catch((error: unknown) => {
     signal.throwIfAborted()
@@ -238,27 +237,19 @@ export async function runExec(input: ExecInput, ctx: Context): Promise<Result> {
     while (JSON.stringify(output).length > 16_384) output = output.slice(Math.ceil(output.length / 4))
     dropped += length - output.length
   }
-  let returned: Returned | undefined, error: ReturnType<typeof failure> | undefined
+  const text = (outcome: object) =>
+    formatJSON({ output: `${dropped ? `(output truncated: ${dropped} characters dropped)\n` : ""}${output}`, ...outcome })
   try {
-    returned = await invoke(ctx.directory, input, { ...ctx, output: capture })
+    const { result, files } = await invoke(ctx.directory, input, { ...ctx, output: capture })
+    // The files finish named, in its order; those that are images are attached.
+    const attachments = (await Promise.all(files.map(async file => {
+      const resolved = path.resolve(ctx.directory, file)
+      const mime = await imageMime(resolved)
+      return mime ? [{ mime, path: resolved }] : []
+    }))).flat()
+    return { title: "exec (Python)", output: text({ result, ...(files.length ? { file: files } : {}) }), ...(attachments.length ? { attachments } : {}) }
   } catch (caught) {
     if (caught instanceof PermissionDeniedError) throw caught
-    error = failure(caught)
+    return { title: "exec (Python)", output: text(failure(caught)), isError: true }
   }
-  return {
-    title: "exec (Python)",
-    output: formatJSON({ output: `${dropped ? `(output truncated: ${dropped} characters dropped)\n` : ""}${output}`,
-      ...(error ?? { result: returned?.result ?? null }) }),
-    ...(error ? { isError: true } : await attachments(returned?.files ?? [], ctx.directory)),
-  }
-}
-
-// Returned images and image paths, in the order the result names them.
-async function attachments(files: string[], directory: string) {
-  const found = (await Promise.all(files.map(async file => {
-    const resolved = path.resolve(directory, file)
-    const mime = await imageMime(resolved)
-    return mime ? [{ mime, path: resolved }] : []
-  }))).flat()
-  return found.length ? { attachments: found } : {}
 }
