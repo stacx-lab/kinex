@@ -6,7 +6,7 @@ import { Global } from "../global.ts"
 import { Assets } from "../installation/assets.ts"
 import { scanPython } from "./python.ts"
 
-// The program library is the kinex.lib package: builtin modules plus the lib/
+// The function library is the kinex.lib package: builtin modules plus the lib/
 // directory of every workspace and the global configuration. Its tree is what
 // Python's import system resolves, read from source without starting Python.
 export const LibPath = z.string().regex(/^(?:[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)?$/, "a dotted module or function path")
@@ -111,6 +111,6 @@ export async function libNode(cwd: string, target = ""): Promise<LibNode> {
 export async function formatLib(cwd: string): Promise<string> {
   const { node } = await libNode(cwd)
   if (node.kind !== "module") return ""
-  return ["<lib>", "Programs in kinex.lib; browse a module or function with the lib tool.",
+  return ["<lib>", "Functions in kinex.lib by module; read a module or function with the lib tool.",
     ...node.modules.map(module => `  - ${module.name} (${module.origin ?? "directory"}): ${module.summary}`), "</lib>"].join("\n")
 }

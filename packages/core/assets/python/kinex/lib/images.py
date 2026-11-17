@@ -1,7 +1,7 @@
 """Current camera frames, camera geometry, pixel arrays and image files.
 
-Images stay sensor_msgs/Image messages; returning one from exec attaches it for the
-model. Reading a camera never advances world time.
+Images stay sensor_msgs/Image messages; pass one to finish(file=...) for the model to
+see it. Reading a camera never advances world time.
 """
 import numpy as np
 
@@ -11,10 +11,10 @@ from kinex.common.camera import stereo_frame as read_stereo
 
 
 async def camera_frame(camera, timeout_s=None, eye=None):
-    """The camera's current image and, for an rgbd camera, its depth (else None).
+    """The camera's current image and its depth from the same acquisition (None without depth).
 
-    Both come from one acquisition (equal stamps); reading never advances world time.
-    A stereo camera requires eye="left" or eye="right".
+    A stereo camera needs eye="left" or eye="right"; timeout_s defaults to the image
+    operation's.
 
     Example: image, depth = await lib.images.camera_frame("camera")
     """
@@ -34,16 +34,16 @@ async def stereo_frame(camera, timeout_s=None):
 
 
 def image_array(image):
-    """Native-order pixels of a sensor_msgs/Image as numpy: HxWx3 RGB or HxW mono8/16UC1.
+    """A sensor_msgs/Image's pixels as a NumPy array: HxWx3 RGB, or HxW for mono8 and 16UC1 depth.
 
-    Example: pixels = lib.images.image_array((await lib.images.camera_frame("camera"))[0])
+    Example: pixels = lib.images.image_array(image)
     """
     return array(image)
 
 
 def save_image(image):
-    """Write a sensor_msgs/Image as a PNG, keeping 16-bit depth, and return its path,
-    for example to pass to a model device.
+    """Write a sensor_msgs/Image to a temporary PNG, keeping 16-bit depth, and return its
+    path, as a model device's image input takes it.
 
     Example: file = lib.images.save_image(image)
     """
@@ -94,12 +94,11 @@ class CameraGeometry:
 
 
 async def camera_geometry(camera):
-    """The camera's active geometry; fetch once per invocation, before acquisition.
+    """The camera's active geometry, between pixels and optical rays; fetch it once per program.
 
-    await geometry.unproject(pixels, stream="color") returns Nx3 optical rays (Z=1) and
-    await geometry.project(points, stream="color") Nx2 pixels; invalid results are NaN.
-    streams maps color, depth, left or right to its descriptor. Streams cannot change
-    calibration while loaded; reload after reconfiguration.
+    await geometry.unproject(pixels, stream="color") gives Nx3 optical rays (Z=1) and
+    await geometry.project(points, stream="color") Nx2 pixels, NaN where invalid.
+    geometry.streams maps color, depth, left or right to its descriptor.
 
     Example: rays = await (await lib.images.camera_geometry("camera")).unproject([[320, 240]])
     """

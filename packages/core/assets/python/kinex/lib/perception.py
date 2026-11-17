@@ -15,17 +15,16 @@ from kinex.common.geometry import number, vector
 
 
 async def locate_object_3d(camera, model, prompt, depth=None, min_score=.25, instance=0, eye=None):
-    """Locate a detected object in the camera optical frame (+X right, +Y down, +Z forward).
+    """Locate a detected object as a 3D point in the camera's optical frame (+X right, +Y down, +Z forward).
 
-    camera is an rgb or rgbd device with calibrated color intrinsics; model serves a
-    Json detect taking an image path, prompt, min_score and max_results and returning
-    results with box, score, label and an optional mask. Samples depth inside a
-    supplied mask, otherwise the central half of the box; depth gives an explicit
-    optical Z in metres instead of RGBD depth. A stereo camera requires eye ("left" or
-    "right") and explicit depth. instance indexes detections sorted by descending
-    score. Returns point (metres) and pixel as arrays, depth_samples, reference
-    (visible_surface or box_region), frame, label, detection_score, detections,
-    stamp (seconds) and the image file; rotation_xyzw is None.
+    model is a device with a detect operation and prompt names the object; instance
+    picks among the detections scoring at least min_score, best first. Depth is sampled
+    inside the detection's mask, else the central half of its box; depth gives an
+    optical Z in metres instead. A stereo camera needs eye and depth.
+
+    Returns a dict: point (metres) and pixel as arrays, frame, stamp (seconds), label,
+    detection_score, detections, depth_samples, reference (visible_surface or
+    box_region) and file, the image's path.
 
     Example: await lib.perception.locate_object_3d("camera", "detector", "red mug")
     """

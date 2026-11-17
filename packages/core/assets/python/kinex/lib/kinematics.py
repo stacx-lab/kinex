@@ -26,16 +26,13 @@ class JointModel(joints.JointModel):
 
 
 def joint_model(device):
-    """Load a joint device's model without device I/O.
+    """A joint device's kinematic model from its URDF, without device I/O.
 
-    joints lists the commanded joints in URDF document order with limits and
-    rate limits; names holds their names. fk(positions, link=None) returns the
-    link pose in <device>/base as a RigidTransform. ik(pose, seed, link=None,
-    **options) returns commanded positions nearest the seed as an array, or
-    raises ValueError when no verified solution is found. Positions are any
-    sequence of numbers, a joint_state message's position included. tips lists
-    the model's tip links; link defaults to the only one and must be named when
-    there are several. Measured links are also on TF as <device>/<link>.
+    model.joints lists the commanded joints in URDF order with limits, model.names their
+    names and model.tips the tip links. model.fk(positions, link=None) is the link's pose
+    in <device>/base. model.ik(target, seed, link=None) is the positions nearest seed
+    that reach the target pose, as an array; it raises ValueError when none is found.
+    link defaults to the only tip. Positions are any sequence, a joint_state's included.
 
     Example: arm = lib.kinematics.joint_model("arm"); q = arm.ik(arm.fk(seed), seed)
     """

@@ -114,7 +114,7 @@ test('the lib tool navigates any structure one level at a time, as Python import
   await structure(f)
   const root = await f.node()
   assert.equal(root.node.kind, 'module')
-  assert.match(root.node.doc, /^The Kinex program library/)
+  assert.match(root.node.doc, /^The Kinex function library/)
   const modules = Object.fromEntries(root.node.modules.map(item => [item.name, item]))
   assert.deepEqual(Object.keys(modules), ['frames', 'images', 'kinematics', 'motion', 'perception', 'scene', 'skills', 'tabletop'])
   assert.deepEqual(modules.motion, { name: 'motion', origin: 'workspace', summary: 'Workspace motion.' })
@@ -185,7 +185,7 @@ print(json.dumps(result))`
   }
 })
 
-test('every builtin lib module and program documents itself', async t => {
+test('every builtin lib module and function documents itself', async t => {
   const f = await fixture(t)
   const root = await f.node()
   assert.deepEqual(root.problems, [])
@@ -197,9 +197,9 @@ test('every builtin lib module and program documents itself', async t => {
     assert.ok(node.doc && item.summary === node.doc.split('\n')[0] && item.summary.endsWith('.'), item.name)
     assert.ok(node.functions.length, item.name)
     for (const name of node.functions) {
-      const program = (await f.node(`${item.name}.${name}`)).node
-      assert.ok(program.doc, program.path)
-      assert.ok(!/\bio\b/.test(program.signature), `${program.path} takes the ambient scope, not an io parameter`)
+      const found = (await f.node(`${item.name}.${name}`)).node
+      assert.ok(found.doc, found.path)
+      assert.ok(!/\bio\b/.test(found.signature), `${found.path} takes the ambient scope, not an io parameter`)
     }
   }
 })
