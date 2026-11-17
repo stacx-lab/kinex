@@ -1,6 +1,11 @@
 # What reference/ holds
 
 - kinex-core.md: what a sub-agent can do in its environment. It is a Kinex session in a robot workspace: the device tools, `exec` for Python with `kinex.helpers`, and the host's shell and file tools.
+- python-kinex/: the Python package a sub-agent's code imports as `kinex`, the same source the sub-agent runs. `__init__.py` documents what an `exec` script or a tool can call, `communication.py` the object that publishes, subscribes and requests, and `helpers/helpers.txt` lists the helper functions with the file each is implemented in. Code written for a sub-agent can be run offline against a stub of this package.
+- builtin-tool/: Kinex's own tools, each a complete example of a tool directory.
+- workspace/: the robot workspace every sub-agent starts in, as its `.kinex/` folder holds it: `workspace.yaml` and `devices/<device>/`, whose `profile.yaml` names the device's operations with their types and units. A function can name these operations itself; they are the same in every trial.
+
+In a sub-agent's workspace, code in `.kinex/lib/` is importable from `exec` and from tools.
 
 A library is installed into the sub-agent's workspace as it is, so it uses Kinex's own formats:
 
