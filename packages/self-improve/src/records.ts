@@ -1,8 +1,10 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises"
+import { cp, mkdir, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { distillationsDir, entries, parseLine, inputFile, outputFile, promptFile, readJson, recordDir, resultFile, sessionFile, trialsDir } from "./layout.ts"
+import { distillationsDir, entries, inputFile, readJson, recordDir, resultFile, sessionFile, trialsDir, versionDir, workspaceDir } from "./layout.ts"
+import { keep } from "./learned.ts"
 import { versions } from "./library.ts"
 import type { Config } from "./run.ts"
+import { writeTranscript } from "./transcript.ts"
 
 export interface TrialInput { task: string; robot: string; library: string; seed?: number; timeoutS: number }
 export interface DistillInput { base: string; trials: string[]; fresh: string[]; timeoutS: number }
@@ -100,46 +102,16 @@ export function renderStatus(root: string, status: Status, running: (id: string)
   ].join("\n")
 }
 
-const INPUT_CHARS = 1200
-const OUTPUT_CHARS = 2000
-const clip = (text: string, max: number) => text.length > max ? `${text.slice(0, max)}\n…(${text.length - max} more characters)` : text
-
-interface Block { type: string; text?: string; name?: string; id?: string; arguments?: unknown; data?: string; mimeType?: string }
-interface Message { role: string; content?: string | Block[]; toolCallId?: string; isError?: boolean }
-
 /**
- * A transcript as a distiller reads it: one Markdown file with every turn and
- * every tool call (input and output, bounded per call), and the images the
- * calls returned saved beside it. Rendered from the session file Kinex wrote,
- * which holds the images inline and is too large to read raw.
+ * A finished trial's record as a distiller reads it, written once beside the
+ * session file: what the worker kept beyond the library it was shipped
+ * (learned/, learned.md) and its transcript in brief and in full (summary.md,
+ * history.md, history.json, images/).
  */
-export async function renderHistory(session: string, directory: string): Promise<void> {
-  const lines: string[] = []
-  const calls = new Map<string, number>()
-  let images = 0
-  for (const line of (await readFile(session, "utf8").catch(() => "")).split("\n")) {
-    if (!line.trim()) continue
-    const entry = parseLine(line) as { type?: string; message?: Message } | undefined
-    const message = entry?.type === "message" ? entry.message : undefined
-    if (!message || message.role === "system") continue
-    const blocks = typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content ?? []
-    const call = message.role === "toolResult" ? calls.get(message.toolCallId ?? "") : undefined
-    for (const block of blocks) {
-      if (block.type === "text" && block.text?.trim()) {
-        lines.push(message.role === "toolResult" ? `result of call ${call}${message.isError ? " (error)" : ""}:\n\n\`\`\`\n${clip(block.text, OUTPUT_CHARS)}\n\`\`\`\n`
-          : `## ${message.role}\n\n${block.text.trim()}\n`)
-      } else if (block.type === "toolCall") {
-        calls.set(block.id ?? "", calls.size + 1)
-        lines.push(`### call ${calls.size}: ${block.name}\n\n\`\`\`json\n${clip(JSON.stringify(block.arguments), INPUT_CHARS)}\n\`\`\`\n`)
-      } else if (block.type === "image" && block.data) {
-        const name = `${String(++images).padStart(3, "0")}.${block.mimeType?.split("/")[1] ?? "png"}`
-        await mkdir(path.join(directory, "images"), { recursive: true })
-        await writeFile(path.join(directory, "images", name), Buffer.from(block.data, "base64"))
-        lines.push(`![${call ? `call ${call}` : message.role}](images/${name})\n`)
-      }
-    }
-  }
-  await writeFile(path.join(directory, "history.md"), lines.join("\n"))
+export async function writeRecord(root: string, trial: TrialView): Promise<void> {
+  const directory = path.join(trialsDir(root), trial.id)
+  await keep(workspaceDir(directory), versionDir(root, trial.library), recordDir(directory))
+  await writeTranscript(recordDir(directory), trial)
 }
 
 /** Trials to distillation: every record copied into the distiller's own folder, with the index files its prompt names. */
@@ -148,12 +120,13 @@ export async function collect(root: string, config: Config, input: DistillInput,
   const trials = status.trials.filter(trial => input.trials.includes(trial.id))
   const solved = solvedTasks({ ...status, trials })
   const index: string[] = []
+  await mkdir(directory, { recursive: true })
   for (const trial of trials) {
     const record = recordDir(path.join(trialsDir(root), trial.id))
-    const copy = path.join(directory, trial.id)
-    await mkdir(copy, { recursive: true })
-    for (const file of [promptFile(record), outputFile(record), resultFile(path.dirname(record))]) await cp(file, path.join(copy, path.basename(file))).catch(() => {})
-    await renderHistory(sessionFile(record), copy)
+    // A trial that ended before records were written this way gets its record now.
+    if (!(await stat(path.join(record, "summary.md")).then(() => true, () => false))) await writeRecord(root, trial)
+    // Everything but the raw session, which holds every image inline: history.json has its text.
+    await cp(record, path.join(directory, trial.id), { recursive: true, filter: source => source !== sessionFile(record) })
     index.push(JSON.stringify({ trial: trial.id, task: trial.task, library: trial.library, status: trial.status, success: trial.success === true,
       reason: trial.reason, steps: trial.steps, wallS: trial.wallS, cost: trial.usage?.cost, note: trial.note, new: input.fresh.includes(trial.id) }))
   }

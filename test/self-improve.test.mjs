@@ -63,7 +63,10 @@ function script(request) {
     { text: 'The library is ready.' },
   ][step]
   if (text.includes('HELPER_PROMPT')) return { text: 'notes written' }
-  if (text.includes('Work only in this directory')) return { text: 'I am done.\n\n## For the library\n- observed: the button clicks' }
+  if (text.includes('Work only in this directory')) return [
+    call('write', { path: '.kinex/lib/press.py', content: '# Presses a button.\ndef press(): ...\n' }),
+    { text: 'I am done.\n\n## For the library\n- observed: the button clicks' },
+  ][step]
   if (text.includes('you are its scheduler')) return [
     call('improve_status'),
     call('improve_tasks', { simulator: 'sim', pattern: 'sim/*' }),
@@ -113,6 +116,8 @@ test('/self-improve runs trials, distills a library and reruns with it', { timeo
     assert.match(prompt, /^open the door\n\nWork only in this directory/)
     assert.match(await readFile(path.join(root, 'trials/t001/record/session.jsonl'), 'utf8'), /For the library/)
     assert.match(await readFile(path.join(root, 'trials/t001/record/output.log'), 'utf8'), /I am done/)
+    assert.match(await readFile(path.join(root, 'trials/t001/record/summary.md'), 'utf8'), /^# t001 — sim\/open-door\n\nVerdict: failure, stopped, 40 steps\. Cost: 1 tool calls, /)
+    assert.match(await readFile(path.join(root, 'trials/t001/record/learned.md'), 'utf8'), /- \.kinex\/lib\/press\.py: new \(not in the library\), 37 B — learned\/\.kinex\/lib\/press\.py\n  begins: Presses a button\./)
     const calls = (await readFile(path.join(state, 'calls.log'), 'utf8')).split('\n')
     assert.ok(calls.includes('launch sim/open-door --execution-mode stepped --stop-on-success --detach --json'))
     assert.ok(calls.includes(`setup sim/arm --directory ${path.join(root, 'trials/t001/workspace')} --domain-id 1 --json`))
@@ -128,6 +133,8 @@ test('/self-improve runs trials, distills a library and reruns with it', { timeo
     assert.match(await readFile(path.join(workspaceDirectory, 'records/TASKS.md'), 'utf8'), /## sim\/open-door \[UNSOLVED\]\ngoal: open the door/)
     assert.match(await readFile(path.join(workspaceDirectory, 'records/PROTOCOL.md'), 'utf8'), /one episode of one task/)
     assert.match(await readFile(path.join(workspaceDirectory, 'records/t001/history.md'), 'utf8'), /## assistant\n\nI am done/)
+    assert.deepEqual((await readdir(path.join(workspaceDirectory, 'records/t001'))).sort(), ['history.json', 'history.md', 'learned', 'learned.md', 'output.log', 'prompt.md', 'result.json', 'summary.md'])
+    assert.match(await readFile(path.join(workspaceDirectory, 'records/t001/learned/.kinex/lib/press.py'), 'utf8'), /def press/)
     assert.match(await readFile(path.join(workspaceDirectory, 'reference/INDEX.md'), 'utf8'), /tool\.yaml/)
     const prompt = await readFile(path.join(root, 'distillations/d001/record/prompt.md'), 'utf8')
     assert.doesNotMatch(prompt, /\[\[/)
@@ -146,8 +153,8 @@ test('/self-improve runs trials, distills a library and reruns with it', { timeo
     assert.equal((await json('trials/t003/record/result.json')).success, true)
     assert.equal((await json('trials/t004/record/result.json')).success, true)
     const worker = fake.requests.filter(request => JSON.stringify(request.messages).includes('Work only in this directory'))
-    assert.equal(worker.length, 4)
-    assert.deepEqual(worker.map(request => JSON.stringify(request.messages).includes('BRIEF_MARKER')), [false, false, true, true])
+    assert.equal(worker.length, 8, 'each worker writes one file, then reports')
+    assert.deepEqual(worker.map(request => JSON.stringify(request.messages).includes('BRIEF_MARKER')), [false, false, false, false, true, true, true, true])
     assert.ok(worker.every(request => !request.tools.some(tool => tool.function.name.startsWith('improve_'))))
   })
 
