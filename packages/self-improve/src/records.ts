@@ -1,6 +1,6 @@
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { distillationsDir, entries, inputFile, outputFile, promptFile, readJson, recordDir, resultFile, sessionFile, trialsDir } from "./layout.ts"
+import { distillationsDir, entries, parseLine, inputFile, outputFile, promptFile, readJson, recordDir, resultFile, sessionFile, trialsDir } from "./layout.ts"
 import { versions } from "./library.ts"
 import type { Config } from "./run.ts"
 
@@ -117,8 +117,8 @@ export async function renderHistory(session: string, directory: string): Promise
   let images = 0
   for (const line of (await readFile(session, "utf8").catch(() => "")).split("\n")) {
     if (!line.trim()) continue
-    const entry = JSON.parse(line) as { type?: string; message?: Message }
-    const message = entry.type === "message" ? entry.message : undefined
+    const entry = parseLine(line) as { type?: string; message?: Message } | undefined
+    const message = entry?.type === "message" ? entry.message : undefined
     if (!message || message.role === "system") continue
     const blocks = typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content ?? []
     const call = message.role === "toolResult" ? calls.get(message.toolCallId ?? "") : undefined
