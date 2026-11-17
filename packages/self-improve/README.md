@@ -63,8 +63,10 @@ distillations/d001/
   these folders; no file is shared between running jobs.
 - `payload/` uses Kinex's folder names, so installing is a copy into
   `.kinex/skills` and `.kinex/tools`. The brief goes to
-  `.kinex/self-improve/brief.md`, and this package's context adds an installed
-  brief to the instructions of every session in that workspace. A trial workspace
+  `.kinex/self-improve/brief.md`, and this package's context gives an installed
+  brief to every session in that workspace as a context section, so installing
+  or editing it leaves the stable prompt unchanged. A published brief has at most
+  15 lines and 2,000 characters. A trial workspace
   is prepared by the same copy, so a worker sees a library exactly as a user who
   installed it. Install stops on a name that already exists.
 - `session.jsonl` is the child's own Kinex session file; `kinex --export` renders it.

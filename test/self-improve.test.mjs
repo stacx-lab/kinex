@@ -158,6 +158,8 @@ test('/self-improve runs trials, distills a library and reruns with it', { timeo
     const worker = fake.requests.filter(request => JSON.stringify(request.messages).includes('Work only in this directory'))
     assert.equal(worker.length, 8, 'each worker writes one file, then reports')
     assert.deepEqual(worker.map(request => JSON.stringify(request.messages).includes('BRIEF_MARKER')), [false, false, false, false, true, true, true, true])
+    const system = request => JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
+    assert.ok(worker.every(request => !system(request).includes('BRIEF_MARKER')), 'the brief stays out of the stable prompt')
     assert.ok(worker.every(request => !request.tools.some(tool => tool.function.name.startsWith('improve_'))))
   })
 
