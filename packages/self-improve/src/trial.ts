@@ -2,11 +2,11 @@ import { mkdir, symlink } from "node:fs/promises"
 import path from "node:path"
 import { pythonEnvironment, pythonRuntime } from "@kinex/core/python/environment"
 import { createScope, currentScope, inScope } from "@kinex/core/scope"
-import { finishJob, type Job, type Result } from "./job.ts"
+import { finishJob, spaced, type Job, type Result } from "./job.ts"
 import { pythonDir, versionDir } from "./layout.ts"
 import { install } from "./library.ts"
 import type { TrialInput } from "./records.ts"
-import type { Run } from "./run.ts"
+import { START_GAP_S, type Run } from "./run.ts"
 import { runSession, type SessionExit } from "./session.ts"
 import { openSim, type Verdict } from "./sim.ts"
 import WORKER from "./worker.txt"
@@ -51,6 +51,9 @@ export async function runTrial(run: Run, job: Job, input: TrialInput): Promise<R
     await install(versionDir(run.root, input.library), job.workspace)
     await sharePython(job.workspace)
     await preparePython(job.workspace, currentScope().signal)
+    // Each worker starts a ROS process per device: workers started in the same
+    // moment time each other's device loads out. Simulators still launch together.
+    await spaced("workers", run.config.startGapS ?? START_GAP_S)
     const prompt = `${sim.instruction}\n\n${WORKER.trim().replaceAll("$TIMEOUT", String(input.timeoutS))}`
     return runSession("worker", job.workspace, job.record, prompt, Date.now() + input.timeoutS * 1000)
   })().catch(async (error: unknown) => { await sim.close().catch(() => {}); throw error })

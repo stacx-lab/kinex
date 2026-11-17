@@ -12,16 +12,21 @@ export interface Config {
   seed?: number
   trialTimeoutS: number
   distillTimeoutS: number
+  /** Seconds between two worker starts; absent in a run made before the gap existed. */
+  startGapS?: number
   /** The command that runs rosbridge. */
   rosbridge: string
 }
 export interface Run { root: string; config: Config }
 
+// A worker alone loads its devices in 7 to 14 s; five loading at once ran past the devices' 30 s limit.
+export const START_GAP_S = 10
+
 export async function createRun(selection: string, options: Pick<Config, "rounds" | "parallel">): Promise<Run> {
   const stamp = new Date().toISOString().replaceAll(/[-:]|\.\d+Z/g, "").replace("T", "-")
   const root = path.join(runsDir(), stamp)
   await mkdir(root, { recursive: true })
-  const config: Config = { selection, ...options, trialTimeoutS: 3600, distillTimeoutS: 7200, rosbridge: process.env.KINEX_ROSBRIDGE ?? "rosbridge" }
+  const config: Config = { selection, ...options, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, rosbridge: process.env.KINEX_ROSBRIDGE ?? "rosbridge" }
   await writeJson(configFile(root), config)
   await createLibrary(root)
   return { root, config }
