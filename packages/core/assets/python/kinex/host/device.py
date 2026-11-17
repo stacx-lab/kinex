@@ -39,7 +39,8 @@ class DeviceHost:
         if clock:
             catalog["_world.time"] = clock
         catalog.update({f"{profile['name']}.{name}": op for name, op in profile["operations"].items()})
-        self.io = await communication(catalog, domain_id=config.get("domain_id", 0)).__aenter__()
+        # The host holds its scope across requests, each in its own task, so it never makes it ambient.
+        self.io = communication(catalog, domain_id=config.get("domain_id", 0)).open()
         for index, definition in enumerate(config.get("nodes", [])):
             spec = importlib.util.spec_from_file_location(f"kinex_device_{index}", definition["entry"])
             module = importlib.util.module_from_spec(spec)
@@ -81,7 +82,7 @@ class DeviceHost:
     async def run(self, action, args):
         if action == "$frames":
             from kinex.host.frame_graph import FrameGraphNode
-            self.io = await communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).__aenter__()
+            self.io = communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).open()
             self.io.frame_service = {"endpoint": args["endpoint"], "type": "kinex_interfaces/srv/LookupTransform"}
             self.graph = FrameGraphNode(args["clock"], args["endpoint"], self.io.context)
             self.io.extra_nodes.append(self.graph)
@@ -100,7 +101,7 @@ class DeviceHost:
                 await asyncio.gather(*pending, return_exceptions=True)
                 if self.profile is not None:
                     await self.stop()
-                await self.io.__aexit__(None, None, None)
+                await self.io.close()
                 self.io = None
             return {"unloaded": True}
         if not self.io:

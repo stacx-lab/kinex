@@ -282,6 +282,24 @@ class DeviceHostShutdown(unittest.IsolatedAsyncioTestCase):
             await device.main()
         self.assertEqual(calls, [("unload", {})])
 
+    async def test_a_scope_opened_by_one_request_closes_in_another(self):
+        from kinex.common import frames
+        from kinex.communication import Communication
+        from kinex.host import device
+
+        def opened(scope):
+            scope.node = None
+            return scope
+
+        host = device.DeviceHost()
+        with patch.object(Communication, "open", opened), patch.object(Communication, "close", AsyncMock()) as close, \
+                patch.object(frames, "publish_profile"), patch.object(device.DeviceHost, "ready", AsyncMock()):
+            # Each request runs in its own task, as the host's dialog starts them.
+            await asyncio.create_task(host.run("load", {"profile": {"name": "arm", "runtime": {}, "operations": {}}}))
+            self.assertEqual(await asyncio.create_task(host.run("unload", {})), {"unloaded": True})
+        close.assert_awaited_once()
+        self.assertIsNone(host.io)
+
 
 if __name__ == "__main__":
     unittest.main()
