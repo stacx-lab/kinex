@@ -52,6 +52,12 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       const { name, args, ...outcome } = details
       return commandRow({ name, args, result: { ...outcome, text: content.slice(heading(details).length) } }, theme, options)
     })
+    // A command's fault is the session's failure: shown to the user, thrown where nobody watches.
+    const fault = (ctx: ExtensionContext, error: unknown) => {
+      owner.failure = error instanceof Error ? error : new Error(String(error))
+      if (!ctx.hasUI) throw error
+      ctx.ui.notify(owner.failure.message, "error")
+    }
     const execute = async (name: string, args: string, ctx: ExtensionContext) => {
       const command = { name, args: args.trim() }
       const progress = commandProgress(ctx, name, command.args)
@@ -74,9 +80,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         progress.end()
         // The user's own cancellation is an outcome the model should know about, not a fault.
         if (progress.cancelled()) return post(command, "Cancelled by the user", { isError: true, durationMs: performance.now() - started })
-        owner.failure = error instanceof Error ? error : new Error(String(error))
-        if (!ctx.hasUI) throw error
-        ctx.ui.notify(owner.failure.message, "error")
+        fault(ctx, error)
       } finally { await status(ctx) }
     }
     await registerCommands(pi, capabilities.commands, execute)
@@ -101,11 +105,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
           const text = await owner.subagents.configure(args)
           if (ctx.hasUI) ctx.ui.notify(text, "info")
           else report(text)
-        } catch (error) {
-          owner.failure = error instanceof Error ? error : new Error(String(error))
-          if (!ctx.hasUI) throw error
-          ctx.ui.notify(owner.failure.message, "error")
-        }
+        } catch (error) { fault(ctx, error) }
       },
     })
     pi.registerTool({
