@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { configFile, entries, readJson, runsDir, writeJson } from "./layout.ts"
@@ -42,7 +43,8 @@ export async function openRun(name?: string): Promise<Run> {
   return { root, config }
 }
 
-// The run this process schedules. It outlives one chat session: /new keeps it.
-const state: { active?: Run } = {}
-export const activeRun = () => state.active
-export const activate = (run: Run) => { state.active = run }
+// The run a session schedules reaches its tools with the call, as core passes a
+// signal: nothing the process keeps makes another session a scheduler too.
+const scheduled = new AsyncLocalStorage<Run>()
+export const activeRun = () => scheduled.getStore()
+export const withRun = <T>(run: Run | undefined, call: () => T): T => run ? scheduled.run(run, call) : call()

@@ -1,6 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
-import { currentScope } from "@kinex/core/scope"
+import { currentScope, scoped } from "@kinex/core/scope"
 import { entries, inputFile, parseLine, recordDir, reserve, resultFile, sessionFile, workspaceDir, writeJson } from "./layout.ts"
 
 // A trial or a distillation: one folder with an input, a workspace and a record.
@@ -49,14 +49,19 @@ export async function finishJob(job: Job, result: Result): Promise<Result> {
   return finished
 }
 
-// Work started by this process and not yet ended. Jobs belong to the process
-// that started them, so nothing on disk has to say which of them are alive.
-const running = new Map<string, Promise<Result>>()
-const ended = new Map<string, Result>()
-const lanes = new Map<string, { free: number; queue: (() => void)[] }>()
+// Work started in this runtime and not yet ended. Jobs belong to the runtime
+// that started them and end with it, so nothing on disk has to say which of
+// them are alive, and a runtime never sees another's.
+const tables = scoped(() => ({
+  running: new Map<string, Promise<Result>>(),
+  ended: new Map<string, Result>(),
+  lanes: new Map<string, { free: number; queue: (() => void)[] }>(),
+  turns: new Map<string, Promise<void>>(),
+}))
 
 /** Starts `run` once its lane has a free slot (at most `limit` at a time) and returns at once. */
 export function start(id: string, lane: string, limit: number, run: () => Promise<Result>): void {
+  const { running, ended, lanes } = tables()
   if (running.has(id)) throw new Error(`${id} is already running`)
   const slots = lanes.get(lane) ?? { free: limit, queue: [] }
   lanes.set(lane, slots)
@@ -82,19 +87,20 @@ export function startJob(job: Job, lane: string, limit: number, run: () => Promi
 
 // Work that must not begin at the same moment takes turns: each caller's turn
 // comes no sooner than `gapS` after the turn before it in the same lane.
-const turns = new Map<string, Promise<void>>()
 export function spaced(lane: string, gapS: number): Promise<void> {
+  const { turns } = tables()
   const turn = turns.get(lane) ?? Promise.resolve()
   turns.set(lane, turn.then(() => new Promise<void>(resolve => setTimeout(resolve, gapS * 1000))))
   return turn
 }
 
-export const isRunning = (id: string) => running.has(id)
-export const runningIDs = () => [...running.keys()]
-export const resultOf = (id: string) => ended.get(id)
+export const isRunning = (id: string) => tables().running.has(id)
+export const runningIDs = () => [...tables().running.keys()]
+export const resultOf = (id: string) => tables().ended.get(id)
 
 /** Waits for the named work, all of it or the first to end; the wait can be cancelled or time out, the work cannot. */
 export async function wait(ids: readonly string[], mode: "all" | "any", timeoutS: number, signal: AbortSignal): Promise<void> {
+  const { running } = tables()
   const pending = ids.flatMap(id => running.get(id) ?? [])
   if (!pending.length) return
   const controller = new AbortController()

@@ -12,6 +12,7 @@ aligned `@kinex/core` version and a prepared
 /self-improve status [run]                                    no model: jobs, solved tasks per version
 /self-improve install L2 [run]                                no model: copy L2 into this workspace
 /self-improve resume [run]                                    continue a run from what is on disk
+/self-improve stop                                            no model: stop scheduling in this session
 ```
 
 One round is a wave of trials followed by one distillation. The session that
@@ -70,9 +71,14 @@ distillations/d001/
 
 ## Limits
 
-- Jobs belong to the Kinex process that started them. Quitting ends its workers
-  and stops their simulators; a job left without a result is abandoned and its
-  task is simply still unsolved. `resume` continues from finished jobs.
+- The scheduler's role belongs to the session where `/self-improve` ran. `/new`,
+  a resumed session or another workspace is an ordinary session, and so is the
+  scheduling session after `/self-improve stop`. Neither ends a job: `status`
+  shows what is running and `resume` makes a session the scheduler again.
+- Jobs belong to the Kinex runtime that started them: one workspace of one
+  process. Quitting, or opening another workspace, ends its workers and stops
+  their simulators; a job left without a result is abandoned and its task is
+  simply still unsolved. `resume` continues from finished jobs.
 - Workers are kept to their workspace by a clean workspace, a trimmed environment
   and an instruction, not by a sandbox, and they keep network access. The numbers
   show whether a library helps; they are not benchmark results.
