@@ -2,7 +2,9 @@
 
 Use io for async pub/sub and request/response, runtime for device discovery, lib for
 reusable programs and subagent for a judgment only a model can make; exec returns what
-the invoked code returns. The host dialog carries invocation metadata, profiles, subagent
+the invoked code returns. Programs compute with NumPy arrays, poses (pose) and seconds
+(seconds); io and the result convert them to and from ROS fields and JSON, and plain
+gives the JSON form to a program that writes its own. The host dialog carries invocation metadata, profiles, subagent
 calls and that result. One execution approval covers
 the invocation; Python calls cannot change device lifecycle.
 """
@@ -17,9 +19,10 @@ import threading
 import traceback
 from pathlib import Path
 
-from kinex.communication import communication, io
+from kinex.communication import communication, io, seconds
 from kinex.errors import RPCError, OperationError
 from kinex.common.plain import IMAGES, plain
+from kinex.values import pose
 
 # Protocol channel: the real stdout, captured only INSIDE a tool dialog (the
 # harness marks exec processes with KINEX_TOOL_DIALOG=1). Everything print()ed

@@ -8,10 +8,13 @@ import asyncio
 from collections import deque
 import contextlib
 import contextvars
+import importlib
 import json
+from numbers import Real
 import threading
 import time
 import uuid
+from kinex.common.geometry import vector
 from kinex.errors import RPCError, OperationError
 
 _active = contextvars.ContextVar("kinex_communication", default=None)
@@ -26,19 +29,67 @@ def duration(seconds):
     return {"sec": nanoseconds // 1_000_000_000, "nanosec": nanoseconds % 1_000_000_000}
 
 
-def seconds(stamp):
-    """Seconds from a builtin_interfaces Time or Duration."""
+def seconds(value):
+    """Seconds from a number, a builtin_interfaces Time or Duration, or a stamped message."""
+    if isinstance(value, Real) and not isinstance(value, bool):
+        return float(value)
+    stamp = getattr(getattr(value, "header", None), "stamp", value)
     return stamp.sec + stamp.nanosec / 1e9
+
+
+TIMES = ("builtin_interfaces/Time", "builtin_interfaces/Duration")
+# A pose's two parts under the names each message type gives them.
+POSES = {"geometry_msgs/Pose": ("position", "orientation"), "geometry_msgs/Transform": ("translation", "rotation")}
+VECTORS = {"geometry_msgs/Point": "xyz", "geometry_msgs/Vector3": "xyz", "geometry_msgs/Quaternion": "xyzw"}
+
+
+def _fields(cls, value):
+    """What to set cls from, built fresh so the caller keeps its own payload.
+
+    A mapping names fields. One value may stand for a whole message: seconds for a time
+    or duration, a pose in any form for a Pose or Transform, one batch of poses for an
+    array of them, and numbers for a Point, Vector3 or Quaternion. Other leaves pass
+    through as rosidl takes them.
+    """
+    if isinstance(value, cls):
+        return value
+    kind = f"{cls.__module__.split('.')[0]}/{cls.__name__}"
+    if kind in TIMES and isinstance(value, Real) and not isinstance(value, bool):
+        return duration(value)
+    if kind in POSES and not isinstance(value, dict):
+        from kinex.values import components
+        x, y, z, qx, qy, qz, qw = components(value, single=True).tolist()
+        where, turn = POSES[kind]
+        return {where: {"x": x, "y": y, "z": z}, turn: {"x": qx, "y": qy, "z": qz, "w": qw}}
+    if kind in VECTORS and not isinstance(value, dict):
+        return dict(zip(VECTORS[kind], vector(value, len(VECTORS[kind]), cls.__name__)))
+    if not isinstance(value, dict):
+        raise TypeError(f"expected {cls.__name__} or field mapping")
+    slots = dict(zip((name[1:] for name in getattr(cls, "__slots__", ())), getattr(cls, "SLOT_TYPES", ())))
+    fields = {}
+    for name, item in value.items():
+        slot = slots.get(name)
+        element = getattr(slot, "value_type", slot)
+        if not hasattr(element, "namespaces"):
+            fields[name] = item
+            continue
+        nested = getattr(importlib.import_module(".".join(element.namespaces)), element.name)
+        if element is slot:
+            fields[name] = _fields(nested, item)
+        else:
+            # A batch of poses is one RigidTransform holding several.
+            entries = item if not hasattr(item, "as_components") else [item] if item.single else [item[index] for index in range(len(item))]
+            fields[name] = [_fields(nested, entry) for entry in entries]
+    return fields
 
 
 def message_value(cls, value):
     from rosidl_runtime_py.set_message import set_message_fields
-    if isinstance(value, cls):
-        return value
-    if not isinstance(value, dict):
-        raise TypeError(f"expected {cls.__name__} or field mapping")
+    fields = _fields(cls, value)
+    if isinstance(fields, cls):
+        return fields
     message = cls()
-    set_message_fields(message, value)
+    set_message_fields(message, fields)
     return message
 
 

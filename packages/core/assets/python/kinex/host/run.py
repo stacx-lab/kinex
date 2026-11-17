@@ -9,7 +9,7 @@ import linecache
 import os
 import sys
 
-from kinex import _emit, _request, io, lib, runtime
+from kinex import _emit, _request, io, lib, pose, runtime, seconds
 from kinex.common.plain import plain
 from kinex.communication import Communication, ambient
 
@@ -22,7 +22,7 @@ def body(source):
     module.body[0].body = ast.parse(source, SOURCE).body or module.body[0].body
     linecache.cache[SOURCE] = (len(source), None, source.splitlines(True), SOURCE)
     sys.path.insert(0, os.getcwd())
-    scope = {"__name__": "__main__", "args": _request["args"], "io": io, "lib": lib, "runtime": runtime}
+    scope = {"__name__": "__main__", "args": _request["args"], "io": io, "lib": lib, "runtime": runtime, "pose": pose, "seconds": seconds}
     exec(compile(module, SOURCE, "exec"), scope)
     return scope["main"]()
 

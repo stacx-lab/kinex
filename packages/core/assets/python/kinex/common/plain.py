@@ -1,9 +1,11 @@
-"""JSON-ready values for the host dialog: ROS messages and NumPy values become plain data."""
+"""JSON-ready values for the host dialog: ROS messages, poses and NumPy values become plain data."""
+import dataclasses
 import math
 import tempfile
 from pathlib import Path
 
 IMAGES = ("sensor_msgs/Image", "sensor_msgs/CompressedImage")
+TIMES = ("builtin_interfaces/Time", "builtin_interfaces/Duration")
 
 
 def _save(image, kind):
@@ -17,8 +19,9 @@ def _save(image, kind):
 
 
 def plain(value, files=None):
-    """Convert messages, arrays and tuples recursively; non-finite floats become None.
+    """Convert messages, poses, arrays, records and tuples recursively; non-finite floats become None.
 
+    A pose is written [x, y, z, qx, qy, qz, qw] and a time or duration as seconds.
     Images are files, never data. With a files list, an image message is saved and
     replaced by {file, frame, stamp} and a Path becomes its string; both paths are
     appended in order. Without one they are rejected.
@@ -43,10 +46,16 @@ def plain(value, files=None):
             stamp = value.header.stamp
             files.append(_save(value, kind))
             return {"file": files[-1], "frame": value.header.frame_id, "stamp": stamp.sec + stamp.nanosec / 1e9}
-        if any(image in field for field in fields.values() for image in IMAGES):
-            return {name: plain(getattr(value, name), files) for name in fields}
-        from rosidl_runtime_py.convert import message_to_ordereddict
-        return plain(message_to_ordereddict(value))
+        if kind in TIMES:
+            return value.sec + value.nanosec / 1e9
+        return {name: plain(getattr(value, name), files) for name in fields}
+    if hasattr(value, "as_components"):  # scipy RigidTransform
+        from kinex.values import components
+        return components(value).tolist()
     if hasattr(value, "tolist"):  # NumPy arrays and scalars, array.array
         return plain(value.tolist(), files)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {field.name: plain(getattr(value, field.name), files) for field in dataclasses.fields(value)}
+    if isinstance(value, (bytes, bytearray)):
+        return list(value)
     return value

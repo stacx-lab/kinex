@@ -11,7 +11,7 @@ from kinex import io, profile
 from kinex.communication import seconds
 from kinex.common.camera import array, camera_stream, frame, project, ray, rays, save
 from kinex.lib.images import camera_geometry
-from kinex.common.geometry import number, vector, xyzq_to_rt
+from kinex.common.geometry import number, vector
 
 
 async def locate_object_3d(camera, model, prompt, depth=None, min_score=.25, instance=0, eye=None):
@@ -23,9 +23,9 @@ async def locate_object_3d(camera, model, prompt, depth=None, min_score=.25, ins
     supplied mask, otherwise the central half of the box; depth gives an explicit
     optical Z in metres instead of RGBD depth. A stereo camera requires eye ("left" or
     "right") and explicit depth. instance indexes detections sorted by descending
-    score. Returns point (metres), pixel, depth_samples, reference
+    score. Returns point (metres) and pixel as arrays, depth_samples, reference
     (visible_surface or box_region), frame, label, detection_score, detections,
-    timestamp and the image file; rotation_xyzw is None.
+    stamp (seconds) and the image file; rotation_xyzw is None.
 
     Example: await lib.perception.locate_object_3d("camera", "detector", "red mug")
     """
@@ -60,16 +60,15 @@ async def locate_object_3d(camera, model, prompt, depth=None, min_score=.25, ins
     return {**measured, "frame": image.header.frame_id, "reference": reference,
             "rotation_xyzw": None, "label": detection.get("label", prompt),
             "detection_score": detection["score"], "detections": count,
-            "timestamp": seconds(image.header.stamp),
+            "stamp": seconds(image),
             "file": file}
 
 
 async def _depth_to_color(image, depth_image):
     """The depth-to-color optical transform at the image stamp as (R, t)."""
     from kinex.lib.frames import lookup_transform
-    tf = await lookup_transform(image.header.frame_id, depth_image.header.frame_id, image.header.stamp)
-    t, q = tf.transform.translation, tf.transform.rotation
-    return xyzq_to_rt([t.x, t.y, t.z, q.x, q.y, q.z, q.w])
+    relation = await lookup_transform(image.header.frame_id, depth_image.header.frame_id, image)
+    return relation.rotation.as_matrix(), relation.translation
 
 
 def _select_detection(results, min_score, instance):
@@ -135,7 +134,7 @@ async def _locate(camera, region, *, depth_image=None, depth=None, depth_to_colo
             raise ValueError("no usable camera geometry")
         index = _central(pixels)
         pixel = pixels[index]
-        return {"point": (directions[index] * depth).tolist(), "pixel": pixel.tolist(), "depth_samples": 0}
+        return {"point": directions[index] * depth, "pixel": pixel, "depth_samples": 0}
 
     meta = camera["depth"]
     if depth_image.encoding != "16UC1":
@@ -181,7 +180,7 @@ async def _locate(camera, region, *, depth_image=None, depth=None, depth_to_colo
     if not len(points):
         raise ValueError("depth hole: no valid depth inside the detection region")
     index = _central(points)
-    result = {"point": points[index].tolist(), "pixel": pixels[index].tolist(), "depth_samples": len(points)}
+    result = {"point": points[index], "pixel": pixels[index], "depth_samples": len(points)}
     reliable = meta["reliable_range_m"]
     if isinstance(reliable, dict) and not reliable["min"] <= distances[index] <= reliable["max"]:
         result["depth_warning"] = "depth is outside the camera's reliable range"

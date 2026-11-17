@@ -68,7 +68,9 @@ Device type guides recommend ROS patterns; workspace descriptions define the
 actual interface.
 
 `await lib.frames.lookup_transform(target, source, stamp=None, timeout_s=5)` queries
-Kinex-owned tf2 history without advancing world time. Browse the program library
+Kinex-owned tf2 history without advancing world time and returns the pose of `source`
+in `target`. Programs compute with NumPy arrays, scipy `RigidTransform` poses and
+seconds; see [values](../../docs/communication.md#values). Browse the program library
 with the `lib` tool; see [programs](../../docs/tools-and-skills.md#programs-lib-and-exec).
 
 ### Feedback control with `exec`
@@ -272,13 +274,13 @@ For pure joint kinematics and trajectory planning in exec:
 
 ```python
 arm = lib.kinematics.joint_model("arm")  # commanded joints, URDF FK and IK
-# start/target: positions in URDF document order.
+# start/target: positions in URDF document order, in any sequence; goal_pose in any pose form.
 target = arm.ik(goal_pose, start)
 plan = lib.motion.trajectory(arm.joints, start, target, period_s=0.01, fraction=0.15)
 ```
 
-`plan.actions` contains synchronized joint references and `plan.duration_s` their
-planned duration. These functions perform no device I/O. Scripts obtain measured
+`plan.actions` is an array of synchronized joint references, one row per sample,
+and `plan.duration_s` their planned duration. These functions perform no device I/O. Scripts obtain measured
 positions, encode and submit the plan through the declared command operation,
 such as a `JointTrajectory` on `joint_target`, wait on the world clock and
 verify arrival. For timestamped

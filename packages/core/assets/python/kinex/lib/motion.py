@@ -6,6 +6,7 @@ wait on the world clock and verify measured arrival.
 
 import math
 from dataclasses import dataclass
+from numbers import Real
 
 from kinex.common.geometry import number, vector
 from kinex.common.joints import recovery_targets
@@ -14,21 +15,21 @@ from kinex.common.urdf import joint_target
 
 @dataclass(frozen=True)
 class Trajectory:
-    """A complete reference buffer and its planned execution duration."""
+    """A complete reference buffer, one row of joint positions per sample, and its planned execution duration."""
 
-    actions: list[list[float]]
+    actions: "numpy.ndarray"
     duration_s: float
 
 
 def planning_limits(joints, max_velocity=None, max_acceleration=None):
-    """Resolve requested rates against known limits; defaults are planning policy."""
+    """Resolve requested rates against known limits, as [velocities, accelerations] rows; defaults are planning policy."""
     result = []
     for key, requested, rotary, linear in (
         ("max_velocity", max_velocity, 1.0, 0.1),
         ("max_acceleration", max_acceleration, 3.0, 0.3),
     ):
         values = [None] * len(joints) if requested is None else vector(
-            requested if isinstance(requested, list) else [requested] * len(joints), len(joints), key)
+            [requested] * len(joints) if isinstance(requested, Real) else requested, len(joints), key)
         rates = []
         for joint, value in zip(joints, values):
             limit = joint.get(key)
@@ -40,14 +41,16 @@ def planning_limits(joints, max_velocity=None, max_acceleration=None):
                 raise ValueError(f"{key} must be positive")
             rates.append(min(value, limit) if limit is not None else value)
         result.append(rates)
-    return result
+    import numpy as np
+    return np.array(result, dtype=float)
 
 
 def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None, max_acceleration=None, *, check_limits=True, start_tolerance=0):
     """Plan synchronized rest-to-rest quintic joint references without device I/O.
 
-    joints contains model-ordered joint definitions; start and target use that
-    order. Returns Trajectory(actions, duration_s), excluding the start sample
+    joints contains model-ordered joint definitions; start and target are any
+    sequences of numbers in that order. Returns Trajectory(actions, duration_s)
+    with actions an array of one row per sample, excluding the start sample
     and including the target. Continuous joints take the shortest angular path.
     period_s bounds sample spacing: sample i (starting at 1) occurs at
     i * duration_s / len(actions). fraction (0..1] scales velocity/acceleration
@@ -86,4 +89,5 @@ def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None,
                   for q, goal, j in zip(result[-1], target, joints)]
     if check_limits:
         recovery_targets(result, joints, start_tolerance)
-    return Trajectory(actions=result, duration_s=duration)
+    import numpy as np
+    return Trajectory(actions=np.array(result, dtype=float), duration_s=duration)
