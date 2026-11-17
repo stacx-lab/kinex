@@ -23,13 +23,9 @@ def _stamp(value):
 async def lookup_transform(target, source, stamp=None, timeout_s=5):
     """The pose of source in target: a RigidTransform taking points and poses in source to target.
 
-    Frames may be ROS IDs or qualified device:frame references; a frame is the
-    identity in itself, even one absent from TF. stamp selects a world time, in
-    seconds or as a stamped message or its stamp; None selects the latest transform.
-    timeout_s bounds the wait (0..30 seconds), without advancing world time.
-    Missing frames, timeouts and cancellation propagate to the caller; a failed
-    lookup names its cause. Supervised calls use Kinex's persistent frame service;
-    standalone clients use their communication scope's local history and cleanup.
+    Frames are device:frame references or ROS IDs (device/frame). stamp is a world time
+    in seconds, a stamped message or its stamp; None is the latest. timeout_s (0..30)
+    bounds the wait without advancing world time; a missing frame or a timeout raises.
 
     Example: goal = await lib.frames.lookup_transform("arm:base", "camera:color", image) * seen
     """

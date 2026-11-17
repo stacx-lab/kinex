@@ -1,6 +1,5 @@
-"""The Kinex program library: reusable functions that exec scripts compose and run by name.
+"""The Kinex function library: reusable functions that exec programs import and compose.
 
-Every public function of a module here is a program, addressed as module.function.
 Builtin modules ship in this directory; workspace and global modules come from the
 .kinex/lib roots in KINEX_LIB, nearest first, and replace a builtin of the same name.
 Browse the library with the lib tool. Modules load on first use, at any depth.
