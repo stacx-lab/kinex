@@ -45,7 +45,7 @@ import('node:fs').then(fs => {
 `)
   const run = (code = 'main', options = {}) => exec('bash', ['-c', `source ${quote(installer)}\n${code}`], { env, cwd: root, detached: true, timeout: 30000, ...options })
   const release = async (version = '0.10.4', packed = false) => {
-    const names = [`kinex-core-${version}.tgz`, `kinex-setup-${version}.tgz`, `kinex-self-improve-${version}.tgz`, `kinex-${version}.tgz`]
+    const names = [`kinex-core-${version}.tgz`, `kinex-setup-${version}.tgz`, `kinex-${version}.tgz`]
     const assets = [...names, 'SHA256SUMS'].map(name => ({ name, browser_download_url: `https://github.com/stacx-lab/kinex/releases/download/v${version}/${name}` }))
     await writeFile(path.join(root, 'release.json'), JSON.stringify({ draft: false, prerelease: false, tag_name: `v${version}`, assets }))
     const sums = []
@@ -54,8 +54,8 @@ import('node:fs').then(fs => {
         const source = path.join(root, `source-${index}`)
         await mkdir(path.join(source, 'bin'), { recursive: true })
         await writeFile(path.join(source, 'package.json'), JSON.stringify({
-          name: ['@kinex/core', '@kinex/setup', '@kinex/self-improve', 'kinex'][index], version, type: 'module',
-          ...(index === 3 ? { bin: { kinex: 'bin/kinex.mjs' }, dependencies: { '@kinex/core': version, '@kinex/setup': version, '@kinex/self-improve': version } } : {}),
+          name: ['@kinex/core', '@kinex/setup', 'kinex'][index], version, type: 'module',
+          ...(index === 2 ? { bin: { kinex: 'bin/kinex.mjs' }, dependencies: { '@kinex/core': version, '@kinex/setup': version } } : {}),
           scripts: { postinstall: 'node -e "process.exit(99)"' },
         }))
         await writeFile(path.join(source, 'bin/kinex.mjs'), `#!/usr/bin/env node\nconsole.log(${JSON.stringify(version)} + ':' + process.argv.slice(2).join(','))`)

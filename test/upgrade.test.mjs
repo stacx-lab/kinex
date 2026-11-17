@@ -19,7 +19,7 @@ async function fixture(t, version = '0.10.4') {
   await writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'kinex', version: '0.10.3' }))
   await writeFile(path.join(prefix, 'package.json'), JSON.stringify({ dependencies: { kinex: '0.10.3' } }))
   const calls = [], downloads = [], reports = []
-  const names = [`kinex-core-${version}.tgz`, `kinex-setup-${version}.tgz`, `kinex-self-improve-${version}.tgz`, `kinex-${version}.tgz`]
+  const names = [`kinex-core-${version}.tgz`, `kinex-setup-${version}.tgz`, `kinex-${version}.tgz`]
   const artifacts = new Map(names.map(name => [name, Buffer.from(`archive:${name}`)]))
   const release = { draft: false, prerelease: false, tag_name: `v${version}`,
     assets: [...names, 'SHA256SUMS'].map(name => ({ name, browser_download_url: `https://github.com/stacx-lab/kinex/releases/download/v${version}/${name}` })) }
@@ -41,12 +41,12 @@ async function fixture(t, version = '0.10.4') {
   return { root, prefix, packageRoot, calls, downloads, reports, names, artifacts, release, options }
 }
 
-test('self-upgrade verifies and retains all four archives, installs together, then hands off --all', async t => {
+test('self-upgrade verifies and retains all three archives, installs together, then hands off --all', async t => {
   const f = await fixture(t)
   await upgradeKinex({ ...f.options, all: true })
   const install = f.calls.find(call => call.args[0] === 'install')
   assert.deepEqual(install.args.slice(0, 6), ['install', '--prefix', f.prefix, '--ignore-scripts', '--no-audit', '--no-fund'])
-  assert.equal(install.args.length, 10)
+  assert.equal(install.args.length, 9)
   for (const file of install.args.slice(6)) assert.deepEqual(await readFile(file), f.artifacts.get(path.basename(file)))
   assert.deepEqual(f.calls.at(-1).args, [path.join(f.packageRoot, 'bin/kinex.mjs'), 'update', '--extensions'])
   assert.match(f.reports.at(-1), /Upgraded Kinex to 0\.10\.4/)
@@ -124,15 +124,24 @@ test('failed npm upgrade retains recovery artifacts and does not continue to pac
 
 test('verified release tarballs upgrade an actual local npm installation and persist usable file references', { timeout: 60000 }, async t => {
   const f = await fixture(t)
-  for (const [name, index] of [['@kinex/core', 0], ['@kinex/setup', 1], ['@kinex/self-improve', 2], ['kinex', 3]]) {
+  for (const [name, index] of [['@kinex/core', 0], ['@kinex/setup', 1], ['kinex', 2]]) {
     const source = path.join(f.root, `package-${index}`)
     await mkdir(path.join(source, 'bin'), { recursive: true })
     await writeFile(path.join(source, 'package.json'), JSON.stringify({
       name, version: '0.10.4', type: 'module',
-      ...(index === 3 ? { bin: { kinex: 'bin/kinex.mjs' }, dependencies: { '@kinex/core': '0.10.4', '@kinex/setup': '0.10.4', '@kinex/self-improve': '0.10.4' } } : {}),
+      ...(index === 2 ? {
+        bin: { kinex: 'bin/kinex.mjs' }, bundleDependencies: ['@kinex/self-improve'],
+        dependencies: { '@kinex/core': '0.10.4', '@kinex/setup': '0.10.4', '@kinex/self-improve': '0.10.4' },
+      } : {}),
       scripts: { postinstall: 'node -e "process.exit(99)"' },
     }))
     await writeFile(path.join(source, 'bin/kinex.mjs'), '#!/usr/bin/env node\nconsole.log("NEW_CLI:" + process.argv[2])')
+    // A package standalone bundles travels inside its archive, as a release packs it.
+    if (index === 2) {
+      const bundled = path.join(source, 'node_modules/@kinex/self-improve')
+      await mkdir(bundled, { recursive: true })
+      await writeFile(path.join(bundled, 'package.json'), JSON.stringify({ name: '@kinex/self-improve', version: '0.10.4', type: 'module', peerDependencies: { '@kinex/core': '0.10.4' } }))
+    }
     const packed = JSON.parse((await exec('npm', ['pack', '--json', '--pack-destination', f.root], { cwd: source })).stdout)[0]
     f.artifacts.set(f.names[index], await readFile(path.join(f.root, packed.filename)))
   }
@@ -144,9 +153,11 @@ test('verified release tarballs upgrade an actual local npm installation and per
   }
   await upgradeKinex({ ...f.options, all: true })
   assert.ok(output.some(text => text.includes('NEW_CLI:update')))
-  for (const name of ['kinex', '@kinex/core', '@kinex/setup', '@kinex/self-improve']) {
+  for (const name of ['kinex', '@kinex/core', '@kinex/setup', 'kinex/node_modules/@kinex/self-improve']) {
     assert.equal(JSON.parse(await readFile(path.join(f.prefix, 'node_modules', name, 'package.json'), 'utf8')).version, '0.10.4')
   }
+  // The bundled package uses the installation's one core, not a copy of its own.
+  await assert.rejects(stat(path.join(f.prefix, 'node_modules/kinex/node_modules/@kinex/core')), { code: 'ENOENT' })
   const consumer = JSON.parse(await readFile(path.join(f.prefix, 'package.json'), 'utf8'))
   for (const spec of Object.values(consumer.dependencies)) {
     assert.match(spec, /^file:/)

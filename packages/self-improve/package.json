@@ -23,7 +23,7 @@
     "README.md",
     "LICENSE"
   ],
-  "dependencies": {
+  "peerDependencies": {
     "@kinex/core": "1.1.4",
     "zod": "^4.4.3",
     "yaml": "2.9.0"

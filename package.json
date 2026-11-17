@@ -52,6 +52,9 @@
     "proper-lockfile": "4.1.2",
     "typebox": "1.3.27"
   },
+  "bundleDependencies": [
+    "@kinex/self-improve"
+  ],
   "devDependencies": {
     "@types/node": "22.20.4",
     "@types/proper-lockfile": "4.1.4",
