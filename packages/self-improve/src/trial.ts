@@ -5,7 +5,7 @@ import { createScope, currentScope, inScope } from "@kinex/core/scope"
 import { finishJob, spaced, type Job, type Result } from "./job.ts"
 import { pythonDir, versionDir } from "./layout.ts"
 import { install } from "./library.ts"
-import type { TrialInput } from "./records.ts"
+import { writeRecord, type TrialInput } from "./records.ts"
 import { START_GAP_S, type Run } from "./run.ts"
 import { runSession, type SessionExit } from "./session.ts"
 import { openSim, type Verdict } from "./sim.ts"
@@ -58,5 +58,8 @@ export async function runTrial(run: Run, job: Job, input: TrialInput): Promise<R
     return runSession("worker", job.workspace, job.record, prompt, Date.now() + input.timeoutS * 1000)
   })().catch(async (error: unknown) => { await sim.close().catch(() => {}); throw error })
   const verdict = await sim.close()
-  return finishJob(job, { ...judged(session, verdict), instruction: sim.instruction, ...verdict })
+  const outcome = { ...judged(session, verdict), instruction: sim.instruction, ...verdict }
+  // A record that cannot be written must not cost the trial its verdict: the distillation writes it again.
+  const unwritten = await writeRecord(run.root, { id: job.id, ...input, ...outcome }).then(() => undefined, (error: unknown) => error instanceof Error ? error.message : String(error))
+  return finishJob(job, { ...outcome, ...(unwritten ? { recordError: unwritten } : {}) })
 }

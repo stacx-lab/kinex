@@ -50,6 +50,8 @@ trials/t001/
   input.json                task, robot, library version, limits
   workspace/                the rig export with the library installed
   record/                   prompt.md  session.jsonl  output.log  result.json
+                            summary.md  history.md  history.json  images/   the transcript, in brief and in full
+                            learned.md  learned/    what the worker kept beyond the library
 distillations/d001/
   input.json                base version, trial ids, which of them are new
   workspace/                records/  reference/  library/ (the candidate)  notes/
