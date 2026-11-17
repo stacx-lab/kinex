@@ -11,6 +11,21 @@ export interface SessionExit {
   wallS: number
 }
 
+// A child runs on the model this Kinex was started with: its --model, --provider
+// and --thinking pass on, and without them the child takes the same settings defaults.
+function modelFlags(args = process.argv.slice(2)): string[] {
+  const flags: string[] = []
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
+    if (arg === "--") break
+    const name = ["--model", "--provider", "--thinking"].find(flag => arg === flag || arg.startsWith(`${flag}=`))
+    if (!name) continue
+    const value = arg === name ? args[++index] : arg.slice(name.length + 1)
+    if (value) flags.push(name, value)
+  }
+  return flags
+}
+
 // The one place a child's command and environment are built; confinement
 // stronger than a trimmed environment belongs here.
 function command(role: Role, record: string, prompt: string, deadline: number) {
@@ -20,7 +35,7 @@ function command(role: Role, record: string, prompt: string, deadline: number) {
   // rosbridge is put on PATH by activating its environment; a child never needs it.
   const visible = (entry: string) => !(existsSync(path.join(entry, "rosbridge")) && existsSync(path.join(entry, "activate")))
   return {
-    argv: [process.execPath, kinex, "run", "--yolo", "--session", sessionFile(record), "--", ...roles[role].first, prompt],
+    argv: [process.execPath, kinex, "run", "--yolo", ...modelFlags(), "--session", sessionFile(record), "--", ...roles[role].first, prompt],
     env: { ...inherited, [ROLE_VARIABLE]: role, [DEADLINE_VARIABLE]: String(deadline),
       PATH: (process.env.PATH ?? "").split(path.delimiter).filter(visible).join(path.delimiter) },
   }
