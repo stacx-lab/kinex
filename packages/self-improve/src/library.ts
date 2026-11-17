@@ -15,6 +15,10 @@ export const memoryDir = (library: string) => path.join(library, "memory")
 export const briefFile = (kinex: string) => path.join(kinex, "self-improve", "brief.md")
 
 const exists = (target: string) => stat(target).then(() => true, () => false)
+
+// Every session in a workspace with the library installed is given its brief,
+// so a brief that ships stays as short as the distiller is asked to keep it.
+export const briefLimit = { lines: 15, characters: 2000 }
 const number = (version: string) => Number(version.slice(1))
 
 export async function versions(root: string): Promise<string[]> {
@@ -76,6 +80,10 @@ export async function check(library: string): Promise<string[]> {
     claim("tool", manifest.data.name, file)
     if (!(await exists(path.join(directory, manifest.data.entry)))) problems.push(`${file}: entry ${manifest.data.entry} does not exist`)
   }
+  const brief = (await readFile(path.join(payloadDir(library), "brief.md"), "utf8").catch(() => "")).trim()
+  const lines = brief ? brief.split(/\r?\n/).length : 0
+  if (lines > briefLimit.lines || brief.length > briefLimit.characters)
+    problems.push(`payload/brief.md: ${lines} lines and ${brief.length} characters, at most ${briefLimit.lines} lines and ${briefLimit.characters} characters`)
   return problems
 }
 
@@ -87,7 +95,7 @@ export async function publish(root: string, candidate: string, manifest: { paren
 
 /**
  * Version to workspace: its skills and tools go where Kinex discovers them and
- * its brief where this package's context adds it to the instructions. Trial
+ * its brief where this package's context gives it to every session. Trial
  * workspaces and /self-improve install use this same copy, so a worker sees a
  * library exactly as a user who installed it. Nothing existing is overwritten.
  */

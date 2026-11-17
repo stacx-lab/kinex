@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { isolate, fakeProvider, workspace, bind } from './helpers.mjs'
 
 const isolation = await isolate()
@@ -47,6 +49,22 @@ test('only the session that ran /self-improve is the scheduler, until it stops',
   assert.match(resumed.prompt, /^Continue the self-improve run /)
   assert.deepEqual(await names(second), scheduler)
   assert.match(await rules(second), /Request: sim\/open-door\nRounds: 2\./)
+})
+
+test('an installed brief is a context section of each session, never an instruction', async t => {
+  const directory = await workspace(t)
+  const runtime = createKinexRuntime({ directory })
+  t.after(() => runtime.dispose())
+  const file = path.join(directory, '.kinex/self-improve/brief.md')
+  const session = selfImproveContribution(runtime)
+  assert.deepEqual(await session.context(), { instructions: '', sections: {} })
+  await mkdir(path.dirname(file), { recursive: true })
+  await writeFile(file, 'Load the press skill first.\n')
+  assert.deepEqual(await session.context(), { instructions: '', sections: { brief: 'Load the press skill first.' } })
+  // A session that was given a brief is told when it is gone; one that never was hears nothing.
+  await rm(file)
+  assert.deepEqual(await session.context(), { instructions: '', sections: { brief: '' } })
+  assert.deepEqual(await selfImproveContribution(runtime).context(), { instructions: '', sections: {} })
 })
 
 test('a new session of the application is not the scheduler of the session before it', { timeout: 60000 }, async t => {

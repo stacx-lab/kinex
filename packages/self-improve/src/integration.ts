@@ -24,8 +24,9 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
   // What this session schedules. A host makes its contributions for one session,
   // so the role ends with it: /new, a resumed session or another workspace is an
   // ordinary session again, and /self-improve resume takes the run up where it is.
-  // `left` is the run this session stopped scheduling, which it must be told.
-  const session: { run?: Run; left?: Run } = {}
+  // `left` is the run this session stopped scheduling, which it must be told, and
+  // `briefed` whether it was given a brief, so it is also told when one is removed.
+  const session: { run?: Run; left?: Run; briefed?: boolean } = {}
   const schedule = (run: Run, action: string): CommandResult => {
     session.run = run
     session.left = undefined
@@ -84,11 +85,18 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
         return withRun(session.run, () => runtime.tools.execute(def, input, { sessionID: call.sessionID, callID: call.callID, signal: call.abort, ask: call.ask, questions: call.questions }))
       },
     },
-    // An installed library's brief is part of the instructions of every session in that workspace.
+    // An installed library's brief is a context section of every session in that
+    // workspace, not an instruction: the host sends it before the first request,
+    // again only when it changes and after compaction, and the stable prompt stays
+    // the same when a library is installed or its brief is edited.
     context: () => runtime.operation(async () => {
-      const sections: Record<string, string> = session.run ? { run: rules(session.run) }
-        : session.left ? { run: STOPPED.trim().replaceAll("$ROOT", () => session.left?.root ?? "") } : {}
-      return { instructions: await installedBrief(runtime.directory), sections }
+      const sections: Record<string, string> = {}
+      const brief = await installedBrief(runtime.directory)
+      if (brief || session.briefed) sections.brief = brief
+      if (brief) session.briefed = true
+      if (session.run) sections.run = rules(session.run)
+      else if (session.left) sections.run = STOPPED.trim().replaceAll("$ROOT", () => session.left?.root ?? "")
+      return { instructions: "", sections }
     }),
     commands: [{
       name: "self-improve", description: "Practise simulated tasks and distill a library of skills and tools",
