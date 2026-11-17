@@ -3,8 +3,8 @@
 For ROS devices, use the [async protocol API](communication.md). The world device
 owns timing, and `lib.frames` uses tf2 with ROS frame IDs.
 
-`@kinex/core` provides tools for operating devices, a library of Python programs
-and a skill for preparing devices. Tools execute code; skills supply instructions
+`@kinex/core` provides tools for operating devices, a runner for Python programs
+with a library of functions for them, and a skill for preparing devices. Tools execute code; skills supply instructions
 that the agent follows. These
 built-ins complement the host's coding tools, such as shell and file editing.
 
@@ -21,21 +21,123 @@ built-ins complement the host's coding tools, such as shell and file editing.
 | `record` | Start/stop observation capture, take snapshots and inspect recordings. Exposed to the model only when recording is enabled. |
 | `skill` | Load a named skill's instructions into the agent's context, warning about unmet calibration requirements. |
 
-### Programs: `lib` and `exec`
+### Programs and the library: `exec` and `lib`
 
 | Tool | Purpose |
 | --- | --- |
-| `lib` | Browse the program library one level at a time: modules, then a module's functions, then a function's signature and docstring. Read-only; no approval. |
-| `exec` | Run Python in Kinex Python: source, a library program by name, or a file's `main`. |
+| `exec` | Run a complete Python program in Kinex Python, given as source or as a saved file. |
+| `lib` | Browse the function library one level at a time: modules, then a module's functions, then a function's signature and docstring. Read-only; no approval. |
 
-A **program** is a public function of a `kinex.lib` module. The library is one
-Python package with several roots: the workspace's `.kinex/lib`, its ancestors',
-the global configuration's and the builtin modules shipped with core. A module in
-a nearer root replaces one of the same name farther away. Builtin modules cover
-frames (`frames`), cameras (`images`), kinematics (`kinematics`), trajectory
-planning (`motion`) and object localization (`perception`). A quick snippet, a
-saved closed-loop task and a composition of both are the same thing: functions
-calling functions.
+A **program** is a complete Python script that ends with `finish`. It is what
+`exec` runs, and the same text whether the agent passes it inline or saves it as a
+file, by convention under `.kinex/programs`. The **library** is what programs
+import: reusable functions in the `kinex.lib` package. A program is an entry
+point; a library function is a part of one.
+
+### Running with `exec`
+
+Supply exactly one of:
+
+- `python`: the program's source.
+- `file`: the path of a saved program, relative to the working directory or
+  absolute.
+
+`args` supplies values the program reads with `kinex.args()`, and `argv` fills
+`sys.argv[1:]`.
+
+```python
+import asyncio
+from kinex import args, finish, io, lib
+
+async def main():
+    state = await io.read("arm.joint_state")
+    image, depth = await lib.images.camera_frame(args()["camera"])
+    finish({"positions": state.position}, file=[image])
+
+asyncio.run(main())
+```
+
+`finish(result=None, file=None)` ends the program and is the only way it returns:
+
+- `result` is JSON-ready data. ROS messages, poses, NumPy values, dataclasses and
+  tuples are converted: a pose to seven numbers, a time to seconds and a
+  non-finite number to `null`.
+- `file` attaches images for the model: an image message, an image path, or a
+  list of them, in order. Images are never data, so an image in `result` is an
+  error, and nothing outside `file` is attached.
+
+A program that ends without `finish` returns `null`. Failure is an uncaught
+exception; its traceback appears once, in the error. Printed text comes back as
+bounded output.
+
+`io` is the invocation's communication scope, opened on first use inside the
+program's event loop: `io.read`, `io.subscribe`, `io.publish` and `io.request` on
+declared operations. Library functions use the same scope, so they take no `io`
+parameter and compose with ordinary Python, `asyncio.gather` included. A program
+runs one `asyncio.run(main())`; Kinex releases the scope when the program ends.
+
+| Caller | Invocation |
+| --- | --- |
+| Agent | `exec {file: ".kinex/programs/pick_place.py", args: {object: "red block", target: "blue pad"}}` |
+| User | `/exec .kinex/programs/pick_place.py object="red block" target="blue pad"` |
+| Shell | `kinex run '/exec .kinex/programs/pick_place.py object="red block" target="blue pad"'` |
+
+The agent receives the result as text and the files in `file` as images. After a
+user's `/exec` the agent reads the same text, which names the files by path;
+standalone draws the images for the user under the command's row.
+
+Use bounded Python loops for feedback control and settling checks; their control
+flow, state and stopping conditions belong in the code. A typical sequence is:
+
+1. Read measured state and compute or submit a control action.
+2. Wait through the world device's `wait` when needed, one wait at a time;
+   choose an explicit interval for replanning during motion.
+3. Check fresh feedback, faults and the task's tolerances. Bound retries and
+   elapsed time; position agreement alone does not establish stability or task
+   success. Cached observations do not supply new evidence.
+4. Call the device's `stop` operation when the loop's exit requires it; a
+   successful invocation leaves motion running.
+5. Finish with the camera images the next decision needs.
+
+One execution approval covers an invocation's reads and commands; Python cannot
+load/unload devices or control recording. A failed, timed-out or cancelled
+invocation stops every device it commanded, and a device stop cancels the
+invocations that commanded it; see
+[commands and cleanup](communication.md#commands-and-cleanup). Each invocation
+uses a fresh process with a default 120-second wall-clock `timeout_s` and returns
+its bounded printed output with the result or an error.
+
+See [Python scripting](../packages/core/README.md#python-scripting) for all inputs,
+the [control example](../packages/core/README.md#feedback-control-with-exec) for a
+bounded loop that attaches multiple camera images, and [device contracts](devices.md)
+for the underlying interfaces.
+
+### The function library
+
+The library is one Python package, `kinex.lib`, with several roots: the
+workspace's `.kinex/lib`, its ancestors', the global configuration's and the
+builtin modules shipped with core. A module in a nearer root replaces one of the
+same name farther away. Builtin modules cover frames (`frames`), cameras
+(`images`), kinematics (`kinematics`), trajectory planning (`motion`) and object
+localization (`perception`).
+
+Save code that several programs share as a module under `.kinex/lib`, at any
+depth: a docstring saying what the module contains, then functions with typed
+signatures and docstrings, `async` when they use `io`.
+
+```python
+# .kinex/lib/tabletop.py
+"""Tabletop manipulation for this cell. Poses are in arm/base."""
+from kinex import io
+from kinex.lib import frames, perception
+
+async def grasp(object: str, arm: str = "arm") -> dict:
+    """Close on the detected object, retrying once, and return the measured width."""
+    ...
+```
+
+A program calls it as `await lib.tabletop.grasp("red block")`, and other library
+functions import it from `kinex.lib.tabletop`.
 
 ### Browsing with `lib`
 
@@ -64,88 +166,11 @@ files whose names cannot be imported and a submodule that hides a function of th
 same name. Only the top-level module list enters the agent's context; everything
 deeper is read on demand.
 
-### Running with `exec`
-
-Supply exactly one of:
-
-- `python`: source run as the body of an async function. It may `await` and
-  `return`; `io`, `lib`, `runtime` and `args` are preset.
-- `program`: a library function as `module.function`, called with `args` as its
-  keyword arguments.
-- `file`: a Python file outside the library, such as a skill's script. Its `main`
-  is called with `args` as keyword arguments; `argv` fills `sys.argv[1:]`.
-
-```python
-state = await io.read("arm.joint_state")
-image, depth = await lib.images.camera_frame("camera_wrist")
-return {"positions": state.position, "wrist": image}
-```
-
-Whatever the code returns is the result: ROS messages, NumPy values and tuples
-become JSON and non-finite numbers `null`. A returned `sensor_msgs/Image`, or a
-`pathlib.Path` of an image file, is attached for the model in the order returned;
-include camera names and stamps to identify observations. Failure is an
-exception; its traceback appears once, in the error. Printing returns and
-attaches nothing.
-
-`io` is the invocation's communication scope, opened on first use: `io.read`,
-`io.subscribe`, `io.publish` and `io.request` on declared operations. Library
-functions use the same scope, so they take no `io` parameter and compose with
-ordinary Python, `asyncio.gather` included.
-
-Save reusable code as a module under `.kinex/lib`, at any depth: a docstring
-saying what the module contains, then functions with typed signatures and
-docstrings, `async` when they use `io`. A complete closed-loop task, such as a
-pick and place with its own retries, is saved the same way and then runs without
-the agent:
-
-```python
-# .kinex/lib/tabletop.py
-"""Tabletop manipulation for this cell. Poses are in arm/base."""
-from kinex.lib import frames, perception
-
-async def pick_place(object: str, target: str, arm: str = "arm") -> dict:
-    """Pick the detected object and place it on the target, retrying the grasp."""
-    ...
-```
-
-| Caller | Invocation |
-| --- | --- |
-| Agent | `exec {program: "tabletop.pick_place", args: {object: "red block", target: "blue pad"}}` |
-| User | `/exec tabletop.pick_place object="red block" target="blue pad"` |
-| Shell | `kinex run '/exec tabletop.pick_place object="red block" target="blue pad"'` |
-| Another program | `await lib.tabletop.pick_place("red block", "blue pad")` |
-
-Use bounded Python loops for feedback control and settling checks; their control
-flow, state and stopping conditions belong in the code. A typical sequence is:
-
-1. Read measured state and compute or submit a control action.
-2. Wait through the world device's `wait` when needed, one wait at a time;
-   choose an explicit interval for replanning during motion.
-3. Check fresh feedback, faults and the task's tolerances. Bound retries and
-   elapsed time; position agreement alone does not establish stability or task
-   success. Cached observations do not supply new evidence.
-4. Call the device's `stop` operation when the loop's exit requires it; a
-   successful invocation leaves motion running.
-5. Return the camera images the next decision needs.
-
-One execution approval covers an invocation's reads and commands; Python cannot
-load/unload devices or control recording. A failed, timed-out or cancelled
-invocation stops every device it commanded, and a device stop cancels the
-invocations that commanded it; see
-[commands and cleanup](communication.md#commands-and-cleanup). Each invocation
-uses a fresh process with a default 120-second wall-clock `timeout_s` and returns
-its bounded printed output with the result or an error.
-
-See [Python scripting](../packages/core/README.md#python-scripting) for all inputs,
-the [control example](../packages/core/README.md#feedback-control-with-exec) for a
-bounded loop returning multiple camera images, and [device contracts](devices.md)
-for the underlying interfaces.
-
 ### Subagents in programs
 
-A program asks a model for a judgment with `subagent`, so a saved closed-loop task
-can decide what it sees without the main agent:
+A program, or a library function it calls, asks a model for a judgment with
+`subagent`, so a saved closed-loop task can decide what it sees without the main
+agent:
 
 ```python
 # .kinex/lib/judge.py
@@ -168,7 +193,7 @@ items in `show`: a camera image message or an image `Path` is shown as an image,
 any other value as text. It has no tools, no memory of other calls and none of the
 main agent's context. The program states the form of the reply, parses it and
 checks it before acting; a reply it cannot use is an ordinary Python error to
-retry, or a reason to return the images to the main agent. Calls run alongside
+retry, or a reason to finish with the images for the main agent. Calls run alongside
 other work (`asyncio.gather` included), count against the invocation's time limit,
 and end with the invocation. The program waits for a reply but the robot does not,
 so ask where the robot is at rest.
@@ -188,21 +213,24 @@ choice is kept in `subagent.json` of the Kinex configuration directory. A call's
 
 ### Flow charts
 
-`/visualize tabletop.pick_place` draws a saved program for the user to read: a
-self-contained HTML page derived from source alone, so nothing runs and no device
-is touched. It is a user command, not a model tool.
+`/visualize .kinex/programs/pick_place.py` draws a saved program for the user to
+read, and `/visualize tabletop.grasp` or `/visualize file.py:function` one
+function: a self-contained HTML page derived from source alone, so nothing runs
+and no device is touched. It is a user command, not a model tool.
 
-A function's chart is a tree of steps rather than a graph of statements:
+A program's chart is its top-level statements, with the `main` that
+`asyncio.run(main())` starts opened in place. A chart is a tree of steps rather
+than a graph of statements:
 
 | Step | From |
 | --- | --- |
 | Subagent | `subagent(...)`, with the first line of its instruction and the names of what it is shown |
 | Device operation | `io.request`, `io.publish`, `io.read`, a subscription's `next` or `latest`, labelled with the operation; a computed name shows its expression |
 | Call | A call to a library function, a function of the same file or, for a file outside the library, of a sibling module. One node, which opens into the callee's chart |
-| Computation | Consecutive statements that touch no device and call no program, folded into one node; branches and loops that only compute fold with them |
+| Computation | Consecutive statements that touch no device and call no charted function, folded into one node; branches and loops that only compute fold with them |
 | Branch, loop, try, scope | `if`/`match`, `for`/`while`, `try`, `with`; a test that only leaves (`if error: raise`) is one guard node |
 | Concurrency | `asyncio.gather` and `asyncio.wait` as branches between two bars, `create_task` as a task running alongside until it is awaited or cancelled, `asyncio.timeout`/`wait_for` and subscriptions as scopes |
-| Exit | `return`, `raise`, `break`, `continue` |
+| Exit | `finish`, `return`, `raise`, `break`, `continue` |
 
 An `await` on its own is an ordinary step: only the constructs above run things at
 the same time. The chart shows what the source says. A function passed as a

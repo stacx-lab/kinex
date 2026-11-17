@@ -40,8 +40,8 @@ Borrowed services are never terminated.
 
 The nearest `.kinex/` directory owns the workspace's `workspace.yaml` assembly
 and `devices/<name>/` inventory, each a `profile.yaml` with its node sources and
-URDFs. It also holds `lib/`, the workspace's part of the `kinex.lib` program
-library, importable by exec and nodes,
+URDFs. It also holds `lib/`, the workspace's part of the `kinex.lib` function
+library, importable by programs and nodes, `programs/` for saved exec programs,
 `kinex.json` configuration, the `python/` environment, `recordings/` and the
 `flow/` charts `/visualize` writes. Without
 one, the workspace path is `<working-directory>/.kinex`; reads do not create it.
@@ -50,19 +50,21 @@ packaged assets, with concrete device provisioning instances before type
 templates. Read-only discovery must not create a nearer workspace or initialize
 Python.
 
-Custom JS/TS tools live in `.kinex/tools/`. Python programs live in `.kinex/lib/`
-as modules of `kinex.lib`, at any depth; a nearer root's module replaces a farther
-or builtin one of the same name, as Python resolves the package's search path.
+Custom JS/TS tools live in `.kinex/tools/`. Reusable Python functions live in
+`.kinex/lib/` as modules of `kinex.lib`, at any depth; a nearer root's module
+replaces a farther or builtin one of the same name, as Python resolves the
+package's search path. Saved programs live in `.kinex/programs/` by convention and
+are run by path.
 Custom skills use `.kinex/skills/<name>/SKILL.md`, searched recursively. Device
 guides use `.kinex/device/<name>/DEVICE.md` for instances and
 `.kinex/device/templates/<type>/DEVICE.md` for types. Global configuration uses
 the same `tools/`, `lib/`, `skills/` and `device/` directories. Packaged assets use
 their internal `builtin/skill` and `builtin/device` paths and the `kinex/lib`
-Python package. Programs need no discovery entry or manifest.
+Python package. Programs and library functions need no discovery entry or manifest.
 
 Core lazily prepares `.kinex/python`: independent Pixi/RoboStack Jazzy by default,
 Humble when workspace configuration selects `ros-humble`, or uv with `uv`. Exec,
-the program library, ROS clients, tf2 and recording use Kinex Python, independent of device
+the function library, ROS clients, tf2 and recording use Kinex Python, independent of device
 load state. Only device processes may select separate SDK interpreters.
 Concurrent first use waits for preparation; incomplete bootstraps retry. Existing
 prepared environments run without synchronization until their ROS distribution or

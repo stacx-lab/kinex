@@ -18,7 +18,7 @@ validated; unrelated calibration never gates all operations. See the
 For calibration motion, explicitly wait through the loaded world's declared `wait`
 and check fresh measured feedback before sampling; if simulation needs more time,
 advance it explicitly before invoking the sampler. General
-feedback loops use [Python execution with `exec`](tools-and-skills.md#python-execution-with-exec);
+feedback loops use [programs run with `exec`](tools-and-skills.md#running-with-exec);
 the sampler's own settling and evidence checks remain part of setup.
 
 ## ROS integration
@@ -36,7 +36,7 @@ that borrow the simulator's endpoints and carry their calibration. Load them aft
 the graph on the same domain.
 
 Device nodes and optional local sources live in `.kinex/devices/<name>/`; code
-shared with exec may live in `.kinex/lib/`, imported as `kinex.lib.<module>`. Use `profile_write` to register node factories;
+shared with programs may live in `.kinex/lib/`, imported as `kinex.lib.<module>`. Use `profile_write` to register node factories;
 default nodes inherit Kinex Python. Declare interpreter/overlay overrides only for
 separate device SDKs. Unload before replacing runtime definitions, validate, then
 explicitly reload. Existing external stacks are borrowed; Kinex unload releases
