@@ -111,7 +111,7 @@ def joint_target(value, joints, *, check_limits=True):
     """Finite positions for the given joints, optionally within their URDF limits."""
     if not joints:
         raise ValueError("joint metadata is required")
-    vector(value, len(joints), "joint target")
+    value = vector(value, len(joints), "joint target")
     for position, joint in zip(value, joints):
         limits = joint.get("limits")
         if check_limits and limits is not None and not limits["min"] <= position <= limits["max"]:

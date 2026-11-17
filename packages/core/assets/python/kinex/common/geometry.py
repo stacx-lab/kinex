@@ -6,20 +6,26 @@ with the quaternion scalar-last. An (R, t) pair is a 3x3 row-major rotation with
 """
 
 import math
+from numbers import Real
 
 
 def number(value, name="value"):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    """A finite real number, NumPy scalars included, as a Python number."""
+    if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
         raise ValueError(f"{name} must be a finite number")
-    return value
+    return value if type(value) in (int, float) else float(value)
 
 
 def vector(value, size, name="components"):
-    if not isinstance(value, list) or len(value) != size:
-        raise ValueError(f"{name} needs {size} numbers")
-    for entry in value:
-        number(entry, name)
-    return value
+    """A list of size finite numbers from any flat sequence of them: a list, a tuple,
+    a ROS message's array field or a NumPy array."""
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{name} must be a sequence of {size} numbers, not {type(value).__name__}")
+    if len(value) != size:
+        raise ValueError(f"{name} needs {size} numbers, got {len(value)}")
+    return [number(entry, name) for entry in value]
 
 
 def quat_to_mat(q):
@@ -87,7 +93,7 @@ QUATERNION_NORM_TOLERANCE = 1e-3
 
 def quaternion(value, name="quaternion"):
     """Return a near-unit [qx, qy, qz, qw] quaternion scaled to unit norm."""
-    vector(value, 4, name)
+    value = vector(value, 4, name)
     norm = math.hypot(*value)
     # Compare bounds directly so the endpoints survive floating-point rounding.
     if not 1 - QUATERNION_NORM_TOLERANCE <= norm <= 1 + QUATERNION_NORM_TOLERANCE:
@@ -98,7 +104,7 @@ def quaternion(value, name="quaternion"):
 
 def pose(value, name="pose"):
     """Return [x, y, z, qx, qy, qz, qw] with a normalized near-unit quaternion."""
-    vector(value, 7, name)
+    value = vector(value, 7, name)
     return value[:3] + quaternion(value[3:], name)
 
 

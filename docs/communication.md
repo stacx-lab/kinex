@@ -139,9 +139,10 @@ response object; owned nodes serve it with
 `kinex.node.json_service(node, operation, handler)`. `publish`, `subscribe`,
 `request` and `serve` are protocol primitives; they do not prescribe
 control flow. Use ordinary functions, branching and asyncio task groups.
-Messages may be native ROS messages or field mappings. A subscription used with
+Messages may be native ROS messages or field mappings; see [values](#values) for
+what a mapping may hold. A subscription used with
 `with` or `async with` closes on exit; the scope closes any others. A returned
-result converts ROS messages and NumPy values to JSON and non-finite numbers to
+result converts ROS messages, poses and NumPy values to JSON and non-finite numbers to
 `null`; returned images become attachments. Subscriptions expose
 `next`, `latest(max_age_s=...)` and idempotent `close`. Both ROS and Python queues
 are bounded. Receipt-age checks detect transport staleness; observation timestamps
@@ -160,6 +161,45 @@ The `kinex` package separates audiences. The root and `kinex.lib` (browsed with
 the `lib` tool) are the exec API; `kinex.node` serves device node
 authors; `kinex.common` holds shared internals and `kinex.host` the processes the
 runtime launches.
+
+## Values
+
+A value has one form in each of three places, and Kinex converts at the two
+boundaries between them; a program does not.
+
+| | In a program | Written down: results, arguments, profiles | On the wire |
+| --- | --- | --- | --- |
+| Vector | NumPy array | list of numbers | the declared ROS array field |
+| Pose | scipy `RigidTransform` | `[x, y, z, qx, qy, qz, qw]` | `Pose`, `Transform` |
+| Time | seconds on the world clock | seconds | `Time`, `Duration` |
+| Frame | `device:frame` or `device/frame` | the same | `frame_id` |
+
+Operations carry the ROS types their profile declares; Kinex defines no message
+format of its own, and `io.read` and subscriptions return native messages.
+Library functions take a value in any equivalent form and return it in one: a
+vector may be a list, a tuple, a message's array field or an array; a pose may be
+a `RigidTransform`, its seven numbers or a `Pose`, `Transform`, `PoseStamped` or
+`TransformStamped`; a time may be seconds, a stamp or a stamped message.
+`pose(value)` and `seconds(value)`, preset in exec and importable from `kinex`,
+make these conversions for a program's own use.
+
+`io.publish` and `io.request` encode a field mapping by each field's declared
+type: seconds for a `Time` or `Duration`, a pose for a `Pose` or `Transform`, one
+`RigidTransform` holding several poses for an array of them, numbers for a
+`Point`, `Vector3` or `Quaternion`, and arrays for numeric fields. The mapping
+is read, never changed. A returned result writes poses as their seven numbers
+and times as seconds; `kinex.plain(value)` gives that JSON-ready form to a
+program that writes a file of its own.
+
+```python
+state = await io.read("arm.joint_state")
+arm = lib.kinematics.joint_model("arm")
+flange = arm.fk(state.position)                       # the message's array, as it is
+tcp = flange * pose([0, 0, 0.1, 0, 0, 0, 1])          # poses compose as objects
+seen = await lib.frames.lookup_transform("arm:base", "camera:color", image) * found
+await io.publish("arm.joint_target", {"joint_names": arm.names, "points": [
+    {"positions": arm.ik(seen, state.position), "time_from_start": 2.0}]})
+```
 
 ## World time
 
@@ -238,8 +278,8 @@ reliable, transient-local QoS so Kinex readers can join while the world is pause
 
 Kinematics need no device service. `lib.kinematics.joint_model(device)` loads the
 resolved URDF: `fk(positions, link=None)` returns a link pose in `<device>/base`
-and `ik(pose, seed, link=None)` runs the bounded solver within URDF limits and
-verifies its result with FK; the link defaults to the only `model.tip_links`
+as a `RigidTransform` and `ik(pose, seed, link=None)` runs the bounded solver within
+URDF limits, verifies its result with FK and returns the positions as an array; the link defaults to the only `model.tip_links`
 entry. A controller with native kinematics may declare `fk` or `ik` as ordinary
 optional operations.
 
@@ -247,7 +287,8 @@ Kinex automatically owns a persistent tf2 service
 (`kinex_interfaces/srv/LookupTransform`) for each runtime ROS domain with a world
 clock. Use
 `await lib.frames.lookup_transform(target, source, stamp=None, timeout_s=5)`,
-which returns `TransformStamped`. Its internal endpoint is passed to exec outside
+which returns the pose of `source` in `target` as a `RigidTransform`: multiplying it
+by a pose or applying it to points seen in `source` expresses them in `target`. Its internal endpoint is passed to exec outside
 the device catalog; no world operation or device factory registers it. The
 service retains 120 s of world-time history, so a stamp from an earlier call
 remains answerable; a standalone scope's local history keeps tf2's 10 s. A
@@ -256,9 +297,9 @@ world-clock rewind invalidates dynamic history while retaining fixed calibration
 The simulator supplies state and measurements, or node geometry descriptors, not TF or a transform-lookup
 service. Camera nodes set image frame IDs to the calibrated optical frame.
 
-`lib.frames.relative_pose` uses tf2 and accepts qualified frame references or ROS frame IDs.
-Supply `timestamp` for a measurement at a particular world time; omitting it
-explicitly requests the latest available transform. Kinex retains the tf2 service
+`lib.frames.lookup_transform` uses tf2 and accepts qualified frame references or ROS frame IDs.
+Supply `stamp`, in seconds or as the stamped message a measurement came in, for a
+particular world time; omitting it explicitly requests the latest available transform. Kinex retains the tf2 service
 across exec calls, so a new invocation can query a paused world without waiting
 for another physics tick. Missing relationships and unavailable timestamps are
 errors. A lookup waits its whole timeout, then names the cause: a frame not on TF

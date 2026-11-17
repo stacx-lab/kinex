@@ -16,7 +16,7 @@ const TABLETOP = `"""Pick and place on a table."""
 import asyncio
 
 from kinex import io, lib
-from kinex.lib.frames import transform_pose
+from kinex.lib.frames import lookup_transform
 from . import grasp
 
 
@@ -29,7 +29,7 @@ async def watch(limit):
 
 
 async def move(pose, duration=2.0):
-    target = await transform_pose(pose, "world", "arm/base")
+    target = await lookup_transform("arm/base", "world") * pose
     await io.publish("arm.pose_target", {"pose": target, "duration": duration})
     await io.request("world.wait", duration_s=duration)
 
@@ -218,8 +218,8 @@ test('a program charts as device operations, calls, computation and the control 
       { loop: 'for sample in each message of arm.wrench', body: ['next arm.wrench', { if: [['abs(sample.force.z) > limit', ["raise RuntimeError('contact')"]]], else: [] }], else: [] },
     ] },
   ])
-  assert.deepEqual(shape(named(flow, 'tasks.tabletop.move').body), ['call frames.transform_pose', 'publish arm.pose_target', 'request world.wait'])
-  assert.equal(flow.functions[call(named(flow, 'tasks.tabletop.move'), 'frames.transform_pose').target].path, 'frames.transform_pose')
+  assert.deepEqual(shape(named(flow, 'tasks.tabletop.move').body), ['call frames.lookup_transform', 'publish arm.pose_target', 'request world.wait'])
+  assert.equal(flow.functions[call(named(flow, 'tasks.tabletop.move'), 'frames.lookup_transform').target].path, 'frames.lookup_transform')
   assert.deepEqual(shape(named(flow, 'tasks.grasp.close').body), [
     'publish gripper.target',
     { loop: 'for _ in range(10)', body: ['next gripper.joint_state', 'call _width', { if: [['_width(state) > 0.002', ['return True']]], else: [] }], else: [] },

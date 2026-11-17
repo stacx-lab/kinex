@@ -143,7 +143,8 @@ test('joint URDF trees validate home and links and serve helper kinematics', asy
   const result = await runtime.tools.call('exec', { python: `arm = lib.kinematics.joint_model("arm")
 seed = [0, 0, 0, -1.5, 0, 1.5, 0]
 goal = arm.fk([.1, .2, 0, -1.4, 0, 1.6, .1])
-return {"names": arm.names, "error": max(abs(a - b) for a, b in zip(arm.fk(arm.ik(goal, seed)), goal))}` }, { sessionID: 'arm', ask: async () => {} })
+reached = goal.inv() * arm.fk(arm.ik(goal, seed))
+return {"names": arm.names, "error": float(abs(reached.translation).max() + reached.rotation.magnitude())}` }, { sessionID: 'arm', ask: async () => {} })
   assert.ok(!result.isError, result.output)
   const { names, error } = JSON.parse(result.output).result
   assert.deepEqual(names, Array.from({ length: 7 }, (_, i) => `robot0_joint${i + 1}`))
