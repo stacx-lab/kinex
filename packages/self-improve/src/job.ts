@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { currentScope } from "@kinex/core/scope"
-import { entries, inputFile, recordDir, reserve, resultFile, sessionFile, workspaceDir, writeJson } from "./layout.ts"
+import { entries, inputFile, parseLine, recordDir, reserve, resultFile, sessionFile, workspaceDir, writeJson } from "./layout.ts"
 
 // A trial or a distillation: one folder with an input, a workspace and a record.
 export interface Job { id: string; directory: string; workspace: string; record: string }
@@ -26,7 +26,8 @@ export async function usage(record: string) {
   const lines = (await Promise.all(sessions.map(file => readFile(file, "utf8").catch(() => "")))).flatMap(text => text.split("\n"))
   for (const line of lines) {
     if (!line.includes('"usage"')) continue
-    const entry = JSON.parse(line) as { usage?: Usage; message?: { usage?: Usage } }
+    const entry = parseLine(line) as { usage?: Usage; message?: { usage?: Usage } } | undefined
+    if (!entry) continue
     const used = entry.usage ?? entry.message?.usage
     if (!used) continue
     total.input += used.input ?? 0
