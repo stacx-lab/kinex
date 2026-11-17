@@ -31,9 +31,10 @@ test('the check reports what Kinex could not load, and only a clean candidate is
   await put(path.join(candidate, 'payload/tools/bad/tool.yaml'), 'name: Bad Name\ndescription: x\nextra: 1\n')
   await put(path.join(candidate, 'payload/tools/bare/tool.py'), 'pass\n')
   await put(path.join(candidate, 'memory/EVIDENCE.md'), 'kept\n')
+  await put(path.join(candidate, 'payload/brief.md'), 'Step.\n'.repeat(16))
   const problems = await check(candidate)
   assert.deepEqual(problems.map(problem => problem.split(':')[0]).sort(), [
-    'payload/skills/empty', 'payload/skills/twin/SKILL.md', 'payload/skills/unnamed/SKILL.md',
+    'payload/brief.md', 'payload/skills/empty', 'payload/skills/twin/SKILL.md', 'payload/skills/unnamed/SKILL.md',
     'payload/tools/bad/tool.yaml', 'payload/tools/bare/tool.yaml', 'payload/tools/reach/tool.yaml',
   ])
   assert.deepEqual(await publish(root, candidate, { parent: 'L0', source: 'd001' }), { problems })
@@ -42,6 +43,8 @@ test('the check reports what Kinex could not load, and only a clean candidate is
   for (const name of ['unnamed', 'twin', 'empty']) await rm(path.join(candidate, 'payload/skills', name), { recursive: true })
   for (const name of ['bad', 'bare']) await rm(path.join(candidate, 'payload/tools', name), { recursive: true })
   await put(path.join(candidate, 'payload/tools/reach/tool.py'), 'def main(args):\n    return {}\n')
+  await put(path.join(candidate, 'payload/brief.md'), 'x'.repeat(2001))
+  assert.deepEqual(await check(candidate), ['payload/brief.md: 1 lines and 2001 characters, at most 15 lines and 2000 characters'])
   await put(path.join(candidate, 'payload/brief.md'), 'Load good first.\n')
   assert.deepEqual(await publish(root, candidate, { parent: 'L0', source: 'd001' }), { problems: [], version: 'L1' })
   assert.equal(await newestVersion(root), 'L1')
