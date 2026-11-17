@@ -67,6 +67,7 @@ Start a task on the same domain with
 | `/self-improve status [run]`                        | Show trials, distillations and tasks solved per library version.     |
 | `/self-improve install <version> [run]`             | Copy a published library version into this workspace.                |
 | `/self-improve resume [run]`                        | Continue a run from what is on disk.                                 |
+| `/self-improve stop`                                | Stop scheduling in this session; started jobs keep running.          |
 
 ## Shell commands
 

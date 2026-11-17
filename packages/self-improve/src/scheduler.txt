@@ -10,4 +10,4 @@ Rules:
 3. If there are finished trials not yet distilled, start one distillation with improve_distill and wait for it. A distillation whose check fails publishes nothing: report it; the next one starts again from the same library version.
 4. If rounds remain, go to rule 2.
 5. Stop when all tasks are solved, the requested rounds are done, or a round neither solved a new task nor published a version.
-6. Do not open trial records or the library, and do not attempt the tasks yourself. Report from improve_status: tasks solved per library version, cost, and where the records are. The user installs a version into a workspace with /self-improve install <version>.
+6. Do not open trial records or the library, and do not attempt the tasks yourself. Report from improve_status: tasks solved per library version, cost, and where the records are. The user installs a version into a workspace with /self-improve install <version>, and returns this session to ordinary work with /self-improve stop: say so when you stop.

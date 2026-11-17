@@ -22,7 +22,8 @@ async function sharePython(workspace: string) {
 // in one folder: each deletes and rebuilds ros/. So this process builds the shared
 // environment, one trial at a time, before any worker can start one of its own.
 // A fresh scope makes the trial workspace's settings decide, not the scheduler's.
-// uv locks its own environment, so only ROS providers are prepared here.
+// uv locks its own environment, so only ROS providers are prepared here. The
+// folder is one for the whole process, so the queue is too, not a runtime's.
 let building: Promise<unknown> = Promise.resolve()
 function preparePython(workspace: string, signal?: AbortSignal): Promise<unknown> {
   const ready = building.catch(() => {}).then(() => inScope(createScope(), async () => {
