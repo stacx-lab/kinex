@@ -65,6 +65,12 @@ test('/exec in a new session waits for the loaded devices that are still connect
   await bind(app)
   await app.host.session.prompt('/exec check.ready')
   assert.deepEqual(JSON.parse(outputs.at(-1)).result, { sensor: true })
+  // The model reads who ran the command and what it returned; the row is drawn from the details.
+  const entry = app.host.session.sessionManager.getBranch().findLast(item => item.type === 'custom_message' && item.customType === 'kinex')
+  assert.equal(entry.content, `User ran /exec check.ready:\n${outputs.at(-1)}`)
+  const { durationMs, ...details } = entry.details
+  assert.deepEqual(details, { name: 'exec', args: 'check.ready', isError: false, images: [] })
+  assert.ok(durationMs > 0)
 })
 
 test('headless permission denial prevents coding side effects', async t => {

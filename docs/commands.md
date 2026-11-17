@@ -50,6 +50,11 @@ invocation. From the shell, `kinex run '/exec tabletop.pick_place object="red bl
 runs a saved program and exits. `/exec` first waits for the workspace's loaded devices
 that are still connecting, so a program run as Kinex starts finds them ready.
 
+In the terminal a command is drawn as the tool row it resembles: pending with its
+elapsed time while it runs, then its result or failure. While the agent is idle,
+Escape cancels the running command; during an agent run Escape ends both. The model
+reads the result as text that names the user's command, with image results as file paths.
+
 `/visualize` reads the program's source without running it and writes one self-contained
 page, by default `.kinex/flow/<module.function>.html`. Each device operation, wait
 and call is a node; clicking a call opens that function's own chart in place, and

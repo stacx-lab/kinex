@@ -4,10 +4,11 @@ import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "@earendil
 import { type KinexRuntime } from "@kinex/core"
 import { formatJSON } from "@kinex/core/util/json"
 import type { KinexCapabilities } from "@kinex/core/integration"
-import { registerCommands, executeCommand } from "./commands.ts"
+import { registerCommands, executeCommand, commandProgress } from "./commands.ts"
 import type { RoboticsOwner } from "./owner.ts"
 import { contextUpdate } from "./context.ts"
-import { toolBridge } from "./tools.ts"
+import { attachedImages, toolBridge } from "./tools.ts"
+import { commandRow, toolRenderers, type CommandRow } from "./render.ts"
 import { footerIndicator } from "./footer.ts"
 import { formatElapsed, sessionTime, sessionTimeEntry } from "./session-time.ts"
 import type { CompactionControl } from "./compaction.ts"
@@ -39,19 +40,40 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       if (!active || generation !== statusGeneration) return
       if (ctx.hasUI) ctx.ui.setStatus("kinex", `Kinex · ${list.filter(device => device.loaded).length}/${list.length} devices · ${owner.interaction.mode}`)
     }
+    // The model reads the text, which states which user command produced it; the user sees the row drawn from the details.
+    type Command = Pick<CommandRow, "name" | "args">
+    type Outcome = Omit<NonNullable<CommandRow["result"]>, "text">
+    const heading = (command: Command) => `User ran /${[command.name, command.args].filter(Boolean).join(" ")}:\n`
+    const post = (command: Command, text: string, outcome: Outcome) =>
+      pi.sendMessage({ customType: "kinex", content: heading(command) + text, display: true, details: { ...command, ...outcome } }, { triggerTurn: false })
+    pi.registerMessageRenderer<Command & Outcome>("kinex", (message, options, theme) => {
+      const { details, content } = message
+      if (!details || typeof content !== "string" || !content.startsWith(heading(details))) return undefined
+      const { name, args, ...outcome } = details
+      return commandRow({ name, args, result: { ...outcome, text: content.slice(heading(details).length) } }, theme, options)
+    })
     const execute = async (name: string, args: string, ctx: ExtensionContext) => {
+      const command = { name, args: args.trim() }
+      const progress = commandProgress(ctx, name, command.args)
+      const started = performance.now()
       try {
-        const command = capabilities.commands.find(command => command.name === name)
-        if (!command) throw new Error(`Unknown command: ${name}`)
-        const result = await executeCommand(command, args, ctx)
+        const found = capabilities.commands.find(item => item.name === name)
+        if (!found) throw new Error(`Unknown command: ${name}`)
+        const result = await executeCommand(found, args, ctx, progress.signal)
+        progress.end()
         if (result.kind === "workflow") await session.prompt(result.prompt)
         else {
-          // The model sees this result, so it states which user command produced it.
-          pi.sendMessage({ customType: "kinex", content: `User ran /${[name, args.trim()].filter(Boolean).join(" ")}:\n${result.text}`, display: true }, { triggerTurn: false })
+          post(command, result.text, {
+            isError: result.isError === true, durationMs: performance.now() - started,
+            images: (await attachedImages(result.attachments)).map(({ mimeType, data }) => ({ mimeType, data })),
+          })
           if (!ctx.hasUI) report(result.text)
           if (result.isError) owner.failure = new Error(result.text)
         }
       } catch (error) {
+        progress.end()
+        // The user's own cancellation is an outcome the model should know about, not a fault.
+        if (progress.cancelled()) return post(command, "Cancelled by the user", { isError: true, durationMs: performance.now() - started })
         owner.failure = error instanceof Error ? error : new Error(String(error))
         if (!ctx.hasUI) throw error
         ctx.ui.notify(owner.failure.message, "error")
@@ -87,7 +109,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       },
     })
     pi.registerTool({
-      name: "question", label: "Question", description: "Ask the user for missing facts or choices.",
+      name: "question", label: "Question", description: "Ask the user for missing facts or choices.", ...toolRenderers("question"),
       executionMode: "sequential",
       parameters: Type.Object({ questions: Type.Array(Type.Object({ header: Type.String(), question: Type.String(), options: Type.Array(Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) })), multiple: Type.Optional(Type.Boolean()) })) }),
       async execute(_id, args, signal, _update, ctx) {

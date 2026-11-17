@@ -1,4 +1,5 @@
 import type { KinexRuntime } from "./runtime.ts"
+import type { Attachment } from "./tool/tool.ts"
 import { parseSpecs } from "./record/spec.ts"
 import { recordingOutput, recordingSummary } from "./record/output.ts"
 import { workflows } from "./workflows/index.ts"
@@ -22,7 +23,7 @@ export const roboticsCommands = [
 ] as const
 
 export type RoboticsCommand = typeof roboticsCommands[number]["name"]
-export type CommandResult = { kind: "output"; text: string; isError?: boolean } | { kind: "workflow"; prompt: string }
+export type CommandResult = { kind: "output"; text: string; isError?: boolean; attachments?: Attachment[] } | { kind: "workflow"; prompt: string }
 export interface CommandContext {
   sessionID: string
   signal?: AbortSignal
@@ -73,7 +74,7 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
     await abortable(Promise.allSettled((await runtime.devices.warmLoaded()).map(activation => activation.ready)), context.signal)
     // The user's command is its own approval; cleanup and /stop still apply.
     const result = await runtime.tools.call("exec", { program, args: programArguments(rest) }, { sessionID: context.sessionID, signal: context.signal, ask: async () => {} })
-    return { kind: "output", text: result.output, isError: result.isError }
+    return { kind: "output", text: result.output, isError: result.isError, attachments: result.attachments }
   }
   if (name === "visualize") {
     const [target, destination] = tokens
