@@ -102,7 +102,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
       return { instructions: "", sections }
     }),
     commands: [{
-      name: "self-improve", description: "Practise simulated tasks and distill a library of skills and tools",
+      name: "self-improve", description: "Practise simulated tasks and distill a library of skills and code",
       arguments: "<tasks> [--rounds N] [--parallel N] | status | install <version> | resume | stop", kind: "workflow",
       // Inside the runtime, as a tracked operation: the jobs the command reports are this runtime's.
       execute: (args, context) => runtime.operation(() => execute(args, context), context.signal),

@@ -2,7 +2,7 @@
   "name": "@kinex/self-improve",
   "version": "1.1.4",
   "license": "Apache-2.0",
-  "description": "Practise simulated robot tasks and distill the attempts into Kinex skills and tools",
+  "description": "Practise simulated robot tasks and distill the attempts into Kinex skills and code",
   "type": "module",
   "engines": {
     "node": ">=22.19.0"

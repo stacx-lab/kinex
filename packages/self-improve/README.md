@@ -1,7 +1,7 @@
 # @kinex/self-improve
 
 Lets Kinex practise simulated robot tasks, learn from its own attempts and keep
-what it learned as ordinary Kinex skills and tools. Requires Node >=22.19, an
+what it learned as ordinary Kinex skills, `kinex.lib` modules and programs. Requires Node >=22.19, an
 aligned `@kinex/core` version and a prepared
 [rosbridge](https://github.com/stacx-lab/rosbridge), as for any simulated work.
 
@@ -34,7 +34,8 @@ counts. A **distillation** gives a distiller every finished trial's record and t
 newest library, and publishes its candidate as the next version when
 `improve_check` finds it loadable. The distill prompts are rsi's distill-lean
 prompts with the edits this design forces (one episode per trial, waves, folder
-names, the check and sub-agents as tools, task skills instead of task briefs).
+names, the check and sub-agents as tools, task skills instead of task briefs,
+code as `kinex.lib` modules instead of a skill's body).
 
 ## Files
 
@@ -45,7 +46,7 @@ every workspace so that no workspace's `.kinex` leaks into a trial.
 config.json                 the request, rounds, parallel, limits, the rosbridge command
 libraries/L0, L1, ...       published versions; never edited, the newest is current
   manifest.json             version, parent, the distillation it came from
-  payload/                  what ships: skills/  tools/  brief.md
+  payload/                  what ships: skills/  tools/  lib/  programs/  brief.md
   memory/                   the distiller's notes for later distillations; never ships
 trials/t001/
   input.json                task, robot, library version, limits
@@ -62,7 +63,8 @@ distillations/d001/
 - A job is finished when its `record/result.json` exists. State is read by scanning
   these folders; no file is shared between running jobs.
 - `payload/` uses Kinex's folder names, so installing is a copy into
-  `.kinex/skills` and `.kinex/tools`. The brief goes to
+  `.kinex/skills`, `.kinex/tools`, `.kinex/lib` and `.kinex/programs`; a `lib/`
+  module named like a builtin `kinex.lib` module never ships. The brief goes to
   `.kinex/self-improve/brief.md`, and this package's context gives an installed
   brief to every session in that workspace as a context section, so installing
   or editing it leaves the stable prompt unchanged. A published brief has at most
