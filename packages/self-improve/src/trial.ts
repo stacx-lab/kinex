@@ -7,6 +7,7 @@ import { pythonDir, versionDir } from "./layout.ts"
 import { install } from "./library.ts"
 import { writeRecord, type TrialInput } from "./records.ts"
 import { START_GAP_S, type Run } from "./run.ts"
+import { sandboxReady } from "./sandbox.ts"
 import { runSession, type SessionExit } from "./session.ts"
 import { openSim, type Verdict } from "./sim.ts"
 import WORKER from "./worker.txt"
@@ -47,6 +48,8 @@ export function judged(session: SessionExit, verdict: Verdict): SessionExit & { 
 
 /** One trial: a fresh episode of one task, a fresh worker with one library version, the simulator's verdict. */
 export async function runTrial(run: Run, job: Job, input: TrialInput): Promise<Result> {
+  const sandbox = run.config.sandbox === true
+  if (sandbox) await sandboxReady()
   const sim = await openSim(run.config.rosbridge, input, job.workspace)
   const session = await (async () => {
     await install(versionDir(run.root, input.library), job.workspace)
@@ -56,7 +59,7 @@ export async function runTrial(run: Run, job: Job, input: TrialInput): Promise<R
     // moment time each other's device loads out. Simulators still launch together.
     await spaced("workers", run.config.startGapS ?? START_GAP_S)
     const prompt = `${sim.instruction}\n\n${WORKER.trim().replaceAll("$TIMEOUT", String(input.timeoutS))}`
-    return runSession("worker", job.workspace, job.record, prompt, Date.now() + input.timeoutS * 1000)
+    return runSession("worker", job.workspace, job.record, prompt, Date.now() + input.timeoutS * 1000, sandbox)
   })().catch(async (error: unknown) => { await sim.close().catch(() => {}); throw error })
   const verdict = await sim.close()
   const outcome = { ...judged(session, verdict), instruction: sim.instruction, ...verdict }

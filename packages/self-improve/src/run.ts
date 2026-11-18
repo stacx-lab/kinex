@@ -17,6 +17,8 @@ export interface Config {
   startGapS?: number
   /** The command that runs rosbridge. */
   rosbridge: string
+  /** Whether workers run in a bubblewrap sandbox; absent in a run made before it, whose workers keep running without one. */
+  sandbox?: boolean
 }
 export interface Run { root: string; config: Config }
 
@@ -27,7 +29,8 @@ export async function createRun(selection: string, options: Pick<Config, "rounds
   const stamp = new Date().toISOString().replaceAll(/[-:]|\.\d+Z/g, "").replace("T", "-")
   const root = path.join(runsDir(), stamp)
   await mkdir(root, { recursive: true })
-  const config: Config = { selection, ...options, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, rosbridge: process.env.KINEX_ROSBRIDGE ?? "rosbridge" }
+  const config: Config = { selection, ...options, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S,
+    rosbridge: process.env.KINEX_ROSBRIDGE ?? "rosbridge", sandbox: process.env.KINEX_SELF_IMPROVE_SANDBOX !== "off" }
   await writeJson(configFile(root), config)
   await createLibrary(root)
   return { root, config }
