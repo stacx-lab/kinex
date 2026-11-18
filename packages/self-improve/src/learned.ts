@@ -3,7 +3,7 @@ import path from "node:path"
 import { parse as parseYaml } from "yaml"
 import { parseFrontmatter } from "@kinex/core/skill/index"
 import { entries } from "./layout.ts"
-import { payloadDir } from "./library.ts"
+import { PARTS, payloadDir } from "./library.ts"
 
 // What a worker leaves in the folders it keeps things in, for the distiller:
 // learned/ holds the final copy of every kept file that is not the library as
@@ -11,7 +11,7 @@ import { payloadDir } from "./library.ts"
 // The folders are Kinex's own: library code, saved programs, skills, tools, and notes.
 const FOLDERS: Record<string, string> = { lib: "Code", programs: "Programs", skills: "Skills", tools: "Tools", memos: "Notes" }
 // The parts of a library that are installed as files, into the folder of the same name.
-const INSTALLED = ["skills", "tools"]
+const INSTALLED: readonly string[] = PARTS
 const SKIPPED = new Set(["__pycache__", ".venv", "node_modules", ".git"])
 const MAX_BYTES = 20 * 1024 * 1024
 
