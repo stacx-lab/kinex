@@ -1,8 +1,8 @@
 # Self-improvement
 
 `/self-improve` lets Kinex practise simulated tasks, distill its attempts into a
-library and install that library as ordinary Kinex content: skills, tools and a
-short brief. A library adds nothing Kinex cannot already discover. Success counts
+library and install that library as ordinary Kinex content: skills, `kinex.lib`
+modules, programs and a short brief. A library adds nothing Kinex cannot already discover. Success counts
 show whether a library helps; they are not benchmark results.
 
 ## Roles
@@ -38,23 +38,26 @@ before it advanced leaves a trial that did not run. Worker starts are spaced
 Distillation waits for every running job to end and needs at least one finished
 trial not yet distilled; no trial starts while it runs. The distiller gets every
 finished trial's record, Kinex's reference (the core README, the `kinex` Python
-package, builtin tools and the trial robot's profiles) and a copy of the newest
+package with its builtin `kinex.lib` modules and the trial robot's profiles) and a copy of the newest
 version as its candidate.
 
 ## Libraries
 
 Versions `L0`, `L1`, … are published by renaming a complete staging folder and
 are never edited; the newest is current. `payload/` ships and uses Kinex's folder
-names (`skills/`, `tools/`, `brief.md`); `memory/` is the distiller's and never
-ships. A candidate publishes only when its session ended normally and the check
-passes. The check guarantees that the library loads: skill frontmatter, tool
-manifests and entries, unique names, and a brief of at most 15 lines and 2,000
-characters. Whether it is better is measured by the next wave.
+names (`skills/`, `tools/`, `lib/`, `programs/`, `brief.md`); `memory/` is the
+distiller's and never ships. Code ships as `kinex.lib` modules in `lib/`, and
+whole-task programs in `programs/`. A candidate publishes only when its session
+ended normally and the check passes. The check guarantees that the library loads
+and leaves Kinex's own intact: skill frontmatter and unique names, only `.ts` and
+`.js` files in `tools/`, no `lib/` module named like a builtin `kinex.lib` module
+(it would replace that module for every worker), and a brief of at most 15 lines
+and 2,000 characters. It runs nothing. Whether a library is better is measured by
+the next wave.
 
-Installing copies skills and tools into the workspace's `.kinex/skills` and
-`.kinex/tools` and the brief to `.kinex/self-improve/brief.md`, replacing an
-installed brief. It stops before copying when a skill or tool name already
-exists. Trial workspaces are prepared by the same copy, so a worker sees a
+Installing copies each payload folder into the workspace's folder of the same
+name under `.kinex` and the brief to `.kinex/self-improve/brief.md`, replacing
+an installed brief. It stops before copying when a name already exists. Trial workspaces are prepared by the same copy, so a worker sees a
 library exactly as a user who installed it. An installed brief is a context
 section of every session in that workspace; installing or editing it never
 changes the stable prompt.
