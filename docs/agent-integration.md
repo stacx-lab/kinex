@@ -77,6 +77,8 @@ Tools/skills refresh within tasks. Stable prompt prefixes exclude dynamic state;
 only changed minimal context sections append to the active history tail. Core's
 stable robotics instructions cover the `.kinex` workspace layout, devices, Python,
 principles and tools; setup adds where its plans and calibration attempts live.
+An installed self-improve brief is a context section, never part of the stable
+prefix ([self-improvement](self-improve.md#libraries)).
 Device catalogs, readiness and ROS payload schemas are queried inside exec
 through `kinex.runtime`, never injected into the stable prefix or model tool list.
 Exec instructions and examples are workspace-independent. Compaction restores

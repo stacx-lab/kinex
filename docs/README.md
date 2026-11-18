@@ -13,6 +13,7 @@ architecture, then read the topics relevant to your change.
 | [Device contracts](devices.md) | Types, profiles, device nodes, frames, commands and stop, world clocks, models, end effectors, locomotion, cameras and sensors. |
 | [Tools and skills](tools-and-skills.md) | Built-in tools, Python execution with `exec`, feedback loops and setup-device. |
 | [Setup, calibration and ROS](setup.md) | Task prerequisites, calibration evidence, ROS configuration and dependencies. |
+| [Self-improvement](self-improve.md) | Roles, trials and verdicts, library versions and installation, run state and job lifecycle. |
 | [Agent integration and context](agent-integration.md) | Tools, device guidance, permissions, sessions, recording, compaction and Pi resources. |
 | [Installation and releases](distribution.md) | Package versions, the curl installer, upgrades, ROS interfaces and validation. |
 
