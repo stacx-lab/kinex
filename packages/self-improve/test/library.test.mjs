@@ -27,22 +27,21 @@ test('the check reports what Kinex could not load, and only a clean candidate is
   await put(path.join(candidate, 'payload/skills/unnamed/SKILL.md'), 'No frontmatter.\n')
   await put(path.join(candidate, 'payload/skills/twin/SKILL.md'), skill('good'))
   await put(path.join(candidate, 'payload/skills/empty/notes.md'), 'x')
-  await put(path.join(candidate, 'payload/tools/reach/tool.yaml'), 'name: reach\ndescription: Reach a pose\n')
-  await put(path.join(candidate, 'payload/tools/bad/tool.yaml'), 'name: Bad Name\ndescription: x\nextra: 1\n')
-  await put(path.join(candidate, 'payload/tools/bare/tool.py'), 'pass\n')
+  await put(path.join(candidate, 'payload/tools/reach.ts'), 'export default {}\n')
+  await put(path.join(candidate, 'payload/tools/legacy/tool.yaml'), 'name: legacy\ndescription: A Python tool Kinex no longer loads\n')
+  await put(path.join(candidate, 'payload/tools/notes.md'), 'x\n')
   await put(path.join(candidate, 'memory/EVIDENCE.md'), 'kept\n')
   await put(path.join(candidate, 'payload/brief.md'), 'Step.\n'.repeat(16))
   const problems = await check(candidate)
   assert.deepEqual(problems.map(problem => problem.split(':')[0]).sort(), [
     'payload/brief.md', 'payload/skills/empty', 'payload/skills/twin/SKILL.md', 'payload/skills/unnamed/SKILL.md',
-    'payload/tools/bad/tool.yaml', 'payload/tools/bare/tool.yaml', 'payload/tools/reach/tool.yaml',
+    'payload/tools/legacy', 'payload/tools/notes.md',
   ])
   assert.deepEqual(await publish(root, candidate, { parent: 'L0', source: 'd001' }), { problems })
   assert.deepEqual(await versions(root), ['L0'])
 
   for (const name of ['unnamed', 'twin', 'empty']) await rm(path.join(candidate, 'payload/skills', name), { recursive: true })
-  for (const name of ['bad', 'bare']) await rm(path.join(candidate, 'payload/tools', name), { recursive: true })
-  await put(path.join(candidate, 'payload/tools/reach/tool.py'), 'def main(args):\n    return {}\n')
+  for (const name of ['legacy', 'notes.md']) await rm(path.join(candidate, 'payload/tools', name), { recursive: true })
   await put(path.join(candidate, 'payload/brief.md'), 'x'.repeat(2001))
   assert.deepEqual(await check(candidate), ['payload/brief.md: 1 lines and 2001 characters, at most 15 lines and 2000 characters'])
   await put(path.join(candidate, 'payload/brief.md'), 'Load good first.\n')
@@ -54,9 +53,9 @@ test('the check reports what Kinex could not load, and only a clean candidate is
   await t.test('install copies the payload where Kinex discovers it and never overwrites', async () => {
     const workspace = path.join(root, 'workspace')
     await mkdir(workspace)
-    assert.deepEqual(await install(path.join(root, 'libraries/L1'), workspace), { skills: ['good'], tools: ['reach'] })
+    assert.deepEqual(await install(path.join(root, 'libraries/L1'), workspace), { skills: ['good'], tools: ['reach.ts'] })
     assert.equal(await readFile(path.join(workspace, '.kinex/skills/good/SKILL.md'), 'utf8'), skill('good'))
-    assert.match(await readFile(path.join(workspace, '.kinex/tools/reach/tool.yaml'), 'utf8'), /name: reach/)
+    assert.equal(await readFile(path.join(workspace, '.kinex/tools/reach.ts'), 'utf8'), 'export default {}\n')
     assert.equal(await installedBrief(workspace), 'Load good first.')
     await assert.rejects(readFile(path.join(workspace, '.kinex/memory/EVIDENCE.md')), { code: 'ENOENT' })
     await assert.rejects(install(path.join(root, 'libraries/L1'), workspace), /Already present[\s\S]*skills\/good[\s\S]*tools\/reach/)
@@ -203,7 +202,7 @@ test('what a worker kept is copied apart from the library it was shipped, and re
   assert.equal(await readFile(path.join(records, job.id, 'learned/.kinex/lib/grasp.py'), 'utf8'), '# Grasp helpers.\ndef pick(): ...\n')
 })
 
-test('the reference holds the Python package, the built-in tools and the robot workspace, without caches', async t => {
+test('the reference holds the Python package with the builtin library and the robot workspace, without caches', async t => {
   const root = await directory(t)
   const rig = path.join(root, 'trial/.kinex')
   await put(path.join(rig, 'workspace.yaml'), 'identity: {}\n')
@@ -212,14 +211,13 @@ test('the reference holds the Python package, the built-in tools and the robot w
   await put(path.join(rig, 'lib/own.py'), 'a worker file, not reference')
   const directory_ = path.join(root, 'reference')
   await reference(directory_, rig)
-  assert.deepEqual((await readdir(directory_)).sort(), ['INDEX.md', 'builtin-tool', 'kinex-core.md', 'python-kinex', 'workspace'])
-  assert.match(await readFile(path.join(directory_, 'python-kinex/helpers/helpers.txt'), 'utf8'), /from kinex import helpers/)
+  assert.deepEqual((await readdir(directory_)).sort(), ['INDEX.md', 'kinex-core.md', 'python-kinex', 'workspace'])
+  assert.match(await readFile(path.join(directory_, 'python-kinex/lib/__init__.py'), 'utf8'), /KINEX_LIB/)
   assert.match(await readFile(path.join(directory_, 'python-kinex/__init__.py'), 'utf8'), /communication/)
-  for (const tool of await readdir(path.join(directory_, 'builtin-tool'))) assert.ok((await readdir(path.join(directory_, 'builtin-tool', tool))).includes('tool.yaml'), tool)
   assert.deepEqual((await readdir(path.join(directory_, 'workspace'))).sort(), ['devices', 'workspace.yaml'])
   assert.deepEqual(await readdir(path.join(directory_, 'workspace/devices/arm')), ['profile.yaml'])
   assert.ok(!(await readdir(directory_, { recursive: true })).some(entry => entry.includes('__pycache__')))
-  for (const part of ['python-kinex/', 'builtin-tool/', 'workspace/']) assert.match(await readFile(path.join(directory_, 'INDEX.md'), 'utf8'), new RegExp(`^- ${part}:`, 'm'))
+  for (const part of ['python-kinex/', 'workspace/']) assert.match(await readFile(path.join(directory_, 'INDEX.md'), 'utf8'), new RegExp(`^- ${part}:`, 'm'))
   await reference(path.join(root, 'bare'), undefined)
   assert.ok(!(await readdir(path.join(root, 'bare'))).includes('workspace'))
 })

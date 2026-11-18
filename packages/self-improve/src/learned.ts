@@ -8,8 +8,8 @@ import { payloadDir } from "./library.ts"
 // What a worker leaves in the folders it keeps things in, for the distiller:
 // learned/ holds the final copy of every kept file that is not the library as
 // shipped, and learned.md lists them by resource: new, changed, or as shipped.
-// The folders are Kinex's own: importable code, skills, tools, and notes.
-const FOLDERS: Record<string, string> = { lib: "Code", skills: "Skills", tools: "Tools", memos: "Notes" }
+// The folders are Kinex's own: library code, saved programs, skills, tools, and notes.
+const FOLDERS: Record<string, string> = { lib: "Code", programs: "Programs", skills: "Skills", tools: "Tools", memos: "Notes" }
 // The parts of a library that are installed as files, into the folder of the same name.
 const INSTALLED = ["skills", "tools"]
 const SKIPPED = new Set(["__pycache__", ".venv", "node_modules", ".git"])
