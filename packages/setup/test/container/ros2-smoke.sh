@@ -17,7 +17,7 @@ docker run --rm --network none -v "$root:/src:ro" "$tag" timeout -k 5 120 bash -
   set +u
   source "/opt/ros/$ROS_DISTRO/setup.bash"
   cd /tmp
-  colcon build --base-paths /src/packages/core/assets/ros/kinex_interfaces --executor sequential
+  colcon build --base-paths /src/packages/core/assets/ros --executor sequential
   source install/setup.bash
   set -u
   export ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=1 PYTHONDONTWRITEBYTECODE=1

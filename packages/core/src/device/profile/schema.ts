@@ -114,7 +114,7 @@ export const Device = z.discriminatedUnion("type", [
     ctx.addIssue({ code: "custom", path: ["operations", "stop"], message: "stop must be a std_srvs/srv/Trigger service" })
   const operations = Object.values(device.operations)
   const commanded = ACTUATORS.includes(device.type) && operations.some(op => op.transport === "topic" && op.direction === "input")
-  if (!stop && device.runtime && (commanded || operations.some(op => op.type === "kinex_interfaces/srv/Wait")))
+  if (!stop && device.runtime && (commanded || operations.some(op => op.type === "custom_interfaces/srv/Wait")))
     ctx.addIssue({ code: "custom", path: ["operations"], message: "commanded actuators and world waits require a stop service" })
   if ("stop" in device && known(device.stop) && !device.stop.affected_devices.includes(device.name))
     ctx.addIssue({ code: "custom", path: ["stop"], message: "stop scope must include this device" })

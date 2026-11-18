@@ -60,7 +60,7 @@ def command_service(node, operations, commands, hold):
 
 def json_service(node, operation, handler):
     """Serve handler(**request) -> dict on an owned node's Json operation."""
-    from kinex_interfaces.srv import Json
+    from custom_interfaces.srv import Json
 
     def call(request, response):
         # Handler failures are responses; they must not stop the node's executor.

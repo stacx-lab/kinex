@@ -24,7 +24,7 @@ never downloads. Write the profile below, set `compute` to the verified placemen
 
 ### Operations
 
-Both are `kinex_interfaces/srv/Json` services taking `image` as an image file
+Both are `custom_interfaces/srv/Json` services taking `image` as an image file
 path. Their `results` are sorted by descending score; each has `box`
 `[x1, y1, x2, y2]` in input pixels, `score`, `label` and `mask`, the path of a
 binary PNG at the input size.
@@ -51,14 +51,14 @@ operations:
     transport: service
     direction: input
     endpoint: /kinex/sam3/detect
-    type: kinex_interfaces/srv/Json
+    type: custom_interfaces/srv/Json
     timeout_s: 30
   segment_point:
     description: "Segment the object at a pixel. Input {image: image file path, point: [u, v] in pixels, max_results: default 3}. Output {results: [{box, score, label: point, mask: binary PNG path}]} sorted by score; candidates may overlap."
     transport: service
     direction: input
     endpoint: /kinex/sam3/segment_point
-    type: kinex_interfaces/srv/Json
+    type: custom_interfaces/srv/Json
     timeout_s: 30
 family: sam3
 variant: ???

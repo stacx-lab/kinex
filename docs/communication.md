@@ -140,7 +140,7 @@ programs and library functions import it with `from kinex import io` and take no
 scope parameter. `io.read(operation)`
 takes the next message of an output topic. A standalone client outside exec
 enters `async with communication(catalog) as io`, which makes its scope the
-active one for the library functions it calls. A `kinex_interfaces/srv/Json`
+active one for the library functions it calls. A `custom_interfaces/srv/Json`
 operation encodes keyword arguments as one JSON object and returns the decoded
 response object; owned nodes serve it with
 `kinex.node.json_service(node, operation, handler)`. `publish`, `subscribe`,
@@ -333,13 +333,14 @@ to a model device. Pass an image to `finish(file=...)` to attach it for the mode
 
 ## Native validation
 
-`kinex_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
-services; commands and observations use standard ROS messages. The ROS
-providers build it from `packages/core/assets/ros`; build that directory in any
-other ROS environment that calls these services.
-[rosbridge](https://github.com/stacx-lab/rosbridge) serves
-`kinex_interfaces/srv/Wait` from its own byte-identical copy, so it needs no Kinex
-checkout to build.
+`custom_interfaces` defines only the `Json` and `Wait` services that devices
+declare, and `kinex_interfaces` only Kinex's own `LookupTransform`; commands and
+observations use standard ROS messages. The ROS providers build both from
+`packages/core/assets/ros`; build that directory in any other ROS environment
+that calls these services.
+[rosbridge](https://github.com/stacx-lab/rosbridge) serves `custom_interfaces`
+services from its own byte-identical copy of the package, so neither project
+needs the other's checkout to build.
 
 `rosbridge setup <robot> --directory DIR --domain-id N` exports a workspace whose
 devices borrow the running graph's endpoints. Start the simulator with

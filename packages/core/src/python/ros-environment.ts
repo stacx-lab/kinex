@@ -51,6 +51,6 @@ export async function prepareRosPython(project: string, distro: string, interfac
     "--cmake-args", `-DPython3_EXECUTABLE=${path.join(prefix, "bin/python")}`], workspace)
   await run([...overlayCommand(path.join(prefix, "bin/python"), [
     path.join(prefix, "setup.bash"), path.join(workspace, "install/local_setup.bash"),
-  ]), "-c", "import rclpy, tf2_ros, tf2_geometry_msgs, rosbag2_py; from kinex_interfaces.srv import Wait; from rclpy.type_support import check_for_type_support; check_for_type_support(Wait)"], project)
+  ]), "-c", "import rclpy, tf2_ros, tf2_geometry_msgs, rosbag2_py; from custom_interfaces.srv import Wait; from rclpy.type_support import check_for_type_support; check_for_type_support(Wait)"], project)
   await writeFile(path.join(project, "ros-ready.json"), receipt)
 }

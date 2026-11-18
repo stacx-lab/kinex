@@ -23,7 +23,7 @@ validate and load.
 
 ### Operations
 
-- `detect`: `kinex_interfaces/srv/Json` taking `image` (an image file path), a
+- `detect`: `custom_interfaces/srv/Json` taking `image` (an image file path), a
   lowercase `prompt` with categories separated by `.`, `min_score` (box
   threshold, default 0.25) and `max_results` (default 10). It returns `results`
   with `box` `[x1, y1, x2, y2]` in input pixels, `score` and the matched prompt
@@ -46,7 +46,7 @@ operations:
     transport: service
     direction: input
     endpoint: /kinex/grounding_dino/detect
-    type: kinex_interfaces/srv/Json
+    type: custom_interfaces/srv/Json
     timeout_s: 30
 family: grounding_dino
 variant: tiny

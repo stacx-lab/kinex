@@ -60,7 +60,7 @@ For workflows use `io`, the invocation's communication scope: async pub/sub and
 request/response on declared operations. Commands are standard ROS messages;
 sending is not arrival. Measure feedback to verify results. Use the world for time
 and tf2 for stamped transforms. Free-form operations, including model inference,
-use `kinex_interfaces/srv/Json`: `io.request` sends its keyword fields as one JSON
+use `custom_interfaces/srv/Json`: `io.request` sends its keyword fields as one JSON
 object and returns the decoded response. Cameras are `image` and, for rgbd, `depth`
 topics; `lib.images.camera_frame(camera)` returns the current image and its equally
 stamped depth without advancing world time. A program's operation requirements

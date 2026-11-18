@@ -25,7 +25,7 @@ test("ROS operation declarations validate protocol direction, types and bounded 
 test("stops are Trigger services, and world waits require one", () => {
   const service = (type, endpoint) => ({ description: "", transport: "service", direction: "input", endpoint, type })
   const world = { name: "world", type: "world", description: "", meta: { created_at: "", updated_at: "" }, runtime: { nodes: [] },
-    operations: { wait: service("kinex_interfaces/srv/Wait", "/wait") }, frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } }
+    operations: { wait: service("custom_interfaces/srv/Wait", "/wait") }, frames: { base: { parent: null, translation_m: null, rotation_xyzw: null } } }
   assert.throws(() => Device.parse(world), /require a stop service/)
   assert.ok(Device.parse({ ...world, operations: { ...world.operations, stop: service("std_srvs/srv/Trigger", "/stop") } }))
   assert.throws(() => Device.parse({ ...world, operations: { ...world.operations, stop: service("std_srvs/srv/Empty", "/stop") } }), /std_srvs\/srv\/Trigger/)

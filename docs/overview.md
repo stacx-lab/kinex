@@ -11,7 +11,7 @@ repository root.
 
 | Location | Owns |
 | --- | --- |
-| `packages/core` | Device management, ROS communication and supervision, schemas, runtime Python, `kinex_interfaces`, operational tools, setup-device and device guides with reference nodes. No setup, agent or UI dependency. |
+| `packages/core` | Device management, ROS communication and supervision, schemas, runtime Python, the ROS interface packages, operational tools, setup-device and device guides with reference nodes. No setup, agent or UI dependency. |
 | `packages/setup` | Onboarding and calibration workflows, tools, skills and evidence. Device preparation, including ROS, uses core's setup-device. Imports core through package exports. |
 | `src`, `src/integration` | Standalone CLI, storage, product policy, Kinex tool rendering and bundled Pi extensions. Published Pi SDKs supply providers, coding tools, agent loops and TUI. |
 | `../kinex-plugins` | Plugins for Pi, Claude Code and Codex using a shared MCP adapter and explicit packed core/setup snapshots. |

@@ -163,7 +163,7 @@ devices.
 
 Persistent inference services are `model` devices; detection, segmentation and
 policies are models too. The type prescribes no operations or payloads: model
-operations are `kinex_interfaces/srv/Json` services exchanging JSON objects, and
+operations are `custom_interfaces/srv/Json` services exchanging JSON objects, and
 each operation description defines their fields, coordinates and limitations.
 Images pass as file paths. Profiles record family, artifacts and `compute`
 placement. Load places the model and unload releases it with the device process.

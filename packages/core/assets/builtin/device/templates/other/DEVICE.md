@@ -13,7 +13,7 @@ partly, belongs to that type. It has no typed facts or recommended operations:
 timing, preconditions and side effects.
 
 Prefer standard ROS interfaces: `std_srvs/srv/Trigger` or `SetBool` for actions,
-`std_msgs` for simple values, and `kinex_interfaces/srv/Json` for structured
+`std_msgs` for simple values, and `custom_interfaces/srv/Json` for structured
 requests whose fields the description defines. A device that moves anything
 declares a `stop` service `std_srvs/srv/Trigger`, so stops reach it like any other
 actuator.

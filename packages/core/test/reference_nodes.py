@@ -97,11 +97,11 @@ class ReferenceNodes(unittest.TestCase):
     async def world(self):
         loop = asyncio.get_running_loop()
         stubs = {name: ModuleType(name) for name in (
-            "rclpy.callback_groups", "rclpy.task", "rosgraph_msgs", "rosgraph_msgs.msg", "kinex_interfaces", "kinex_interfaces.srv")}
+            "rclpy.callback_groups", "rclpy.task", "rosgraph_msgs", "rosgraph_msgs.msg", "custom_interfaces", "custom_interfaces.srv")}
         stubs["rclpy.callback_groups"].ReentrantCallbackGroup = object
         stubs["rclpy.task"].Future = lambda executor=None: loop.create_future()
         stubs["rosgraph_msgs.msg"].Clock = NS
-        stubs["kinex_interfaces.srv"].Wait = object
+        stubs["custom_interfaces.srv"].Wait = object
         sys.modules["rclpy.qos"].__dict__.update(QoSProfile=NS, ReliabilityPolicy=NS(RELIABLE=0, BEST_EFFORT=1),
                                                   DurabilityPolicy=NS(VOLATILE=0, TRANSIENT_LOCAL=1))
         with patch.dict(sys.modules, stubs):
