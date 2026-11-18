@@ -3,7 +3,9 @@
 Lets Kinex practise simulated robot tasks, learn from its own attempts and keep
 what it learned as ordinary Kinex skills, `kinex.lib` modules and programs. Requires Node >=22.19, an
 aligned `@kinex/core` version and a prepared
-[rosbridge](https://github.com/stacx-lab/rosbridge), as for any simulated work.
+[rosbridge](https://github.com/stacx-lab/rosbridge), as for any simulated work,
+and on Linux [bubblewrap](https://github.com/containers/bubblewrap) with
+unprivileged user namespaces to sandbox workers.
 
 ```text
 /self-improve robocasa/add-ice-cubes robocasa/adjust-heat     named tasks
@@ -97,8 +99,13 @@ distillations/d001/
   apart (10 s): each loads a ROS process per device, and workers that load in the
   same moment run past the devices' ready limit.
 - `config.json` can be edited between sessions: `seed`, `trialTimeoutS` (3600),
-  `distillTimeoutS` (7200), `startGapS` (10), `rounds`, `parallel`. `KINEX_ROSBRIDGE`
-  names the rosbridge command when a run is created (default `rosbridge` on `PATH`).
+  `distillTimeoutS` (7200), `startGapS` (10), `rounds`, `parallel`, `sandbox`.
+  `KINEX_ROSBRIDGE` names the rosbridge command when a run is created (default
+  `rosbridge` on `PATH`).
+- Workers run in a bubblewrap sandbox (`"sandbox": true`); a trial refuses to start
+  when bubblewrap cannot run. `KINEX_SELF_IMPROVE_SANDBOX=off` creates a run
+  without it, as does `"sandbox": false` in `config.json`. See
+  [isolation](../../docs/self-improve.md#isolation-and-boundaries).
 
 ## Composition
 
