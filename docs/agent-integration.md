@@ -114,6 +114,8 @@ The device catalog, each operation's description and ROS interface, is the
 `core.devices` context section; it changes only with profiles, not with load state,
 and never enters the stable prefix or the model tool list. Readiness is the device
 tool's `status`.
+An installed self-improve brief is a context section, never part of the stable
+prefix ([self-improvement](self-improve.md#libraries)).
 Exec instructions and examples are workspace-independent. Compaction restores
 the same minimal sections before the next request, stopping if recovery fails.
 Images enter history as bytes; recording traces keep only conversation messages,
