@@ -156,8 +156,9 @@ export async function collect(root: string, config: Config, input: DistillInput,
 - Every trial shipped one library version (INDEX.jsonl); L0 is the empty library.
 - A task counts as solved once any of its trials succeeded.
 - The \`new\` flags in INDEX.jsonl mark the trials no published library has incorporated yet.
-- Sub-agents were told to keep reusable code in \`.kinex/lib/\`, skills in \`.kinex/skills/\` and notes in \`.kinex/memos/\`, improved in
-  place; what each kept beyond the library it was shipped is in its learned.md and learned/.
+- Sub-agents were told to keep reusable functions in \`.kinex/lib/\` (imported as \`kinex.lib.<module>\`), whole-task programs in
+  \`.kinex/programs/\`, skills in \`.kinex/skills/\` and notes in \`.kinex/memos/\`, improved in place; what each kept beyond the
+  library it was shipped is in its learned.md and learned/.
 - Sub-agents were kept to their workspace by instruction only, with the network open.
 `)
   return trials
