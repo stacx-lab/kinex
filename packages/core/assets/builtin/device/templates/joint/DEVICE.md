@@ -11,7 +11,7 @@ Geometry lives in a URDF, not in profile fields. Use the vendor's description
 commands every independent movable joint below the base link in URDF document
 order; mimic joints follow their sources. Remove links owned by other devices,
 such as a separately registered gripper, so the tree holds only this device.
-The sibling `links.py` node publishes every link on TF as `<device>/<link>`, with
+Kinex publishes every link on TF as `<device>/<link>` from `joint_state`, with
 the base link as `<device>/base`; other devices mount on these links, for example
 a gripper base on `arm:flange`. Link names must not repeat profile frame names.
 
@@ -46,9 +46,8 @@ only the message, and `limits` applies to joint targets.
 The sibling `node.py` adapts a ros2_control stack: a `JointTrajectoryController`
 for joint targets and, for pose targets, a controller tracking one
 `geometry_msgs/msg/PoseStamped` per tip link in the URDF base link, which it
-streams by interpolating each trajectory. Copy it with `links.py` into the device
-directory, set its topic constants and declare only the command operations the
-user chose. A node that commands hardware directly must still initialize its hold
+streams by interpolating each trajectory. Copy it into the device directory, set
+its topic constants and declare only the command operations the user chose. A node that commands hardware directly must still initialize its hold
 from measured posture, so a stop before the first command never moves the joints.
 
 ### Operations
@@ -82,7 +81,7 @@ loaded: false
 description: ''
 runtime:
   observation: joint_state
-  nodes: [{entry: node.py, factory: create}, {entry: links.py, factory: create}]
+  nodes: [{entry: node.py, factory: create}]
 operations:
   joint_state:
     description: Measured joint positions and velocities in URDF units, stamped at acquisition; Kinex publishes the URDF links from them.

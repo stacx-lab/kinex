@@ -8,6 +8,17 @@ from kinex.communication import communication, seconds
 from kinex.common.plain import plain
 
 
+def has_links(profile):
+    """Whether Kinex publishes the device's URDF links.
+
+    Only joint and gripper profiles declare a URDF model. Its facts must be known, and
+    the links follow the device's joint_state operation.
+    """
+    model = profile.get("model")
+    return (profile.get("type") in ("joint", "gripper") and isinstance(model, dict) and model.get("format") == "urdf"
+            and "???" not in model.values() and "joint_state" in profile["operations"])
+
+
 def observation(message):
     """Selected host observations; ROS-to-ROS payloads never use this path."""
     if isinstance(message, dict):
@@ -50,6 +61,12 @@ class DeviceHost:
             self.io.executor.add_node(node)
         from kinex.common.frames import publish_profile
         publish_profile(self.io.node, profile)
+        if has_links(profile):
+            from kinex.host.links import LinkPublisher
+            # The host runs in the device directory, where the profile's URDF path resolves.
+            links = LinkPublisher(profile, self.io.context, ".")
+            self.io.extra_nodes.append(links)
+            self.io.executor.add_node(links)
         await self.ready()
         return {"ready": True}
 
