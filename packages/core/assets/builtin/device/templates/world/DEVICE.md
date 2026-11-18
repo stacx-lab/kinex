@@ -14,7 +14,7 @@ lookup. Keep task instructions and benchmark judging outside device operations.
 
 - `time` (required): output topic `rosgraph_msgs/msg/Clock`, `transient_local`.
   No other device publishes a clock; Kinex remaps device nodes' `/clock` to it.
-- `wait` (recommended): service `kinex_interfaces/srv/Wait`. It completes after
+- `wait` (recommended): service `custom_interfaces/srv/Wait`. It completes after
   `duration_s` (finite, nonnegative) of world time; zero is an observation barrier.
   Waits are sequential: one requested while another is pending is rejected.
   `timeout_s` bounds the longest wait.
@@ -51,7 +51,7 @@ operations:
     transport: service
     direction: input
     endpoint: /kinex/world/wait
-    type: kinex_interfaces/srv/Wait
+    type: custom_interfaces/srv/Wait
     timeout_s: 120
   stop:
     description: Cancel the pending wait.

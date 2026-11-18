@@ -20,8 +20,8 @@ from kinex.errors import RPCError, OperationError
 
 _active = contextvars.ContextVar("kinex_communication", default=None)
 # Free-form operations carry JSON objects; their descriptions define the fields.
-JSON = "kinex_interfaces/srv/Json"
-WAIT = "kinex_interfaces/srv/Wait"
+JSON = "custom_interfaces/srv/Json"
+WAIT = "custom_interfaces/srv/Wait"
 
 
 def duration(seconds):

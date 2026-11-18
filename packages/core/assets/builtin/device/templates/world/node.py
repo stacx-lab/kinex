@@ -1,7 +1,7 @@
 """Real-world clock: system time on `time`, one pending wait on `wait`, cancelled by `stop`."""
 import math
 
-from kinex_interfaces.srv import Wait
+from custom_interfaces.srv import Wait
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 from rclpy.task import Future

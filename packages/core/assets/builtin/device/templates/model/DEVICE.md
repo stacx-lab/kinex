@@ -7,7 +7,7 @@ description: Inference service whose operations depend on the model; compute and
 ## Setup
 
 The model type prescribes no operations or payloads. Name each operation after
-what the model computes and declare it as a `kinex_interfaces/srv/Json` service:
+what the model computes and declare it as a `custom_interfaces/srv/Json` service:
 callers send a JSON object and receive one, and the operation description is the
 only contract for their fields. Pass images and other large data as file paths.
 Serve each operation with `kinex.node.json_service(node, operation,
@@ -54,7 +54,7 @@ operations:
     transport: service
     direction: input
     endpoint: /kinex/model/infer
-    type: kinex_interfaces/srv/Json
+    type: custom_interfaces/srv/Json
 family: ???
 variant: ???
 implementation: ???
