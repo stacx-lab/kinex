@@ -9,7 +9,8 @@ Kinex connects coding agents to physical robots and simulators through three lay
 ![Kinex architecture: the agent loads skills, runs control-graph programs through exec and calls devices directly; control graphs also operate devices, whose nodes exchange commands and observations with hardware, simulators and services.](../assets/architecture.svg)
 
 The agent loads skills as needed, then calls devices directly through `device` or
-`devices`, uses reusable tools, or combines operations in Python through `exec`.
+`devices`, or runs Python programs through `exec`: written for the moment or saved
+as files, and built from the function library.
 These paths return results and selected images to the agent and preserve the
 runtime's permission checks. The host owns the agent loop, sessions and permission
 decisions.
@@ -19,7 +20,7 @@ A useful analogy is a coding-agent harness:
 | Layer | Coding-agent analogy | Kinex example |
 | --- | --- | --- |
 | Devices | System resources such as disks and GPUs. OS and driver interfaces provide basic operations such as storage reads/writes or GPU computation. | Cameras, actuators and model services expose operations through device nodes. |
-| Tools | `bash` executes commands; `grep` searches text. These tools turn resource access into useful operations. | `exec` runs Python with device access; `locate_object_3d` combines camera and model outputs to estimate a position. |
+| Tools | `bash` executes commands; `grep` searches text. These tools turn resource access into useful operations. | `exec` runs Python with device access; the library's `perception.locate_object_3d` combines camera and model outputs to estimate a position. |
 | Skills | A debugging procedure guides the agent to reproduce a failure, inspect code, make a fix and run tests using available tools. | A calibration procedure guides sampling, computation and verification. |
 
 In both cases, resources provide capabilities, tools execute operations, and
@@ -58,26 +59,30 @@ See [device contracts](devices.md) for frames, motion and node behavior.
 
 Tools are executable operations with names, descriptions and input schemas. They
 perform computation or sequences of device calls without requiring the agent to
-choose every intermediate step. The `exec` tool runs ordinary Python source or
-script files with runtime access, without requiring a tool manifest. Scripts can
-compose perception and control helpers, wait on the world clock, check measured
-feedback in bounded loops, and return structured results with multiple images.
-The agent interprets those observations before choosing the next action.
+choose every intermediate step. The `exec` tool runs a complete Python program
+with runtime access, given as source or as a saved file. A program can compose
+perception and control functions, wait on the world clock, check measured
+feedback in bounded loops, and end with `finish`, which returns a structured
+result and the images it names. The agent interprets those observations before
+choosing the next action.
 
-Reusable Python tools declare their schema in `tool.yaml`. Async entries export
-`main(args, io)` and compose operations with `publish`, `subscribe`, `request` and
-`serve`; Python reaches devices only through this communication scope. Builtin
-Python tools are interfaces to `kinex.helpers` functions that `exec` scripts call
-directly. Ordinary Python branching and asyncio task groups define the workflow.
-Perception and control share one execution approval. Tools and their temporary
-communication resources end with the invocation; model state persists in devices.
+The function library is the `kinex.lib` package: builtin modules plus the
+workspace's `.kinex/lib`. A public function's signature and docstring are its
+interface; no manifest or registration exists. Programs and library functions
+reach devices through the invocation's one communication scope, `io`, with
+`read`, `subscribe`, `publish`, `request` and `serve`, so functions call each
+other as ordinary Python and ordinary branching and asyncio task groups define
+the workflow. The agent browses the library level by level with the `lib` tool;
+the user runs a saved program with `/exec`, without the agent. Perception and
+control share one execution approval. An invocation's
+temporary communication resources end with it; model state persists in devices.
 
-`relative_pose` queries tf2; camera geometry comes from profile intrinsics or the
+`lib.frames` queries tf2; camera geometry comes from profile intrinsics or the
 camera node's geometry services.
 
-Python tools and `exec` preserve permissions and cancellation, and a failed
-invocation stops the devices it commanded; they cannot load or unload devices.
-Scripts own their stopping conditions and must explicitly stop motion when
+`exec` preserves permissions and cancellation, and a failed
+invocation stops the devices it commanded; Python cannot load or unload devices.
+Programs own their stopping conditions and must explicitly stop motion when
 successful completion requires it.
 The agent-facing `device` tool and trusted user commands provide lifecycle
 control. Other tools support profile updates and calibration. See

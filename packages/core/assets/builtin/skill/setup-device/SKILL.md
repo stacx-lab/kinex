@@ -15,7 +15,8 @@ supports. Schemas validate only physical facts and calibration. Every workspace
 requires a world device.
 
 Use the nearest `.kinex/` in this directory or its ancestors. Store the profile
-and owned node sources in `.kinex/devices/<name>/`; shared code may use `.kinex/lib/`.
+and owned node sources in `.kinex/devices/<name>/`; code shared with exec
+may live in `.kinex/lib/`, imported as `kinex.lib.<module>`.
 Write a required `description` on the device for identity, capabilities and
 limitations. Write a required `operations.<name>.description` for each operation's
 inputs, outputs, units, frames, timing, errors and side effects. Empty strings are
@@ -30,9 +31,10 @@ and name others after the actual node. `load`, `unload` and
 that moves, and a world with `wait`, declares a `std_srvs/srv/Trigger` `stop`,
 served after the command subscriptions (`kinex.node.command_service` does).
 Describe exact command semantics on each operation, including replacement and
-expiry behavior. Nodes enforce only the device's own velocity limits (vendor,
-controller or URDF); never add speed scaling or clamps beyond them unless the
-user chose the value.
+expiry behavior. A joint device declares only the command operations the user
+chose: `joint_target`, `pose_target` or both. Nodes enforce only the device's own
+velocity limits (vendor, controller or URDF); never add speed scaling or clamps
+beyond them unless the user chose the value.
 
 For owned ROS implementations, register factories in `runtime.nodes`, each with
 `entry` and `factory`. Factories receive `(profile, context)` and return an owned
@@ -42,7 +44,7 @@ endpoints. For borrowed nodes use `runtime.nodes: []`; never stop their processe
 A node may define `async def ready(self)` to check its dependencies within
 `runtime.ready_timeout_s`.
 Keep reads and stop responsive and make cleanup release every owned resource even
-when another cleanup step fails. Lifecycle belongs to the host; Python tools
+when another cleanup step fails. Lifecycle belongs to the host; exec
 cannot load or unload devices.
 
 Nodes that adapt a vendor driver read its topics with sensor-data QoS, which
@@ -65,7 +67,7 @@ Use `profile_write` to validate and preserve typed facts/provenance. Leave unkno
 facts as `???`, mark missing calibration and clear resolved requests with
 `needs_calibration: null`. New devices stay unloaded. Kinex publishes known static
 frames; URDF link publishers publish measured moving frames. Kinex owns tf2 lookup
-(`kinex.helpers.lookup_transform`); devices never serve it.
+(`lib.frames.lookup_transform`); devices never serve it.
 When a simulator has a robot catalog, export that catalog as the source of truth
 for its nodes and operation descriptions; type guides do not reproduce a
 particular simulator.

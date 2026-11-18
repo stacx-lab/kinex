@@ -6,9 +6,8 @@ import math
 import random
 import unittest
 
-from kinex.lib.geometry import pose, quaternion
-from kinex.helpers import trajectory
-from kinex.helpers.motion import planning_limits
+from kinex.common.geometry import pose, quaternion
+from kinex.lib.motion import planning_limits, trajectory
 
 
 PROFILE = {"name": "arm", "type": "joint", "home": None, "limits": "strict"}
@@ -46,7 +45,7 @@ class QuaternionTests(unittest.TestCase):
             quaternion([.71, 0, 0, .71])  # Two-decimal rounding can exceed the tolerance.
 
     def test_invalid_quaternions_and_poses_are_rejected(self):
-        for value in (None, {}, [], [0, 0, 1], [0, 0, 0, 0, 1], (0, 0, 0, 1),
+        for value in (None, {}, [], [0, 0, 1], [0, 0, 0, 0, 1], "0001",
                       [0, 0, 1.57, 0], [.1, .2, .3, .9],
                       *([0, 0, 0, v] for v in (True, False, "1", math.nan, math.inf, -math.inf))):
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -57,7 +56,7 @@ class QuaternionTests(unittest.TestCase):
                 pose(value)
 
     def test_full_precision_geometry_and_json_round_trips_remain_unit(self):
-        from kinex.lib.geometry import mat_to_quat, quat_to_mat
+        from kinex.common.geometry import mat_to_quat, quat_to_mat
 
         rng = random.Random(0)
         for _ in range(100):
@@ -70,14 +69,14 @@ class QuaternionTests(unittest.TestCase):
     def test_joint_ik_normalizes_rounded_goals(self):
         from joint_model import model, simple
 
-        arm = model(simple(limits='lower="-2" upper="2"'), "flange")
+        arm = model(simple(limits='lower="-2" upper="2"'), ("flange",))
         target = [.878, .479, 0, 0, 0, .247, .969]  # FK at 0.5 rad, rounded to 3 decimals.
         solved = arm.ik(target, [0], position_tolerance_m=1e-3, rotation_tolerance_rad=1e-3)
         self.assertAlmostEqual(solved[0], .5, delta=2e-3)
 
     def test_locomotion_commands_follow_modes_and_limits(self):
         from types import SimpleNamespace as NS
-        from kinex.lib.locomotion import accepted, posture, transition, velocity
+        from kinex.common.locomotion import accepted, posture, transition, velocity
 
         profile = {"limits": "strict", "velocity": {"units": "si", "axes": {"vx": {"min": -1, "max": 1}, "wz": None}},
                    "posture": {"height": {"min": -.1, "max": .05}, "pitch": {"min": -.3, "max": .3}},
@@ -108,21 +107,8 @@ class QuaternionTests(unittest.TestCase):
 
 
 class MotionTests(unittest.TestCase):
-    def test_measured_positions_require_unique_complete_finite_joints(self):
-        from types import SimpleNamespace
-        from kinex.lib.joints import measured_positions
-
-        joints = [{"name": name, "type": "revolute", "limits": {"min": -1, "max": 1}}
-                  for name in ("j0", "j1")]
-        state = SimpleNamespace(name=["j1", "j0"], position=[.1, 0.])
-        self.assertEqual(measured_positions(state, joints), [0., .1])
-        for names, values in [(["j0", "j0"], [0., 0.]), (["j0"], [0.]),
-                              (["j0", "j1"], [0.]), (["j0", "j1"], [math.nan, 0.])]:
-            with self.subTest(names=names, values=values), self.assertRaises(ValueError):
-                measured_positions(SimpleNamespace(name=names, position=values), joints)
-
     def test_joint_home_recovery(self):
-        from kinex.lib.joints import command, home_start_tolerance
+        from kinex.common.joints import command, home_start_tolerance
         profile = copy.deepcopy(PROFILE)
         profile.update(home={"j": 0})
         joints = copy.deepcopy(JOINTS)
@@ -130,7 +116,7 @@ class MotionTests(unittest.TestCase):
         self.assertEqual(tolerance, math.radians(1))
         for sign in (-1, 1):
             plan = trajectory(joints, [sign * (2 + tolerance)], [0], .01, start_tolerance=tolerance)
-            command(profile, plan.actions, joints)
+            command(profile, plan.actions.tolist(), joints)
         for points in ([2.09, 0], [2.004, 2.005, 0], [2.004, 1.9, 2.001, 0], [2.004, .1], [2.004]):
             with self.assertRaises(ValueError):
                 command(profile, [[q] for q in points], joints)
@@ -148,8 +134,7 @@ class MotionTests(unittest.TestCase):
             trajectory(joints, [2.001], [0], .01, start_tolerance=tolerance)
 
     def test_native_commands_pass_raw_targets_and_still_validate_structure(self):
-        from kinex.lib.joints import command
-        from kinex.helpers.policy import _grip, _vacuum
+        from kinex.common.joints import command
 
         profile, joints = copy.deepcopy(PROFILE), copy.deepcopy(JOINTS)
         actions = [[100]]
@@ -160,31 +145,21 @@ class MotionTests(unittest.TestCase):
         for target in ([True], [math.nan], [math.inf], [], [1, 2]):
             with self.assertRaises(ValueError):
                 command(profile, [[0], target], joints)
-        self.assertTrue(trajectory(joints, [2.001], [100], .01, check_limits=False).actions)
-        gripper = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0}}
-        self.assertEqual([_grip(gripper, value) for value in (-1, 0, 1)], [.04, .02, 0])
-        for value in (-1.001, 1.001, True, math.nan, math.inf):
-            with self.assertRaises(ValueError):
-                _grip(gripper, value)
-        values = (-1, 0, .1, 1)
-        self.assertEqual([_vacuum({"vacuum": "binary"}, value) for value in values], [0, 0, 1, 1])
-        self.assertEqual([_vacuum({"vacuum": "proportional"}, value) for value in values], [0, .5, .55, 1])
-        with self.assertRaisesRegex(ValueError, "no vacuum control"):
-            _vacuum({"vacuum": "???"}, 0)
+        self.assertTrue(len(trajectory(joints, [2.001], [100], .01, check_limits=False).actions))
 
     def test_full_plan_duration_endpoint_and_speed_scaling(self):
         joints = [{"type": "revolute", "limits": {"min": -3, "max": 3}}] * 2
         plan = trajectory(joints, [0, 0], [2, 1], .01)
         self.assertEqual(plan.duration_s, 3.75)
         self.assertEqual(len(plan.actions), 375)
-        self.assertEqual(plan.actions[-1], [2, 1])
+        self.assertEqual(plan.actions[-1].tolist(), [2, 1])
         slow = trajectory(joints, [0, 0], [2, 1], .01, .5)
         self.assertEqual(slow.duration_s, 7.5)
         self.assertEqual(len(slow.actions), 750)
-        self.assertEqual(slow.actions[-1], [2, 1])
+        self.assertEqual(slow.actions[-1].tolist(), [2, 1])
         still = trajectory(joints, [1, 1], [1, 1], .01)
         self.assertEqual(still.duration_s, .01)
-        self.assertEqual(still.actions, [[1, 1]])
+        self.assertEqual(still.actions.tolist(), [[1, 1]])
         with self.assertRaises(TypeError):
             trajectory(joints, [0, 0], [2, 1], .01, duration_s=2.5)
         with self.assertRaisesRegex(ValueError, "one million"):
@@ -209,19 +184,19 @@ class MotionTests(unittest.TestCase):
         velocities, accelerations = planning_limits(joints, [.8, .2], [.8, .6])
         self.assertNotAlmostEqual(plan.duration_s / .01, round(plan.duration_s / .01))
         self.assertEqual(len(plan.actions), math.ceil(plan.duration_s / .01))
-        self.assertEqual(plan.actions[-1], goal)
+        self.assertEqual(plan.actions[-1].tolist(), goal)
         self.assert_rates(plan, [0, 0], [v*.7 for v in velocities], [a*.7 for a in accelerations])
 
     def test_planner_obeys_limits_and_uses_shortest_continuous_joint_path(self):
         joints = copy.deepcopy(JOINTS)
         plan = trajectory(joints, [0], [1], .01)
         self.assert_rates(plan, [0], [.5], [1])
-        self.assertEqual(plan.actions[-1], [1])
+        self.assertEqual(plan.actions[-1].tolist(), [1])
         joints[0].update(type="continuous", limits=None)
         plan = trajectory(joints, [math.pi-.1], [-math.pi+.1], .01)
         self.assertAlmostEqual(plan.actions[-1][0], math.pi+.1)
         joints[0].pop("max_acceleration")
-        self.assertTrue(trajectory(joints, [0], [1], .01).actions)
+        self.assertTrue(len(trajectory(joints, [0], [1], .01).actions))
 
     def test_planning_rates_use_available_limits_and_unit_specific_defaults(self):
         joints = [
@@ -229,12 +204,12 @@ class MotionTests(unittest.TestCase):
             {"type": "prismatic", "max_acceleration": .03},
             {"type": "continuous", "max_velocity": None, "max_acceleration": None},
         ]
-        self.assertEqual(planning_limits(joints), [[.2, .1, 1], [3, .03, 3]])
-        self.assertEqual(planning_limits(joints, [.1, .02, .3], [2, 2, 2]),
+        self.assertEqual(planning_limits(joints).tolist(), [[.2, .1, 1], [3, .03, 3]])
+        self.assertEqual(planning_limits(joints, [.1, .02, .3], [2, 2, 2]).tolist(),
                          [[.1, .02, .3], [2, .03, 2]])
-        self.assertEqual(planning_limits(joints, 1, 1), [[.2, 1, 1], [1, .03, 1]])
+        self.assertEqual(planning_limits(joints, 1, 1).tolist(), [[.2, 1, 1], [1, .03, 1]])
         joints[2].update(max_velocity=1000, max_acceleration=1000)
-        self.assertEqual(planning_limits(joints), [[.2, .1, 1], [3, .03, 3]])
+        self.assertEqual(planning_limits(joints).tolist(), [[.2, .1, 1], [3, .03, 3]])
         for bad in (0, -1, True, float("nan"), [1]):
             with self.assertRaises(ValueError):
                 planning_limits(joints, max_velocity=bad)
@@ -246,7 +221,7 @@ class MotionTests(unittest.TestCase):
             joints = [{"type": kind, "limits": {"min": -2, "max": 2}}]
             plan = trajectory(joints, [0], [distance], .01)
             self.assert_rates(plan, [0], [velocity], [acceleration])
-            self.assertEqual(plan.actions[-1], [distance])
+            self.assertEqual(plan.actions[-1].tolist(), [distance])
             slow = trajectory(joints, [0], [distance], .01, .5)
             self.assertGreater(slow.duration_s, plan.duration_s)
             self.assert_rates(slow, [0], [velocity*.5], [acceleration*.5])

@@ -5,7 +5,7 @@ import json
 import sys
 
 from kinex.communication import communication, seconds
-from kinex.lib.plain import plain
+from kinex.common.plain import plain
 
 
 def observation(message):
@@ -13,7 +13,7 @@ def observation(message):
     if isinstance(message, dict):
         return message
     from sensor_msgs.msg import Image, JointState
-    from kinex.lib.camera import save
+    from kinex.common.camera import save
     if isinstance(message, Image):
         return {"file": save(message), "timestamp": seconds(message.header.stamp),
                 "frame_id": message.header.frame_id, "width": message.width, "height": message.height}
@@ -39,7 +39,8 @@ class DeviceHost:
         if clock:
             catalog["_world.time"] = clock
         catalog.update({f"{profile['name']}.{name}": op for name, op in profile["operations"].items()})
-        self.io = await communication(catalog, domain_id=config.get("domain_id", 0)).__aenter__()
+        # The host holds its scope across requests, each in its own task, so it never makes it ambient.
+        self.io = communication(catalog, domain_id=config.get("domain_id", 0)).open()
         for index, definition in enumerate(config.get("nodes", [])):
             spec = importlib.util.spec_from_file_location(f"kinex_device_{index}", definition["entry"])
             module = importlib.util.module_from_spec(spec)
@@ -47,7 +48,7 @@ class DeviceHost:
             node = getattr(module, definition.get("factory", "create"))(profile, self.io.context)
             self.io.extra_nodes.append(node)
             self.io.executor.add_node(node)
-        from kinex.lib.frames import publish_profile
+        from kinex.common.frames import publish_profile
         publish_profile(self.io.node, profile)
         await self.ready()
         return {"ready": True}
@@ -81,7 +82,7 @@ class DeviceHost:
     async def run(self, action, args):
         if action == "$frames":
             from kinex.host.frame_graph import FrameGraphNode
-            self.io = await communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).__aenter__()
+            self.io = communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).open()
             self.io.frame_service = {"endpoint": args["endpoint"], "type": "kinex_interfaces/srv/LookupTransform"}
             self.graph = FrameGraphNode(args["clock"], args["endpoint"], self.io.context)
             self.io.extra_nodes.append(self.graph)
@@ -100,7 +101,7 @@ class DeviceHost:
                 await asyncio.gather(*pending, return_exceptions=True)
                 if self.profile is not None:
                     await self.stop()
-                await self.io.__aexit__(None, None, None)
+                await self.io.close()
                 self.io = None
             return {"unloaded": True}
         if not self.io:
@@ -113,7 +114,7 @@ class DeviceHost:
         if action == "$sample":
             configured = self.profile["runtime"].get("observation")
             if not configured and self.profile["type"] in ("rgb", "rgbd"):
-                from kinex.lib.camera import frame, save, stereo, stereo_frame
+                from kinex.common.camera import frame, save, stereo, stereo_frame
                 if stereo(self.profile):
                     images = dict(zip(("left", "right"), await stereo_frame(self.io, self.profile["name"])))
                     sample = {f"{eye}_{key}": value for eye, image in images.items()

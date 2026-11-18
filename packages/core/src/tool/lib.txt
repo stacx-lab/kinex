@@ -1,0 +1,5 @@
+Browse kinex.lib, the reusable Python functions that exec programs call, one level at a time. Read-only: it starts neither Python nor a device.
+- No path: the modules, each with its origin (workspace, global or builtin) and a one-line summary.
+- A module, such as images: its docstring, submodules and public function names.
+- A function, such as images.camera_frame: its signature, docstring, source file and line.
+A workspace module replaces a builtin of the same name; problems lists files that cannot be imported. In a program: await lib.images.camera_frame("camera").

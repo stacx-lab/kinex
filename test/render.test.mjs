@@ -2,11 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { stripTerminalSequences, truncateToWidth, visibleWidth, getCapabilities, setCapabilities } from '@earendil-works/pi-tui'
 import { initTheme } from '@earendil-works/pi-coding-agent'
-import { toolRenderers } from '../dist/integration/render.js'
+import { commandRow, toolRenderers } from '../dist/integration/render.js'
 import { piResult } from '../dist/integration/tools.js'
 import { footerIndicator, kinexFooter } from '../dist/integration/footer.js'
 
-const theme = { fg: (_color, text) => text, bold: text => text }
+const theme = { fg: (_color, text) => text, bold: text => text, italic: text => text }
 const context = { expanded: false, args: {}, isError: false }
 const plain = component => component.render(100).map(stripTerminalSequences).join('\n').trim()
 initTheme('dark', false)
@@ -24,20 +24,31 @@ test('important tools show action and target, including streamed arguments and a
     assert.doesNotThrow(() => plain(toolRenderers('record').renderCall(args, theme, context)))
   }
   assert.equal(plain(toolRenderers('unknown_custom_tool').renderCall({}, theme, context)), 'unknown_custom_tool')
-  for (const [name, args, subject] of [['exec', { description: 'inspect' }, 'inspect'], ['device', { deviceID: 'arm' }, 'read arm']]) {
+  for (const [name, args, subject] of [['exec', { file: 'scripts/inspect.py' }, 'scripts/inspect.py'], ['device', { deviceID: 'arm' }, 'read arm']]) {
     const colors = new Map()
     toolRenderers(name).renderCall(args, { ...theme, fg: (color, text) => { colors.set(text, color); return text } }, context)
     assert.equal(colors.get(subject), 'accent')
   }
 })
 
-test('exec calls show the description and the script as formatted source', () => {
+test('an exec title names the program file, then its arguments, then the description in italics', () => {
+  const styles = []
+  const traced = { ...theme, fg: (color, text) => { styles.push([color, text]); return text }, italic: text => `<i>${text}</i>` }
+  const title = args => { styles.length = 0; return plain(toolRenderers('exec').renderCall(args, traced, context)) }
+  assert.equal(title({ description: 'pick the block', file: 'programs/pick.py', args: { object: 'red block', attempts: 2 } }),
+    'exec programs/pick.py object="red block" attempts=2 <i>pick the block</i>')
+  assert.deepEqual(styles.map(([color]) => color), ['toolTitle', 'accent', 'muted', 'muted'])
+  assert.equal(title({ description: '  ', file: 'scripts/inspect.py', argv: ['--arm', 'left'], args: { speed: .5 } }), 'exec scripts/inspect.py --arm left speed=0.5')
+  assert.equal(title({ description: 'inspect arm state', python: 'print(1)' }).split('\n')[0].trimEnd(), 'exec <i>inspect arm state</i>')
+})
+
+test('exec calls show inline source under the title, bounded until expanded', () => {
   const renderers = toolRenderers('exec')
   const call = (args, expanded = false) => renderers.renderCall(args, theme, { ...context, expanded }).render(100).map(line => stripTerminalSequences(line).trimEnd())
   assert.deepEqual(call({ description: 'inspect arm state', python: 'from kinex import runtime\nprint(runtime.devices())' }),
     ['exec inspect arm state', '', 'from kinex import runtime', 'print(runtime.devices())'])
-  assert.deepEqual(call({ description: '  ', file: 'scripts/inspect.py', argv: ['--arm', 'left arm', "it's"], args: { speed: .5 } }),
-    ['exec', '', "python scripts/inspect.py --arm 'left arm' 'it'\\''s'", 'args {"speed":0.5}'])
+  assert.deepEqual(call({ description: 'pick the block', file: 'programs/pick.py', args: { object: 'red block' } }, true),
+    ['exec programs/pick.py object="red block" pick the block'])
   assert.deepEqual(call({ description: 'inspect' }), ['exec inspect'])
   assert.deepEqual(call({}), ['exec'])
   const source = Array.from({ length: 25 }, (_, i) => `x${i} = ${i}`).join('\n')
@@ -73,6 +84,9 @@ test('exec results show printed output, then the result or the failure once, as 
   assert.deepEqual(show({ output: '', result: [1, 2] }), ['', '[1,2]'])
   assert.deepEqual(show({ output: '', result: 'done\nok' }), ['', 'done', 'ok'])
   assert.deepEqual(show({ output: '', result: null }), [])
+  // The files finish attached are named after the result.
+  assert.deepEqual(show({ output: '', result: { ok: true }, file: ['/tmp/wrist.png', 'plot.png'] }), ['', '{', '  "ok": true', '}', '', 'file /tmp/wrist.png', 'file plot.png'])
+  assert.deepEqual(show({ output: '', result: null, file: ['plot.png'] }), ['', 'file plot.png'])
   const traceback = 'Traceback (most recent call last):\n  File "<exec>", line 1\nRuntimeError: boom'
   assert.deepEqual(show({ output: 'hi\n', error: traceback }, { isError: true }), ['', 'hi', '', ...traceback.split('\n')])
   assert.deepEqual(show({ output: '', error: 'wait failed', code: 'OperationError', details: 'sequential' }, { isError: true }),
@@ -85,10 +99,80 @@ test('exec results show printed output, then the result or the failure once, as 
   assert.deepEqual(collapsed.slice(2), ['line 18', 'line 19', '', ...traceback.split('\n')])
 })
 
+test('exec results set apart the exception, a subagent\'s line and a long run\'s duration', () => {
+  const colors = []
+  const traced = { ...theme, fg: (color, text) => { colors.push([color, text]); return text } }
+  const show = (envelope, extra = {}, expanded = true) => toolRenderers('exec').renderResult({ content: [{ type: 'text', text: JSON.stringify(envelope) }] },
+    { expanded }, traced, { ...context, ...extra }).render(100).map(line => stripTerminalSequences(line).trimEnd())
+  show({ output: '', error: 'Traceback (most recent call last):\n  File "<exec>", line 1\nRuntimeError: boom' }, { isError: true })
+  assert.deepEqual(colors, [['muted', 'Traceback (most recent call last):'], ['muted', '  File "<exec>", line 1'], ['error', 'RuntimeError: boom']])
+  colors.length = 0
+  show({ output: 'subagent fake/test (1.2 s): centred\nsubagent failed: no reply\nplain\n', result: null })
+  assert.deepEqual(colors, [['accent', 'subagent fake/test (1.2 s):'], ['toolOutput', ' centred'], ['error', 'subagent failed: no reply'], ['toolOutput', 'plain']])
+  assert.deepEqual(show({ output: '', result: 1 }, { durationMs: 1650 }), ['', '1', '', 'took 1.6 s'])
+  assert.deepEqual(show({ output: '', result: 1 }, { durationMs: 900 }), ['', '1'])
+  assert.deepEqual(show({ output: '', result: null }, { durationMs: 2000 }), ['', 'took 2.0 s'])
+  // Collapsed rows shorten floats for reading; expanded rows and the model keep every digit.
+  const value = { pose: [0.123456789012, -1.5, 2], stamp: 1794868502.4852428, tiny: 2.853e-12 }
+  assert.deepEqual(show({ output: '', result: value }, {}, false), ['', '{', '  "pose": [0.123457,-1.5,2],', '  "stamp": 1794868502.485,', '  "tiny": 2.853e-12', '}'])
+  assert.deepEqual(show({ output: '', result: value }), ['', '{', '  "pose": [0.123456789012,-1.5,2],', '  "stamp": 1794868502.4852428,', '  "tiny": 2.853e-12', '}'])
+})
+
+test('JSON is highlighted as code in results and expanded arguments, and failures stay in the error colour', () => {
+  const sequences = text => new Set(text.match(/\x1b\[[0-9;]*m/g) ?? [])
+  const result = { content: [{ type: 'text', text: JSON.stringify({ name: 'arm', position: [1, 2], ready: true }) }] }
+  for (const name of ['device', 'lib', 'question', 'workspace_tool']) {
+    const raw = toolRenderers(name).renderResult(result, { expanded: true }, theme, context).render(100).join('\n')
+    assert.ok(sequences(raw).size > 2, `${name} result`)
+    assert.deepEqual(JSON.parse(stripTerminalSequences(raw)), { name: 'arm', position: [1, 2], ready: true })
+  }
+  const exec = toolRenderers('exec').renderResult({ content: [{ type: 'text', text: JSON.stringify({ output: '', result: { name: 'arm', ready: true } }) }] }, { expanded: true }, theme, context)
+  assert.ok(sequences(exec.render(100).join('\n')).size > 2)
+  assert.ok(sequences(toolRenderers('device').renderCall({ deviceID: 'arm', args: { target: [1, 2] } }, theme, { ...context, expanded: true }).render(100).join('\n')).size > 2)
+  const colors = []
+  toolRenderers('device').renderResult(result, { expanded: true }, { ...theme, fg: (color, text) => { colors.push(color); return text } }, { ...context, isError: true })
+  assert.deepEqual(colors, ['error'])
+  assert.equal(plain(toolRenderers('question').renderCall({ questions: [{ header: 'Which bowl?' }, { header: 'Grip' }] }, theme, context)), 'question Which bowl?, Grip')
+})
+
+test('a user command is drawn as a tool row: pending while it runs, then its outcome', () => {
+  const backgrounds = []
+  const colors = new Map()
+  const traced = { ...theme, bg: (color, text) => { backgrounds.push(color); return text }, fg: (color, text) => { colors.set(text, color); return text } }
+  const lines = (row, options = {}) => commandRow(row, traced, { expanded: false, outputPad: 1, ...options }).render(60).map(line => stripTerminalSequences(line).trimEnd())
+  const status = { render: () => ['', 'running'], invalidate() {} }
+  assert.deepEqual(lines({ name: 'exec', args: 'programs/views.py object="black bowl"' }, { status }), ['', ' exec programs/views.py object="black bowl"', '', ' running', ''])
+  assert.deepEqual([...new Set(backgrounds)], ['toolPendingBg'])
+  assert.deepEqual([colors.get('programs/views.py'), colors.get('object="black bowl"')], ['accent', 'muted'])
+  backgrounds.length = 0
+  const done = lines({ name: 'exec', args: 'programs/views.py', result: { text: JSON.stringify({ output: '', result: { ok: true } }), isError: false, durationMs: 4600 } })
+  assert.deepEqual(done, ['', ' exec programs/views.py', '', ' {', '   "ok": true', ' }', '', ' took 4.6 s', ''])
+  assert.ok(!done.join('\n').includes('User ran'))
+  assert.deepEqual([...new Set(backgrounds)], ['toolSuccessBg'])
+  backgrounds.length = 0
+  assert.deepEqual(lines({ name: 'load', args: 'arm', result: { text: 'arm: Error: no node', isError: true } }), ['', ' load arm', '', ' arm: Error: no node', ''])
+  assert.deepEqual([...new Set(backgrounds)], ['toolErrorBg'])
+  assert.deepEqual(lines({ name: 'devices', args: '', result: { text: 'arm: joint, loaded', isError: false } }), ['', ' devices', '', ' arm: joint, loaded', ''])
+  const long = { name: 'lib', args: '', result: { text: JSON.stringify({ node: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, i])) }), isError: false } }
+  assert.match(lines(long).join('\n'), /expand \(\d+ more lines\)/)
+  assert.match(lines(long, { expanded: true }).join('\n'), /"k19": 19/)
+})
+
+test('a user command row shows the images its program attached where the terminal can', t => {
+  const capabilities = getCapabilities()
+  t.after(() => setCapabilities(capabilities))
+  const row = { name: 'exec', args: 'programs/views.py', result: { text: JSON.stringify({ output: '', result: null }), isError: false, images: [{ mimeType: 'image/png', data: 'aW1hZ2U=' }] } }
+  const height = () => commandRow(row, { ...theme, bg: (_color, text) => text }, { expanded: false, outputPad: 1 }).render(60).length
+  setCapabilities({ ...capabilities, images: null })
+  const without = height()
+  setCapabilities({ ...capabilities, images: 'kitty' })
+  assert.ok(height() > without)
+})
+
 test('all Kinex tools share JSON result formatting regardless of argument-summary support', () => {
   const value = { observation: { pose: { position: [1, 2, 3] } } }
   const expected = '{\n  "observation": {\n    "pose": {"position":[1,2,3]}\n  }\n}'
-  for (const name of ['devices', 'relative_pose', 'locate_object_3d', 'run_policy', 'workspace_tool']) {
+  for (const name of ['devices', 'lib', 'workspace_tool']) {
     const result = { content: [{ type: 'text', text: JSON.stringify(value, null, 4) }] }
     assert.equal(plain(toolRenderers(name).renderResult(result, { expanded: true }, theme, context)).split('\n').map(line => line.trimEnd()).join('\n'), expected)
     assert.equal(plain(toolRenderers(name).renderResult({ content: [{ type: 'text', text: 'plain text result' }] }, { expanded: true }, theme, context)), 'plain text result')

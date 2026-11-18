@@ -1,25 +1,24 @@
 import path from "node:path"
-import { ProfileStore } from "../device/profile/store.ts"
 import { Assets } from "../installation/assets.ts"
+import { libRoots } from "../lib/catalog.ts"
 import { overlayCommand } from "./ros-environment.ts"
 import { pythonRuntime } from "./environment.ts"
 
-// Device nodes and scripts prefer workspace helpers in .kinex/lib; tools prefer the
-// shipped client that implements their dialog. Both keep the caller's import paths.
-export async function pythonLaunch(cwd: string, kind: "node" | "tool", interpreter?: string, signal?: AbortSignal) {
+// Exec and device nodes import the shipped kinex package; KINEX_LIB adds the workspace
+// and global lib roots to kinex.lib, nearest first.
+export async function pythonLaunch(cwd: string, kind: "node" | "exec", interpreter?: string, signal?: AbortSignal) {
   const runtime = await pythonRuntime(cwd, interpreter, signal)
-  const lib = path.join(await ProfileStore.workspaceDir(cwd), "lib")
-  const paths = kind === "node" ? [lib, Assets.python()] : [Assets.python(), lib]
-  if (runtime.env.PYTHONPATH) paths.push(runtime.env.PYTHONPATH)
+  const roots = (await libRoots(cwd)).filter(root => root.origin !== "builtin").map(root => root.directory)
   return {
     ...runtime,
     command: overlayCommand(runtime.executable, runtime.overlays),
     env: {
       ...runtime.env,
-      PYTHONPATH: paths.join(path.delimiter),
-      // Only tool processes activate the stdout dialog. Ordinary imports of
-      // kinex helpers in nodes and skill scripts remain side-effect-free.
-      ...(kind === "tool" ? { KINEX_TOOL_DIALOG: "1" } : {}),
+      PYTHONPATH: [Assets.python(), ...(runtime.env.PYTHONPATH ? [runtime.env.PYTHONPATH] : [])].join(path.delimiter),
+      KINEX_LIB: roots.join(path.delimiter),
+      // Only exec processes activate the stdout dialog. Ordinary imports of
+      // kinex in nodes and standalone scripts remain side-effect-free.
+      ...(kind === "exec" ? { KINEX_TOOL_DIALOG: "1" } : {}),
     },
   }
 }

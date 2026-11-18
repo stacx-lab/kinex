@@ -1,7 +1,12 @@
 import type { KinexRuntime } from "./runtime.ts"
+import type { Attachment } from "./tool/tool.ts"
 import { parseSpecs } from "./record/spec.ts"
 import { recordingOutput, recordingSummary } from "./record/output.ts"
 import { workflows } from "./workflows/index.ts"
+import { libNode } from "./lib/catalog.ts"
+import { writeFlowPage } from "./lib/flow.ts"
+import { formatJSON } from "./util/json.ts"
+import { abortable } from "./util/abort.ts"
 
 export const roboticsCommands = [
   { name: "register", description: "Prepare an unloaded device profile", arguments: "<type-or-template>", kind: "workflow" },
@@ -12,10 +17,14 @@ export const roboticsCommands = [
   { name: "ping", description: "Inspect live device status", arguments: "<device|all>", kind: "operation" },
   { name: "stop", description: "Stop actuators", arguments: "[device]", kind: "operation" },
   { name: "record", description: "Capture observations", arguments: "start|snap|stop|status [--verbose] ...", kind: "operation" },
+  { name: "lib", description: "Browse the function library", arguments: "[module[.function]]", kind: "operation" },
+  { name: "exec", description: "Run a saved program", arguments: "<file.py> [name=value ...|{json}]", kind: "operation" },
+  { name: "visualize", description: "Draw the flow chart of a program or lib function", arguments: "<file.py[:function]|module.function> [output.html]", kind: "operation" },
 ] as const
+const execUsage = "Usage: /exec <file.py> [name=value ...|{json}]"
 
 export type RoboticsCommand = typeof roboticsCommands[number]["name"]
-export type CommandResult = { kind: "output"; text: string; isError?: boolean } | { kind: "workflow"; prompt: string }
+export type CommandResult = { kind: "output"; text: string; isError?: boolean; attachments?: Attachment[] } | { kind: "workflow"; prompt: string }
 export interface CommandContext {
   sessionID: string
   signal?: AbortSignal
@@ -54,6 +63,27 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
     return { kind: "output", text: result.output, isError: result.isError }
   }
   if (name === "record") return output(await record(runtime, tokens, context.sessionID))
+  if (name === "lib") {
+    if (tokens.length > 1) throw new Error("Usage: /lib [module[.function]]")
+    return output(formatJSON(await runtime.operation(() => libNode(runtime.directory, tokens[0]))))
+  }
+  if (name === "exec") {
+    const [, file, rest = ""] = /^\s*(\S+)\s*([\s\S]*)$/.exec(args) ?? []
+    if (!file) throw new Error(execUsage)
+    // A program started as the session opens waits for the loaded devices that are still
+    // connecting; one that fails to connect is the program's to report.
+    await abortable(Promise.allSettled((await runtime.devices.warmLoaded()).map(activation => activation.ready)), context.signal)
+    // The user's command is its own approval; cleanup and /stop still apply.
+    const result = await runtime.tools.call("exec", { file, args: execArguments(rest) }, { sessionID: context.sessionID, signal: context.signal, ask: async () => {} })
+    return { kind: "output", text: result.output, isError: result.isError, attachments: result.attachments }
+  }
+  if (name === "visualize") {
+    const [target, destination] = tokens
+    if (!target || tokens.length > 2) throw new Error("Usage: /visualize <file.py[:function]|module.function> [output.html]")
+    const { file, flow } = await runtime.operation(() => writeFlowPage(runtime.directory, target, destination, context.signal))
+    const count = Object.keys(flow.functions).length
+    return output([`Flow chart of ${flow.functions[flow.entry]!.path} (${count} ${count === 1 ? "function" : "functions"}): ${file}`, ...flow.problems].join("\n"))
+  }
   const device = tokens[0]
   if (!device || tokens.length !== 1) throw new Error(`Usage: /${name} <device|all>`)
   const names = device === "all"
@@ -69,6 +99,41 @@ export async function executeRoboticsCommand(runtime: KinexRuntime, name: Roboti
   }))
   return { kind: "output", isError: results.some(result => result.status === "rejected"), text: results.map((result, index) =>
     result.status === "fulfilled" ? result.value : `${names[index]}: ${String(result.reason)}`).join("\n") || "No matching devices" }
+}
+
+// A JSON object, or name=value pairs whose values are JSON when they parse and text otherwise.
+// The pairs are scanned once, left to right: a user's text never drives a backtracking pattern.
+function execArguments(text: string): Record<string, unknown> {
+  if (text.startsWith("{")) return JSON.parse(text) as Record<string, unknown>
+  const values: Record<string, unknown> = {}
+  const state = { at: 0 }
+  const take = (accept: (char: string) => boolean) => {
+    const start = state.at
+    while (state.at < text.length && accept(text[state.at]!)) state.at++
+    return text.slice(start, state.at)
+  }
+  const space = (char: string) => /\s/.test(char)
+  // A quoted value, quotes included, when its closing quote exists.
+  const quoted = () => {
+    const quote = text[state.at]
+    if (quote !== '"' && quote !== "'") return undefined
+    for (let end = state.at + 1; end < text.length; end += quote === '"' && text[end] === "\\" ? 2 : 1) {
+      if (text[end] !== quote) continue
+      const value = text.slice(state.at, end + 1)
+      state.at = end + 1
+      return value
+    }
+    return undefined
+  }
+  for (;;) {
+    take(space)
+    if (state.at >= text.length) return values
+    const key = take(char => /\w/.test(char))
+    if (!/^[A-Za-z_]/.test(key) || text[state.at] !== "=") throw new Error(execUsage)
+    state.at++
+    const value = quoted() ?? take(char => !space(char))
+    try { values[key] = value.startsWith("'") && value.length > 1 && value.endsWith("'") ? value.slice(1, -1) : JSON.parse(value) } catch { values[key] = value }
+  }
 }
 
 async function record(runtime: KinexRuntime, tokens: string[], sessionID: string): Promise<string> {

@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 from xml.etree import ElementTree
 
-from kinex.lib.geometry import compose_rt, quat_to_mat, vector, xyzq_to_rt
+from kinex.common.geometry import compose_rt, quat_to_mat, vector, xyzq_to_rt
 
 MOVABLE = {"revolute", "continuous", "prismatic"}
 
@@ -111,7 +111,7 @@ def joint_target(value, joints, *, check_limits=True):
     """Finite positions for the given joints, optionally within their URDF limits."""
     if not joints:
         raise ValueError("joint metadata is required")
-    vector(value, len(joints), "joint target")
+    value = vector(value, len(joints), "joint target")
     for position, joint in zip(value, joints):
         limits = joint.get("limits")
         if check_limits and limits is not None and not limits["min"] <= position <= limits["max"]:

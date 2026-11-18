@@ -9,9 +9,7 @@ description: Vacuum suction tool switched on and off, or set to a vacuum level.
 A suction tool has no moving joints and no URDF. `frames.tcp` is the cup's contact
 centre with +z as the approach direction; summarize cup size, count and material in
 `description`. `vacuum` is `binary` when the device only switches vacuum on and off,
-or `proportional` when it accepts a level. Policy values in [-1, 1] release at -1
-and grip at +1: proportional devices take the level (v + 1) / 2, binary devices
-switch on above 0.
+or `proportional` when it accepts a level.
 
 The sibling `node.py` adapts an existing ROS vacuum driver with an on/off service
 and an object-detection topic; copy it into the device directory and set its topic

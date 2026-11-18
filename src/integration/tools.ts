@@ -6,13 +6,19 @@ import type { KinexCapabilities } from "@kinex/core/integration"
 import type { Interaction } from "./interaction.ts"
 import { toolRenderers } from "./render.ts"
 
+/** Attached images as the bytes a host shows. */
+export async function attachedImages(attachments: Result["attachments"], signal?: AbortSignal) {
+  return Promise.all((attachments ?? []).map(async attachment => ({
+    type: "image" as const, mimeType: attachment.mime,
+    data: attachment.data ?? (await readFile(attachment.path, { signal })).toString("base64"),
+  })))
+}
+
 export async function piResult(result: Result, signal?: AbortSignal): Promise<Awaited<ReturnType<ToolDefinition["execute"]>>> {
-  const content: Awaited<ReturnType<ToolDefinition["execute"]>>["content"] = [{ type: "text", text: result.output }]
-  for (const attachment of result.attachments ?? []) {
-    const data = attachment.data ?? (await readFile(attachment.path, { signal })).toString("base64")
-    content.push({ type: "image", mimeType: attachment.mime, data })
+  return {
+    content: [{ type: "text", text: result.output }, ...await attachedImages(result.attachments, signal)],
+    details: { kinex: { title: result.title, isError: result.isError, metadata: result.metadata } },
   }
-  return { content, details: { kinex: { title: result.title, isError: result.isError, metadata: result.metadata } } }
 }
 
 export function toolBridge(pi: ExtensionAPI, runtime: Pick<KinexCapabilities, "tools">, interaction: Interaction) {

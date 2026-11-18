@@ -1,13 +1,13 @@
 ---
 name: calibrate-gripper-grip
-description: Establish a gripper's grip joint and its open and closed positions when a task needs grip commands or policy grip values.
+description: Establish a gripper's grip joint and its open and closed positions when a task needs grip commands.
 ---
 
 # Calibrate gripper grip
 
 Bind `target` to the gripper. `grip` names the actuated, non-mimic URDF joint and
-its `open` and `closed` positions in that joint's units; policy values in
-[-1, 1] interpolate between them, and the node rejects targets outside them.
+its `open` and `closed` positions in that joint's units; the node rejects targets
+outside them.
 
 Prefer vendor documentation of the commanded open and closed positions. Otherwise
 run `calib_compute operation:urdf-introspect` to read the URDF's movable joints

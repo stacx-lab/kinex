@@ -1,262 +1,175 @@
-"""Bundled tools use protocol operations; numerical payloads stay in Python."""
+"""Lib programs use protocol operations through the ambient scope; numerical payloads stay in Python."""
 import asyncio
-import importlib.util
 from pathlib import Path
 import sys
 from types import SimpleNamespace as NS, ModuleType
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-from kinex import helpers
+import numpy as np
+# Loaded before any test swaps sys.modules: an extension module loads once per process.
+from scipy.spatial.transform import RigidTransform
+
+from kinex import lib
+from kinex.communication import ambient
+from kinex.values import components, pose
 from kinex.errors import RPCError
-
-ROOT = Path(__file__).parent.parent / "assets/builtin/tool"
-
-
-def tool(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / name / "tool.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from kinex.lib.frames import lookup_transform
 
 
-class Stream:
-    def __init__(self):
-        self.closed = False
+class Library(unittest.IsolatedAsyncioTestCase):
+    def test_modules_load_on_first_use_and_stay_modules(self):
+        self.assertIs(lib.frames.lookup_transform, lookup_transform)
+        self.assertTrue(callable(lib.images.camera_geometry))
+        for name in ("missing", "_private"):
+            with self.assertRaises(AttributeError):
+                getattr(lib, name)
 
-    async def next(self, **_):
-        return NS(name=["j1", "j0"], position=[.1, 0.], header=NS(stamp=0))
+    def test_workspace_roots_extend_and_override_builtin_modules(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as near, tempfile.TemporaryDirectory() as far:
+            Path(near, "motion.py").write_text("ORIGIN = 'near'\n")
+            Path(far, "motion.py").write_text("ORIGIN = 'far'\n")
+            Path(far, "tasks", "tabletop").mkdir(parents=True)
+            Path(far, "tasks", "tabletop", "pick.py").write_text("from kinex.lib import frames\ndef pick(): return frames.__name__\n")
+            code = "from kinex import lib; print(lib.motion.ORIGIN, lib.tasks.tabletop.pick.pick(), lib.kinematics.__name__)"
+            output = subprocess.run([sys.executable, "-c", code], env={"PYTHONPATH": str(Path(lib.__file__).parents[2]), "KINEX_LIB": f"{near}:{far}"},
+                                    capture_output=True, text=True, check=True).stdout
+        self.assertEqual(output.split(), ["near", "kinex.lib.frames", "kinex.lib.kinematics"])
 
-    def close(self):
-        self.closed = True
+    async def test_ambient_scope_is_required_and_scoped_to_its_block(self):
+        from kinex import io
+        with self.assertRaisesRegex(RuntimeError, "no communication scope"):
+            io.catalog
+        with ambient(NS(catalog={"a.b": {}})):
+            self.assertEqual(io.catalog, {"a.b": {}})
+        with self.assertRaises(RuntimeError):
+            io.catalog
 
+    def test_a_pose_is_taken_in_any_form_and_written_as_seven_numbers(self):
+        message = NS(header=NS(), pose=NS(position=NS(x=1., y=2., z=3.), orientation=NS(x=0., y=0., z=0., w=1.)))
+        relation = NS(transform=NS(translation=NS(x=1., y=2., z=3.), rotation=NS(x=0., y=0., z=0., w=1.)))
+        for value in ([1, 2, 3, 0, 0, 0, 1], (1, 2, 3, 0, 0, 0, 1), np.array([1, 2, 3, 0, 0, 0, 1.]), message, message.pose, relation, relation.transform):
+            self.assertIsInstance(pose(value), RigidTransform)
+            self.assertEqual(components(value).tolist(), [1, 2, 3, 0, 0, 0, 1])
+        made = pose([1, 2, 3, 0, 0, 0, 1])
+        self.assertIs(pose(made), made)
+        # Poses compose and invert as objects; several rows are one batch.
+        self.assertEqual(components(made * pose([0, 0, .5, 0, 0, 0, 1])).tolist(), [1, 2, 3.5, 0, 0, 0, 1])
+        self.assertEqual(components(made.inv() * made).round(12).tolist(), [0, 0, 0, 0, 0, 0, 1])
+        batch = pose([[0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 1]])
+        self.assertEqual((len(batch), components(batch).shape), (2, (2, 7)))
+        with self.assertRaisesRegex(ValueError, "one pose"):
+            components(batch, single=True)
+        for bad in ([1, 2, 3], [0, 0, 0, 0, 0, 0, 2], [0, 0, 0, 0, 0, 0, float("nan")], "pose", None):
+            with self.subTest(bad=bad), self.assertRaises((ValueError, TypeError)):
+                pose(bad)
 
-class Protocol:
-    def __init__(self):
-        self.catalog = {"world.wait": {}}
-        self.events = []
-        self.streams = []
+    def test_seconds_reads_numbers_stamps_and_stamped_messages(self):
+        from kinex import seconds
+        stamp = NS(sec=2, nanosec=500000000)
+        self.assertEqual([seconds(value) for value in (2.5, 2, np.float32(2.5), stamp, NS(header=NS(stamp=stamp)))], [2.5, 2., 2.5, 2.5, 2.5])
 
-    def subscribe(self, operation, **_):
-        self.events.append(("subscribe", operation))
-        stream = Stream()
-        self.streams.append(stream)
-        return stream
+    def test_kinematics_take_any_sequence_and_return_arrays_and_poses(self):
+        import array
+        sys.path.insert(0, str(Path(__file__).parent))
+        from joint_model import ARM
+        from kinex.common.urdf import read_tree
+        from kinex.lib.kinematics import JointModel
+        arm = JointModel({"type": "joint", "model": {"tip_links": ["tool"]}, "resolved_model": read_tree(None, "base_link", ARM)})
+        expected = [1, 0, .2, 0, 0, 0, 1]
+        # A joint_state message's position is an array.array; programs also hold tuples and NumPy arrays.
+        for positions in ([0, 0, 0], (0, 0, 0), array.array("d", [0, 0, 0]), np.zeros(3), np.zeros(3, dtype=np.float32)):
+            found = arm.fk(positions)
+            self.assertIsInstance(found, RigidTransform)
+            np.testing.assert_allclose(components(found), expected, atol=1e-12)
+        goal = arm.fk([.3, -.4, .02])
+        for target in (goal, components(goal), components(goal).tolist()):
+            solved = arm.ik(target, np.zeros(3))
+            self.assertIsInstance(solved, np.ndarray)
+            np.testing.assert_allclose(components(arm.fk(solved)), components(goal), atol=1e-3)
+        for bad, message in (({"shoulder": 0}, "must be a sequence of 3 numbers, not dict"), ([0, 0], "needs 3 numbers, got 2"), ("000", "not str")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, message):
+                arm.fk(bad)
 
-    async def request(self, operation, **fields):
-        self.events.append(("request", operation, fields))
-        if operation == "model.infer":
-            return {"actions": [[.2, .3], [.4, .5]]}
-        return NS(success=True)
-
-    async def publish(self, operation, fields):
-        self.events.append(("publish", operation, fields))
-
-
-def profile(_):
-    from kinex.lib.urdf import read_tree
-    return {
-        "name": "arm", "type": "joint", "loaded": True, "runtime": {}, "home": None, "limits": "strict",
-        "model": {"format": "urdf", "path": "arm.urdf", "base_link": "base_link", "tip_link": "flange"},
-        "resolved_model": read_tree(None, "base_link", """<robot name="arm">
-  <link name="base_link"/><link name="upper"/><link name="lower"/><link name="flange"/>
-  <joint name="j0" type="revolute"><parent link="base_link"/><child link="upper"/><axis xyz="0 0 1"/>
-    <limit lower="-1" upper="1" velocity="1"/></joint>
-  <joint name="j1" type="revolute"><parent link="upper"/><child link="lower"/><origin xyz=".5 0 0"/>
-    <axis xyz="0 1 0"/><limit lower="-1" upper="1" velocity="1"/></joint>
-  <joint name="flange_joint" type="fixed"><parent link="lower"/><child link="flange"/><origin xyz=".5 0 0"/></joint>
-</robot>"""),
-    }
-
-
-class Tools(unittest.IsolatedAsyncioTestCase):
-    def test_helper_index_lists_every_helper(self):
-        index = (Path(helpers.__file__).parent / "helpers.txt").read_text()
-        for name in helpers.__all__:
-            self.assertTrue(callable(getattr(helpers, name)), name)
-            self.assertIn(f"helpers.{name}(", index)
-
-    async def test_policy_validates_chunk_before_publishing(self):
-        policy, io = tool("run_policy"), Protocol()
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda value: value
-        with patch("kinex.helpers.policy.profile", profile), patch.dict(sys.modules, {
-            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
-            "rosidl_runtime_py.convert": convert,
-        }):
-            result = await policy.main({"model": "model", "observation": {},
-                                        "command": [{"device": "arm"}], "action_hz": 20}, io)
-        self.assertEqual(result["actions_submitted"], 2)
-        self.assertEqual(result["duration_s"], .1)
-        kind, operation, trajectory = io.events[-1]
-        self.assertEqual((kind, operation, trajectory["joint_names"]), ("publish", "arm.joint_target", ["j0", "j1"]))
-        self.assertEqual(len(trajectory["points"]), 2)
-
-    async def test_scalar_policy_targets_are_persistent_and_paced_by_world(self):
-        policy, io = tool("run_policy"), Protocol()
-        async def request(operation, **fields):
-            io.events.append(("request", operation, fields))
-            return {"actions": [[-1.], [1.]]} if operation == "model.infer" else NS(success=True)
-        io.request = request
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda value: value
-        facts = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0.}}
-        with patch("kinex.helpers.policy.profile", return_value=facts), patch.dict(sys.modules, {
-            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
-        }):
-            result = await policy.main({"model": "model", "observation": {},
-                                       "command": [{"device": "gripper"}], "action_hz": 10}, io)
-        self.assertEqual(result["actions_submitted"], 2)
-        self.assertEqual([event[2] for event in io.events if event[0] == "publish"],
-                         [{"data": .04}, {"data": 0.}])
-        self.assertEqual([event[2] for event in io.events if event[:2] == ("request", "world.wait")],
-                         [{"duration_s": .1}, {"duration_s": .1}])
-        self.assertFalse(any(event[1].endswith(".stop") for event in io.events))
-
-    async def test_end_effector_policy_without_world_wait_never_infers(self):
-        policy, io = tool("run_policy"), Protocol()
-        io.catalog = {}
-        facts = {"type": "gripper", "grip": {"joint": "finger_joint", "open": .04, "closed": 0.}}
-        with patch("kinex.helpers.policy.profile", return_value=facts):
-            with self.assertRaisesRegex(ValueError, "world wait"):
-                await policy.main({"model": "model", "observation": {}, "command": [{"device": "gripper"}]}, io)
-        self.assertEqual(io.events, [])
-
-    async def test_relative_pose_uses_tf2_relation_and_local_offsets(self):
-        relative = tool("relative_pose")
-        async def lookup(io, target, source, stamp):
-            self.assertEqual((target, source), ("base", "camera"))
-            return NS(transform=NS(translation=NS(x=1., y=0., z=0.),
-                                   rotation=NS(x=0., y=0., z=0., w=1.)),
-                      header=NS(stamp=NS(sec=2, nanosec=500000000)))
-        with patch("kinex.helpers.frames.lookup_transform", lookup):
-            result = await relative.main({"parent": {"frame": "base", "pose": [0, 0, .1, 0, 0, 0, 1]},
-                                          "child": {"frame": "camera", "pose": [0, 0, .2, 0, 0, 0, 1]}}, Protocol())
-        self.assertEqual(result["pose"], [1., 0., .1, 0., 0., 0., 1.])
-        self.assertEqual(result["timestamp"], 2.5)
-
-    async def test_policy_cartesian_chunk_uses_scoped_frames_and_typed_ik(self):
-        policy = tool("run_policy")
-
-        class Cartesian(Protocol):
-            async def request(self, operation, **fields):
-                if operation == "model.infer":
-                    return {"actions": [[.1, 0., 0., 0., 0., 0., 1.]]}
-                return await super().request(operation, **fields)
-
-        io, frames = Cartesian(), []
-
-        async def transform(io, pose, source, target, stamp):
-            frames.append((source, target))
-            return pose
-
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda value: value
-        with patch("kinex.helpers.policy.profile", profile), patch("kinex.helpers.frames.transform_pose", transform), patch.dict(sys.modules, {
-            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
-            "rosidl_runtime_py.convert": convert,
-        }), patch("kinex.lib.joints.JointModel.ik", autospec=True, return_value=[.2, .3]) as ik:
-            result = await policy.main({"model": "model", "observation": {},
-                                        "command": [{"device": "arm", "space": "pose"}], "action_hz": 20}, io)
-        self.assertEqual(frames, [("arm/flange", "arm/flange"), ("arm/base", "arm/base"), ("arm/base", "arm/base")])
-        self.assertEqual(ik.call_args.args[1:], ([.1, 0., 0., 0., 0., 0., 1.], [0., .1]))
-        self.assertEqual(result["actions_submitted"], 1)
-
-    async def test_policy_invalid_later_joint_target_never_publishes(self):
-        policy, io = tool("run_policy"), Protocol()
-        async def request(*args, **kwargs):
-            return {"actions": [[0., 0.], [5., 0.]]}
-        io.request = request
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda value: value
-        with patch("kinex.helpers.policy.profile", profile), patch.dict(sys.modules, {
-            "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
-        }), self.assertRaises(ValueError):
-            await policy.main({"model": "model", "observation": {}, "command": [{"device": "arm"}]}, io)
-        self.assertFalse(any(event[0] == "publish" for event in io.events))
-
-    async def test_policy_malformed_ik_truncates_all_buffers_and_seeds_from_predecessor(self):
-        policy = tool("run_policy")
-        for failure_at in (0, 1):
-            io, seeds = Protocol(), []
-            async def request(operation, **fields):
-                return {"actions": [{"arm": [0, 0, 0, 0, 0, 0, 1], "other": [0., 0.]}] * 3}
-            def solve(model, goal, seed):
-                seeds.append(seed)
-                if len(seeds) > failure_at:
-                    raise ValueError("IK search exhausted")
-                return [.2, .3]
-            async def transform(io, pose, *args):
-                return pose
-            io.request = request
-            convert = ModuleType("rosidl_runtime_py.convert")
-            convert.message_to_ordereddict = lambda value: value
-            with patch("kinex.helpers.policy.profile", profile), patch("kinex.helpers.frames.transform_pose", transform), patch.dict(sys.modules, {
-                "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.convert": convert,
-            }), patch("kinex.lib.joints.JointModel.ik", autospec=True, side_effect=solve):
-                result = await policy.main({"model": "model", "observation": {}, "action_hz": 20,
-                    "command": [{"device": "arm", "space": "pose"}, {"device": "other"}]}, io)
-            self.assertEqual(result["actions_submitted"], failure_at)
-            self.assertEqual(result["duration_s"], failure_at / 20)
-            self.assertEqual(seeds, [[0., .1], [.2, .3]][:failure_at + 1])
-            self.assertEqual(len([event for event in io.events if event[0] == "publish"]), 2 if failure_at else 0)
-
+    def test_trajectories_are_arrays_from_any_sequence(self):
+        joints = [{"name": "a", "type": "revolute", "limits": None}, {"name": "b", "type": "revolute", "limits": None}]
+        plan = lib.motion.trajectory(joints, np.zeros(2), (1, .5), .01)
+        self.assertEqual((type(plan.actions), plan.actions.shape[1], plan.actions[-1].tolist()), (np.ndarray, 2, [1, .5]))
+        self.assertEqual(lib.motion.planning_limits(joints, np.array([.5, .2])).tolist(), [[.5, .2], [3, 3]])
 
 
 class Transforms(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         messages = ModuleType("builtin_interfaces.msg")
-        messages.Time = lambda: NS(sec=0, nanosec=0)
+        messages.Time = lambda sec=0, nanosec=0: NS(sec=sec, nanosec=nanosec)
         self.enterContext(patch.dict(sys.modules, {"builtin_interfaces.msg": messages}))
 
     async def test_service_preserves_frames_stamp_and_errors(self):
-        relation, stamp = object(), NS(sec=2, nanosec=500000000)
-        io = NS(frame_service=object(), _request=AsyncMock(return_value=NS(transform=relation)))
-        self.assertIs(await helpers.lookup_transform(io, "arm:base", "camera/optical", stamp, 2), relation)
+        relation = NS(transform=NS(translation=NS(x=1., y=2., z=3.), rotation=NS(x=0., y=0., z=0., w=1.)))
+        stamp = NS(sec=2, nanosec=500000000)
+        io = self.enterContext(ambient(NS(frame_service=object(), _request=AsyncMock(return_value=relation))))
+        found = await lookup_transform("arm:base", "camera/optical", stamp, 2)
+        self.assertEqual(components(found).tolist(), [1, 2, 3, 0, 0, 0, 1])
         io._request.assert_awaited_once_with(io.frame_service, {
             "target_frame": "arm/base", "source_frame": "camera/optical", "stamp": stamp, "wait_s": 2,
         }, 3)
-        await helpers.lookup_transform(io, "arm/base", "camera/optical", timeout_s=0)
+        # A pose seen in the source frame moves to the target by a product.
+        self.assertEqual(components(found * pose([0, 0, .5, 0, 0, 0, 1])).tolist(), [1, 2, 3.5, 0, 0, 0, 1])
+        # A stamped message keeps its own stamp; seconds select the same time; None the latest.
+        await lookup_transform("arm/base", "camera/optical", NS(header=NS(stamp=stamp)))
+        self.assertIs(io._request.call_args.args[1]["stamp"], stamp)
+        await lookup_transform("arm/base", "camera/optical", 2.5)
+        self.assertEqual(vars(io._request.call_args.args[1]["stamp"]), {"sec": 2, "nanosec": 500000000})
+        await lookup_transform("arm/base", "camera/optical", timeout_s=0)
         self.assertEqual(vars(io._request.call_args.args[1]["stamp"]), {"sec": 0, "nanosec": 0})
+        # A frame in itself is the identity and asks no one.
+        io._request.reset_mock()
+        self.assertEqual(components(await lookup_transform("arm:base", "arm/base")).tolist(), [0, 0, 0, 0, 0, 0, 1])
+        io._request.assert_not_awaited()
         for error in (RPCError("missing frame"), TimeoutError(), asyncio.CancelledError()):
             io._request.side_effect = error
             with self.assertRaises(type(error)) as caught:
-                await helpers.lookup_transform(io, "arm/base", "camera/optical")
+                await lookup_transform("arm/base", "camera/optical")
             self.assertIs(caught.exception, error)
 
     async def test_missing_service_and_invalid_timeout_do_not_fall_back(self):
-        io = NS(frame_service=None, supervised=True, transforms=Mock())
+        io = self.enterContext(ambient(NS(frame_service=None, supervised=True, transforms=Mock())))
         with self.assertRaises(RPCError) as caught:
-            await helpers.lookup_transform(io, "world/base", "arm/tool")
+            await lookup_transform("world/base", "arm/tool")
         self.assertEqual(caught.exception.code, "frames_unavailable")
         for timeout in (-1, 31, float("nan"), float("inf")):
             with self.assertRaises(ValueError):
-                await helpers.lookup_transform(io, "world/base", "arm/tool", timeout_s=timeout)
+                await lookup_transform("world/base", "arm/tool", timeout_s=timeout)
         io.transforms.assert_not_called()
 
     async def test_standalone_uses_communication_owned_history(self):
         time = ModuleType("rclpy.time")
         time.Time = Mock()
         buffer = Mock()
-        io = NS(frame_service=None, supervised=False, transforms=Mock(return_value=buffer), _future=AsyncMock())
+        buffer.lookup_transform.return_value = NS(transform=NS(translation=NS(x=0., y=0., z=1.), rotation=NS(x=0., y=0., z=0., w=1.)))
+        io = self.enterContext(ambient(NS(frame_service=None, supervised=False, transforms=Mock(return_value=buffer), _future=AsyncMock())))
         stamp = object()
         with patch.dict(sys.modules, {"rclpy.time": time}):
-            result = await helpers.lookup_transform(io, "world:base", "arm:tool", stamp)
-            self.assertIs(result, buffer.lookup_transform.return_value)
+            result = await lookup_transform("world:base", "arm:tool", stamp)
+            self.assertEqual(components(result).tolist(), [0, 0, 1, 0, 0, 0, 1])
             time.Time.from_msg.assert_called_once_with(stamp)
             buffer.wait_for_transform_async.assert_called_once_with("world/base", "arm/tool", time.Time.from_msg.return_value)
             io._future.assert_awaited_once_with(buffer.wait_for_transform_async.return_value, 5)
             buffer.lookup_transform.assert_called_once_with("world/base", "arm/tool", time.Time.from_msg.return_value)
             io._future.reset_mock()
-            await helpers.lookup_transform(io, "world/base", "arm/tool", timeout_s=0)
+            await lookup_transform("world/base", "arm/tool", timeout_s=0)
             io._future.assert_not_awaited()
-            buffer.lookup_transform.assert_called_with("world/base", "arm/tool", time.Time.return_value)
+            self.assertEqual(vars(time.Time.from_msg.call_args.args[0]), {"sec": 0, "nanosec": 0})
+            buffer.lookup_transform.assert_called_with("world/base", "arm/tool", time.Time.from_msg.return_value)
 
 
 def scope(catalog):
     """A Communication with its ROS teardown stubbed."""
     from kinex.communication import Communication
     io = Communication(catalog)
+    io.opened = True
     io.executor = NS(shutdown=lambda **kw: None)
     io.node = NS(destroy_node=lambda: None)
     io.context = NS(try_shutdown=lambda: None)
@@ -318,7 +231,7 @@ class Errors(unittest.IsolatedAsyncioTestCase):
                 calls.append(devices)
 
             io._stop = stop
-            await io.__aexit__(type(error), error, None)
+            await io.close(error)
             self.assertEqual(calls, [["arm", "world"]] if stopped else [])
 
     async def test_unacknowledged_commands_fail_the_scope_and_stop_devices(self):
@@ -334,7 +247,7 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         io._stop = stop
         with patch.dict(sys.modules, {"rclpy": rclpy, "rclpy.duration": duration}), \
                 self.assertRaisesRegex(TimeoutError, "arm.joint_target"):
-            await io.__aexit__(None, None, None)
+            await io.close()
         self.assertEqual(calls, [["arm"]])
 
     async def test_stop_calls_each_declared_stop_service(self):
@@ -347,6 +260,42 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         io._request = request
         await io._stop(["detector", "world"])
         self.assertEqual(endpoints, [("/world/stop", {})])
+
+
+class ProgramLoop(unittest.TestCase):
+    """exec releases its scope after the program's own event loop has ended."""
+
+    def test_a_scope_closes_in_a_new_loop_after_its_own_ended(self):
+        import threading
+        rclpy, duration = ModuleType("rclpy"), ModuleType("rclpy.duration")
+        duration.Duration = lambda **_: None
+        for error, acknowledged, stopped in ((None, True, False), (RuntimeError("failure"), True, True), (None, False, True)):
+            io, calls = scope({}), []
+            io.enrolled.add("arm")
+            io.publishers = {"arm.joint_target": NS(wait_for_all_acked=lambda timeout: acknowledged)}
+            io.clock_lock, io.clock_scheduled = threading.Lock(), False
+
+            async def program():
+                io.loop = asyncio.get_running_loop()
+
+            async def stop(devices):
+                calls.append((devices, io.loop is asyncio.get_running_loop()))
+
+            io._stop = stop
+            asyncio.run(program())
+            # A message arriving between the loops is dropped, and leaves its delivery free to be scheduled again.
+            io._clock_received(NS())
+            self.assertFalse(io.clock_scheduled)
+            with self.assertRaisesRegex(RuntimeError, "one asyncio.run"):
+                io.open()
+            with patch.dict(sys.modules, {"rclpy": rclpy, "rclpy.duration": duration}):
+                if error is None and not acknowledged:
+                    with self.assertRaisesRegex(TimeoutError, "arm.joint_target"):
+                        asyncio.run(io.close(error))
+                else:
+                    asyncio.run(io.close(error))
+            self.assertEqual(calls, [(["arm"], True)] if stopped else [])
+            self.assertTrue(io.closed)
 
 
 class Dialog(unittest.IsolatedAsyncioTestCase):
@@ -374,33 +323,102 @@ class Dialog(unittest.IsolatedAsyncioTestCase):
             value.io.node.destroy_subscription.assert_called_once_with(value.handle)
             self.assertEqual(value.io.subscriptions, [])
 
-    def test_plain_converts_messages_arrays_and_non_finite_numbers(self):
-        import numpy as np
-        from kinex.lib.plain import plain
+    def test_plain_converts_messages_poses_arrays_records_and_non_finite_numbers(self):
+        from dataclasses import dataclass
+        from kinex.common.plain import image_file, plain
 
-        class JointState:
-            def get_fields_and_field_types(self):
-                return {"name": "sequence<string>", "position": "sequence<double>"}
+        def message(module, kind, /, **fields):
+            cls = type(kind, (), {"get_fields_and_field_types": lambda self: dict.fromkeys(fields, "")})
+            cls.__module__ = module
+            value = cls()
+            vars(value).update(fields)
+            return value
 
-        class Image:
-            def get_fields_and_field_types(self):
-                return {"data": "sequence<uint8>"}
+        @dataclass
+        class Plan:
+            actions: object
+            duration_s: float
 
-        class Frame_Response:
-            def get_fields_and_field_types(self):
-                return {"image": "sensor_msgs/Image"}
+        def header():
+            return message("std_msgs.msg._header", "Header", frame_id="camera/color",
+                           stamp=message("builtin_interfaces.msg._time", "Time", sec=2, nanosec=500000000))
+        state = message("sensor_msgs.msg._joint_state", "JointState", header=header(), name=["j1"], position=np.array([.5, np.nan]))
+        self.assertEqual(plain({"state": state, "pair": (np.float32(2), float("inf")), "tcp": pose([1, 2, 3, 0, 0, 0, 1]),
+                                "path": pose([[0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 1]]), "plan": Plan(np.array([[0., 1.]]), 2.5), "raw": b"\x01\x02"}),
+                         {"state": {"header": {"frame_id": "camera/color", "stamp": 2.5}, "name": ["j1"], "position": [.5, None]},
+                          "pair": [2., None], "tcp": [1, 2, 3, 0, 0, 0, 1], "path": [[0, 0, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 0, 1]],
+                          "plan": {"actions": [[0, 1]], "duration_s": 2.5}, "raw": [1, 2]})
+        self.assertEqual(plain({"plot": Path("plot.png")}), {"plot": "plot.png"})
+        # Images are files, never data, at any depth; finish and subagent take them as files.
+        image = message("sensor_msgs.msg._image", "Image", header=header(), data=b"")
+        for value in (image, [image], message("example_interfaces.srv._frame", "Frame_Response", image=image)):
+            with self.assertRaisesRegex(TypeError, "images are not data"):
+                plain({"view": value})
+        with patch("kinex.common.camera.save", lambda image: "/tmp/frame.png"):
+            self.assertEqual([image_file(value) for value in (image, "plot.png", Path("plot.png"), state, 3)],
+                             ["/tmp/frame.png", "plot.png", "plot.png", None, None])
+        compressed = image_file(message("sensor_msgs.msg._compressed_image", "CompressedImage", format="rgb8; png compressed", data=b"\x89PNG"))
+        self.addCleanup(Path(compressed).unlink)
+        self.assertEqual((Path(compressed).suffix, Path(compressed).read_bytes()), (".png", b"\x89PNG"))
 
-        JointState.__module__ = Image.__module__ = "sensor_msgs.msg._messages"
-        Frame_Response.__module__ = "example_interfaces.srv._frame"
-        convert = ModuleType("rosidl_runtime_py.convert")
-        convert.message_to_ordereddict = lambda _: {"name": ["j1"], "position": np.array([.5, np.nan])}
-        with patch.dict(sys.modules, {"rosidl_runtime_py": ModuleType("rosidl_runtime_py"),
-                                      "rosidl_runtime_py.convert": convert}):
-            self.assertEqual(plain({"state": JointState(), "pair": (np.float32(2), float("inf"))}),
-                             {"state": {"name": ["j1"], "position": [.5, None]}, "pair": [2., None]})
-            for image in (Image(), Frame_Response()):
-                with self.assertRaisesRegex(TypeError, "save_image"):
-                    plain({"image": image})
+
+class Messages(unittest.TestCase):
+    """Field mappings become messages by each field's declared type, as rosidl describes it."""
+
+    def setUp(self):
+        def kind(module, name, **slots):
+            cls = type(name, (), {"__slots__": [f"_{slot}" for slot in slots], "SLOT_TYPES": tuple(slots.values())})
+            cls.__module__ = module
+            return cls
+
+        def nested(cls, many=False):
+            reference = NS(namespaces=cls.__module__.split(".")[:2], name=cls.__name__)
+            return NS(value_type=reference) if many else reference
+
+        basic = NS()
+        Duration = kind("builtin_interfaces.msg._duration", "Duration", sec=basic, nanosec=basic)
+        Vector3 = kind("geometry_msgs.msg._vector3", "Vector3", x=basic, y=basic, z=basic)
+        Quaternion = kind("geometry_msgs.msg._quaternion", "Quaternion", x=basic, y=basic, z=basic, w=basic)
+        Transform = kind("geometry_msgs.msg._transform", "Transform", translation=nested(Vector3), rotation=nested(Quaternion))
+        Point = kind("trajectory_msgs.msg._point", "Point", positions=NS(value_type=basic), transforms=nested(Transform, many=True), time_from_start=nested(Duration))
+        self.Trajectory = kind("trajectory_msgs.msg._trajectory", "Trajectory", joint_names=NS(value_type=basic), points=nested(Point, many=True))
+        modules = {"builtin_interfaces.msg": NS(Duration=Duration), "geometry_msgs.msg": NS(Vector3=Vector3, Quaternion=Quaternion, Transform=Transform),
+                   "trajectory_msgs.msg": NS(Point=Point)}
+
+        def set_message_fields(message, values):
+            # As rosidl does: a mapping in a list becomes a message inside the list it was given.
+            for name, value in values.items():
+                if isinstance(value, list):
+                    value[:] = [NS(**item) if isinstance(item, dict) else item for item in value]
+                object.__setattr__(message, f"_{name}", value)
+
+        setter = ModuleType("rosidl_runtime_py.set_message")
+        setter.set_message_fields = set_message_fields
+        self.enterContext(patch.dict(sys.modules, {**modules, "rosidl_runtime_py": ModuleType("rosidl_runtime_py"), "rosidl_runtime_py.set_message": setter}))
+
+    def test_converting_a_payload_leaves_the_callers_mappings_and_lists_alone(self):
+        from kinex.communication import message_value
+        payload = {"joint_names": ["j1"], "points": [{"positions": [.1]}]}
+        message = message_value(self.Trajectory, payload)
+        self.assertEqual(payload, {"joint_names": ["j1"], "points": [{"positions": [.1]}]})
+        self.assertEqual(message._points[0].positions, [.1])
+        self.assertIs(message_value(self.Trajectory, message), message)
+
+    def test_seconds_poses_and_vectors_stand_for_their_messages(self):
+        from kinex.communication import message_value
+        positions, tips = np.array([.1, .2]), pose([[0, 0, .1, 0, 0, 0, 1], [0, 0, .2, 0, 0, 0, 1]])
+        message = message_value(self.Trajectory, {"joint_names": ["tcp"], "points": [
+            {"positions": positions, "time_from_start": 1.5, "transforms": tips},
+            {"time_from_start": {"sec": 2, "nanosec": 0}, "transforms": [[0, 0, .3, 0, 0, 0, 1], {"translation": (1, 2, 3), "rotation": [0, 0, 0, 1]}]},
+        ]})
+        first, second = message._points
+        self.assertIs(first.positions, positions)
+        self.assertEqual(first.time_from_start, {"sec": 1, "nanosec": 500000000})
+        self.assertEqual(first.transforms, [{"translation": {"x": 0, "y": 0, "z": z}, "rotation": {"x": 0, "y": 0, "z": 0, "w": 1}} for z in (.1, .2)])
+        self.assertEqual(second.time_from_start, {"sec": 2, "nanosec": 0})
+        self.assertEqual([entry["translation"] for entry in second.transforms], [{"x": 0, "y": 0, "z": .3}, {"x": 1, "y": 2, "z": 3}])
+        with self.assertRaisesRegex(TypeError, "expected Trajectory or field mapping"):
+            message_value(self.Trajectory, [1, 2])
 
 
 class DeviceHostShutdown(unittest.IsolatedAsyncioTestCase):
@@ -419,6 +437,24 @@ class DeviceHostShutdown(unittest.IsolatedAsyncioTestCase):
                 patch.object(sys, "stdout", io.StringIO()):
             await device.main()
         self.assertEqual(calls, [("unload", {})])
+
+    async def test_a_scope_opened_by_one_request_closes_in_another(self):
+        from kinex.common import frames
+        from kinex.communication import Communication
+        from kinex.host import device
+
+        def opened(scope):
+            scope.node = None
+            return scope
+
+        host = device.DeviceHost()
+        with patch.object(Communication, "open", opened), patch.object(Communication, "close", AsyncMock()) as close, \
+                patch.object(frames, "publish_profile"), patch.object(device.DeviceHost, "ready", AsyncMock()):
+            # Each request runs in its own task, as the host's dialog starts them.
+            await asyncio.create_task(host.run("load", {"profile": {"name": "arm", "runtime": {}, "operations": {}}}))
+            self.assertEqual(await asyncio.create_task(host.run("unload", {})), {"unloaded": True})
+        close.assert_awaited_once()
+        self.assertIsNone(host.io)
 
 
 if __name__ == "__main__":

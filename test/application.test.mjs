@@ -20,7 +20,7 @@ test('headless context includes one short Python instruction without onboarding 
   const request = fake.requests[0]
   const system = JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
   assert.equal(system.match(/exec runs Kinex Python/g)?.length, 1)
-  assert.match(system, /Discover devices with `kinex\.runtime`/)
+  assert.match(system, /Discover devices with `runtime` and lib functions with the lib tool/)
   assert.doesNotMatch(system, /Default pyproject\.toml|\{\{PROJECT\}\}/)
   const context = await app.owner.runtime.context()
   assert.ok(JSON.stringify(request).includes(context.python.executable))
@@ -37,7 +37,7 @@ test('direct commands need no model and preserve the robotics workspace', async 
   await bind(app)
   const commands = app.host.session.extensionRunner.getRegisteredCommands().map(command => command.name)
   assert.ok(!commands.some(name => name.startsWith('kinex-')), 'only short Kinex command names are exposed')
-  for (const name of ['register', 'unregister', 'devices', 'load', 'unload', 'ping', 'stop', 'record', 'onboarding', 'calibrate', 'mode']) {
+  for (const name of ['register', 'unregister', 'devices', 'load', 'unload', 'ping', 'stop', 'record', 'lib', 'exec', 'visualize', 'onboarding', 'calibrate', 'mode', 'subagent']) {
     assert.equal(commands.filter(command => command === name).length, 1, `${name} is registered once`)
   }
   assert.ok(!commands.includes('reload'), 'Pi exclusively owns /reload')
@@ -46,6 +46,31 @@ test('direct commands need no model and preserve the robotics workspace', async 
   assert.match(outputs.join('\n'), /sensor loaded/)
   assert.equal((await app.owner.runtime.devices.list())[0].loaded, false)
   for (const entry of ['.pi', '.kinex/python']) await assert.rejects(stat(path.join(cwd, entry)), { code: 'ENOENT' })
+})
+
+test('/exec in a new session waits for the loaded devices that are still connecting', async t => {
+  const cwd = await workspace(t)
+  const first = await createApplication({ cwd })
+  await seed(first.owner.runtime)
+  await bind(first)
+  await first.host.session.prompt('/load sensor')
+  await first.dispose()
+  // The device now takes a moment to start, as real nodes do.
+  await writeFile(path.join(cwd, '.kinex/devices/sensor/handler.py'), 'import time\ntime.sleep(1.5)\n')
+  await mkdir(path.join(cwd, '.kinex/programs'), { recursive: true })
+  await writeFile(path.join(cwd, '.kinex/programs/ready.py'), 'from kinex import finish, runtime\nfinish({device["name"]: device["ready"] for device in runtime.devices()})\n')
+  const outputs = []
+  const app = await createApplication({ cwd, report: text => outputs.push(text) })
+  t.after(() => app.dispose())
+  await bind(app)
+  await app.host.session.prompt('/exec .kinex/programs/ready.py')
+  assert.deepEqual(JSON.parse(outputs.at(-1)).result, { sensor: true })
+  // The model reads who ran the command and what it returned; the row is drawn from the details.
+  const entry = app.host.session.sessionManager.getBranch().findLast(item => item.type === 'custom_message' && item.customType === 'kinex')
+  assert.equal(entry.content, `User ran /exec .kinex/programs/ready.py:\n${outputs.at(-1)}`)
+  const { durationMs, ...details } = entry.details
+  assert.deepEqual(details, { name: 'exec', args: '.kinex/programs/ready.py', isError: false, images: [] })
+  assert.ok(durationMs > 0)
 })
 
 test('headless permission denial prevents coding side effects', async t => {

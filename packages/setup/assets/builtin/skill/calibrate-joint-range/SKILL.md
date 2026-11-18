@@ -10,7 +10,7 @@ Bind `arm` to the joint device. Prefer its device-owned URDF or vendor metadata.
 resolves the selected URDF offline; no device activation is needed. Preserve the
 model reference. Home is a separate named configuration, never inferred from URDF.
 
-`scripts/estimate_reach.py` optionally samples tip_link FK reach in the device base frame.
+`scripts/estimate_reach.py` optionally samples each tip link's FK reach in the device base frame.
 This is analysis without collision checking; do not persist it as world bounds.
 
 Measure limits only when the task needs missing or explicitly requested measured
@@ -19,7 +19,7 @@ operator hand-guiding with stationary `calib_sample` readings. A powered sweep
 requires clear surroundings, payload removed, an operator at the e-stop, one joint
 at a time, and observation for self-collision. Use small type-appropriate increments
 (2–5 degrees in radians for revolute joints, small metre increments for prismatic
-joints). Plan with `kinex.helpers.trajectory` using `fraction=0.05`, submit
+joints). Plan with `lib.motion.trajectory` using `fraction=0.05`, submit
 through the device's declared command operation, wait on the world clock and
 verify arrival after each step.
 Stop immediately on fault, no progress, near-stop report or operator interruption;

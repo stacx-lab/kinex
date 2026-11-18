@@ -1,49 +1,77 @@
-"""Kinex invocation API for exec scripts and Python tools.
+"""Kinex API for exec programs.
 
-Use communication() for async pub/sub and request/response, runtime for discovery
-and helpers for reusable functions. The host dialog carries invocation metadata,
-profiles and selected results. One execution approval covers the invocation;
-Python calls cannot change device lifecycle.
+A program imports what it uses: io for pub/sub and request/response, runtime for device
+discovery, lib for reusable functions, subagent for a judgment only a model can make,
+args for its arguments and finish to end with its result. Programs compute with NumPy
+arrays, poses (pose) and seconds (seconds); io and finish convert them to and from ROS
+fields and JSON, and plain gives the JSON form to a program that writes its own. The
+host dialog carries invocation metadata, profiles, subagent calls and the result. One
+execution approval covers the invocation; Python cannot change device lifecycle.
 """
 
+import asyncio
+import itertools
 import json
 import os
+import queue
 import sys
 import threading
 import traceback
-from kinex.communication import communication
-from kinex.errors import RPCError, OperationError
-from kinex.lib.plain import plain
 
-_rpc_lock = threading.Lock()
+from kinex.communication import communication, io, seconds
+from kinex.errors import RPCError, OperationError
+from kinex.common.plain import image_file, plain
+from kinex.values import pose
 
 # Protocol channel: the real stdout, captured only INSIDE a tool dialog (the
-# harness marks its spawns with KINEX_TOOL_DIALOG=1). Everything print()ed
+# harness marks exec processes with KINEX_TOOL_DIALOG=1). Everything print()ed
 # afterwards lands on stderr, so debug output can never corrupt the dialog.
-# Outside a dialog (a device node or skill script importing kinex.lib) the
+# Outside a dialog (a device node or standalone script importing kinex) the
 # import stays side-effect-free and any protocol call raises instead.
 _out = None
 _in = None
+_buffer = b""
 _request = None
+
+
+def _lines():
+    """The host's lines. The descriptor is read directly: a buffered file held by the
+    reading thread could not be closed when the interpreter exits."""
+    global _buffer
+    while True:
+        while b"\n" in _buffer:
+            line, _, _buffer = _buffer.partition(b"\n")
+            yield line
+        chunk = os.read(_in, 65536)
+        if not chunk:
+            return
+        _buffer += chunk
+
+
 if os.environ.get("KINEX_TOOL_DIALOG") == "1":
     os.environ.pop("KINEX_TOOL_DIALOG")
     _out = os.fdopen(os.dup(sys.stdout.fileno()), "w")
-    _in = os.fdopen(os.dup(sys.stdin.fileno()), "r")
+    _in = os.dup(sys.stdin.fileno())
     sys.stdout = sys.stderr
-    # Consume startup before any RPC reads stdin, even if args() is never called.
-    line = _in.readline()
+    # Consume startup before any call reads the dialog.
+    line = next(_lines(), None)
     if not line:
-        raise RuntimeError("missing tool startup request")
+        raise RuntimeError("missing exec startup request")
     _request = json.loads(line)
     if not isinstance(_request, dict) or not isinstance(_request.get("args"), dict):
-        raise ValueError("tool startup request requires object args")
+        raise ValueError("exec startup request requires object args")
+
+
+_write_lock = threading.Lock()
 
 
 def _emit(payload):
     if _out is None:
-        raise RuntimeError("not running inside a kinex tool dialog — the harness spawns tools with KINEX_TOOL_DIALOG=1")
-    _out.write(json.dumps(plain(payload), allow_nan=False) + "\n")
-    _out.flush()
+        raise RuntimeError("not running inside exec: the host dialog is unavailable")
+    line = json.dumps(plain(payload), allow_nan=False) + "\n"
+    with _write_lock:
+        _out.write(line)
+        _out.flush()
 
 
 if _out is not None:
@@ -57,13 +85,47 @@ if _out is not None:
     sys.excepthook = _excepthook
 
 
-def _rpc(payload):
-    with _rpc_lock:
-        _emit(payload)
-        line = _in.readline()
-    if not line:
+# Calls carry an id, so a slow one, such as a subagent, does not hold back the others.
+# One thread reads the host's answers and hands each to the call that waits for it.
+_calls = {}
+_calls_lock = threading.Lock()
+_ids = itertools.count(1)
+_reading = False
+
+
+def _read():
+    for line in _lines():
+        answer = json.loads(line)
+        with _calls_lock:
+            deliver = _calls.pop(answer.pop("id", None), None)
+        if deliver:
+            deliver(answer)
+    with _calls_lock:
+        waiting = list(_calls.values())
+        _calls.clear()
+        _calls[None] = None  # marks the dialog closed
+    for deliver in waiting:
+        deliver(None)
+
+
+def _send(payload, deliver):
+    global _reading
+    if _out is None:
+        raise RuntimeError("not running inside exec: the host dialog is unavailable")
+    with _calls_lock:
+        if None in _calls:
+            raise RuntimeError("harness closed the dialog")
+        identifier = next(_ids)
+        _calls[identifier] = deliver
+        if not _reading:
+            _reading = True
+            threading.Thread(target=_read, daemon=True).start()
+    _emit({**payload, "id": identifier})
+
+
+def _answer(response):
+    if response is None:
         raise RuntimeError("harness closed the dialog")
-    response = json.loads(line)
     if not response.get("ok", False):
         raise RPCError(response.get("error", "harness call failed"),
                        code=response.get("code"), details=response.get("details"))
@@ -71,11 +133,18 @@ def _rpc(payload):
     return response
 
 
-def args():
-    """The tool's arguments from its startup request."""
-    if _request is None:
-        raise RuntimeError("not running inside a kinex tool dialog")
-    return _request["args"]
+def _rpc(payload):
+    answers = queue.SimpleQueue()
+    _send(payload, answers.put)
+    return _answer(answers.get())
+
+
+async def _call(payload):
+    """A host call that leaves the event loop free while the host works."""
+    loop = asyncio.get_running_loop()
+    answer = loop.create_future()
+    _send(payload, lambda response: loop.call_soon_threadsafe(lambda: answer.done() or answer.set_result(response)))
+    return _answer(await answer)
 
 
 def profile(device, *, optional=False):
@@ -90,18 +159,57 @@ def robot():
     return _rpc({"call": "robot"})["robot"]
 
 
+class _Finished(SystemExit):
+    """finish's exit, carrying what exec returns once the program's scope is released."""
+
+    def __init__(self, payload):
+        super().__init__(0)
+        self.payload = payload
+
+
+def args():
+    """The args this exec was given."""
+    if _request is None:
+        raise RuntimeError("not running inside exec")
+    return _request["args"]
+
+
 def finish(result=None, file=None):
-    """End successfully with JSON-ready data; ROS messages and NumPy values are converted.
+    """End the program with its result; call it from main().
 
-    `file` is an image path or ordered list of image paths; images are never data.
+    result is JSON-ready data: messages, poses, arrays and times are converted. Images
+    are never data: file attaches an image path or image message, or a list of them.
     """
-    result = plain(result)
-    payload = {**(result or {}), "file": file} if file else result
-    _emit({"return": payload})
-    sys.exit(0)
+    if _out is None:
+        raise RuntimeError("not running inside exec: the host dialog is unavailable")
+    files = [image_file(item) for item in ([] if file is None else file if isinstance(file, (list, tuple)) else [file])]
+    if None in files:
+        raise TypeError("finish file takes image paths and image messages")
+    payload = {"return": plain(result), "files": files}
+    json.dumps(payload, allow_nan=False)  # an unserialisable result fails here, at the call
+    raise _Finished(payload)
 
 
-def fail(message):
-    """End the tool with an error the agent will see."""
-    _emit({"error": str(message)})
-    sys.exit(0)
+def _shown(name, value):
+    """One named item for a subagent: an image as a file, anything else as text."""
+    if isinstance(value, str):
+        return {"name": name, "text": value}
+    image = image_file(value)
+    return {"name": name, "image": image} if image else {"name": name, "text": json.dumps(plain(value), allow_nan=False)}
+
+
+async def subagent(instruction, *, show=None, model=None, thinking=None, timeout_s=60):
+    """Ask a model for a judgment and return its reply as text.
+
+    The subagent sees only the instruction and the named items in show: a camera image
+    message or an image Path is shown as an image, anything else as text. It has no
+    tools and no memory of other calls, so say exactly what form the reply must take
+    and parse it here; the reply is model output, so check it before acting on it.
+    model and thinking override the configured subagent for this call. Call it where
+    the robot is at rest: the program waits for the reply, the robot does not.
+
+    Example: reply = await subagent("Is the mug upright? Answer yes or no.", show={"wrist": image})
+    """
+    request = {"call": "subagent", "instruction": instruction, "show": [_shown(name, value) for name, value in (show or {}).items()],
+               "model": model, "thinking": thinking, "timeout_s": timeout_s}
+    return (await _call(request))["text"]

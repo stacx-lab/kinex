@@ -1,33 +1,36 @@
-"""Object perception: locate detected objects in a stamped camera optical frame."""
+"""Locate detected objects in a stamped camera optical frame.
+
+Combines a camera, a detection or segmentation model device and depth. Points are in
+metres in the optical frame (+X right, +Y down, +Z forward); convert them with frames.
+"""
 
 import numpy as np
 from PIL import Image
 
-from kinex import profile
+from kinex import io, profile
 from kinex.communication import seconds
-from kinex.lib.camera import array, camera_stream, frame, project, ray, rays, save
-from kinex.helpers.camera_geometry import camera_geometry
-from kinex.lib.geometry import number, vector, xyzq_to_rt
+from kinex.common.camera import array, camera_stream, frame, project, ray, rays, save
+from kinex.lib.images import camera_geometry
+from kinex.common.geometry import number, vector
 
 
-async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25, instance=0, eye=None):
-    """Locate a detected object in the camera optical frame (+X right, +Y down, +Z forward).
+async def locate_object_3d(camera, model, prompt, depth=None, min_score=.25, instance=0, eye=None):
+    """Locate a detected object as a 3D point in the camera's optical frame (+X right, +Y down, +Z forward).
 
-    camera is an rgb or rgbd device with calibrated color intrinsics; model serves a
-    Json detect taking an image path, prompt, min_score and max_results and returning
-    results with box, score, label and an optional mask. Samples depth inside a
-    supplied mask, otherwise the central half of the box; depth gives an explicit
-    optical Z in metres instead of RGBD depth. A stereo camera requires eye ("left" or
-    "right") and explicit depth. instance indexes detections sorted by descending
-    score. Returns point (metres), pixel, depth_samples, reference
-    (visible_surface or box_region), frame, label, detection_score, detections,
-    timestamp and the image file; rotation_xyzw is None.
+    model is a device with a detect operation and prompt names the object; instance
+    picks among the detections scoring at least min_score, best first. Depth is sampled
+    inside the detection's mask, else the central half of its box; depth gives an
+    optical Z in metres instead. A stereo camera needs eye and depth.
 
-    Example: await helpers.locate_object_3d(io, "camera", "detector", "red mug")
+    Returns a dict: point (metres) and pixel as arrays, frame, stamp (seconds), label,
+    detection_score, detections, depth_samples, reference (visible_surface or
+    box_region) and file, the image's path.
+
+    Example: await lib.perception.locate_object_3d("camera", "detector", "red mug")
     """
     cam = profile(camera)
     stream = camera_stream(cam, eye)
-    geometry = await camera_geometry(io, camera)
+    geometry = await camera_geometry(camera)
     color = geometry.streams[stream]
     cam = {**cam, "color": color}
     if cam.get("depth", {}).get("registration") == "native" and "depth" in geometry.streams:
@@ -50,22 +53,21 @@ async def locate_object_3d(io, camera, model, prompt, depth=None, min_score=.25,
     if depth is not None:
         measured = await _locate(cam, region, depth=depth, geometry=geometry, stream=stream)
     else:
-        relation = (await _depth_to_color(io, image, depth_image)
+        relation = (await _depth_to_color(image, depth_image)
                     if cam["depth"]["registration"] == "native" else None)
         measured = await _locate(cam, region, depth_image=depth_image, depth_to_color=relation, geometry=geometry)
     return {**measured, "frame": image.header.frame_id, "reference": reference,
             "rotation_xyzw": None, "label": detection.get("label", prompt),
             "detection_score": detection["score"], "detections": count,
-            "timestamp": seconds(image.header.stamp),
+            "stamp": seconds(image),
             "file": file}
 
 
-async def _depth_to_color(io, image, depth_image):
+async def _depth_to_color(image, depth_image):
     """The depth-to-color optical transform at the image stamp as (R, t)."""
-    from kinex.helpers.frames import lookup_transform
-    tf = await lookup_transform(io, image.header.frame_id, depth_image.header.frame_id, image.header.stamp)
-    t, q = tf.transform.translation, tf.transform.rotation
-    return xyzq_to_rt([t.x, t.y, t.z, q.x, q.y, q.z, q.w])
+    from kinex.lib.frames import lookup_transform
+    relation = await lookup_transform(image.header.frame_id, depth_image.header.frame_id, image)
+    return relation.rotation.as_matrix(), relation.translation
 
 
 def _select_detection(results, min_score, instance):
@@ -131,7 +133,7 @@ async def _locate(camera, region, *, depth_image=None, depth=None, depth_to_colo
             raise ValueError("no usable camera geometry")
         index = _central(pixels)
         pixel = pixels[index]
-        return {"point": (directions[index] * depth).tolist(), "pixel": pixel.tolist(), "depth_samples": 0}
+        return {"point": directions[index] * depth, "pixel": pixel, "depth_samples": 0}
 
     meta = camera["depth"]
     if depth_image.encoding != "16UC1":
@@ -177,7 +179,7 @@ async def _locate(camera, region, *, depth_image=None, depth=None, depth_to_colo
     if not len(points):
         raise ValueError("depth hole: no valid depth inside the detection region")
     index = _central(points)
-    result = {"point": points[index].tolist(), "pixel": pixels[index].tolist(), "depth_samples": len(points)}
+    result = {"point": points[index], "pixel": pixels[index], "depth_samples": len(points)}
     reliable = meta["reliable_range_m"]
     if isinstance(reliable, dict) and not reliable["min"] <= distances[index] <= reliable["max"]:
         result["depth_warning"] = "depth is outside the camera's reliable range"

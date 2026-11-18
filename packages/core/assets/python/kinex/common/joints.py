@@ -1,12 +1,12 @@
-"""Joint devices: URDF command vector, limit policy and link kinematics in the device base."""
+"""Joint devices: URDF command vector, limit policy, tip pose targets and link kinematics in the device base."""
 
 import math
 from pathlib import Path
 
-from kinex.lib import urdf
-from kinex.lib.geometry import flat, pose, vector
-from kinex.lib.kinematics import DEFAULTS, Chain
-from kinex.lib.urdf import joint_target
+from kinex.common import urdf
+from kinex.common.geometry import flat, pose, slerp, vector
+from kinex.common.kinematics import DEFAULTS, Chain
+from kinex.common.urdf import joint_target
 
 HOME_RECOVERY_TOLERANCE = math.radians(1)
 
@@ -15,7 +15,7 @@ class JointModel:
     """A joint device's commanded joints, in URDF document order, and its link FK/IK.
 
     Poses are [x, y, z, qx, qy, qz, qw] of a URDF link in <device>/base; link
-    defaults to the model's tip_link.
+    defaults to the model's only tip link.
     """
 
     def __init__(self, profile, directory=None):
@@ -28,12 +28,13 @@ class JointModel:
             self.tree = urdf.read_tree(Path(directory) / model["path"], model["base_link"])
         self.joints = urdf.commanded(self.tree)
         self.names = [joint["name"] for joint in self.joints]
-        self.tip = model["tip_link"]
+        self.tips = model["tip_links"]
 
     def chain(self, link):
-        link = link or self.tip
         if not link:
-            raise ValueError("name a link; the model declares no tip_link")
+            if len(self.tips) != 1:
+                raise ValueError(f"name a link; the model declares {len(self.tips) or 'no'} tip links")
+            link = self.tips[0]
         return Chain(self.tree, link)
 
     def fk(self, positions, link=None):
@@ -100,12 +101,48 @@ def project_seed(value, joints):
             for j, v in zip(joints, values)]
 
 
-def measured_positions(message, joints):
-    """Order a JointState without clamping or silently accepting duplicate names."""
-    if len(message.name) != len(message.position) or len(set(message.name)) != len(message.name):
-        raise ValueError("joint state requires unique names and matching positions")
-    positions = dict(zip(message.name, message.position))
-    names = [joint["name"] for joint in joints]
-    if any(name not in positions for name in names):
-        raise ValueError("joint state is missing modeled joints")
-    return joint_target([positions[name] for name in names], joints, check_limits=False)
+def pose_command(profile, trajectory, position_only=()):
+    """Validate a MultiDOFJointTrajectory of tip link poses in <device>/base.
+
+    Returns [(time_s, {tip: pose})] in point order, with poses
+    [x, y, z, qx, qy, qz, qw] normalized, or [x, y, z] for position_only tips,
+    whose rotation is ignored. time_from_start increases strictly from receipt.
+    """
+    frame = f"{profile['name']}/base"
+    if trajectory.header.frame_id != frame:
+        raise ValueError(f"pose targets must be expressed in {frame}")
+    names = list(trajectory.joint_names)
+    if not names or len(set(names)) != len(names) or not set(names) <= set(profile["model"]["tip_links"]):
+        raise ValueError("pose targets must name tip links once each")
+    points = trajectory.points
+    times = [point.time_from_start.sec + point.time_from_start.nanosec * 1e-9 for point in points]
+    if not points or times[0] < 0 or any(b <= a for a, b in zip(times, times[1:])):
+        raise ValueError("pose targets need points whose time_from_start increases strictly from receipt")
+    plan = []
+    for time_s, point in zip(times, points):
+        if len(point.transforms) != len(names):
+            raise ValueError("every point needs one transform per named tip")
+        poses = {}
+        for name, transform in zip(names, point.transforms):
+            t, q = transform.translation, transform.rotation
+            position = vector([t.x, t.y, t.z], 3, f"{name} translation")
+            poses[name] = position if name in position_only else pose(position + [q.x, q.y, q.z, q.w], f"{name} pose")
+        plan.append((time_s, poses))
+    return plan
+
+
+def pose_at(start, plan, elapsed):
+    """Tip poses elapsed seconds into a pose_command plan, interpolated from start.
+
+    start maps every planned tip to its full pose at receipt. Positions move
+    linearly and rotations by slerp; position-only tips keep their rotation.
+    """
+    before, previous = 0.0, dict(start)
+    for time_s, poses in plan:
+        targets = {tip: value if len(value) == 7 else value + previous[tip][3:] for tip, value in poses.items()}
+        if elapsed < time_s:
+            s = (elapsed - before) / (time_s - before)
+            return {tip: [a + s * (b - a) for a, b in zip(previous[tip][:3], target[:3])]
+                    + slerp(previous[tip][3:], target[3:], s) for tip, target in targets.items()}
+        before, previous = time_s, {**previous, **targets}
+    return previous

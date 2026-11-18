@@ -2,24 +2,26 @@
 
 ## Tools and device guidance
 
-Tools declare input schemas; Python manifests also declare a timeout. Contribution
+Tools declare input schemas. Contribution
 composition preserves permissions and recording attribution. Device templates own
 setup guidance only, and agents read device and operation descriptions from
 profiles; see [device contracts](devices.md#profiles).
 Workspace keep-out zones remain manifest data, outside robot context.
 
-`exec` is a core tool alongside direct device calls and reusable Python tools.
-It runs source or script files in a fresh process, returning the printed output
-and either an optional JSON-ready result or an error; an uncaught exception's
-traceback appears once, in the error. Its optional `description` is the display
-subject; standalone shows the highlighted inline source or the `python` command
-beneath it, then the printed output followed by the result or the failure.
+`exec` is a core tool alongside direct device calls. It runs a complete program,
+given as source or as a file, in a fresh process, returning the printed output and
+either the JSON-ready result the program finished with or an error; an uncaught
+exception's traceback appears once, in the error. Its optional `description` is
+the display subject; standalone shows the highlighted inline source or the file
+beneath it, then the printed output followed by the result or the failure. `lib`
+is read-only and asks no permission: it returns one module or function of the
+function library per call, read from source without starting Python.
 The host's shell and file tools retain their own execution paths and permissions.
 
 Tool results can carry image attachments as `{mime, data}` (base64) or
 `{mime, path}`. Hosts must forward both as image content in attachment order.
-Direct camera reads attach their PNG, JPEG, GIF or WebP image automatically; Python
-results attach selected image files returned through `finish`. A partially
+Direct camera reads attach their PNG, JPEG, GIF or WebP image automatically; exec
+attaches only the images its program names in `finish(..., file=[...])`. A partially
 successful `devices` batch retains successful images and per-call errors, with the
 top-level error flag set only when every call failed. Hosts must inspect individual
 results without discarding the successful observations.
@@ -37,12 +39,19 @@ command that produced it.
 
 `exec` requests `python_tool` approval once per invocation; its device reads and
 commands share that approval, and Python cannot change device lifecycle or control
-recording. Manifest tools request their own `python_tool` approval per call; inside
-`exec`, scripts call the matching helpers instead. A failed, timed-out or cancelled
+recording. Library functions run inside that invocation and add no approval of
+their own; the user's `/exec` command is its own approval. A failed, timed-out or cancelled
 invocation stops the devices it commanded, and a device stop cancels the invocations
 that commanded it; see [commands and cleanup](communication.md#commands-and-cleanup).
-Hosts route `exec` through core's tool API so the shared Python runner applies this
+Hosts route `exec` through core's tool API so the Python runner applies this
 cleanup.
+
+A program's `subagent` call is a host capability, `host.subagent(request, signal)`
+in the runtime options: core passes the instruction, the shown text and image files
+and an optional model name, and takes back the reply and the model that gave it.
+Core never calls a model. The call is covered by the invocation's approval, is
+aborted with it, and gives the subagent no tools. A host without the capability
+leaves it unset and programs receive `subagent_unavailable`.
 
 ## Recording
 

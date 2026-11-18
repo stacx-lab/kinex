@@ -20,9 +20,9 @@ import os
 
 import numpy as np
 
-from kinex import communication, finish, profile
-from kinex.helpers.camera_geometry import camera_geometry
-from kinex.lib.camera import camera_stream, stereo
+from kinex import finish, profile
+from kinex.lib.images import camera_geometry
+from kinex.common.camera import camera_stream, stereo
 
 
 def parse(argv=None):
@@ -136,14 +136,14 @@ def board_pose(observation):
     return {"rvec": rvec.reshape(3).tolist(), "tvec": tvec.reshape(3).tolist()} if solved else "solvePnP failed"
 
 
-async def observations(io, args):
+async def observations(args):
     camera = profile(args.camera)
     streams = ["left", "right"] if stereo(camera) and args.eye is None else [camera_stream(camera, args.eye)]
     if len(streams) == 1 and args.arm is None:
         raise ValueError("single-stream observations need --arm and --frame for hand-eye calibration")
     with open(args.samples) as handle:
         views, rejected = pair(json.load(handle), args.camera, args.arm, args.frame)
-    geometry = await camera_geometry(io, args.camera)
+    geometry = await camera_geometry(args.camera)
     detect = detector(args)
     entries = []
     for sample, arm in views:
@@ -165,10 +165,7 @@ async def observations(io, args):
 
 
 async def main():
-    args = parse()
-    async with communication() as io:
-        result = await observations(io, args)
-    finish(result)
+    finish(await observations(parse()))
 
 
 if __name__ == "__main__":

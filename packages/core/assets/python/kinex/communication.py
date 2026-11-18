@@ -1,15 +1,21 @@
 """Invocation-scoped asyncio pub/sub and request/response over ROS 2.
 
-Imports are inert. ROS is initialized only when entering communication().
-World operations are the sole source of workflow timing.
+Imports are inert. exec owns one scope per invocation, reached as `kinex.io` and opened
+on first use; a standalone client enters communication() itself. World operations are
+the sole source of workflow timing.
 """
 import asyncio
 from collections import deque
+import contextlib
 import contextvars
+import importlib
 import json
+from numbers import Real
 import threading
 import time
 import uuid
+from kinex.common.geometry import vector
+from kinex.common.plain import TIMES, ros_type
 from kinex.errors import RPCError, OperationError
 
 _active = contextvars.ContextVar("kinex_communication", default=None)
@@ -24,19 +30,66 @@ def duration(seconds):
     return {"sec": nanoseconds // 1_000_000_000, "nanosec": nanoseconds % 1_000_000_000}
 
 
-def seconds(stamp):
-    """Seconds from a builtin_interfaces Time or Duration."""
+def seconds(value):
+    """Seconds from a number, a builtin_interfaces Time or Duration, or a stamped message."""
+    if isinstance(value, Real) and not isinstance(value, bool):
+        return float(value)
+    stamp = getattr(getattr(value, "header", None), "stamp", value)
     return stamp.sec + stamp.nanosec / 1e9
+
+
+# A pose's two parts under the names each message type gives them.
+POSES = {"geometry_msgs/Pose": ("position", "orientation"), "geometry_msgs/Transform": ("translation", "rotation")}
+VECTORS = {"geometry_msgs/Point": "xyz", "geometry_msgs/Vector3": "xyz", "geometry_msgs/Quaternion": "xyzw"}
+
+
+def _fields(cls, value):
+    """What to set cls from, built fresh so the caller keeps its own payload.
+
+    A mapping names fields. One value may stand for a whole message: seconds for a time
+    or duration, a pose in any form for a Pose or Transform, one batch of poses for an
+    array of them, and numbers for a Point, Vector3 or Quaternion. Other leaves pass
+    through as rosidl takes them.
+    """
+    if isinstance(value, cls):
+        return value
+    kind = ros_type(cls)
+    if kind in TIMES and isinstance(value, Real) and not isinstance(value, bool):
+        return duration(value)
+    if kind in POSES and not isinstance(value, dict):
+        from kinex.values import components
+        x, y, z, qx, qy, qz, qw = components(value, single=True).tolist()
+        where, turn = POSES[kind]
+        return {where: {"x": x, "y": y, "z": z}, turn: {"x": qx, "y": qy, "z": qz, "w": qw}}
+    if kind in VECTORS and not isinstance(value, dict):
+        return dict(zip(VECTORS[kind], vector(value, len(VECTORS[kind]), cls.__name__)))
+    if not isinstance(value, dict):
+        raise TypeError(f"expected {cls.__name__} or field mapping")
+    slots = dict(zip((name[1:] for name in getattr(cls, "__slots__", ())), getattr(cls, "SLOT_TYPES", ())))
+    fields = {}
+    for name, item in value.items():
+        slot = slots.get(name)
+        element = getattr(slot, "value_type", slot)
+        if not hasattr(element, "namespaces"):
+            fields[name] = item
+            continue
+        nested = getattr(importlib.import_module(".".join(element.namespaces)), element.name)
+        if element is slot:
+            fields[name] = _fields(nested, item)
+        else:
+            # A batch of poses is one RigidTransform holding several.
+            entries = item if not hasattr(item, "as_components") else [item] if item.single else [item[index] for index in range(len(item))]
+            fields[name] = [_fields(nested, entry) for entry in entries]
+    return fields
 
 
 def message_value(cls, value):
     from rosidl_runtime_py.set_message import set_message_fields
-    if isinstance(value, cls):
-        return value
-    if not isinstance(value, dict):
-        raise TypeError(f"expected {cls.__name__} or field mapping")
+    fields = _fields(cls, value)
+    if isinstance(fields, cls):
+        return fields
     message = cls()
-    set_message_fields(message, value)
+    set_message_fields(message, fields)
     return message
 
 
@@ -79,8 +132,7 @@ class Subscription:
                 self.dropped += 1
             self.inbox.append((message, time.monotonic()))
             if not self.scheduled:
-                self.scheduled = True
-                self.io.loop.call_soon_threadsafe(self._deliver)
+                self.scheduled = self.io._post(self._deliver)
 
     def _deliver(self):
         with self.lock:
@@ -161,12 +213,18 @@ class Communication:
         self.handlers = set()
         self.spin_error = None
         self.extra_nodes = []
+        self.opened = False
         self.closed = False
         self.tf = None
 
-    async def __aenter__(self):
+    def open(self):
+        """Acquire ROS resources once, inside the running event loop."""
+        if self.opened:
+            if self.loop.is_closed():
+                raise RuntimeError("io belongs to the program's event loop, which has ended: use one asyncio.run(main())")
+            return self
         if self.supervised and not self.catalog:
-            raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host before communication().",
+            raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host before using io.",
                            code="devices_not_ready")
         try:
             import rclpy
@@ -201,15 +259,27 @@ class Communication:
         self.executor.add_node(self.node)
         self.thread = threading.Thread(target=self._spin, daemon=True)
         self.thread.start()
+        self.opened = True
+        return self
+
+    async def __aenter__(self):
+        self.open()
         self.token = _active.set(self)
         return self
+
+    def _post(self, callback, *args):
+        """Hand a callback from a ROS thread to the event loop; False once that loop has closed."""
+        try:
+            self.loop.call_soon_threadsafe(callback, *args)
+        except RuntimeError:
+            return False
+        return True
 
     def _clock_received(self, message):
         with self.clock_lock:
             self.clock_pending = message
             if not self.clock_scheduled:
-                self.clock_scheduled = True
-                self.loop.call_soon_threadsafe(self._clock_deliver)
+                self.clock_scheduled = self._post(self._clock_deliver)
 
     def _clock_deliver(self):
         with self.clock_lock:
@@ -238,7 +308,7 @@ class Communication:
         except ExternalShutdownException:
             pass
         except Exception as error:
-            self.loop.call_soon_threadsafe(self._failed, error)
+            self._post(self._failed, error)
 
     def _failed(self, error):
         if self.closed:
@@ -269,6 +339,11 @@ class Communication:
         self.subscriptions.append(stream)
         return stream
 
+    async def read(self, operation, *, timeout_s=None):
+        """The next message on an output topic; timeout_s defaults to the operation's."""
+        with self.subscribe(operation) as stream:
+            return await stream.next(timeout_s=stream.spec.get("timeout_s", 10) if timeout_s is None else timeout_s)
+
     async def _enroll(self, operation):
         """Report a commanded device so the host stops it if this invocation fails."""
         device = operation.split(".", 1)[0]
@@ -291,7 +366,7 @@ class Communication:
                     future.set_result(done.result())
                 except Exception as error:
                     future.set_exception(error)
-            self.loop.call_soon_threadsafe(deliver)
+            self._post(deliver)
         ros_future.add_done_callback(complete)
         try:
             async with asyncio.timeout(timeout_s):
@@ -398,6 +473,8 @@ class Communication:
             # ROS futures yield executor workers; asyncio executes the handler.
             from rclpy.task import Future
             bridge = Future(executor=self.executor)
+            if self.loop.is_closed():  # the program has ended; its request stays unanswered
+                return await bridge
             pending = asyncio.run_coroutine_threadsafe(run(), self.loop)
             self.handlers.add(pending)
             def complete(done):
@@ -419,7 +496,12 @@ class Communication:
                 self.tf.observe_clock(self.world_stamp)
         return self.tf
 
-    async def __aexit__(self, kind, error, traceback):
+    async def close(self, error=None):
+        """Release the scope: success flushes commands, failure stops every commanded device."""
+        if not self.opened or self.closed:
+            return
+        # exec closes its scope after the program's own loop has ended.
+        self.loop = asyncio.get_running_loop()
         succeeded = error is None or isinstance(error, SystemExit) and error.code in (None, 0)
         failure = self.spin_error if succeeded else error
         try:
@@ -454,9 +536,44 @@ class Communication:
             self.node.destroy_node()
             self.context.try_shutdown()
             await asyncio.to_thread(self.thread.join, 2)
-            if _active.get() is self:
-                _active.reset(self.token)
+
+    async def __aexit__(self, kind, error, traceback):
+        try:
+            await self.close(error)
+        finally:
+            _active.reset(self.token)
 
 
 def communication(catalog=None, *, domain_id=None):
+    """A scope for a standalone client to enter; inside exec, use `kinex.io`."""
     return Communication(catalog, domain_id=domain_id)
+
+
+@contextlib.contextmanager
+def ambient(scope):
+    """Make a scope the active one for a block, as exec does for an invocation."""
+    token = _active.set(scope)
+    try:
+        yield scope
+    finally:
+        _active.reset(token)
+
+
+def scope():
+    """The active communication scope, opened on first use."""
+    active = _active.get()
+    if active is None:
+        raise RuntimeError("no communication scope: run through exec or enter communication()")
+    if isinstance(active, Communication):
+        active.open()
+    return active
+
+
+class _Ambient:
+    """`kinex.io`: the active scope's subscribe, read, publish, request and serve."""
+
+    def __getattr__(self, name):
+        return getattr(scope(), name)
+
+
+io = _Ambient()

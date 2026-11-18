@@ -19,7 +19,7 @@ export async function checkCorePackage(directory, env, pack) {
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
   for (const name of ['node.py', 'env.sh', 'setup.sh', 'provision.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])
     assert.ok(pack.files.some(file => file.path === `assets/builtin/device/fastwam/${name}`))
-  for (const file of ['helpers/helpers.txt', 'helpers/__init__.py', 'helpers/frames.py', 'helpers/motion.py', 'helpers/policy.py', 'lib/kinematics.py', 'node.py', 'host/urdf.py'])
+  for (const file of ['lib/__init__.py', 'lib/frames.py', 'lib/motion.py', 'common/kinematics.py', 'node.py', 'host/urdf.py'])
     assert.ok(pack.files.some(entry => entry.path === `assets/python/kinex/${file}`))
   assert.ok(!pack.files.some(file => file.path.endsWith('.pyc')))
   await writeFile(path.join(directory, 'consumer.mts'), `
@@ -75,7 +75,7 @@ export async function checkCorePackage(directory, env, pack) {
       const capabilities = coreContribution(runtime)
       assert.ok(capabilities.commands.some(command => command.name === 'unregister'))
       assert.equal('conventions' in await runtime.context(),false)
-      const listed = await runtime.tools.call('exec', { python: 'from kinex import runtime, finish\\nfinish(runtime.devices())' }, {sessionID:'package'})
+      const listed = await runtime.tools.call('exec', { python: 'from kinex import finish, runtime; finish(runtime.devices())' }, {sessionID:'package'})
       assert.ok(!listed.isError, listed.output)
       assert.equal(JSON.parse(listed.output).result[0].name, 'world')
       const reading = await runtime.tools.call('device', { deviceID: 'world', action: 'read' }, {sessionID:'package'})
@@ -85,13 +85,14 @@ export async function checkCorePackage(directory, env, pack) {
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
-      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.lib.camera; import kinex.helpers.policy; import kinex.lib.kinematics'], {
+      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.common.camera; import kinex.common.kinematics'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
       execFileSync('python3', ['-c', [
-        'from kinex.lib.kinematics import DEFAULTS, Chain, budget_options',
+        'from kinex.common.kinematics import DEFAULTS, Chain, budget_options',
         'import sys',
-        'from kinex.helpers import trajectory, lookup_transform',
+        'from kinex.lib.motion import trajectory',
+        'from kinex.lib.frames import lookup_transform',
         'assert callable(lookup_transform) and "rclpy" not in sys.modules',
         'assert budget_options({}) == dict(max_attempts=5, attempt_time_s=.02, max_time_s=.1)',
         'joints = [dict(name="x", type="prismatic", limits=dict(min=0, max=1))]',

@@ -14,7 +14,9 @@ import rosbag2_py
 
 from kinex.communication import communication, qos
 from kinex.host.recording import Recording
-from kinex.helpers.frames import relative_pose, transform_pose
+from kinex.communication import message_value
+from kinex.common.plain import plain
+from kinex.values import components, pose
 
 CATALOG = {
     "environment.time": {"transport": "topic", "direction": "output", "endpoint": "/recording_test/clock",
@@ -100,23 +102,29 @@ class RecordingTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(values, [1.25, 3.75, 5.])
             del reader  # Humble readers have no close().
 
-    async def test_tf2_offsets_and_pose_conversion(self):
+    async def test_poses_and_seconds_convert_to_and_from_native_messages(self):
+        import numpy as np
+        from sensor_msgs.msg import JointState
+        from trajectory_msgs.msg import JointTrajectory, MultiDOFJointTrajectory
         relation = TransformStamped()
         relation.transform.translation.x = 1.
         relation.transform.rotation.z = 2 ** -.5
         relation.transform.rotation.w = 2 ** -.5
-        child = [1, 0, 0, 0, 0, 0, 1]
-        parent = [0, 1, 0, 0, 0, 0, 1]
-        from unittest.mock import patch
-        async def lookup(*args):
-            return relation
-        with patch('kinex.helpers.frames.lookup_transform', lookup):
-            result = (await relative_pose(None, {'frame': 'camera', 'pose': child}, {'frame': 'world', 'pose': parent}))['pose']
-            for actual, expected in zip(result[:3], [1, 0, 0]):
-                self.assertAlmostEqual(actual, expected)
-            result = await transform_pose(None, child, 'camera', 'world')
-        for actual, expected in zip(result[:3], [1, 1, 0]):
-            self.assertAlmostEqual(actual, expected)
+        relation.header.stamp.sec, relation.header.stamp.nanosec = 2, 500000000
+        child, parent = pose([1, 0, 0, 0, 0, 0, 1]), pose([0, 1, 0, 0, 0, 0, 1])
+        # A lookup's message is a pose: products move poses between frames.
+        np.testing.assert_allclose((pose(relation) * child).translation, [1, 1, 0], atol=1e-12)
+        np.testing.assert_allclose((parent.inv() * pose(relation) * child).translation, [1, 0, 0], atol=1e-12)
+        self.assertEqual(plain(relation)["header"]["stamp"], 2.5)
+        # A program's values become fields by their declared types, and its payload stays its own.
+        state = JointState(position=[.1, .2])
+        points = [{"positions": state.position, "time_from_start": 1.5}, {"positions": np.array([.3, .4]), "time_from_start": 2}]
+        message = message_value(JointTrajectory, {"joint_names": ["a", "b"], "points": points})
+        self.assertEqual([list(point.positions) for point in message.points], [[.1, .2], [.3, .4]])
+        self.assertEqual([(point.time_from_start.sec, point.time_from_start.nanosec) for point in message.points], [(1, 500000000), (2, 0)])
+        self.assertIsInstance(points[0], dict)
+        tips = message_value(MultiDOFJointTrajectory, {"joint_names": ["tcp"], "points": [{"transforms": pose(relation), "time_from_start": .5}]})
+        np.testing.assert_allclose(components(tips.points[0].transforms[0]), components(relation))
 
 
 if __name__ == '__main__':

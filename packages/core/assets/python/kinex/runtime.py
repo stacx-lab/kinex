@@ -1,4 +1,4 @@
-"""Read-only discovery. Results stay in Python unless selected with finish()."""
+"""Read-only device discovery. Results stay in Python unless the program finishes with them."""
 import re
 
 

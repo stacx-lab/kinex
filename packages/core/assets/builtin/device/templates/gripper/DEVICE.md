@@ -16,8 +16,8 @@ link names must not repeat profile frame names. Agents read the resolved tree as
 `profile(name)["resolved_model"]` and live geometry through tf2.
 
 `grip` names the actuated, non-mimic URDF joint with its `open` and `closed`
-positions in that joint's units; policy values in [-1, 1] interpolate between
-them. `frames.tcp` is the grasp point, with +z as the approach direction.
+positions in that joint's units. `frames.tcp` is the grasp point, with +z as the
+approach direction.
 Summarize finger shape and conventions in `description`; numbers stay in the URDF.
 
 The sibling `node.py` adapts an existing ROS gripper driver to this contract;

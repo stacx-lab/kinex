@@ -8,9 +8,9 @@ import random
 import unittest
 from unittest.mock import Mock, patch
 
-from kinex.lib import kinematics
-from kinex.lib.joints import JointModel
-from kinex.lib.geometry import pose_error
+from kinex.common import kinematics
+from kinex.common.joints import JointModel
+from kinex.common.geometry import pose_error
 from joint_model import model as joint_model, simple
 
 
@@ -23,7 +23,7 @@ TIGHT = {"position_tolerance_m": 1e-6, "rotation_tolerance_rad": 1e-6}
 
 class SearchTests(unittest.TestCase):
     def setUp(self):
-        self.model = joint_model(simple(), "flange")
+        self.model = joint_model(simple(), ("flange",))
         self.joints = self.model.joints
         self.options = {**kinematics.DEFAULTS, **TIGHT}
         self.clock = patch.object(kinematics, "monotonic", return_value=0)

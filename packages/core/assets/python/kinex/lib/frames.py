@@ -1,54 +1,58 @@
-"""Kinex frame IDs, TransformStamped construction and static profile frames; tf2 owns live composition."""
+"""Stamped frame lookups through Kinex tf2 history.
 
-def frame_id(device, frame=None):
-    return f"{device}/{frame or 'base'}"
+Frames are qualified device:frame references or ROS IDs (device/frame). A lookup is a
+pose, a scipy RigidTransform, and never advances world time.
+"""
 
+from numbers import Real
 
-def ros_frame(reference):
-    """Translate a qualified Kinex reference; native ROS frame IDs pass through."""
-    if ":" not in reference:
-        return reference
-    parts = reference.split(":")
-    if len(parts) != 2 or not all(parts) or any("/" in part for part in parts):
-        raise ValueError("Kinex frame references must be device:frame")
-    return "/".join(parts)
+from kinex import io
+from kinex.communication import duration
+from kinex.errors import RPCError
+from kinex.values import pose
 
 
-def dynamic_qos():
-    from rclpy.qos import QoSProfile, DurabilityPolicy
-    # Retain the latest measured configuration for readers joining a paused world.
-    return QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+def _stamp(value):
+    """A ROS Time: a message's own stamp to the nanosecond, seconds rounded to one, None as the latest."""
+    from builtin_interfaces.msg import Time
+    if value is None:
+        return Time()
+    return Time(**duration(value)) if isinstance(value, Real) else getattr(getattr(value, "header", None), "stamp", value)
 
 
-def transform(parent, child, pose, stamp=None):
-    from geometry_msgs.msg import TransformStamped
-    from kinex.lib.geometry import pose as validate_pose
-    values = list(map(float, validate_pose(list(pose))))
-    value = TransformStamped()
-    value.header.frame_id, value.child_frame_id = parent, child
-    if stamp is not None:
-        value.header.stamp = stamp
-    value.transform.translation.x, value.transform.translation.y, value.transform.translation.z = values[:3]
-    (value.transform.rotation.x, value.transform.rotation.y,
-     value.transform.rotation.z, value.transform.rotation.w) = values[3:]
-    return value
+async def lookup_transform(target, source, stamp=None, timeout_s=5):
+    """The pose of source in target: a RigidTransform taking points and poses in source to target.
 
+    Frames are device:frame references or ROS IDs (device/frame). stamp is a world time
+    in seconds, a stamped message or its stamp; None is the latest. timeout_s (0..30)
+    bounds the wait without advancing world time; a missing frame or a timeout raises.
 
-def publish_profile(node, profile):
-    from tf2_ros import StaticTransformBroadcaster
-    transforms = []
-    def add(parent, child, translation, rotation):
-        if not isinstance(translation, (list, tuple)) or not isinstance(rotation, (list, tuple)):
-            return  # Unknown calibration never becomes identity.
-        transforms.append(transform(parent, child, [*translation, *rotation]))
-    name = profile["name"]
-    for frame, value in profile.get("frames", {}).items():
-        parent = value["parent"]
-        if parent is None:
-            continue  # Root transforms have no spatial meaning.
-        add(ros_frame(parent), frame_id(name, frame), value.get("translation_m"), value.get("rotation_xyzw"))
-    if not transforms:
-        return []
-    broadcaster = StaticTransformBroadcaster(node)
-    broadcaster.sendTransform(transforms)
-    return [broadcaster]
+    Example: goal = await lib.frames.lookup_transform("arm:base", "camera:color", image) * seen
+    """
+    import math
+    from kinex.common.frames import ros_frame
+    target, source = ros_frame(target), ros_frame(source)
+    if not math.isfinite(timeout_s) or not 0 <= timeout_s <= 30:
+        raise ValueError("transform timeout_s must be finite and within 0..30 seconds")
+    if target == source:
+        return pose([0, 0, 0, 0, 0, 0, 1])
+    stamp = _stamp(stamp)
+    if io.frame_service:
+        result = await io._request(io.frame_service, {
+            "target_frame": target, "source_frame": source, "stamp": stamp, "wait_s": timeout_s,
+        }, timeout_s + 1)
+        return pose(result.transform)
+    if io.supervised:
+        raise RPCError("Kinex frame service is unavailable; load a ROS device with a configured world clock.",
+                       code="frames_unavailable")
+    # Explicit standalone ROS clients own only their local subscription history.
+    from rclpy.time import Time
+    time = Time.from_msg(stamp)
+    buffer = io.transforms()
+    if timeout_s:
+        try:
+            await io._future(buffer.wait_for_transform_async(target, source, time), timeout_s)
+        except TimeoutError:
+            raise TimeoutError(buffer.timed_out(target, source, time, timeout_s)) from None
+    return pose(buffer.lookup_transform(target, source, time))
+

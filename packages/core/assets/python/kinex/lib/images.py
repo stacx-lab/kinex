@@ -1,12 +1,60 @@
-"""Invocation-owned camera geometry; all remote calls use the caller's communication scope."""
+"""Current camera frames, camera geometry, pixel arrays and image files.
+
+Images stay sensor_msgs/Image messages; pass one to finish(file=...) for the model to
+see it. Reading a camera never advances world time.
+"""
 import numpy as np
-from kinex import profile
-from kinex.lib.camera import project, rays, stereo
+
+from kinex import io, profile
+from kinex.common.camera import array, camera_stream, frame, project, rays, save, stereo
+from kinex.common.camera import stereo_frame as read_stereo
+
+
+async def camera_frame(camera, timeout_s=None, eye=None):
+    """The camera's current image and its depth from the same acquisition (None without depth).
+
+    A stereo camera needs eye="left" or eye="right"; timeout_s defaults to the image
+    operation's.
+
+    Example: image, depth = await lib.images.camera_frame("camera")
+    """
+    camera_stream(profile(camera), eye)
+    return await frame(io, camera, timeout_s=timeout_s, eye=eye)
+
+
+async def stereo_frame(camera, timeout_s=None):
+    """A stereo camera's current left and right images, each with its own stamp and frame.
+
+    A pair read does not imply hardware synchronization; compare stamps when it matters.
+
+    Example: left, right = await lib.images.stereo_frame("camera")
+    """
+    camera_stream(profile(camera), "left")
+    return await read_stereo(io, camera, timeout_s=timeout_s)
+
+
+def image_array(image):
+    """A sensor_msgs/Image's pixels as a NumPy array: HxWx3 RGB, or HxW for mono8 and 16UC1 depth.
+
+    Example: pixels = lib.images.image_array(image)
+    """
+    return array(image)
+
+
+def save_image(image):
+    """Write a sensor_msgs/Image to a temporary PNG, keeping 16-bit depth, and return its
+    path, as a model device's image input takes it.
+
+    Example: file = lib.images.save_image(image)
+    """
+    return save(image)
 
 
 class CameraGeometry:
-    def __init__(self, io, camera, streams, remote):
-        self.io, self.camera, self.streams, self.remote = io, camera, streams, remote
+    """Invocation-owned camera geometry; remote calls use the invocation's communication scope."""
+
+    def __init__(self, camera, streams, remote):
+        self.camera, self.streams, self.remote = camera, streams, remote
 
     async def _convert(self, action, stream, values):
         descriptor = self.streams[stream]
@@ -19,7 +67,7 @@ class CameraGeometry:
             if not np.isfinite(batch).all():
                 raise ValueError("geometry inputs must be finite")
             if self.remote:
-                result = await self.io.request(f"{self.camera}.{action}", stream=stream,
+                result = await io.request(f"{self.camera}.{action}", stream=stream,
                     calibration_id=descriptor["calibration_id"], **{"pixels" if action == "unproject" else "points": batch.tolist()})
                 result = result["rays" if action == "unproject" else "pixels"]
             else:
@@ -45,10 +93,14 @@ class CameraGeometry:
         return await self._convert("project", stream, points)
 
 
-async def camera_geometry(io, camera):
-    """Fetch once per invocation, before acquisition; reuse for all point batches.
+async def camera_geometry(camera):
+    """The camera's active geometry, between pixels and optical rays; fetch it once per program.
 
-    Streams cannot change calibration while loaded. Reload after reconfiguration.
+    await geometry.unproject(pixels, stream="color") gives Nx3 optical rays (Z=1) and
+    await geometry.project(points, stream="color") Nx2 pixels, NaN where invalid.
+    geometry.streams maps color, depth, left or right to its descriptor.
+
+    Example: rays = await (await lib.images.camera_geometry("camera")).unproject([[320, 240]])
     """
     record = profile(camera)
     remote = f"{camera}.geometry" in io.catalog
@@ -80,4 +132,4 @@ async def camera_geometry(io, camera):
             rays(descriptor, 0, 0)  # Validate the explicit pinhole fallback now.
     if "color" not in streams and not {"left", "right"} <= streams.keys():
         raise ValueError("camera geometry requires a color stream or both stereo eyes")
-    return CameraGeometry(io, camera, streams, remote)
+    return CameraGeometry(camera, streams, remote)

@@ -51,7 +51,7 @@ test('descriptions are discovered unloaded without ROS imports; type does not de
      operations:{[operation]:{...outputOperation(operation),description:`Operation ${name}`}},
      frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
  const result=await exec(runtime,`import sys
-from kinex import runtime, finish
+from kinex import finish, runtime
 assert 'rclpy' not in sys.modules
 one=runtime.device('one')
 assert 'rclpy' not in sys.modules
@@ -124,8 +124,8 @@ for(const mode of ['success','failure','cancel']) test(`a commanded device is st
  const approvals=[]
  const {runtime,directory}=await fixture(t,{host:{ask:async p=>approvals.push(p.permission)}})
  const dir=await protocolDevice(runtime,directory,'sensor',{loaded:true})
- const tail=mode==='failure'?"raise RuntimeError('task failed')":mode==='cancel'?'import time;time.sleep(10)':"finish({'ok':True})"
- const result=await exec(runtime,`from kinex import _rpc, finish\n${enroll}\n${tail}`,mode==='cancel'?{signal:AbortSignal.timeout(500)}:{})
+ const tail=mode==='failure'?"raise RuntimeError('task failed')":mode==='cancel'?'import time;time.sleep(10)':"from kinex import finish;finish({'ok':True})"
+ const result=await exec(runtime,`from kinex import _rpc\n${enroll}\n${tail}`,mode==='cancel'?{signal:AbortSignal.timeout(500)}:{})
  assert.equal(!!result.isError,mode!=='success',result.output)
  assert.deepEqual(approvals,['python_tool'])
  assert.equal(await stops(dir),mode==='success'?0:1)

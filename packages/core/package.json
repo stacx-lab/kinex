@@ -27,6 +27,7 @@
     "assets/**/*.json",
     "assets/**/*.urdf",
     "assets/**/*.txt",
+    "assets/**/*.html",
     "assets/ros/**",
     "README.md",
     "LICENSE"

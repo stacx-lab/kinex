@@ -146,7 +146,7 @@ test('TCP solver produces translation only and preserves unresolved rotation', a
   await runtime.profiles.writeDevice({ description: '',
     name: 'arm',
     type: 'joint',
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' },
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   await runtime.profiles.writeDevice({ description: '',
     name: 'tool',
@@ -251,7 +251,7 @@ test('stereo calibration solves one eye at a time and its proposals fit the prof
   await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
   await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>')
   await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint',
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, frames: { base } })
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] }, frames: { base } })
   await runtime.profiles.writeDevice({ description: '', name: 'mono', type: 'rgb', layout: 'mono', frames: { base } })
   const eyeFrame = parent => ({ parent, translation_m: '???', rotation_xyzw: '???' })
   await runtime.profiles.writeDevice({ description: '', name: 'pair', type: 'rgb', layout: 'stereo', left: '???', right: '???',
@@ -294,7 +294,7 @@ test('stereo calibration solves one eye at a time and its proposals fit the prof
   assert.equal(device.left.distortion.model, 'opencv_fisheye')
   assert.equal(device.left.distortion.coefficients.length, 4)
   // The solved stream drives the node adapter, whose rays project back to their pixels.
-  const roundTrip = 'import json, sys\nfrom kinex.lib.camera_geometry import OpenCVGeometry as G\ng = G(json.loads(sys.argv[1]), fisheye=True)\nprint(json.dumps(g.project(g.unproject([[400., 300.]]))))'
+  const roundTrip = 'import json, sys\nfrom kinex.common.camera_geometry import OpenCVGeometry as G\ng = G(json.loads(sys.argv[1]), fisheye=True)\nprint(json.dumps(g.project(g.unproject([[400., 300.]]))))'
   const [[u, v]] = JSON.parse(execFileSync(system, ['-c', roundTrip, JSON.stringify(device.left)], { env, encoding: 'utf8' }))
   assert.ok(Math.abs(u - 400) < 1e-3 && Math.abs(v - 300) < 1e-3)
   assert.equal(device.right, '???')
@@ -333,7 +333,7 @@ test('joint stereo solve recovers the mount and eye-to-eye transform in both mod
   await mkdir(path.join(directory, '.kinex/devices/arm'), { recursive: true })
   await writeFile(path.join(directory, '.kinex/devices/arm/arm.urdf'), '<robot name="arm"><link name="base_link"/><link name="flange"/><joint name="j" type="revolute"><parent link="base_link"/><child link="flange"/><axis xyz="0 0 1"/><limit lower="-1" upper="1" effort="1" velocity="1"/></joint></robot>')
   await runtime.profiles.writeDevice({ description: '', name: 'arm', type: 'joint',
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, frames: { base } })
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] }, frames: { base } })
   await runtime.profiles.writeDevice({ description: '', name: 'mono', type: 'rgb', layout: 'mono', frames: { base } })
   const unknown = parent => ({ parent, translation_m: '???', rotation_xyzw: '???' })
   await runtime.profiles.writeDevice({ description: '', name: 'pair', type: 'rgb', layout: 'stereo', left: '???', right: '???',

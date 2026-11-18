@@ -1,31 +1,62 @@
-"""Entry point for Python invocations: `exec` runs a script or source with the dialog kept
-private; `tool FILE` runs a tool's async main(values, io) in an invocation-scoped
-communication context and returns its result."""
+"""Entry point for exec: run a program as __main__ inside the invocation's communication
+scope, release that scope, and return what finish left through the host dialog."""
 
 import asyncio
-import importlib.util
+import linecache
 import os
-import runpy
 import sys
-import uuid
 from types import ModuleType
 
-from kinex import _request, args, finish
-from kinex.communication import communication
+from kinex import _emit, _request
+from kinex.communication import Communication, ambient
+
+SOURCE = "<exec>"
 
 
-def tool(file, values):
-    spec = importlib.util.spec_from_file_location("kinex_tool_" + uuid.uuid4().hex, file)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+def program():
+    """Execute the request's file or source as the __main__ module."""
+    file = _request.get("file")
+    if file:
+        with open(file, "rb") as handle:
+            source = handle.read()
+    else:
+        source = _request["source"]
+        linecache.cache[SOURCE] = (len(source), None, source.splitlines(True), SOURCE)
+    sys.argv = [file or SOURCE, *_request.get("argv", [])]
+    sys.path.insert(0, os.path.dirname(file) if file else os.getcwd())
+    module = sys.modules["__main__"] = ModuleType("__main__")
+    if file:
+        module.__file__ = file
+    exec(compile(source, file or SOURCE, "exec"), module.__dict__)
 
-    async def invoke():
-        async with communication() as io:
-            return await module.main(values, io)
-    return asyncio.run(invoke())
+
+def run():
+    """Run the program and release its scope; the payload finish left, or None without one."""
+    payload = failure = None
+    with ambient(Communication()) as scope:
+        try:
+            program()
+        except SystemExit as exit:
+            payload = getattr(exit, "payload", None)
+            failure = None if exit.code in (None, 0) else exit
+        except BaseException as error:
+            failure = error
+        if scope.opened:
+            # The program's own loop has ended: success flushes its commands, failure stops its devices.
+            asyncio.run(scope.close(failure))
+    if failure:
+        raise failure
+    return payload
 
 
-def script():
+def trimmed(trace):
+    """The traceback past this runner's own frames."""
+    while trace and trace.tb_frame.f_code.co_filename == __file__:
+        trace = trace.tb_next
+    return trace
+
+
+if __name__ == "__main__":
     # kinex has duplicated the protocol descriptors and consumed startup. Raw
     # writes and subprocess output now join print() on the diagnostic stream.
     os.dup2(2, 1)
@@ -33,19 +64,10 @@ def script():
         os.dup2(empty.fileno(), 0)
     sys.stdout = sys.__stdout__ = sys.stderr
     sys.stdin = sys.__stdin__ = open(os.devnull)
-    file = _request.get("file")
-    sys.argv = [file or "-c", *_request.get("argv", [])]
-    sys.path.insert(0, os.path.dirname(file) if file else os.getcwd())
-    if file:
-        runpy.run_path(file, run_name="__main__")
-    else:
-        module = ModuleType("__main__")
-        sys.modules["__main__"] = module
-        exec(compile(_request["source"], "<kinex-exec>", "exec"), module.__dict__)
-
-
-if __name__ == "__main__":
-    if sys.argv[1] == "tool":
-        finish(tool(sys.argv[2], args()))
-    else:
-        script()
+    try:
+        payload = run()
+    except Exception as error:
+        sys.excepthook(type(error), error, trimmed(error.__traceback__))
+        sys.exit(1)
+    if payload is not None:
+        _emit(payload)

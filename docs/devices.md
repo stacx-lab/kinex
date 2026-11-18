@@ -44,7 +44,7 @@ Builtin DEVICE.md files are setup templates with profile examples; most ship
 reference nodes beside them. They help authors write device/operation
 descriptions and register nodes. They have no usage section, and no type or
 instance usage text enters runtime context. Agents read descriptions directly
-from profiles. Inside exec, `runtime.devices()` and `runtime.operations(name)`
+from profiles. In a program, `runtime.devices()` and `runtime.operations(name)`
 provide discovery; `runtime.describe("device.operation")` resolves ROS payload
 schemas when needed. These work on unloaded profiles and never start nodes.
 Stable prompt prefixes do not change when descriptions, device catalogs or load
@@ -75,7 +75,7 @@ is the device base, and each link below it is a device frame named by the link,
 published from measured joint state, mimic joints included, by the template
 `links.py` node. Profile frames may use a link as a parent but must not reuse its
 name. References must exist and be acyclic. ROS IDs use `device/frame`;
-`kinex.helpers.lookup_transform` accepts these IDs or qualified `device:frame`
+`lib.frames.lookup_transform` accepts these IDs or qualified `device:frame`
 references. Query at observation stamps. Simulator nodes supply measurements and
 state; they do not own Kinex frame publication.
 
@@ -171,18 +171,26 @@ placement. Load places the model and unload releases it with the device process.
 ## Joints and end effectors
 
 A joint device commands the URDF's independent movable joints in document order,
-with strict or native limit handling; `helpers.joint_model` computes FK and IK
-from the URDF, and `tip_link` is the default end-effector link. A hand has no tip
-link. A gripper's `grip` names the actuated joint with its open and closed
-positions, and `frames.tcp` is the grasp point with +z approach. A suction tool
+with strict or native limit handling; `lib.kinematics.joint_model` computes FK and IK
+from the URDF. `tip_links` lists the links that end its chains, such as an arm's
+flange or a hand's fingertips; FK and IK default to a single tip. A gripper's
+`grip` names the actuated joint with its open and closed positions, and
+`frames.tcp` is the grasp point with +z approach. A suction tool
 has no URDF: `vacuum` says whether it switches on and off or accepts a level,
 `frames.tcp` is the cup contact centre, and its stop never releases a held object.
-Policy values in [-1, 1] release at -1 and grip at +1 for both.
-Guides recommend a `sensor_msgs/msg/JointState` `joint_state` and a
-`trajectory_msgs/msg/JointTrajectory` `joint_target` for joint devices, and a
-`std_msgs/msg/Float64` `target` with a `std_msgs/msg/Bool` `grasped` for end
+Guides recommend a `sensor_msgs/msg/JointState` `joint_state` for joint devices
+and a `std_msgs/msg/Float64` `target` with a `std_msgs/msg/Bool` `grasped` for end
 effectors. No typed fact implies a mandatory operation or supplies a default
 payload.
+
+Joint devices take joint targets, pose targets or both, as their controller
+supports. A `trajectory_msgs/msg/JointTrajectory` `joint_target` commands the
+joints. A `trajectory_msgs/msg/MultiDOFJointTrajectory` `pose_target` commands
+tip link poses in `<device>/base` and reuses the controller's own Cartesian
+control instead of Kinex IK; a tip whose orientation the controller does not track
+ignores the rotation. With both, the latest command of either kind replaces the
+active one. Reachability stays with the controller, and an optional
+`sensor_msgs/msg/MultiDOFJointState` `pose_state` reports the tip poses it measures.
 
 ## Locomotion
 
@@ -200,9 +208,11 @@ Devices remain unlocalized roots: odometry drifts and is never a global pose.
 Cameras publish `image` (`rgb8`) and, for rgbd, `depth` (`16UC1` in
 `scale_m_per_unit`, 0 for missing samples) from one acquisition with equal stamps,
 in calibrated optical frames. Readers subscribe and take the next frame; a
-simulator publishes a current frame to each new subscriber with reliable QoS, so
-reading a paused world never advances it. A stereo rgb camera publishes `left_image`
-and `right_image` in `<device>/left` and `<device>/right` instead of `image`; each
+simulator publishes a current frame to each new subscriber with reliable QoS and
+repeats it while paused, so reading a paused world never advances it, also from a
+reader that subscribed before discovering the camera. A stereo rgb camera
+publishes `left_image` and `right_image` in `<device>/left` and `<device>/right`
+instead of `image`; each
 keeps its own stamp, and a paired read does not imply hardware synchronization. IMU
 and force/torque nodes publish
 `sensor_msgs/msg/Imu` or `geometry_msgs/msg/WrenchStamped` in `<device>/base`

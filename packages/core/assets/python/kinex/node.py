@@ -9,9 +9,9 @@ from sensor_msgs.msg import JointState
 from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 
 from kinex.communication import qos
-from kinex.lib.frames import dynamic_qos, frame_id, transform
-from kinex.lib.geometry import flat
-from kinex.lib.urdf import joint_transform, positions, read_tree
+from kinex.common.frames import dynamic_qos, frame_id, transform
+from kinex.common.geometry import flat
+from kinex.common.urdf import joint_transform, positions, read_tree
 
 
 def node_name(profile, suffix=""):

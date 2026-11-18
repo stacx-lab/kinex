@@ -111,7 +111,7 @@ test('URDF calibration borrows core model resolution and stores its result in se
     type: 'joint',
     loaded: true,
     runtime: {nodes: []},
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base', tip_link: 'tip' },
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base', tip_links: ['tip'] },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const input = { operation: 'urdf-introspect', procedure: 'calibrate-joint-range', bindings: { arm: 'arm' } }
   await assert.rejects(setup.tools.call('calib_compute', input, { ...call,
@@ -159,7 +159,7 @@ test('calibration settles joint devices and computes URDF link poses from the ca
 <joint name="j" type="revolute"><parent link="base_link"/><child link="link"/><axis xyz="0 0 1"/><limit lower="-1" upper="1"/></joint>
 <joint name="flange_joint" type="fixed"><parent link="link"/><child link="flange"/><origin xyz="1 0 0"/></joint></robot>`)
   await protocolDevice(runtime, directory, 'arm', { type: 'joint', home: null, stop: { behavior: 'hold', affected_devices: ['arm'] },
-    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_link: 'flange' }, handler: `stamp = 0
+    model: { format: 'urdf', path: 'arm.urdf', base_link: 'base_link', tip_links: ['flange'] }, handler: `stamp = 0
 def dispatch(action, args, cancelled):
     global stamp
     if action == '$sample':

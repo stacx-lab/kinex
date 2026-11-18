@@ -3,14 +3,15 @@ import { createJiti } from "jiti"
 import { glob } from "tinyglobby"
 import { z } from "zod"
 import { define, type Def } from "./tool.ts"
-import { pythonTools } from "./python.ts"
-import { toolRoots } from "./python-catalog.ts"
+import { contentRoots } from "../config/content.ts"
+import { Assets } from "../installation/assets.ts"
 import { exists } from "../util/filesystem.ts"
 import { DeviceTools } from "./device/index.ts"
 import { SkillTool } from "./skill.ts"
 import { RecordTool } from "./record.ts"
 import { ProfileWriteTool } from "./profile_write.ts"
 import { ExecTool } from "./exec.ts"
+import { LibTool } from "./lib.ts"
 
 // Zero-install custom tools: any .ts/.js file in tools/ under a content root
 // exporting {description, parameters (zod), execute}. Named <file> for default export,
@@ -18,7 +19,7 @@ import { ExecTool } from "./exec.ts"
 async function customTools(cwd: string): Promise<{ tools: Def[]; problems: string[] }> {
   const tools: Def[] = []
   const problems: string[] = []
-  for (const dir of await toolRoots(cwd)) {
+  for (const dir of await contentRoots(cwd, "tools", Assets.builtin("tool"))) {
     if (!(await exists(dir))) continue
     const pattern = "*.{ts,js}"
     for (const entry of (await glob(pattern, { cwd: dir })).sort()) {
@@ -51,11 +52,11 @@ export interface Loaded {
 // cache) unless the set actually changed.
 export interface ToolOptions { enableRecording?: boolean; reservedToolNames?: readonly string[] }
 export async function loadTools(cwd: string, options: ToolOptions = {}): Promise<Loaded> {
-  const builtins: Def[] = [SkillTool, ...DeviceTools, RecordTool, ProfileWriteTool, ExecTool]
-  const [custom, python] = await Promise.all([customTools(cwd), pythonTools(cwd)])
-  const discovered = [...custom.tools, ...python.tools].sort((a, b) => a.id.localeCompare(b.id))
+  const builtins: Def[] = [SkillTool, ...DeviceTools, RecordTool, ProfileWriteTool, ExecTool, LibTool]
+  const custom = await customTools(cwd)
+  const discovered = custom.tools.sort((a, b) => a.id.localeCompare(b.id))
   const tools = new Map<string, Def>()
-  const problems = [...custom.problems, ...python.problems]
+  const problems = [...custom.problems]
   for (const tool of [...builtins, ...discovered]) {
     if (tools.has(tool.id) || options.reservedToolNames?.includes(tool.id)) {
       problems.push(`duplicate tool id "${tool.id}" — keeping the first`)
@@ -71,6 +72,6 @@ export function toModelSchema(def: Def): { name: string; description: string; in
   return {
     name: def.id,
     description: def.description,
-    inputSchema: def.jsonSchema ?? z.toJSONSchema(def.parameters, { io: "input" }),
+    inputSchema: z.toJSONSchema(def.parameters, { io: "input" }),
   }
 }

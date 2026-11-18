@@ -6,20 +6,26 @@ with the quaternion scalar-last. An (R, t) pair is a 3x3 row-major rotation with
 """
 
 import math
+from numbers import Real
 
 
 def number(value, name="value"):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    """A finite real number, NumPy scalars included, as a Python number."""
+    if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
         raise ValueError(f"{name} must be a finite number")
-    return value
+    return value if type(value) in (int, float) else float(value)
 
 
 def vector(value, size, name="components"):
-    if not isinstance(value, list) or len(value) != size:
-        raise ValueError(f"{name} needs {size} numbers")
-    for entry in value:
-        number(entry, name)
-    return value
+    """A list of size finite numbers from any flat sequence of them: a list, a tuple,
+    a ROS message's array field or a NumPy array."""
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{name} must be a sequence of {size} numbers, not {type(value).__name__}")
+    if len(value) != size:
+        raise ValueError(f"{name} needs {size} numbers, got {len(value)}")
+    return [number(entry, name) for entry in value]
 
 
 def quat_to_mat(q):
@@ -76,11 +82,6 @@ def pose_to_rt(pose):
     return quat_to_mat(pose["rotation"]), list(pose["translation"])
 
 
-def rt_to_pose(rt):
-    R, t = rt
-    return {"translation": [float(v) for v in t], "rotation": mat_to_quat(R)}
-
-
 def xyzq_to_rt(flat):
     """[x, y, z, qx, qy, qz, qw] (named-frame pose) -> (R, t)."""
     return quat_to_mat(flat[3:7]), list(flat[0:3])
@@ -92,7 +93,7 @@ QUATERNION_NORM_TOLERANCE = 1e-3
 
 def quaternion(value, name="quaternion"):
     """Return a near-unit [qx, qy, qz, qw] quaternion scaled to unit norm."""
-    vector(value, 4, name)
+    value = vector(value, 4, name)
     norm = math.hypot(*value)
     # Compare bounds directly so the endpoints survive floating-point rounding.
     if not 1 - QUATERNION_NORM_TOLERANCE <= norm <= 1 + QUATERNION_NORM_TOLERANCE:
@@ -103,8 +104,22 @@ def quaternion(value, name="quaternion"):
 
 def pose(value, name="pose"):
     """Return [x, y, z, qx, qy, qz, qw] with a normalized near-unit quaternion."""
-    vector(value, 7, name)
+    value = vector(value, 7, name)
     return value[:3] + quaternion(value[3:], name)
+
+
+def slerp(a, b, s):
+    """The unit quaternion a fraction s of the way from a to b along the shorter arc."""
+    dot = sum(x * y for x, y in zip(a, b))
+    if dot < 0:
+        b, dot = [-v for v in b], -dot
+    if dot > 1 - 1e-9:
+        q = [x + s * (y - x) for x, y in zip(a, b)]
+    else:
+        angle = math.acos(dot)
+        q = [(math.sin((1 - s) * angle) * x + math.sin(s * angle) * y) / math.sin(angle) for x, y in zip(a, b)]
+    norm = math.hypot(*q)
+    return [v / norm for v in q]
 
 
 def flat(rt):

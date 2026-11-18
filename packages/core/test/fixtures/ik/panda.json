@@ -5,6 +5,6 @@
     "format": "urdf",
     "path": "panda.urdf",
     "base_link": "base_link",
-    "tip_link": "flange"
+    "tip_links": ["flange"]
   }
 }

@@ -67,7 +67,7 @@ kinex
 Use `/login` to connect a model provider and `/model` to choose a model.
 Python execution uses a workspace-owned Pixi/RoboStack ROS environment on Linux
 x86-64: Jazzy by default, Humble with `python.provider: "ros-humble"`, or plain uv
-with `"uv"`; install Pixi or uv before first use. Exec, helpers and recording share Kinex Python; device SDK
+with `"uv"`; install Pixi or uv before first use. Exec, the function library and recording share Kinex Python; device SDK
 interpreters are optional overrides for device nodes only.
 See [environment setup](docs/communication.md#kinex-python).
 
@@ -105,9 +105,10 @@ rosbridge launch libero/libero-spatial-01 --execution-mode stepped --domain-id 8
 Launch a task for the exported robot on the same ROS domain, then open Kinex in
 the exported directory, run `/load all` and give it the task. The launched world
 owns the execution mode. Its cameras publish native `image`, `camera_info` and,
-for RGB-D, `depth` topics and render a current frame for each new subscriber, so
-Kinex can read them while a stepped world is paused. See
-[ROS communication](docs/communication.md) for the operation and Python contracts.
+for RGB-D, `depth` topics and render a current frame for each new subscriber,
+repeating it while paused, so Kinex can read them while a stepped world is
+paused. See [ROS communication](docs/communication.md) for the operation and
+Python contracts.
 
 ### Practise tasks and keep what was learned
 

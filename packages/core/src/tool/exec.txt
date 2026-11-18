@@ -1,18 +1,17 @@
-Run Python source or a script in the workspace's Kinex Python. Device environments and the world clock never choose this interpreter. Python cannot load/unload devices or control recording; lifecycle remains host-controlled. One execution approval covers composed operations.
-Discover interfaces on demand, without starting devices:
-  from kinex import runtime, finish
-  devices = runtime.devices()
-  # runtime.operations(device_name) lists declared operations, even if unloaded.
-  # runtime.describe(operation) resolves ROS payload schemas when needed.
-  finish({"devices": [{"name": d["name"], "loaded": d["loaded"]} for d in devices]})
-Use actual operation names from these queries, not names inferred from device types. Catalogs remain in Python until you explicitly return selected fields. Load required devices through the host before communication.
-For async protocol work, import communication, args, finish from kinex. For example, where args supplies a discovered command topic and its ROS payload:
+Run a Python program in the workspace's Kinex Python, given as python source or a saved file. Python cannot load or unload devices or control recording.
+A program is a complete script that ends with finish:
+  import asyncio
+  from kinex import args, finish, io, lib
+
   async def main():
-      a = args()
-      async with communication() as io:
-          await io.publish(a["operation"], a["payload"])
-      finish({"sent": True})
-  # Execute with asyncio.run(main()). Sending is not measured arrival.
-Use io.subscribe(operation, depth=1) and await stream.next(timeout_s=...) for output topics (with or async with closes the stream early); await io.request(operation, **fields) for services. World wait operations own scheduling, one wait at a time. Observations and tf2 queries never advance world time. Bound work, inspect fresh measured feedback, and stop on terminal task status. Service rejections raise kinex.OperationError with operation, response and structured details; inspect the response and relevant feedback before deciding how to recover.
-Import helpers with from kinex import helpers. Read kinex/helpers/helpers.txt under the Python library directory in runtime context for available functions and implementation paths. Builtin Python tools are interfaces to these helpers; call them directly to share this invocation's communication and cleanup. Put workspace-specific helpers in .kinex/lib, which exec can import.
-Failure, timeout or cancellation stops every device this invocation commanded; success leaves their motion running. finish(value, file=paths) returns selected summaries as JSON, converting ROS messages and NumPy values, and images only through file paths, after leaving the communication scope. Do not print entire catalogs or raw streams unless requested.
+      state = await io.read("arm.joint_state")
+      image, _ = await lib.images.camera_frame(args()["camera"])
+      finish({"positions": state.position}, file=[image])
+
+  asyncio.run(main())
+finish(result=None, file=None) is the only way to return. result is JSON data; messages, arrays and dataclasses are converted, a pose to [x, y, z, qx, qy, qz, qw], a time to seconds. Images are never data: attach those you must see through file, an image message or path or a list of them. Without finish the result is null; an uncaught exception is the failure. Printed text is returned too; keep it short.
+runtime discovers without starting devices: runtime.devices(), runtime.operations(name), runtime.describe("device.operation"). Use the names these give, never ones guessed from a device type; load devices through the host first.
+io reaches devices: await io.read(operation) takes an output topic's next message, io.subscribe(operation) with await stream.next(timeout_s=...) follows one, await io.publish(operation, message) commands a topic and await io.request(operation, **fields) calls a service; a rejection raises kinex.OperationError. Fields take seconds for a time and a pose for a Pose or Transform: a scipy RigidTransform, from kinex.pose(value), or its seven numbers. Sending is not arrival: wait on the world device's wait operation, one at a time, then check fresh feedback; bound every loop.
+lib holds reusable functions, which take and return NumPy arrays, poses and seconds: find them with the lib tool, call lib.module.function(...). Save a function to reuse in a .kinex/lib module (it imports io from kinex; no io parameter) and a whole task as a program in .kinex/programs, run again by file.
+await kinex.subagent(instruction, show={"wrist": image}) returns a model's judgment as text; it sees only what is shown and has no tools, so state the reply's form and check it.
+Failure, timeout or cancellation stops every device the program commanded; success leaves motion running.

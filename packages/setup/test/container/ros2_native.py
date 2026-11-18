@@ -2,9 +2,9 @@
 import asyncio
 import os
 
-from kinex import helpers
+from kinex.lib import frames
 from kinex.communication import communication
-from kinex.lib.frames import publish_profile
+from kinex.common.frames import publish_profile
 
 async def main():
     from rclpy.node import Node
@@ -51,7 +51,7 @@ async def main():
                 transform = buffer.lookup_transform('world/base', 'arm/tool', Time())
                 v = transform.transform.translation
                 assert (v.x, v.y, v.z) == (1, 2, 3)
-                relation = await helpers.lookup_transform(io, 'world:base', 'arm:tool')
+                relation = await frames.lookup_transform('world:base', 'arm:tool')
                 assert relation.transform == transform.transform
                 assert not buffer.can_transform('world/base', 'arm/unknown', Time())
         finally:

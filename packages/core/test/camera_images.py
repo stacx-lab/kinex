@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from kinex.lib.camera import array, frame, save
-from kinex.helpers.perception import _locate
+from kinex.common.camera import array, frame, save
+from kinex.lib.perception import _locate
 
 def locate(*args, **kwargs):
     return asyncio.run(_locate(*args, **kwargs))
@@ -51,7 +51,7 @@ class CameraImages(unittest.TestCase):
         depth[0, 0] = 0
         result = locate(profile, np.ones((3, 3), dtype=bool), depth_image=message("16UC1", depth))
         self.assertEqual(result["depth_samples"], 8)
-        self.assertEqual(result["pixel"], [1, 1])
+        self.assertEqual(result["pixel"].tolist(), [1, 1])
         np.testing.assert_allclose(result["point"], [0, 0, 2])
         with self.assertRaisesRegex(ValueError, "16UC1"):
             locate(profile, np.ones((3, 3), dtype=bool), depth_image=message("mono8", depth.astype(np.uint8)))
