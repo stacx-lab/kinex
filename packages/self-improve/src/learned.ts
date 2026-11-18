@@ -59,8 +59,8 @@ export async function keep(workspace: string, library: string, record: string): 
   const kinex = path.join(workspace, ".kinex")
   const payload = payloadDir(library)
   const named = (...parts: string[]) => path.join(path.relative(workspace, kinex), ...parts)
-  // A library ships its code package as a skill's body, which its brief has the
-  // worker extract: such a file is the library's, not the worker's.
+  // A library made before payloads had lib/ shipped its code as a skill's body,
+  // which its brief had the worker extract: such a file is the library's, not the worker's.
   const skills = await Promise.all((await entries(path.join(payload, "skills"))).map(async name =>
     ({ name, text: await readFile(path.join(payload, "skills", name, "SKILL.md"), "utf8").catch(() => "") })))
   const kept: Kept[] = []
