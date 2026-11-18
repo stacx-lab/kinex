@@ -78,11 +78,24 @@ jobs. Cancelling a wait never cancels the work.
 
 ## Isolation and boundaries
 
-Children run without permission prompts. They are kept to their folder by a clean
-workspace, an environment without rosbridge's activation and an instruction, not
-by a sandbox, and they keep network access. Trial workspaces link one shared
-Kinex Python environment, which the scheduling process prepares one trial at a
-time before any worker uses it.
+Children run without permission prompts. A worker runs in a bubblewrap sandbox
+that the scheduling process builds from an empty root, with its own process, IPC
+and mount namespaces and no capabilities. It can write only its workspace, its
+transcript and Kinex's agent folder (credentials refresh there; settings stay
+read-only), and read only the system, Node, Kinex, the shared Python environment
+and Kinex's configuration. rosbridge's command, files and processes, other jobs,
+the run's libraries and every verdict have no name inside, so a worker can neither
+stop its simulator nor change its outcome: `rosbridge launch`, `setup`, `stop`
+and `judge` all run outside. It shares the host's network, which DDS to its
+simulator and the model's API need, so other ROS domains and the internet stay
+reachable. Its `/dev/shm` is its own, so DDS reaches the simulator over UDP. A run
+made before the sandbox, or with `"sandbox": false`, runs workers unsandboxed;
+distillers and helpers always do, kept to their folder by a clean workspace, an
+environment without rosbridge's activation and an instruction.
+
+Trial workspaces link one shared Kinex Python environment, which the scheduling
+process prepares one trial at a time before any worker uses it; workers read it
+only.
 
 The package reaches simulators only through the rosbridge command and core only
 through package exports. Standalone composes it by default and ships it inside

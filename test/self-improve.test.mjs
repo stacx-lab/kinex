@@ -12,6 +12,9 @@ const exec = promisify(execFile)
 const entry = fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url))
 const isolation = await isolate()
 after(isolation.cleanup)
+// Workers run sandboxed wherever bubblewrap can; a host without it runs them as before.
+const sandbox = await exec('bwrap', ['--unshare-all', '--share-net', '--ro-bind', '/', '/', 'true']).then(() => true, () => false)
+if (!sandbox) process.env.KINEX_SELF_IMPROVE_SANDBOX = 'off'
 
 // Stands in for rosbridge: two tasks on one robot, an instruction in the run log,
 // and an episode that succeeds only when the workspace has the `press` skill.
@@ -104,7 +107,7 @@ test('/self-improve runs trials, distills a library and reruns with it', { timeo
   const [name] = (await readdir(runs)).filter(entry => !entry.startsWith('.'))
   const root = path.join(runs, name)
   const json = async file => JSON.parse(await readFile(path.join(root, file), 'utf8'))
-  assert.deepEqual(await json('config.json'), { selection: 'the sim tasks', rounds: 2, parallel: 1, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, rosbridge })
+  assert.deepEqual(await json('config.json'), { selection: 'the sim tasks', rounds: 2, parallel: 1, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, rosbridge, sandbox })
 
   await t.test('a trial is one judged episode with its own record', async () => {
     assert.deepEqual(await json('trials/t001/input.json'), { task: 'sim/open-door', robot: 'sim/arm', library: 'L0', timeoutS: 3600 })
