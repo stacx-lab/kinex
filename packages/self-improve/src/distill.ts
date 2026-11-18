@@ -19,15 +19,14 @@ export const candidateDir = (workspace: string) => path.join(workspace, "library
 
 // What a distiller may know of a worker's world, as rsi gives its principal:
 // Kinex's own reference, the Python package a worker's code imports with the
-// built-in tools as examples, and the robot workspace a worker starts in, whose
-// device profiles name every operation. A library's code is written and tested
-// against these; all of it is what a worker has itself.
+// builtin kinex.lib modules as examples, and the robot workspace a worker starts
+// in, whose device profiles name every operation. A library's code is written and
+// tested against these; all of it is what a worker has itself.
 export async function reference(directory: string, rig: string | undefined) {
   const source = (file: string) => path.basename(file) !== "__pycache__"
   await mkdir(directory, { recursive: true })
   await cp(fileURLToPath(new URL("../README.md", import.meta.resolve("@kinex/core"))), path.join(directory, "kinex-core.md"))
   await cp(Assets.python("kinex"), path.join(directory, "python-kinex"), { recursive: true, filter: source })
-  await cp(Assets.builtin("tool"), path.join(directory, "builtin-tool"), { recursive: true, filter: source })
   if (rig) for (const part of ["workspace.yaml", "devices"]) await cp(path.join(rig, part), path.join(directory, "workspace", part), { recursive: true, filter: source })
   await writeFile(path.join(directory, "INDEX.md"), REFERENCE)
 }

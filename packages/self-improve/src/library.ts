@@ -1,9 +1,7 @@
 import { cp, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
-import { parse as parseYaml } from "yaml"
 import { ConfigPaths } from "@kinex/core/config/paths"
 import { parseFrontmatter } from "@kinex/core/skill/index"
-import { ToolManifest } from "@kinex/core/tool/python-catalog"
 import { entries, librariesDir, versionDir, writeJson } from "./layout.ts"
 
 // A library is what a worker is given beyond plain Kinex. payload/ ships and
@@ -51,35 +49,26 @@ export async function check(library: string): Promise<string[]> {
   const problems: string[] = []
   const skills = path.join(payloadDir(library), "skills")
   const tools = path.join(payloadDir(library), "tools")
-  const names = { skill: new Set<string>(), tool: new Set<string>() }
-  const claim = (kind: "skill" | "tool", name: string, file: string) => {
-    if (names[kind].has(name)) problems.push(`${file}: duplicate ${kind} name "${name}"`)
-    names[kind].add(name)
+  const names = new Set<string>()
+  const claim = (name: string, file: string) => {
+    if (names.has(name)) problems.push(`${file}: duplicate skill name "${name}"`)
+    names.add(name)
   }
   for (const entry of (await readdir(skills, { recursive: true }).catch(() => [])).sort()) {
     if (path.basename(entry) !== "SKILL.md") continue
     const file = path.join("payload/skills", entry)
     const { meta } = parseFrontmatter(await readFile(path.join(skills, entry), "utf8"))
     if (!meta["name"] || !meta["description"]) problems.push(`${file}: frontmatter needs name and description`)
-    else claim("skill", meta["name"], file)
+    else claim(meta["name"], file)
   }
   for (const name of await entries(skills)) {
     const directory = path.join(skills, name)
     if ((await stat(directory)).isDirectory() && !(await exists(path.join(directory, "SKILL.md")))) problems.push(`payload/skills/${name}: no SKILL.md`)
   }
-  for (const name of await entries(tools)) {
-    const directory = path.join(tools, name)
-    if (!(await stat(directory)).isDirectory()) continue
-    const file = `payload/tools/${name}/tool.yaml`
-    const text = await readFile(path.join(directory, "tool.yaml"), "utf8").catch(() => undefined)
-    if (text === undefined) { problems.push(`${file}: missing`); continue }
-    const raw = (() => { try { return parseYaml(text) as unknown } catch (error) { return error instanceof Error ? error : new Error(String(error)) } })()
-    if (raw instanceof Error) { problems.push(`${file}: ${raw.message}`); continue }
-    const manifest = ToolManifest.safeParse(raw)
-    if (!manifest.success) { problems.push(`${file}: ${manifest.error.issues.map(issue => `${issue.path.join(".") || "manifest"}: ${issue.message}`).join("; ")}`); continue }
-    claim("tool", manifest.data.name, file)
-    if (!(await exists(path.join(directory, manifest.data.entry)))) problems.push(`${file}: entry ${manifest.data.entry} does not exist`)
-  }
+  // Kinex loads a tool only from a .ts or .js file directly in tools/: anything else there would ship and never load.
+  for (const name of await entries(tools))
+    if (!/\.(ts|js)$/.test(name) || !(await stat(path.join(tools, name))).isFile())
+      problems.push(`payload/tools/${name}: Kinex loads only .ts and .js files in tools/; put Python code in a kinex.lib module`)
   const brief = (await readFile(path.join(payloadDir(library), "brief.md"), "utf8").catch(() => "")).trim()
   const lines = brief ? brief.split(/\r?\n/).length : 0
   if (lines > briefLimit.lines || brief.length > briefLimit.characters)
