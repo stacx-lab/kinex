@@ -176,6 +176,39 @@ class ReferenceNodes(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, message):
                 force_torque.ForceTorque({"name": "ft", "measurement": measurement}, None)
 
+    def test_the_host_publishes_urdf_links_only_for_joint_and_gripper_models(self):
+        sent = {"static": [], "moving": []}
+        sys.modules.update(joint_modules())
+        sys.modules["geometry_msgs.msg"].TransformStamped = lambda: NS(
+            header=NS(frame_id="", stamp=None), child_frame_id="", transform=NS(translation=NS(), rotation=NS()))
+        sys.modules["tf2_ros"].StaticTransformBroadcaster = lambda node: NS(sendTransform=sent["static"].extend)
+        sys.modules["tf2_ros"].TransformBroadcaster = lambda node, qos: NS(sendTransform=sent["moving"].extend)
+        sys.modules.pop("kinex.host.links", None)
+        from kinex.host.device import has_links
+        from kinex.host.links import LinkPublisher
+        state = {"joint_state": {"endpoint": "/gripper/joint_state", "type": "sensor_msgs/msg/JointState"}}
+        model = {"format": "urdf", "path": "gripper.urdf", "base_link": "base_link"}
+        gripper = {"name": "gripper", "type": "gripper", "operations": state, "model": model}
+        directory = TEMPLATES / "gripper"
+        # Only joint and gripper profiles hold a URDF model; nothing else starts a publisher.
+        for profile in ({**gripper, "type": "rgb"}, {"name": "sam", "type": "model", "operations": {}, "family": "sam"}, {"name": "bare", "operations": state},
+                        {**gripper, "model": {**model, "path": "???"}}, {**gripper, "model": "???"},
+                        {**gripper, "model": {**model, "format": "mjcf"}}, {**gripper, "operations": {}}):
+            self.assertFalse(has_links(profile))
+        self.assertTrue(has_links(gripper))
+        self.assertTrue(has_links({**gripper, "type": "joint", "model": {**model, "tip_links": []}}))
+        links = LinkPublisher(gripper, None, directory)
+        self.assertEqual(links.name, "kinex_gripper_links")
+        self.assertEqual([(t.header.frame_id, t.child_frame_id) for t in sent["static"]],
+                         [("gripper/left_finger", "gripper/left_pad"), ("gripper/right_finger", "gripper/right_pad")])
+        links.subscriptions["/gripper/joint_state"](NS(name=["finger_joint"], position=[.01], header=NS(stamp="measured")))
+        # The base link is the device base; the mimic finger follows the measured one.
+        self.assertEqual([(t.header.frame_id, t.child_frame_id, t.header.stamp, round(t.transform.translation.y, 6))
+                          for t in sent["moving"]],
+                         [("gripper/base", "gripper/left_finger", "measured", .01),
+                          ("gripper/base", "gripper/right_finger", "measured", -.01)])
+        self.assertTrue(links.observed)
+
 
 if __name__ == "__main__":
     unittest.main()

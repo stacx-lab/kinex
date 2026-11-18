@@ -66,7 +66,8 @@ the environment.
 Use `profile_write` to validate and preserve typed facts/provenance. Leave unknown
 facts as `???`, mark missing calibration and clear resolved requests with
 `needs_calibration: null`. New devices stay unloaded. Kinex publishes known static
-frames; URDF link publishers publish measured moving frames. Kinex owns tf2 lookup
+frames and, for a joint or gripper device, its URDF links from measured
+`joint_state`; no device node publishes them. Kinex owns tf2 lookup
 (`lib.frames.lookup_transform`); devices never serve it.
 When a simulator has a robot catalog, export that catalog as the source of truth
 for its nodes and operation descriptions; type guides do not reproduce a

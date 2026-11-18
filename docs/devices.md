@@ -72,8 +72,8 @@ frames:
 Non-root ??? transform components mean unknown, never identity. Kinex publishes
 complete fixed edges to tf2. Joint and gripper geometry is a URDF: `model.base_link`
 is the device base, and each link below it is a device frame named by the link,
-published from measured joint state, mimic joints included, by the template
-`links.py` node. Profile frames may use a link as a parent but must not reuse its
+which Kinex publishes from measured `joint_state`, mimic joints included, while
+the device is loaded. Profile frames may use a link as a parent but must not reuse its
 name. References must exist and be acyclic. ROS IDs use `device/frame`;
 `lib.frames.lookup_transform` accepts these IDs or qualified `device:frame`
 references. Query at observation stamps. Simulator nodes supply measurements and

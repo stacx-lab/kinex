@@ -61,8 +61,7 @@ public endpoints. Their source routes are implementation details. Kinex remaps
 each device node's `/clock` to the world `time` topic; the world template's clock
 node disables global ROS arguments so it is never remapped into its own output.
 Workspaces exported by [rosbridge](https://github.com/stacx-lab/rosbridge) borrow
-the simulator graph's endpoints and start only the `links.py` nodes of joint and
-gripper devices.
+the simulator graph's endpoints and declare no nodes of their own.
 
 `load`, `unload` and `status` are host lifecycle operations, not declared ROS
 operations; profiles cannot declare them. `stop` calls the declared
@@ -275,9 +274,10 @@ and publish no static edge. ROS frame IDs use `<device>/<frame>`, including
 `arm/base`, `arm/flange` and `gripper/tcp`. Kinex lookup accepts either qualified
 profile references (`arm:base`) or native ROS IDs (`arm/base`).
 
-A joint or gripper device's `links.py` factory creates a persistent
-`kinex.node.LinkPublisher`. It reads the profile's URDF once, subscribes to
-measured `joint_state`, and publishes every link below the base link as
+Loading a joint or gripper device whose profile has a complete URDF `model` and a
+`joint_state` operation starts a link publisher beside its nodes
+(`kinex.host.links`); profiles declare nothing for it. It reads the profile's URDF
+once, subscribes to measured `joint_state`, and publishes every link below the base link as
 `<device>/<link>`: fixed joints once on `/tf_static`, movable and mimic joints on
 `/tf`. Measurements are never clamped to command limits, and each publication
 retains the measurement timestamp. Dynamic TF retains the latest sample with
