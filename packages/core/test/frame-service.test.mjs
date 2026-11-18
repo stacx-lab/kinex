@@ -33,7 +33,7 @@ frames: {...{base: {parent: null, translation_m: null, rotation_xyzw: null}}} })
     return JSON.parse(result.output).result
   }
   const first = await snapshot()
-  assert.equal(first.type, 'kinex_interfaces/srv/LookupTransform')
+  assert.equal(first.type, 'custom_interfaces/srv/LookupTransform')
   assert.match(first.endpoint, /^\/kinex\/internal\/f_/)
   await runtime.devices.unload('sensor')
   assert.deepEqual(await snapshot(), first)
