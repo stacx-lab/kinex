@@ -30,18 +30,24 @@ test('the check reports what Kinex could not load, and only a clean candidate is
   await put(path.join(candidate, 'payload/tools/reach.ts'), 'export default {}\n')
   await put(path.join(candidate, 'payload/tools/legacy/tool.yaml'), 'name: legacy\ndescription: A Python tool Kinex no longer loads\n')
   await put(path.join(candidate, 'payload/tools/notes.md'), 'x\n')
+  await put(path.join(candidate, 'payload/lib/doors.py'), '"""Door helpers."""\n')
+  await put(path.join(candidate, 'payload/lib/__pycache__/doors.cpython-312.pyc'), 'cache')
+  await put(path.join(candidate, 'payload/lib/motion.py'), '"""Shadows the builtin motion module."""\n')
+  await put(path.join(candidate, 'payload/lib/images/__init__.py'), '"""Shadows the builtin images module."""\n')
+  await put(path.join(candidate, 'payload/programs/open_door.py'), 'from kinex import finish\nfinish(True)\n')
   await put(path.join(candidate, 'memory/EVIDENCE.md'), 'kept\n')
   await put(path.join(candidate, 'payload/brief.md'), 'Step.\n'.repeat(16))
   const problems = await check(candidate)
   assert.deepEqual(problems.map(problem => problem.split(':')[0]).sort(), [
-    'payload/brief.md', 'payload/skills/empty', 'payload/skills/twin/SKILL.md', 'payload/skills/unnamed/SKILL.md',
-    'payload/tools/legacy', 'payload/tools/notes.md',
+    'payload/brief.md', 'payload/lib/images', 'payload/lib/motion.py', 'payload/skills/empty', 'payload/skills/twin/SKILL.md',
+    'payload/skills/unnamed/SKILL.md', 'payload/tools/legacy', 'payload/tools/notes.md',
   ])
   assert.deepEqual(await publish(root, candidate, { parent: 'L0', source: 'd001' }), { problems })
   assert.deepEqual(await versions(root), ['L0'])
 
   for (const name of ['unnamed', 'twin', 'empty']) await rm(path.join(candidate, 'payload/skills', name), { recursive: true })
   for (const name of ['legacy', 'notes.md']) await rm(path.join(candidate, 'payload/tools', name), { recursive: true })
+  for (const name of ['motion.py', 'images']) await rm(path.join(candidate, 'payload/lib', name), { recursive: true })
   await put(path.join(candidate, 'payload/brief.md'), 'x'.repeat(2001))
   assert.deepEqual(await check(candidate), ['payload/brief.md: 1 lines and 2001 characters, at most 15 lines and 2000 characters'])
   await put(path.join(candidate, 'payload/brief.md'), 'Load good first.\n')
@@ -53,9 +59,12 @@ test('the check reports what Kinex could not load, and only a clean candidate is
   await t.test('install copies the payload where Kinex discovers it and never overwrites', async () => {
     const workspace = path.join(root, 'workspace')
     await mkdir(workspace)
-    assert.deepEqual(await install(path.join(root, 'libraries/L1'), workspace), { skills: ['good'], tools: ['reach.ts'] })
+    assert.deepEqual(await install(path.join(root, 'libraries/L1'), workspace), { skills: ['good'], tools: ['reach.ts'], lib: ['doors.py'], programs: ['open_door.py'] })
     assert.equal(await readFile(path.join(workspace, '.kinex/skills/good/SKILL.md'), 'utf8'), skill('good'))
     assert.equal(await readFile(path.join(workspace, '.kinex/tools/reach.ts'), 'utf8'), 'export default {}\n')
+    assert.equal(await readFile(path.join(workspace, '.kinex/lib/doors.py'), 'utf8'), '"""Door helpers."""\n')
+    assert.deepEqual(await readdir(path.join(workspace, '.kinex/lib')), ['doors.py'])
+    assert.match(await readFile(path.join(workspace, '.kinex/programs/open_door.py'), 'utf8'), /finish\(True\)/)
     assert.equal(await installedBrief(workspace), 'Load good first.')
     await assert.rejects(readFile(path.join(workspace, '.kinex/memory/EVIDENCE.md')), { code: 'ENOENT' })
     await assert.rejects(install(path.join(root, 'libraries/L1'), workspace), /Already present[\s\S]*skills\/good[\s\S]*tools\/reach/)

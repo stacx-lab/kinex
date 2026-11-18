@@ -1,6 +1,7 @@
 import { cp, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
 import { ConfigPaths } from "@kinex/core/config/paths"
+import { Assets } from "@kinex/core/installation/assets"
 import { parseFrontmatter } from "@kinex/core/skill/index"
 import { entries, librariesDir, versionDir, writeJson } from "./layout.ts"
 
@@ -11,8 +12,15 @@ import { entries, librariesDir, versionDir, writeJson } from "./layout.ts"
 export const payloadDir = (library: string) => path.join(library, "payload")
 export const memoryDir = (library: string) => path.join(library, "memory")
 export const briefFile = (kinex: string) => path.join(kinex, "self-improve", "brief.md")
+// The payload folders, each installed into the workspace's Kinex folder of the same
+// name: skills, host tools, kinex.lib modules, and programs exec runs by file.
+export const PARTS = ["skills", "tools", "lib", "programs"] as const
+export type Part = typeof PARTS[number]
 
 const exists = (target: string) => stat(target).then(() => true, () => false)
+// Python's byte-code caches, left by code a distiller ran, are not part of a library.
+const CACHE = "__pycache__"
+const shipped = async (library: string, part: Part) => (await entries(path.join(payloadDir(library), part))).filter(name => name !== CACHE)
 
 // Every session in a workspace with the library installed is given its brief,
 // so a brief that ships stays as short as the distiller is asked to keep it.
@@ -33,7 +41,7 @@ async function write(root: string, source: string | undefined, manifest: { paren
   const version = `L${(await versions(root)).reduce((highest, name) => Math.max(highest, number(name)), -1) + 1}`
   const staging = path.join(librariesDir(root), `.${version}-${process.pid}`)
   await rm(staging, { recursive: true, force: true })
-  for (const part of ["skills", "tools"]) await mkdir(path.join(payloadDir(staging), part), { recursive: true })
+  for (const part of PARTS) await mkdir(path.join(payloadDir(staging), part), { recursive: true })
   await mkdir(memoryDir(staging))
   if (source) for (const part of [payloadDir, memoryDir]) if (await exists(part(source))) await cp(part(source), part(staging), { recursive: true })
   await writeJson(path.join(staging, "manifest.json"), { version, ...manifest, createdAt: new Date().toISOString() })
@@ -44,7 +52,7 @@ async function write(root: string, source: string | undefined, manifest: { paren
 
 export const createLibrary = (root: string) => write(root, undefined, {})
 
-/** Problems that would keep Kinex from loading the candidate's skills and tools; none means it may ship. */
+/** Problems that would keep the candidate from loading as Kinex content, or break Kinex's own; none means it may ship. */
 export async function check(library: string): Promise<string[]> {
   const problems: string[] = []
   const skills = path.join(payloadDir(library), "skills")
@@ -69,6 +77,11 @@ export async function check(library: string): Promise<string[]> {
   for (const name of await entries(tools))
     if (!/\.(ts|js)$/.test(name) || !(await stat(path.join(tools, name))).isFile())
       problems.push(`payload/tools/${name}: Kinex loads only .ts and .js files in tools/; put Python code in a kinex.lib module`)
+  // A workspace module replaces the builtin kinex.lib module of the same name, in every worker.
+  const builtins = new Set((await entries(Assets.python("kinex", "lib"))).map(name => name.replace(/\.py$/, "")))
+  for (const name of await shipped(library, "lib"))
+    if (!name.startsWith("_") && builtins.has(name.replace(/\.py$/, "")))
+      problems.push(`payload/lib/${name}: replaces the builtin kinex.lib module of the same name for every worker; rename it`)
   const brief = (await readFile(path.join(payloadDir(library), "brief.md"), "utf8").catch(() => "")).trim()
   const lines = brief ? brief.split(/\r?\n/).length : 0
   if (lines > briefLimit.lines || brief.length > briefLimit.characters)
@@ -83,19 +96,19 @@ export async function publish(root: string, candidate: string, manifest: { paren
 }
 
 /**
- * Version to workspace: its skills and tools go where Kinex discovers them and
- * its brief where this package's context gives it to every session. Trial
+ * Version to workspace: each payload part goes where Kinex discovers it and the
+ * brief where this package's context gives it to every session. Trial
  * workspaces and /self-improve install use this same copy, so a worker sees a
  * library exactly as a user who installed it. Nothing existing is overwritten.
  */
-export async function install(library: string, workspace: string): Promise<{ skills: string[]; tools: string[] }> {
+export async function install(library: string, workspace: string): Promise<Record<Part, string[]>> {
   const kinex = await ConfigPaths.projectDir(workspace)
-  const installed = { skills: await entries(path.join(payloadDir(library), "skills")), tools: await entries(path.join(payloadDir(library), "tools")) }
-  const copies = (["skills", "tools"] as const).flatMap(part => installed[part].map(name =>
+  const installed = Object.fromEntries(await Promise.all(PARTS.map(async part => [part, await shipped(library, part)]))) as Record<Part, string[]>
+  const copies = PARTS.flatMap(part => installed[part].map(name =>
     ({ from: path.join(payloadDir(library), part, name), to: path.join(kinex, part, name) })))
   const taken = (await Promise.all(copies.map(async copy => await exists(copy.to) ? copy.to : undefined))).filter(target => target !== undefined)
   if (taken.length) throw new Error(`Already present, remove or rename before installing:\n${taken.join("\n")}`)
-  for (const copy of copies) await cp(copy.from, copy.to, { recursive: true })
+  for (const copy of copies) await cp(copy.from, copy.to, { recursive: true, filter: source => path.basename(source) !== CACHE })
   const brief = path.join(payloadDir(library), "brief.md")
   if (await exists(brief)) await cp(brief, briefFile(kinex))
   return installed
