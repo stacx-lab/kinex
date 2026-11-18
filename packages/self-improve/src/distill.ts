@@ -14,7 +14,8 @@ import REFERENCE from "./reference.txt"
 
 // The frame and the rules are rsi's distill-lean prompts, edited only where this
 // package differs from rsi: one episode per trial, trials in waves, the folder
-// names, the check and sub-agents as tools, one library with task skills, no container.
+// names, the check and sub-agents as tools, one library with task skills, code as
+// kinex.lib modules rather than a skill's body, no container.
 export const candidateDir = (workspace: string) => path.join(workspace, "library")
 
 // What a distiller may know of a worker's world, as rsi gives its principal:

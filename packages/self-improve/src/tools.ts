@@ -127,7 +127,7 @@ const Delegate = define("improve_delegate", {
 })
 
 const Check = define("improve_check", {
-  description: "The gate: loads library/payload the way Kinex would and returns what does not load, and a brief.md longer than 15 lines or 2,000 characters. A library with problems is not published.",
+  description: "The gate: loads library/payload the way Kinex would and returns what does not load, a lib module named like a builtin kinex.lib module, and a brief.md longer than 15 lines or 2,000 characters. A library with problems is not published.",
   parameters: z.strictObject({}),
   execute: async (_args, ctx) => {
     const problems = await check(candidateDir(ctx.directory))

@@ -118,7 +118,7 @@ See [using kinex-sim with Kinex](https://github.com/stacx-lab/kinex-sim/blob/mai
 ### Practise tasks and keep what was learned
 
 With a simulator prepared, `/self-improve` lets Kinex attempt a set of tasks,
-study its own attempts and distill them into a library of skills and tools:
+study its own attempts and distill them into a library of skills and code:
 
 ```text
 /self-improve robocasa/add-ice-cubes robocasa/adjust-heat --rounds 2
