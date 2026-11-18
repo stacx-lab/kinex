@@ -2,7 +2,7 @@
 import math
 import threading
 
-from kinex_interfaces.srv import LookupTransform
+from custom_interfaces.srv import LookupTransform
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.clock import Clock as RosClock, ClockType
 from rclpy.duration import Duration

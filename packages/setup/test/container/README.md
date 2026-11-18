@@ -7,8 +7,8 @@ bash packages/setup/test/container/ros2-smoke.sh
 ```
 
 This smoke gate targets ROS 2 Jazzy on Ubuntu 24.04 with Python 3.12 and uses
-native rclpy, DDS discovery and ROS message classes. It builds the interface
-packages from the mounted source; a container-local sensor then publishes Float64
+native rclpy, DDS discovery and ROS message classes. It builds `custom_interfaces`
+from the mounted source; a container-local sensor then publishes Float64
 measurements and answers a Trigger service. The test also composes several
 device-local static frames in tf2, checks that `lib.frames.lookup_transform` agrees
 with tf2 and that unknown transforms stay unavailable.

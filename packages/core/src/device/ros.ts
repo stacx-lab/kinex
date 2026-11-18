@@ -215,7 +215,7 @@ export async function rosCatalog(cwd: string) {
   const domain = ready[0]?.runtime?.domain_id ?? 0
   const frameHost = frameHosts().get(`${await ProfileStore.workspaceDir(cwd)}:frames:${domain}`)
   return { domain_id: domain,
-    ...(frameHost?.ready && frameHost.proc.exitCode === null ? { frames: { endpoint: frameHost.endpoint, type: "kinex_interfaces/srv/LookupTransform" } } : {}),
+    ...(frameHost?.ready && frameHost.proc.exitCode === null ? { frames: { endpoint: frameHost.endpoint, type: "custom_interfaces/srv/LookupTransform" } } : {}),
     catalog: Object.fromEntries(ready.flatMap(device => Object.entries(resolvedOperations(device)).map(([name, op]) => [`${device.name}.${name}`, op]))) }
 }
 

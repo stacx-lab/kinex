@@ -291,7 +291,7 @@ entry. A controller with native kinematics may declare `fk` or `ik` as ordinary
 optional operations.
 
 Kinex automatically owns a persistent tf2 service
-(`kinex_interfaces/srv/LookupTransform`) for each runtime ROS domain with a world
+(`custom_interfaces/srv/LookupTransform`) for each runtime ROS domain with a world
 clock. Use
 `await lib.frames.lookup_transform(target, source, stamp=None, timeout_s=5)`,
 which returns the pose of `source` in `target` as a `RigidTransform`: multiplying it
@@ -333,14 +333,13 @@ to a model device. Pass an image to `finish(file=...)` to attach it for the mode
 
 ## Native validation
 
-`custom_interfaces` defines only the `Json` and `Wait` services that devices
-declare, and `kinex_interfaces` only Kinex's own `LookupTransform`; commands and
-observations use standard ROS messages. The ROS providers build both from
-`packages/core/assets/ros`; build that directory in any other ROS environment
-that calls these services.
-[rosbridge](https://github.com/stacx-lab/rosbridge) serves `custom_interfaces`
-services from its own byte-identical copy of the package, so neither project
-needs the other's checkout to build.
+`custom_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
+services; commands and observations use standard ROS messages. The ROS
+providers build it from `packages/core/assets/ros`; build that directory in any
+other ROS environment that calls these services.
+[rosbridge](https://github.com/stacx-lab/rosbridge) serves `Wait` and `Json`
+from its own byte-identical copy of the package, so neither project needs the
+other's checkout to build.
 
 `rosbridge setup <robot> --directory DIR --domain-id N` exports a workspace whose
 devices borrow the running graph's endpoints. Start the simulator with

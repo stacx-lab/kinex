@@ -83,7 +83,7 @@ class DeviceHost:
         if action == "$frames":
             from kinex.host.frame_graph import FrameGraphNode
             self.io = communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).open()
-            self.io.frame_service = {"endpoint": args["endpoint"], "type": "kinex_interfaces/srv/LookupTransform"}
+            self.io.frame_service = {"endpoint": args["endpoint"], "type": "custom_interfaces/srv/LookupTransform"}
             self.graph = FrameGraphNode(args["clock"], args["endpoint"], self.io.context)
             self.io.extra_nodes.append(self.graph)
             self.io.executor.add_node(self.graph)
