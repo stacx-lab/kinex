@@ -6,7 +6,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
 // discovery merges each ancestor's .kinex, and the data directory has none.
 //   <data>/self-improve/<run>/
 //     config.json
-//     libraries/L<n>/{manifest.json, payload/{skills,tools,brief.md}, memory/}
+//     libraries/L<n>/{manifest.json, payload/{skills,tools,lib,programs,brief.md}, memory/}
 //     trials/t<nnn>/{input.json, workspace/, record/}
 //     distillations/d<nnn>/{input.json, workspace/, record/}
 
