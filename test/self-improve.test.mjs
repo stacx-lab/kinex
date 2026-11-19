@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { promisify } from 'node:util'
-import { mkdir, readFile, readdir } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isolate, fakeProvider, workspace } from './helpers.mjs'
@@ -111,6 +112,7 @@ test('/self-improve converts the request, runs trials, distills in the main sess
     const prompt = await readFile(path.join(root, 'distillations/d001/record/prompt.md'), 'utf8')
     assert.doesNotMatch(prompt, /\[\[/)
     assert.match(prompt, /- sim\/open-door: open the door\n- sim\/press-button: press the button/)
+    assert.doesNotMatch(prompt, /schedule\.json/, 'with every task open there is nothing to order')
     // The distiller wrote with paths relative to its folder, and its transcript is the distillation's record.
     const transcript = await readFile(path.join(root, 'distillations/d001/record/session.jsonl'), 'utf8')
     assert.match(transcript, /You turn the records of earlier trials/)
@@ -163,6 +165,77 @@ test('/self-improve converts the request, runs trials, distills in the main sess
     assert.match(await readFile(path.join(target, '.kinex/self-improve/brief.md'), 'utf8'), /BRIEF_MARKER/)
     await assert.rejects(invoke(target, '/self-improve install L1'), /Already present/)
     assert.equal(fake.requests.length, before)
+  })
+})
+
+test('tasks open in batches in the distiller\'s order, a trial that did not run is started again, and a library that fails the check is repaired', { timeout: 240000 }, async t => {
+  const fake = await fakeProvider(t, isolation.root)
+  const tasks = ['sim/open-door', 'sim/press-button']
+  // The order tasks open in is fixed by a hash of their ids.
+  const [first, second] = [...tasks].sort((a, b) => createHash('sha1').update(a).digest('hex').localeCompare(createHash('sha1').update(b).digest('hex')))
+  fake.respond = request => {
+    const text = JSON.stringify(request.messages)
+    const step = request.messages.filter(message => message.role === 'tool').length
+    // The repair turn continues the distiller's session: three tool results are already behind it.
+    if (text.includes('did not pass improve_check')) return [
+      call('write', { path: 'library/payload/brief.md', content: 'BRIEF_MARKER load the press skill first.\n' }),
+      call('improve_check'),
+      { text: 'Repaired.' },
+    ][step - 3]
+    if (text.includes('You turn the records of earlier trials')) return [
+      call('write', { path: 'library/payload/skills/press/SKILL.md', content: SKILL }),
+      call('write', { path: 'library/payload/brief.md', content: 'x'.repeat(2001) }),
+      call('write', { path: 'schedule.json', content: JSON.stringify({ next: [second] }) }),
+      { text: 'The library is ready.' },
+    ][step]
+    if (text.includes('Work only in this directory')) return { text: 'I am done.' }
+    return { text: 'UNEXPECTED_SESSION' }
+  }
+  const state = path.join(isolation.root, 'rosbridge-batches')
+  await mkdir(state)
+  await writeFile(path.join(state, 'fail-launch'), '')
+  await writeFile(path.join(state, 'limit'), '')
+  const env = { ...process.env, KINEX_ROSBRIDGE: rosbridge, FAKE_ROSBRIDGE_STATE: state }
+  const pending = exec(process.execPath, [entry, 'run', '--auto', '/self-improve sim/* --rounds 2 --batches 1'], { cwd: await workspace(t), env, timeout: 200000 })
+  pending.child.stdin.end()
+  const { stdout } = await pending
+  assert.match(stdout, /has ended: every task is solved\./)
+  const runs = path.join(process.env.KINEX_DATA_DIR, 'self-improve')
+  const root = path.join(runs, (await readdir(runs)).filter(entry => !entry.startsWith('.')).at(-1))
+  const json = async file => JSON.parse(await readFile(path.join(root, file), 'utf8'))
+  const read = file => readFile(path.join(root, file), 'utf8')
+  assert.deepEqual((await json('config.json')).batches, [1])
+
+  await t.test('the first wave opens one task, and its trial that did not run is started again', async () => {
+    assert.deepEqual([await json('trials/t001/input.json'), await json('trials/t002/input.json')].map(input => input.task), [first, first])
+    assert.deepEqual({ status: (await json('trials/t001/record/result.json')).status, error: (await json('trials/t001/record/result.json')).error },
+      { status: 'error', error: 'rosbridge launch: no simulator could start' })
+    const ran = await json('trials/t002/record/result.json')
+    assert.deepEqual({ status: ran.status, success: ran.success, reason: ran.reason, steps: ran.steps, worldS: ran.worldS }, { status: 'done', success: false, reason: 'timeout', steps: 40, worldS: 2 })
+    assert.match(stdout, new RegExp(`- t001, ${first}, L0, error, [^\\n]*rosbridge launch: no simulator could start\\n- t002, ${first}, L0, failure, timeout, 40 steps`))
+  })
+
+  await t.test('the distiller is asked to order the tasks not opened yet, and its failing library is repaired in the same session', async () => {
+    const prompt = await read('distillations/d001/record/prompt.md')
+    assert.match(prompt, new RegExp(`- ${second}: \\(not opened yet\\)`))
+    assert.match(prompt, /\n\nOrder of new tasks: write schedule\.json at this folder's root as \{"next": \[task ids\]\}[^\n]*\n\nRules: evidence only from the trials/)
+    assert.match(await read('distillations/d001/workspace/records/TASKS.md'), new RegExp(`2 tasks: 0 solved, 2 unsolved[^]*## ${second} \\[UNSOLVED\\]\\ngoal: \\(not run yet\\)\\nnot opened yet\\n`))
+    assert.match(await read('distillations/d001/workspace/records/PROTOCOL.md'), /- Tasks open in batches of 1, then the rest, one batch a wave/)
+    const result = await json('distillations/d001/record/result.json')
+    assert.deepEqual({ status: result.status, version: result.version, problems: result.problems, repairs: result.repairs }, { status: 'done', version: 'L1', problems: [], repairs: 1 })
+    const transcript = await read('distillations/d001/record/session.jsonl')
+    assert.match(transcript, /did not pass improve_check[^]*payload\/brief\.md: 1 lines and 2001 characters/)
+    assert.match(transcript, /The library is ready[^]*Repaired\./, 'one session, the repair after the distillation')
+    assert.match(await read('libraries/L1/payload/brief.md'), /BRIEF_MARKER/)
+    assert.match(stdout, /- d001, base L0, 2 trials \(2 new\), published L1 after 1 repair turn/)
+  })
+
+  await t.test('the next wave retries the open task and opens the next, each told what is known of its limit', async () => {
+    const inputs = [await json('trials/t003/input.json'), await json('trials/t004/input.json')]
+    assert.deepEqual(inputs.map(input => [input.task, input.library, input.limit]), [[first, 'L1', { steps: 40, worldS: 2 }], [second, 'L1', undefined]])
+    assert.match(await read('trials/t003/record/prompt.md'), /nothing can be done after\. An earlier trial of this task was ended at that limit after 40 steps \(2\.0 s of world time\)\.\n\nSaved resources/)
+    assert.match(await read('trials/t004/record/prompt.md'), /nothing can be done after\.\n\nSaved resources/)
+    assert.deepEqual([(await json('trials/t003/record/result.json')).success, (await json('trials/t004/record/result.json')).success], [true, true])
   })
 })
 

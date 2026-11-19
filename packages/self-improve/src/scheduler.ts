@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto"
 import type { Turn } from "@kinex/core"
 import { createScope, inScope, withSignal } from "@kinex/core/scope"
 import { createJobs, type Jobs } from "@kinex/jobs"
-import { distillTurns, finishDistillation, prepareDistillation, type Distillation } from "./distill.ts"
+import { distillTurns, finishDistillation, prepareDistillation, scheduled as ordered, type Distillation } from "./distill.ts"
 import { finishJob, openJob, type Result } from "./job.ts"
 import { sessionFile, trialsDir } from "./layout.ts"
 import { newestVersion } from "./library.ts"
@@ -12,10 +13,11 @@ import { runTrial } from "./trial.ts"
 import SELECT from "./select.txt"
 
 // The scheduler is code: one loop that reads a run's folder, starts a wave of
-// trials for the tasks still unsolved, and gives the main session a turn to
-// distill each wave into the next library version. A run belongs to the Kinex
-// process, not to a session or a workspace, because the main session leaves its
-// workspace for every distillation. One run is scheduled at a time.
+// trials for the open tasks still unsolved and the next batch of new ones, and
+// gives the main session a turn to distill each wave into the next library
+// version. A run belongs to the Kinex process, not to a session or a workspace,
+// because the main session leaves its workspace for every distillation. One run
+// is scheduled at a time.
 
 /** What the scheduler asks of the session in front of the user. */
 export interface Host { turn(turn: Turn, signal?: AbortSignal): Promise<void> }
@@ -76,6 +78,24 @@ async function tasksOf(state: Scheduled, host: Host, catalog: readonly Task[], s
   finally { state.phase = undefined }
   if (!run.config.tasks) throw new Error("no tasks were selected for the request")
   return run.config.tasks
+}
+
+// The order tasks open in when a distiller has not said: by a hash of the id, so
+// that a batch is a mix of the catalog and the same on every pass.
+const hashed = (task: string) => createHash("sha1").update(task).digest("hex")
+
+/**
+ * The tasks of the next wave: every open task still unsolved, and the next batch
+ * of tasks not opened yet, in the distiller's order first. A task is open once a
+ * trial of it was started. Batches open one a wave, in the sizes given, and the
+ * rest together after them; without batches every task opens in the first wave.
+ */
+export function waveTasks(tasks: readonly string[], opened: ReadonlySet<string>, solved: ReadonlySet<string>, batches: readonly number[] = [], next: readonly string[] = []): string[] {
+  const unopened = tasks.filter(task => !opened.has(task)).sort((a, b) => hashed(a).localeCompare(hashed(b)))
+  const order = [...next.filter(task => unopened.includes(task)), ...unopened.filter(task => !next.includes(task))]
+  let open = 0
+  const size = batches.find(size => (open += size) > opened.size) === undefined ? order.length : open - opened.size
+  return [...tasks.filter(task => opened.has(task) && !solved.has(task)), ...order.slice(0, size)]
 }
 
 // One trial for each task with the newest library. A trial that ends with status
@@ -151,12 +171,13 @@ async function schedule(state: Scheduled, host: Host, signal: AbortSignal): Prom
     const distilled = given(rounds)
     // A trial that did not run is not evidence: it waits for no distillation.
     if (status.trials.some(trial => trial.status && trial.status !== "error" && !distilled.has(trial.id))) { await distill(state, host, status, signal); continue }
-    // A round that neither solved a task nor published leaves the same tasks the same library.
+    const opened = new Set(status.trials.map(trial => trial.task))
+    // A round that neither solved a task nor published leaves the same tasks the same library: only tasks not opened yet would be new.
     const last = rounds.at(-1)
     const before = given(rounds.slice(0, -1))
-    if (last && !last.version && !status.trials.some(trial => trial.success && last.trials.includes(trial.id) && !before.has(trial.id)))
+    if (last && !last.version && tasks.every(task => opened.has(task)) && !status.trials.some(trial => trial.success && last.trials.includes(trial.id) && !before.has(trial.id)))
       return "the last round neither solved a task nor published a library version"
-    await wave(state, tasks.filter(task => !solved.has(task)), robots, stepLimits(status), signal)
+    await wave(state, waveTasks(tasks, opened, solved, run.config.batches, await ordered(run.root)), robots, stepLimits(status), signal)
   }
 }
 
