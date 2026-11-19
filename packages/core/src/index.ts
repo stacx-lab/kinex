@@ -12,6 +12,6 @@ export type { ExecutionEvent, RecordingEvent, RecorderHost } from "./record/reco
 export type { CoreSettings } from "./config/config.ts"
 export { PermissionAction, loadPermissionRules, kinexPermissionAction } from "./permission/index.ts"
 export type { Activation } from "./device/lifecycle.ts"
-export { roboticsCommands, executeRoboticsCommand, type RoboticsCommand, type CommandContext, type CommandResult } from "./commands.ts"
+export { roboticsCommands, executeRoboticsCommand, type RoboticsCommand, type CommandContext, type CommandResult, type Turn } from "./commands.ts"
 export type { Question, QuestionOption } from "./tool/interaction.ts"
 export type { DeviceTemplateInfo } from "./device/templates.ts"

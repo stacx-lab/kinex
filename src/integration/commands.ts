@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { Loader, matchesKey } from "@earendil-works/pi-tui"
+import type { CommandContext } from "@kinex/core"
 import type { ContributionCommand } from "@kinex/core/integration"
 import { commandRow } from "./render.ts"
 
@@ -10,9 +11,13 @@ import { commandRow } from "./render.ts"
  */
 export type SessionUI = (ctx: ExtensionContext) => ExtensionContext["ui"] | undefined
 
-export async function executeCommand(command: ContributionCommand, args: string, ctx: ExtensionContext, ui: SessionUI, signal: AbortSignal | undefined = ctx.signal) {
+/** What a command may ask of the application rather than of the session it was typed in. */
+export type CommandHost = Required<Pick<CommandContext, "turn" | "unattended">>
+
+export async function executeCommand(command: ContributionCommand, args: string, ctx: ExtensionContext, ui: SessionUI, signal: AbortSignal | undefined, host: CommandHost) {
   if (command.interrupt) ctx.abort()
   return command.execute(args, {
+    ...host,
     sessionID: ctx.sessionManager.getSessionId(),
     signal: command.interrupt ? undefined : signal,
     confirm: async (title, description) => {
