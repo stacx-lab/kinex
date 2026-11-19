@@ -28,9 +28,9 @@ sessions that use its model and login.
 | Distiller | One per distillation, in a folder of copied trial records | `improve_delegate`, `improve_wait`, `improve_check` |
 | Helper | A sub-agent a distiller starts with a prompt it writes | none |
 
-A **trial** is one episode of one task: `rosbridge launch` (stepped, ending at the
-first success), `rosbridge setup` of the task's robot into the trial workspace on
-the launched ROS domain, the library installed, one worker, then `rosbridge stop`
+A **trial** is one episode of one task: `rosbridge launch` (stepped, ending where the
+simulator's evaluator ends an episode, `--early-stop`), `rosbridge setup` of the same task and seed into the trial workspace
+on the launched ROS domain, the library installed, one worker, then `rosbridge stop`
 and `rosbridge judge`. The simulator's verdict decides; the worker's report never
 counts. A **distillation** gives a distiller every finished trial's record and the
 newest library, and publishes its candidate as the next version when

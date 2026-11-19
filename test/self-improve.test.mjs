@@ -38,7 +38,7 @@ else if (args[0] === 'launch') {
 } else if (args[0] === 'setup') {
   mkdirSync(path.join(value('--directory'), '.kinex'), { recursive: true })
   writeFileSync(path.join(state, 'domain' + value('--domain-id')), value('--directory'))
-  print({ robot: args[1], loaded: false })
+  print({ task: args[1], loaded: false })
 } else if (args[0] === 'stop') {
   const run = read(args[1] + '.json')
   const workspace = readFileSync(path.join(state, 'domain' + run.domain), 'utf8')
@@ -123,8 +123,8 @@ test('/self-improve runs trials, distills a library and reruns with it', { timeo
     assert.match(await readFile(path.join(root, 'trials/t001/record/summary.md'), 'utf8'), /^# t001 — sim\/open-door\n\nVerdict: failure, stopped, 40 steps\. Cost: 1 tool calls, /)
     assert.match(await readFile(path.join(root, 'trials/t001/record/learned.md'), 'utf8'), /- \.kinex\/lib\/press\.py: new \(not in the library\), 37 B — learned\/\.kinex\/lib\/press\.py\n  begins: Presses a button\./)
     const calls = (await readFile(path.join(state, 'calls.log'), 'utf8')).split('\n')
-    assert.ok(calls.includes('launch sim/open-door --execution-mode stepped --stop-on-success --detach --json'))
-    assert.ok(calls.includes(`setup sim/arm --directory ${path.join(root, 'trials/t001/workspace')} --domain-id 1 --json`))
+    assert.ok(calls.includes('launch sim/open-door --execution-mode stepped --early-stop --detach --json'))
+    assert.ok(calls.includes(`setup sim/open-door --directory ${path.join(root, 'trials/t001/workspace')} --domain-id 1 --json`))
     assert.ok(calls.indexOf('stop run1 --json') < calls.indexOf('judge run1 --json'))
   })
 

@@ -34,6 +34,7 @@ export interface Facts {
   success?: boolean
   steps?: number
   reason?: string
+  cause?: string
   wallS?: number
   error?: string
   note?: string
@@ -104,7 +105,7 @@ function summary(facts: Facts, entries: Entry[], tokens: { input: number; output
   const line = (call: Call, inputChars: number, outputChars: number) =>
     `${call.call}. ${call.name}(${short(oneLine(input(call)), inputChars)})${call.error ? " → error" : ""}: ${short(oneLine(call.output), outputChars)}`
   const verdict = facts.status === "error" ? `no verdict, the trial did not run${facts.error ? ` (${facts.error})` : ""}`
-    : [facts.success ? "success" : "failure", facts.status === "timeout" ? "the wall time ran out" : undefined, facts.reason === "success" ? undefined : facts.reason,
+    : [facts.success ? "success" : "failure", facts.status === "timeout" ? "the wall time ran out" : undefined, facts.reason === "success" ? undefined : facts.cause ? `${facts.reason} (${facts.cause})` : facts.reason,
       facts.steps === undefined ? undefined : `${facts.steps} steps`].filter(Boolean).join(", ")
   return [
     `# ${facts.id} — ${facts.task}`, "",
