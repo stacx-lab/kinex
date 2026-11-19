@@ -44,13 +44,42 @@ exits non-zero after the simulation advanced is still judged; one that fails
 before it advanced leaves a trial that did not run. Worker starts are spaced
 `startGapS` apart so device loads do not time each other out.
 
-A wave gives every unsolved task one trial with the newest version. A wave not
-yet given to a finished distillation is distilled before the next one starts, and
-no trial runs meanwhile. The distiller gets every finished trial's record, Kinex's
-reference (the core README, the `kinex` Python package with its builtin
+A wave gives every open task still unsolved one trial with the newest version.
+Without `--batches` every task is open from the first wave. With
+`--batches 10,20,40` the first wave opens ten tasks, the next twenty more, then
+forty, then the rest: a later wave retries the open tasks still unsolved and opens
+the next batch, so most tasks meet a library on their first trial. Tasks open in
+a fixed order (a hash of their ids), or in the order the last distiller left in
+`schedule.json` at its folder's root, as `{"next": [task ids]}`; it is asked for
+one only while tasks are unopened.
+
+A wave not yet given to a distillation is distilled before the next one starts,
+and no trial runs meanwhile. The distiller gets every finished trial's record,
+Kinex's reference (the core README, the `kinex` Python package with its builtin
 `kinex.lib` modules and the trial robot's profiles) and a copy of the newest
 version as its candidate. Its turn ends at the distillation's deadline at the
 latest, and only a turn that ended normally can publish.
+
+What fails is tried again before the run goes on without it, with rsi's counts:
+
+- A trial that did not run is started again, up to twice a wave; a task whose
+  trial still has not run sits that wave out. A wave none of whose trials ran
+  ends the run: that is the setup's failure.
+- A candidate that fails the check is not dropped for the version before: the
+  distiller's session gets up to two repair turns of half an hour, each shown what
+  the check found.
+- A distillation whose turn did not end normally (its deadline, an error) publishes
+  nothing; its trials are distilled again from the published version, up to twice.
+
+After that the run goes on with the version it has.
+
+A worker is given its task's goal in the simulator's own words, read from the
+run's folder: a `PROMPT.json` there, else the line the simulator prints to the
+run log when the episode starts. A simulator that gives none leaves the task's
+name, and `status`, `result.json` and the distiller's `TASKS.md` say so. The
+worker is told that the simulation is stepped and that the simulator may end the
+episode at a step limit of its own. rosbridge does not report that limit, so the
+number is given only once an earlier trial of the task was ended at it.
 
 ## Libraries
 
@@ -63,8 +92,11 @@ ended normally and the check passes. The check guarantees that the library loads
 and leaves Kinex's own intact: skill frontmatter and unique names, only `.ts` and
 `.js` files in `tools/`, no `lib/` module named like a builtin `kinex.lib` module
 (it would replace that module for every worker), and a brief of at most 15 lines
-and 2,000 characters. It runs nothing. Whether a library is better is measured by
-the next wave.
+and 2,000 characters. As rsi's gate does, it also reads the code without running
+it: every Python file in `lib/` and `programs/` compiles, a skill or the brief
+names nothing in a `lib/` module that the module does not define, and every line
+of `memory/rows/*.jsonl` is a JSON object. Whether a library is better is measured
+by the next wave.
 
 Installing copies each payload folder into the workspace's folder of the same
 name under `.kinex` and the brief to `.kinex/self-improve/brief.md`, replacing
