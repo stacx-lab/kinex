@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { checkVersion, syncVersion } from '../script/version.mjs'
 
-const files = ['VERSION', 'package.json', 'package-lock.json', 'packages/core/package.json', 'packages/setup/package.json', 'packages/self-improve/package.json']
+const files = ['VERSION', 'package.json', 'package-lock.json', 'packages/core/package.json', 'packages/setup/package.json', 'packages/jobs/package.json', 'packages/self-improve/package.json']
 async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'kinex-version-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
@@ -25,7 +25,7 @@ test('version sync changes owned metadata, preserves dependency resolutions and 
   const unsynced = await contents(directory)
   await assert.rejects(checkVersion(directory), /package-lock.json.*version must be 0.11.0/s)
   assert.deepEqual(await contents(directory), unsynced)
-  assert.equal((await syncVersion(directory)).length, 5)
+  assert.equal((await syncVersion(directory)).length, 6)
   const state = await checkVersion(directory)
   assert.ok(state.packages.every(pkg => pkg.version === '0.11.0'))
   const after = JSON.parse(await readFile(path.join(directory, 'package-lock.json'), 'utf8'))
