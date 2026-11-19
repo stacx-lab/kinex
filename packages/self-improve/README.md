@@ -121,7 +121,8 @@ distillations/d001/
   it is better is measured by the next wave: `status` shows successes per task and
   version.
 - Trial workspaces link one shared Kinex Python environment,
-  `<data>/self-improve/.python`, built by the first worker that needs it.
+  `<data>/self-improve/.python`, which the scheduling process prepares one trial
+  at a time before any worker uses it; workers only read it.
 - rosbridge does not publish a task's instruction: it is read from the run's
   folder (a `PROMPT.json`, else the simulator's line in the run log), and a
   simulator that gives none leaves the worker the task's name, which `status`
