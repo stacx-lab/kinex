@@ -7,23 +7,32 @@ show whether a library helps; they are not benchmark results.
 
 ## Roles
 
-The session that runs `/self-improve` only schedules; headless child sessions do
-the work. Children run the current process's entry point with
+Code schedules a run and the main session distills it; headless child sessions
+do the rest. Children run the current process's entry point with
 `run --yolo --session <file>`, inherit its `--model`, `--provider` and `--thinking`,
 and learn their role from `KINEX_SELF_IMPROVE_ROLE`.
 
 | Role | Runs in | Package tools |
 | --- | --- | --- |
-| Scheduler | The user's session after start or `resume` | `improve_tasks`, `improve_run_trial`, `improve_distill`, `improve_wait`, `improve_status` |
-| Worker | A trial workspace with one library version installed; starts with `/load all` | none |
-| Distiller | A folder of copied trial records and the candidate library | `improve_delegate`, `improve_wait`, `improve_check` |
-| Helper | The distiller's folder, in its process group | none |
+| Scheduler | A loop in code in the Kinex process | none |
+| Distiller | The main session, for one turn, in a session of its own rooted in the distillation's folder | `improve_delegate`, `improve_wait`, `improve_check` |
+| Worker | A child in a trial workspace with one library version installed; starts with `/load all` | none |
+| Helper | A child in the distiller's folder, in the process group of the Kinex that distills | none |
 
-The scheduler role belongs to one host session: its rules travel as a context
-section and survive compaction. `/new`, a resumed session, another workspace or
-`/self-improve stop` make it an ordinary session; `resume` takes the role back.
-The run reaches tools with each call, so no other session becomes a scheduler.
-`/self-improve` is refused inside a child.
+The scheduler asks the host for one thing: a turn of the session in front of the
+user. For a distillation the turn names a folder and a session file, so the host
+opens an empty session there, as it would a session of another workspace: the
+workspace runtime, the context and the transcript are the distillation's, and
+the user's own session returns when the turn has ended. This is rsi's
+arrangement, a scheduler in code and a fresh principal session per distillation
+whose memory travels in the library, with the main session as that principal.
+
+The main session has the package's tools only during a turn the scheduler gave
+it: the three above in a distillation's folder, and `improve_tasks` and
+`improve_select` in the one short turn that converts a free-text request into
+task ids. A request made of ids or patterns needs no model. `/self-improve` is
+refused inside a child, and needs a session that works without approvals: in
+`ask` mode it offers to switch to `auto` and otherwise does not start.
 
 ## Trials and verdicts
 
@@ -35,11 +44,13 @@ exits non-zero after the simulation advanced is still judged; one that fails
 before it advanced leaves a trial that did not run. Worker starts are spaced
 `startGapS` apart so device loads do not time each other out.
 
-Distillation waits for every running job to end and needs at least one finished
-trial not yet distilled; no trial starts while it runs. The distiller gets every
-finished trial's record, Kinex's reference (the core README, the `kinex` Python
-package with its builtin `kinex.lib` modules and the trial robot's profiles) and a copy of the newest
-version as its candidate.
+A wave gives every unsolved task one trial with the newest version. A wave not
+yet given to a finished distillation is distilled before the next one starts, and
+no trial runs meanwhile. The distiller gets every finished trial's record, Kinex's
+reference (the core README, the `kinex` Python package with its builtin
+`kinex.lib` modules and the trial robot's profiles) and a copy of the newest
+version as its candidate. Its turn ends at the distillation's deadline at the
+latest, and only a turn that ended normally can publish.
 
 ## Libraries
 
@@ -70,11 +81,14 @@ reserved by creating them; a job is finished when its atomically written
 `record/result.json` exists, and status is read by scanning folders. Running jobs
 share no file.
 
-Jobs belong to the runtime that started them. Its in-memory table is the only
-record of what is running, so a runtime never sees another's jobs. Disposal ends
-workers, and simulators the process launched are stopped when it exits. A job
-left without a result is abandoned, not failed; `resume` continues from finished
-jobs. Cancelling a wait never cancels the work.
+A run belongs to the Kinex process that schedules it, because the main session
+leaves its workspace for every distillation; one run is scheduled at a time. Each
+pass of the scheduler decides its next step from the run's folder alone. Trials
+and helpers are [jobs](../packages/jobs/README.md): starting returns at once, a
+lane runs up to its limit, and one wait collects them; cancelling a wait never
+cancels the work. `/self-improve stop` and quitting end a run's work: workers and
+helpers are stopped, and simulators the process launched are closed. A job left
+without a result is abandoned, not failed; `resume` continues from finished jobs.
 
 ## Isolation and boundaries
 
@@ -90,8 +104,10 @@ and `judge` all run outside. It shares the host's network, which DDS to its
 simulator and the model's API need, so other ROS domains and the internet stay
 reachable. Its `/dev/shm` is its own, so DDS reaches the simulator over UDP. A run
 made before the sandbox, or with `"sandbox": false`, runs workers unsandboxed;
-distillers and helpers always do, kept to their folder by a clean workspace, an
-environment without rosbridge's activation and an instruction.
+helpers always do, kept to their folder by a clean workspace, an environment
+without rosbridge's activation and an instruction. A distiller is the main
+session under its own permission mode, rooted in the distillation's folder, whose
+context holds nothing of the workspace the run was started in.
 
 Trial workspaces link one shared Kinex Python environment, which the scheduling
 process prepares one trial at a time before any worker uses it; workers read it
