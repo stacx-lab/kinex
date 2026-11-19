@@ -24,12 +24,27 @@ export const roboticsCommands = [
 const execUsage = "Usage: /exec <file.py> [name=value ...|{json}]"
 
 export type RoboticsCommand = typeof roboticsCommands[number]["name"]
-export type CommandResult = { kind: "output"; text: string; isError?: boolean; attachments?: Attachment[] } | { kind: "workflow"; prompt: string }
+export type CommandResult =
+  // `background` is work the command started that outlives it, resolving to what to tell the user when it ends:
+  // a host that goes on after the command lets it run, one that ends with its prompts waits for it.
+  | { kind: "output"; text: string; isError?: boolean; attachments?: Attachment[]; background?: Promise<string> }
+  | { kind: "workflow"; prompt: string }
+/** A turn a command asks of the session in front of the user. */
+export interface Turn {
+  prompt: string
+  /** With both: a session of its own, rooted in `directory` and kept in the file `session`; the user's session returns after. */
+  directory?: string
+  session?: string
+}
 export interface CommandContext {
   sessionID: string
   signal?: AbortSignal
   confirm(title: string, description: string): Promise<boolean>
   notify?(message: string): void
+  /** Runs the turn and returns when it has ended; rejects when it did not end normally or `signal` aborted it. Outlives the command. */
+  turn?(turn: Turn, signal?: AbortSignal): Promise<void>
+  /** Whether the session may work without asking for approval; a host may offer the user to allow it, giving `reason`. */
+  unattended?(reason: string): Promise<boolean>
 }
 
 function isRoboticsCommand(name: string): name is RoboticsCommand {
