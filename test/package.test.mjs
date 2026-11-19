@@ -58,12 +58,15 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
     assert.equal(manifest.dependencies[`@kinex/${name}`], manifest.version)
     if (name === 'setup') assert.equal(dependency.dependencies['@kinex/core'], manifest.version)
   }
-  // Self-improve ships inside the standalone archive and shares the installation's core.
-  assert.deepEqual(manifest.bundleDependencies, ['@kinex/self-improve'])
-  assert.deepEqual(standalone.bundled, ['@kinex/self-improve'])
+  // Self-improve and the jobs it runs on ship inside the standalone archive and share the installation's core.
+  assert.deepEqual(manifest.bundleDependencies, ['@kinex/jobs', '@kinex/self-improve'])
+  assert.deepEqual([...standalone.bundled].sort(), ['@kinex/jobs', '@kinex/self-improve'])
   const selfImprove = JSON.parse(await readFile(path.join(relocated, 'node_modules/kinex/node_modules/@kinex/self-improve/package.json'), 'utf8'))
   assert.equal(selfImprove.version, manifest.version)
   assert.equal(selfImprove.peerDependencies['@kinex/core'], manifest.version)
+  assert.equal(selfImprove.peerDependencies['@kinex/jobs'], manifest.version)
+  const jobs = JSON.parse(await readFile(path.join(relocated, 'node_modules/kinex/node_modules/@kinex/jobs/package.json'), 'utf8'))
+  assert.equal(jobs.version, manifest.version)
   await assert.rejects(stat(path.join(relocated, 'node_modules/kinex/node_modules/@kinex/core')), { code: 'ENOENT' })
   assert.match((await invoke('--help')).stdout, /--enable-recording/)
   assert.match((await invoke('-p', '/devices')).stdout, /No devices/)

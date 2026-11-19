@@ -7,8 +7,9 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const workspaces = [
   { location: 'packages/core', name: '@kinex/core', dependencies: [] },
   { location: 'packages/setup', name: '@kinex/setup', dependencies: ['@kinex/core'] },
-  { location: 'packages/self-improve', name: '@kinex/self-improve', dependencies: ['@kinex/core'] },
-  { location: '', name: 'kinex', dependencies: ['@kinex/core', '@kinex/setup', '@kinex/self-improve'] },
+  { location: 'packages/jobs', name: '@kinex/jobs', dependencies: [] },
+  { location: 'packages/self-improve', name: '@kinex/self-improve', dependencies: ['@kinex/core', '@kinex/jobs'] },
+  { location: '', name: 'kinex', dependencies: ['@kinex/core', '@kinex/setup', '@kinex/jobs', '@kinex/self-improve'] },
 ]
 
 export async function versionState(directory = root) {
