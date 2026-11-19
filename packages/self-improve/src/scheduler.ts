@@ -1,12 +1,12 @@
 import type { Turn } from "@kinex/core"
 import { createScope, inScope, withSignal } from "@kinex/core/scope"
 import { createJobs, type Jobs } from "@kinex/jobs"
-import { finishDistillation, prepareDistillation, type Distillation } from "./distill.ts"
+import { distillTurns, finishDistillation, prepareDistillation, type Distillation } from "./distill.ts"
 import { finishJob, openJob, type Result } from "./job.ts"
 import { sessionFile, trialsDir } from "./layout.ts"
 import { newestVersion } from "./library.ts"
-import { renderStatus, scan, solvedTasks, stepLimits, type Status, type TrialInput } from "./records.ts"
-import { HELPERS, saveTasks, type Run } from "./run.ts"
+import { renderStatus, scan, settled, solvedTasks, stepLimits, type Status, type TrialInput } from "./records.ts"
+import { HELPERS, RERUNS, saveTasks, type Run } from "./run.ts"
 import { listTasks, matching, type Task } from "./sim.ts"
 import { runTrial } from "./trial.ts"
 import SELECT from "./select.txt"
@@ -79,8 +79,10 @@ async function tasksOf(state: Scheduled, host: Host, catalog: readonly Task[], s
 }
 
 // One trial for each task with the newest library. A trial that ends with status
-// error did not run, which is a setup problem and not a task failure: it is
-// started once more, and a second error ends the run.
+// error did not run, which is a setup problem and not a task failure: its task is
+// started again, up to RERUNS times, and a task that still has not run sits this
+// wave out while the others go on (rsi's infraRetries). A wave none of whose
+// trials ran is the setup's failure, and ends the run.
 async function wave(state: Scheduled, tasks: readonly string[], robots: ReadonlyMap<string, string>, limits: ReturnType<typeof stepLimits>, signal: AbortSignal): Promise<void> {
   const { run, jobs } = state
   const attempt = async (wanted: readonly string[]) => {
@@ -98,30 +100,41 @@ async function wave(state: Scheduled, tasks: readonly string[], robots: Readonly
     await jobs.wait(ids, { signal })
     return (await scan(run.root)).trials.filter(trial => ids.includes(trial.id) && trial.status === "error")
   }
-  const failed = await attempt(tasks)
-  const again = failed.length ? await attempt(failed.map(trial => trial.task)) : []
-  if (again.length) throw new Error(`these trials did not run, twice: ${again.map(trial => `${trial.id} (${trial.task}): ${trial.error}`).join("; ")}`)
+  let failed = await attempt(tasks)
+  let ran = failed.length < tasks.length
+  for (let rerun = 0; failed.length && rerun < RERUNS; rerun++) {
+    const again = await attempt(failed.map(trial => trial.task))
+    ran ||= again.length < failed.length
+    failed = again
+  }
+  if (!ran) throw new Error(`no trial of the wave ran: ${failed.map(trial => `${trial.id} (${trial.task}): ${trial.error}`).join("; ")}`)
 }
 
-// One turn of the main session, in the distillation's own folder and session. Its
-// sub-agents are jobs of this turn and end with it. Only a turn that ended normally can publish.
+// One distillation: turns of the main session in the distillation's own folder
+// and session, the first to distill and any after it to repair what the check
+// found. Its sub-agents are jobs of these turns and end with them. Only a turn
+// that ended normally can publish.
 async function distill(state: Scheduled, host: Host, status: Status, signal: AbortSignal): Promise<Result> {
   const { run } = state
   const distillation = await prepareDistillation(run, status)
   const helpers = createJobs({ limits: { helpers: run.config.helpers ?? HELPERS } })
   const started = Date.now()
-  const deadline = AbortSignal.timeout(Math.max(0, distillation.deadline - started))
+  const turn = (prompt: string, deadline: number) => {
+    const over = AbortSignal.timeout(Math.max(0, deadline - Date.now()))
+    return host.turn({ prompt, directory: distillation.job.workspace, session: sessionFile(distillation.job.record) }, AbortSignal.any([signal, over]))
+      .then(() => ({ status: "done" as const }), (error: unknown) => over.aborted ? { status: "timeout" as const } : { status: "error" as const, error: message(error) })
+  }
   state.phase = { kind: "distill", distillation, helpers }
-  const exit = await host.turn({ prompt: distillation.prompt, directory: distillation.job.workspace, session: sessionFile(distillation.job.record) }, AbortSignal.any([signal, deadline]))
-    .then(() => ({ status: "done" as const }), (error: unknown) => deadline.aborted ? { status: "timeout" as const } : { status: "error" as const, error: message(error) })
-    .finally(() => { helpers.stop(); state.phase = undefined })
+  const exit = await distillTurns(distillation, turn).finally(() => { helpers.stop(); state.phase = undefined })
   signal.throwIfAborted()
   return finishDistillation(run, distillation, { ...exit, wallS: Math.round((Date.now() - started) / 1000) })
 }
 
 // Every pass decides the next step from the run's folder alone, so a run that
-// was stopped continues where it is. A wave not yet given to a finished
-// distillation is distilled; otherwise the next wave runs.
+// was stopped continues where it is. Judged trials that no settled distillation
+// was given are distilled; otherwise the next wave runs. A distillation whose
+// turn did not end normally settles nothing, so the same trials are distilled
+// again, and one that could not publish leaves the run on the version it has.
 async function schedule(state: Scheduled, host: Host, signal: AbortSignal): Promise<string> {
   const { run } = state
   const catalog = await listTasks(run.config.rosbridge)
@@ -131,15 +144,19 @@ async function schedule(state: Scheduled, host: Host, signal: AbortSignal): Prom
     signal.throwIfAborted()
     const status = await scan(run.root)
     const solved = solvedTasks(status)
-    const unsolved = tasks.filter(task => !solved.has(task))
-    if (!unsolved.length) return "every task is solved"
-    const finished = status.distillations.filter(distillation => distillation.status)
-    if (finished.length >= run.config.rounds) return "its rounds are done"
-    const distilled = new Set(finished.flatMap(distillation => distillation.trials))
-    const waiting = status.trials.filter(trial => trial.status && !distilled.has(trial.id))
-    if (!waiting.length) { await wave(state, unsolved, robots, stepLimits(status), signal); continue }
-    const result = await distill(state, host, status, signal)
-    if (!result.version && !waiting.some(trial => trial.success)) return "the last round neither solved a task nor published a library version"
+    if (tasks.every(task => solved.has(task))) return "every task is solved"
+    const rounds = settled(status.distillations)
+    if (rounds.length >= run.config.rounds) return "its rounds are done"
+    const given = (distillations: typeof rounds) => new Set(distillations.flatMap(distillation => distillation.trials))
+    const distilled = given(rounds)
+    // A trial that did not run is not evidence: it waits for no distillation.
+    if (status.trials.some(trial => trial.status && trial.status !== "error" && !distilled.has(trial.id))) { await distill(state, host, status, signal); continue }
+    // A round that neither solved a task nor published leaves the same tasks the same library.
+    const last = rounds.at(-1)
+    const before = given(rounds.slice(0, -1))
+    if (last && !last.version && !status.trials.some(trial => trial.success && last.trials.includes(trial.id) && !before.has(trial.id)))
+      return "the last round neither solved a task nor published a library version"
+    await wave(state, tasks.filter(task => !solved.has(task)), robots, stepLimits(status), signal)
   }
 }
 
