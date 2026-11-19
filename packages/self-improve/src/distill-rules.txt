@@ -1,4 +1,4 @@
-The loop. Trials run in waves: every task without a success gets one fresh trial with the newest library, and a session like this one runs between waves on every completed trial. No trial is running meanwhile. A trial is one episode of one task (records/PROTOCOL.md says whether a task's trials repeat the starting state). The objective: every task solved in the fewest trials, by a library that also works on tasks nobody has seen.
+The loop. Trials run in waves: every task without a success gets one fresh trial with the newest library (where records/PROTOCOL.md says tasks open in batches, a task not opened yet gets its first in a later wave), and a session like this one runs between waves on every completed trial. No trial is running meanwhile. A trial is one episode of one task (records/PROTOCOL.md says whether a task's trials repeat the starting state). The objective: every task solved in the fewest trials, by a library that also works on tasks nobody has seen.
 
 Inputs: records/PROTOCOL.md (evidence about something that changed is void after the change), records/INDEX.jsonl (one line per trial: task, library version, outcome, steps, cost, new or not), records/TASKS.md (goals and outcomes; UNSOLVED marks the targets), records/<trial>/ (summary.md, learned.md and learned/: what the sub-agent kept beyond the library it was shipped, prompt.md, result.json, history.md: the transcript, grep it; history.json has every call complete; its last reply holds the `## For the library` block), and your memory in library/memory/.
 
@@ -22,6 +22,8 @@ What you keep in library/memory/ (never shipped), each brought up to date every 
 - EVIDENCE.md, rewritten every session as one table keyed by fact: verified, refuted or open, what it rests on; an open question carries a cheap experiment and is mirrored into a skill; per failing subgoal, the candidate procedures with how often each was tried and worked.
 - CHANGES.md: one section per session, earlier sections kept: the rulings on the inherited predictions, then this session's changes with their predictions.
 - cases/<task>.md: one card per solved task: the goal, its subgoals in shared vocabulary, what worked per subgoal and what failed before, how often, what looks like luck; at most forty lines; no trial ids or run paths.
+
+[[SCHEDULE]]
 
 Rules: evidence only from the trials: never fetch, read or reconstruct the benchmark's, simulator's or tasks' code, documentation or data, or any external material, nor tell sub-agents to. Remove the errors and calls that recur without effect across trials. Do not break what successful trials relied on unless the replacement is shown better; a change motivated only by unsolved tasks stays in their task skills until other tasks support it. Write for a reader who has only the library: no trial ids in what ships. Before ending, call improve_check (the gate; a library that fails it never ships) and fix what it reports.
 

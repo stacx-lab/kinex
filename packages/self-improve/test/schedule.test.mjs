@@ -1,11 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { settled, stepLimits } from '../dist/records.js'
+import { waveTasks } from '../dist/scheduler.js'
 import { instruction } from '../dist/sim.js'
-import { distillTurns } from '../dist/distill.js'
+import { distillTurns, scheduled } from '../dist/distill.js'
+import { createLibrary, publish } from '../dist/library.js'
 
 async function directory(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'kinex-self-improve-'))
@@ -13,6 +16,26 @@ async function directory(t) {
   return root
 }
 const put = async (file, text) => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text) }
+
+test('a wave runs the open tasks still unsolved and opens the next batch, the distiller\'s order first', () => {
+  const tasks = ['a', 'b', 'c', 'd', 'e', 'f']
+  const hashed = [...tasks].sort((x, y) => createHash('sha1').update(x).digest('hex').localeCompare(createHash('sha1').update(y).digest('hex')))
+  // Without batches every task opens at once, in a fixed order that is not the alphabet's.
+  assert.deepEqual(waveTasks(tasks, new Set(), new Set()), hashed)
+  assert.notDeepEqual(hashed, tasks)
+  // The first batch, then the unsolved of it with the second, then everything left.
+  const first = waveTasks(tasks, new Set(), new Set(), [2, 3])
+  assert.deepEqual(first, hashed.slice(0, 2))
+  const second = waveTasks(tasks, new Set(first), new Set([first[0]]), [2, 3])
+  assert.deepEqual(second, [...tasks.filter(task => task === first[1]), ...hashed.slice(2, 5)])
+  const opened = new Set([...first, ...second])
+  assert.deepEqual(waveTasks(tasks, opened, new Set(first), [2, 3]), [...tasks.filter(task => opened.has(task) && !first.includes(task)), hashed[5]])
+  // The distiller's order comes before the fixed one; what it names that is open or unknown is passed over.
+  const rest = hashed.slice(2)
+  assert.deepEqual(waveTasks(tasks, new Set(first), new Set(first), [2, 2], [rest[3], first[0], 'unknown', rest[1]]), [rest[3], rest[1]])
+  // A batch larger than what is left opens what is left.
+  assert.deepEqual(waveTasks(tasks, new Set(tasks.slice(0, 5)), new Set(tasks.slice(0, 5)), [5, 20]), ['f'])
+})
 
 test('a distillation whose turn did not end normally is tried again twice, then the run goes on', () => {
   const ids = views => settled(views).map(view => view.id)
@@ -74,4 +97,21 @@ test('a candidate that fails the check gets repair turns that are shown what it 
     await put(brief, 'Short.\n')
     assert.deepEqual(await distillTurns({ ...distillation }, async () => ({ status: 'done' })), { status: 'done', repairs: 0 })
   })
+})
+
+test('the order of new tasks is read from the distillation that made the newest version', async t => {
+  const root = await directory(t)
+  await createLibrary(root)
+  assert.deepEqual(await scheduled(root), [], 'the empty library came from no distillation')
+  const candidate = path.join(root, 'candidate')
+  await put(path.join(candidate, 'payload/brief.md'), 'Short.\n')
+  await publish(root, candidate, { parent: 'L0', source: 'd001' })
+  assert.deepEqual(await scheduled(root), [], 'no file orders nothing')
+  const file = path.join(root, 'distillations/d001/workspace/schedule.json')
+  await put(file, JSON.stringify({ next: ['sim/b', 7, 'sim/a'], why: 'b adds one capability' }))
+  assert.deepEqual(await scheduled(root), ['sim/b', 'sim/a'])
+  for (const text of ['[]', 'not json', '{"next": "sim/a"}']) {
+    await put(file, text)
+    assert.deepEqual(await scheduled(root), [])
+  }
 })

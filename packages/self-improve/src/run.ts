@@ -10,6 +10,8 @@ export interface Config {
   tasks?: string[]
   rounds: number
   parallel: number
+  /** The sizes of the first batches of tasks to open, one batch a wave; the rest open together after them. Absent: every task is open from the first wave. */
+  batches?: number[]
   /** How many of a distiller's sub-agents run at once; absent in a run made before the value existed. */
   helpers?: number
   /** Absent: every trial of a task starts from the simulator's default state for it. */
@@ -37,7 +39,7 @@ export const RETRIES = 2
 export const REPAIRS = 2
 export const REPAIR_S = 1800
 
-export async function createRun(selection: string, options: Pick<Config, "rounds" | "parallel">): Promise<Run> {
+export async function createRun(selection: string, options: Pick<Config, "rounds" | "parallel" | "batches">): Promise<Run> {
   const stamp = new Date().toISOString().replaceAll(/[-:]|\.\d+Z/g, "").replace("T", "-")
   const root = path.join(runsDir(), stamp)
   await mkdir(root, { recursive: true })
