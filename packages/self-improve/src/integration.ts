@@ -89,7 +89,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
     }),
     commands: [{
       name: "self-improve", description: "Practise simulated tasks and distill a library of skills and code",
-      arguments: "<tasks> [--rounds N] [--parallel N] | status | install <version> | resume | stop", kind: "workflow",
+      arguments: "<tasks> [--rounds N] [--parallel N] | status | install <version> | resume | stop", kind: "operation",
       // Inside the runtime, as a tracked operation; a run it starts is the process's and outlives it.
       execute: (args, context) => runtime.operation(() => execute(args, context), context.signal),
     }],
