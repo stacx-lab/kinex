@@ -6,7 +6,11 @@ import { versions } from "./library.ts"
 import type { Config } from "./run.ts"
 import { writeTranscript } from "./transcript.ts"
 
-export interface TrialInput { task: string; robot: string; library: string; seed?: number; timeoutS: number }
+export interface TrialInput {
+  task: string; robot: string; library: string; seed?: number; timeoutS: number
+  /** Where the simulator ended an earlier trial of the task at its step limit, which the worker is then told. */
+  limit?: { steps: number; worldS?: number }
+}
 export interface DistillInput { base: string; trials: string[]; fresh: string[]; timeoutS: number }
 interface Usage { input: number; output: number; cost: number }
 
@@ -16,10 +20,14 @@ export interface TrialView extends TrialInput {
   status?: "done" | "timeout" | "error"
   success?: boolean
   steps?: number
+  /** World time when the episode ended. */
+  worldS?: number
   /** The simulator's: success, failure (with its cause), timeout at its step limit, or stopped before either. */
   reason?: string
   cause?: string
   instruction?: string
+  /** Where the instruction came from; `task name` when the simulator gave none. */
+  instructionSource?: "file" | "log" | "task name"
   wallS?: number
   error?: string
   /** What went wrong outside the task in a trial that was still judged. */
@@ -60,6 +68,12 @@ export async function scan(root: string): Promise<Status> {
   return { versions: await versions(root), trials, distillations, fresh: trials.filter(trial => trial.status && !seen.has(trial.id)).map(trial => trial.id) }
 }
 
+/** Per task, where the simulator ended its latest such trial at its own step limit: rosbridge reports the limit nowhere else. */
+export function stepLimits(status: Status): Map<string, NonNullable<TrialInput["limit"]>> {
+  return new Map(status.trials.filter(trial => trial.reason === "timeout" && trial.steps)
+    .map(trial => [trial.task, { steps: trial.steps!, ...(trial.worldS === undefined ? {} : { worldS: trial.worldS }) }]))
+}
+
 export const solvedTasks = (status: Status) => new Set(status.trials.filter(trial => trial.success).map(trial => trial.task))
 const taskIDs = (status: Status) => [...new Set(status.trials.map(trial => trial.task))].sort()
 const dollars = (views: { usage?: Usage }[]) => `$${views.reduce((sum, view) => sum + (view.usage?.cost ?? 0), 0).toFixed(2)}`
@@ -82,6 +96,7 @@ export function describeDistillation(distillation: DistillationView, running: bo
 export function renderStatus(root: string, status: Status, running: (id: string) => boolean): string {
   const solved = solvedTasks(status)
   const tasks = taskIDs(status)
+  const unnamed = tasks.filter(task => status.trials.findLast(trial => trial.task === task && trial.instruction)?.instructionSource === "task name")
   const cell = (task: string, version: string) => {
     const tried = status.trials.filter(trial => trial.task === task && trial.library === version && trial.status)
     return tried.length ? `${tried.filter(trial => trial.success).length}/${tried.length}` : "-"
@@ -92,6 +107,7 @@ export function renderStatus(root: string, status: Status, running: (id: string)
     "",
     `Tasks: ${solved.size}/${tasks.length} solved. Successes/trials per library version:`,
     ...tasks.map(task => `- ${task} [${solved.has(task) ? "solved" : "UNSOLVED"}] ${status.versions.map(version => `${version} ${cell(task, version)}`).join(", ")}`),
+    ...(unnamed.length ? [`The simulator gave no instruction for ${unnamed.join(", ")}: workers were given the task's name.`] : []),
     "",
     `Trials (${root}/trials/<id>/record):`,
     ...status.trials.map(trial => `- ${describeTrial(trial, running(trial.id))}`),
@@ -139,7 +155,9 @@ export async function collect(root: string, config: Config, input: DistillInput,
     `${tasks.length} tasks: ${solved.size} solved, ${tasks.length - solved.size} unsolved. Per library version: successful trials / trials, then the trials.`, "",
     ...tasks.flatMap(task => {
       const own = trials.filter(trial => trial.task === task)
-      return [`## ${task} [${solved.has(task) ? "solved" : "UNSOLVED"}]`, `goal: ${own.find(trial => trial.instruction)?.instruction ?? "(not stated)"}`, "",
+      const stated = own.findLast(trial => trial.instruction)
+      const goal = stated ? `${stated.instruction}${stated.instructionSource === "task name" ? " (the task's name: the simulator gave no instruction)" : ""}` : "(not stated)"
+      return [`## ${task} [${solved.has(task) ? "solved" : "UNSOLVED"}]`, `goal: ${goal}`, "",
         ...status.versions.filter(version => own.some(trial => trial.library === version)).map(version => {
           const shipped = own.filter(trial => trial.library === version)
           return `- ${version}: ${shipped.filter(trial => trial.success).length}/${shipped.length}; ${shipped.map(trial => `${trial.id}[${trial.success ? "success" : trial.status === "done" ? "failure" : trial.status}]`).join(" ")}`
@@ -156,6 +174,9 @@ export async function collect(root: string, config: Config, input: DistillInput,
   simulator's reason is success, failure (its evaluator's cause in cause), timeout (its step limit) or stopped (the
   episode was stopped before either, as when the sub-agent ended). status \`timeout\` means the wall time ran out; status \`error\` means the trial itself failed to run and says nothing about the task. A \`note\`
   records a failure outside the task (a device that loaded late, say) in a trial that was still judged.
+- A sub-agent was given its task's goal in the simulator's own words; where TASKS.md says a goal is the task's name, the
+  simulator gave none. The simulator does not announce its step limit: a sub-agent was told that there may be one, and
+  the number only when an earlier trial of its task had been ended at it (prompt.md).
 - Every trial shipped one library version (INDEX.jsonl); L0 is the empty library.
 - A task counts as solved once any of its trials succeeded.
 - The \`new\` flags in INDEX.jsonl mark the trials no published library has incorporated yet.

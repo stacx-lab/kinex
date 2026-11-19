@@ -81,6 +81,8 @@ test('/self-improve converts the request, runs trials, distills in the main sess
     assert.ok(result.usage.input > 0)
     const prompt = await readFile(path.join(root, 'trials/t001/record/prompt.md'), 'utf8')
     assert.match(prompt, /^open the door\n\nWork only in this directory/)
+    assert.match(prompt, /\n\nThe simulation is stepped: [^\n]*The simulator may end the episode at a step limit of its own[^\n]*nothing can be done after\.\n\nSaved resources/)
+    assert.equal(result.instructionSource, 'log')
     assert.match(prompt, /\n\nSaved resources: maintain reusable functions in `\.kinex\/lib\/` modules[^\n]*`from kinex\.lib\.grasp import \.\.\.`, not `import grasp`[^\n]*`\.kinex\/programs\/`/)
     assert.match(await readFile(path.join(root, 'trials/t001/record/session.jsonl'), 'utf8'), /For the library/)
     assert.match(await readFile(path.join(root, 'trials/t001/record/output.log'), 'utf8'), /I am done/)

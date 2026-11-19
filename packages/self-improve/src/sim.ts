@@ -1,13 +1,16 @@
 import { execFile, spawn } from "node:child_process"
 import { readFile } from "node:fs/promises"
+import path from "node:path"
 import { promisify } from "node:util"
 
 // The simulator seam: list tasks, open one episode of a task for a workspace,
 // close it and read the simulator's own verdict. rosbridge is called as the
 // command a user runs by hand; it is not imported.
 export interface Task { id: string; robot: string; split?: string }
-export interface Verdict { success: boolean; steps?: number; reason?: string; cause?: string; seed?: number }
-export interface Sim { run: string; instruction: string; close(): Promise<Verdict> }
+export interface Verdict { success: boolean; steps?: number; worldS?: number; reason?: string; cause?: string; seed?: number }
+/** What a worker is told to do, and where it was found: the simulator's own words, or the task's name when it gave none. */
+export interface Instruction { text: string; source: "file" | "log" | "task name" }
+export interface Sim { run: string; instruction: Instruction; close(): Promise<Verdict> }
 
 const exec = promisify(execFile)
 
@@ -50,11 +53,28 @@ function stopAtExit(run: string, command: string) {
   })
 }
 
-// rosbridge does not publish instructions; a simulator that has one prints it to the run log when the episode starts.
-async function instruction(log: unknown, task: string): Promise<string> {
-  const text = typeof log === "string" ? await readFile(log, "utf8").catch(() => "") : ""
-  return text.match(/^\[[\w-]+\] .*\bseed -?\d+: (\S.*)$/m)?.[1]?.trim() ?? (task.split("/").at(-1) ?? task).replaceAll(/[-_]/g, " ")
+// rosbridge does not publish instructions: a simulator that has one leaves it in
+// the run's folder for the operator to hand over, each in its own way. One writes
+// <simulator>/PROMPT.json; others print a line to the run log when the episode
+// starts, tagged with the simulator's name:
+//   [robocasa] OpenCabinet seed 101, split target, layout 4, style 4: Open the cabinet doors.
+// Of that line only the tag and its first colon are relied on; what a simulator
+// puts between them is its own and changes. The source is kept with the text, so
+// a worker that was given only the task's name is seen, not guessed.
+export async function instruction(log: unknown, task: string): Promise<Instruction> {
+  const [simulator = "", name = task] = task.split("/")
+  if (typeof log === "string") {
+    const prompt = await readFile(path.join(path.dirname(log), simulator, "PROMPT.json"), "utf8")
+      .then(text => (parse(text) as { prompt?: unknown } | undefined)?.prompt, () => undefined)
+    if (typeof prompt === "string" && prompt.trim()) return { text: prompt.trim(), source: "file" }
+    const tag = `[${simulator}] `
+    const line = (await readFile(log, "utf8").catch(() => "")).split("\n").find(line => line.includes(tag))
+    const text = line?.slice(line.indexOf(tag)).split(": ").slice(1).join(": ").trim()
+    if (text) return { text, source: "log" }
+  }
+  return { text: name.replaceAll(/[-_]/g, " "), source: "task name" }
 }
+const parse = (text: string): unknown => { try { return JSON.parse(text) } catch { return undefined } }
 
 /** Launches one stepped episode on a ROS domain of its own and exports that episode's workspace onto that domain. */
 export async function openSim(command: string, input: { task: string; seed?: number }, workspace: string): Promise<Sim> {
@@ -66,10 +86,10 @@ export async function openSim(command: string, input: { task: string; seed?: num
   const close = async (): Promise<Verdict> => {
     // The outcome of an episode that has not ended is recorded when its run stops.
     await rosbridge(command, ["stop", run]).finally(() => open.delete(run))
-    const judged = await rosbridge(command, ["judge", run]) as { episodes?: { success?: boolean; step?: number; reason?: string; cause?: string; seed?: number }[] }
+    const judged = await rosbridge(command, ["judge", run]) as { episodes?: { success?: boolean; step?: number; time_s?: number; reason?: string; cause?: string; seed?: number }[] }
     const outcome = judged.episodes?.at(-1)
     if (!outcome) throw new Error(`rosbridge judged no episode for run ${run}`)
-    return { success: outcome.success === true, steps: outcome.step, reason: outcome.reason, cause: outcome.cause, seed: outcome.seed }
+    return { success: outcome.success === true, steps: outcome.step, worldS: outcome.time_s, reason: outcome.reason, cause: outcome.cause, seed: outcome.seed }
   }
   try {
     await rosbridge(command, ["setup", input.task, ...seed, "--directory", workspace, "--domain-id", String(record.domain_id)])

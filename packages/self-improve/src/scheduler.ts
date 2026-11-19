@@ -5,7 +5,7 @@ import { finishDistillation, prepareDistillation, type Distillation } from "./di
 import { finishJob, openJob, type Result } from "./job.ts"
 import { sessionFile, trialsDir } from "./layout.ts"
 import { newestVersion } from "./library.ts"
-import { renderStatus, scan, solvedTasks, type Status, type TrialInput } from "./records.ts"
+import { renderStatus, scan, solvedTasks, stepLimits, type Status, type TrialInput } from "./records.ts"
 import { HELPERS, saveTasks, type Run } from "./run.ts"
 import { listTasks, matching, type Task } from "./sim.ts"
 import { runTrial } from "./trial.ts"
@@ -81,13 +81,14 @@ async function tasksOf(state: Scheduled, host: Host, catalog: readonly Task[], s
 // One trial for each task with the newest library. A trial that ends with status
 // error did not run, which is a setup problem and not a task failure: it is
 // started once more, and a second error ends the run.
-async function wave(state: Scheduled, tasks: readonly string[], robots: ReadonlyMap<string, string>, signal: AbortSignal): Promise<void> {
+async function wave(state: Scheduled, tasks: readonly string[], robots: ReadonlyMap<string, string>, limits: ReturnType<typeof stepLimits>, signal: AbortSignal): Promise<void> {
   const { run, jobs } = state
   const attempt = async (wanted: readonly string[]) => {
     const library = await newestVersion(run.root)
     const ids: string[] = []
     for (const task of wanted) {
-      const input: TrialInput = { task, robot: robots.get(task) ?? "", library, ...(run.config.seed === undefined ? {} : { seed: run.config.seed }), timeoutS: run.config.trialTimeoutS }
+      const limit = limits.get(task)
+      const input: TrialInput = { task, robot: robots.get(task) ?? "", library, ...(run.config.seed === undefined ? {} : { seed: run.config.seed }), timeoutS: run.config.trialTimeoutS, ...(limit ? { limit } : {}) }
       const job = await openJob(trialsDir(run.root), "t", input)
       // A trial that fails still leaves a result, so it counts as finished.
       const trial = (stop: AbortSignal): Promise<Result> => runTrial(run, job, input, stop).catch((error: unknown) => finishJob(job, { status: "error", error: message(error) }))
@@ -136,7 +137,7 @@ async function schedule(state: Scheduled, host: Host, signal: AbortSignal): Prom
     if (finished.length >= run.config.rounds) return "its rounds are done"
     const distilled = new Set(finished.flatMap(distillation => distillation.trials))
     const waiting = status.trials.filter(trial => trial.status && !distilled.has(trial.id))
-    if (!waiting.length) { await wave(state, unsolved, robots, signal); continue }
+    if (!waiting.length) { await wave(state, unsolved, robots, stepLimits(status), signal); continue }
     const result = await distill(state, host, status, signal)
     if (!result.version && !waiting.some(trial => trial.success)) return "the last round neither solved a task nor published a library version"
   }
