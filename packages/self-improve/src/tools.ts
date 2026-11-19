@@ -75,7 +75,7 @@ function distillTools({ distillation, helpers }: Extract<Phase, { kind: "distill
     adopt({ ...jobTools(helpers, { prefix: "improve" }).wait,
       description: "Wait for sub-agents started with improve_delegate to end and return one line for each: done, error or timeout. Waits at most timeout_s; call again while it says running." }),
     define("improve_check", {
-      description: "The gate: loads library/payload the way Kinex would and returns what does not load, a lib module named like a builtin kinex.lib module, and a brief.md longer than 15 lines or 2,000 characters. A library with problems is not published.",
+      description: "The gate: loads library/payload the way Kinex would and returns what does not load, a lib module named like a builtin kinex.lib module, Python in lib/ or programs/ that does not compile, a skill or the brief naming something a lib module does not define, a row in memory/rows that is not a JSON object, and a brief.md longer than 15 lines or 2,000 characters. A library with problems is not published.",
       parameters: z.strictObject({}),
       execute: async () => {
         const problems = await check(candidateDir(workspace))
