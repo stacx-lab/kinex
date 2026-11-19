@@ -23,6 +23,9 @@ async function rosbridge(command: string, args: string[]): Promise<Record<string
   return value as Record<string, unknown>
 }
 
+/** A pattern against whole task ids, where * matches any characters: libero/libero-spatial-*. */
+export const matching = (pattern: string) => new RegExp(`^${pattern.split("*").map(part => part.replaceAll(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`)
+
 export async function listTasks(command: string, simulator?: string): Promise<Task[]> {
   const catalog = await rosbridge(command, ["tasks", "list", ...(simulator ? ["--simulator", simulator] : [])]) as
     { ids?: string[]; robots?: Record<string, string>; splits?: Record<string, string> }

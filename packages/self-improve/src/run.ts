@@ -1,14 +1,17 @@
-import { AsyncLocalStorage } from "node:async_hooks"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { configFile, entries, readJson, runsDir, writeJson } from "./layout.ts"
 import { createLibrary } from "./library.ts"
 
 export interface Config {
-  /** The task selection as the user typed it. */
+  /** The request as the user typed it. */
   selection: string
+  /** The tasks the request names, once it has been converted; absent until then. */
+  tasks?: string[]
   rounds: number
   parallel: number
+  /** How many of a distiller's sub-agents run at once; absent in a run made before the value existed. */
+  helpers?: number
   /** Absent: every trial of a task starts from the simulator's default state for it. */
   seed?: number
   trialTimeoutS: number
@@ -24,12 +27,14 @@ export interface Run { root: string; config: Config }
 
 // A worker alone loads its devices in 7 to 14 s; five loading at once ran past the devices' 30 s limit.
 export const START_GAP_S = 10
+// Sub-agents only read records and call the model, and no trial runs meanwhile: the model account's rate limit is what bounds them.
+export const HELPERS = 10
 
 export async function createRun(selection: string, options: Pick<Config, "rounds" | "parallel">): Promise<Run> {
   const stamp = new Date().toISOString().replaceAll(/[-:]|\.\d+Z/g, "").replace("T", "-")
   const root = path.join(runsDir(), stamp)
   await mkdir(root, { recursive: true })
-  const config: Config = { selection, ...options, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S,
+  const config: Config = { selection, ...options, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S,
     rosbridge: process.env.KINEX_ROSBRIDGE ?? "rosbridge", sandbox: process.env.KINEX_SELF_IMPROVE_SANDBOX !== "off" }
   await writeJson(configFile(root), config)
   await createLibrary(root)
@@ -46,8 +51,8 @@ export async function openRun(name?: string): Promise<Run> {
   return { root, config }
 }
 
-// The run a session schedules reaches its tools with the call, as core passes a
-// signal: nothing the process keeps makes another session a scheduler too.
-const scheduled = new AsyncLocalStorage<Run>()
-export const activeRun = () => scheduled.getStore()
-export const withRun = <T>(run: Run | undefined, call: () => T): T => run ? scheduled.run(run, call) : call()
+/** The request converted: from here on the run schedules these tasks and asks no model which. */
+export async function saveTasks(run: Run, tasks: string[]): Promise<void> {
+  run.config.tasks = tasks
+  await writeJson(configFile(run.root), run.config)
+}

@@ -1,0 +1,3 @@
+A self-improve run is starting and needs its tasks. The request: $REQUEST
+
+Find the tasks the request means with improve_tasks, then call improve_select once with their ids. All of them must use the same robot. Say in one line which tasks you chose and end your turn: the trials start by themselves. Do not attempt the tasks.

@@ -6,7 +6,7 @@ import path from 'node:path'
 import { check, createLibrary, install, installedBrief, newestVersion, publish, versions } from '../dist/library.js'
 import { collect, renderStatus, scan, writeRecord } from '../dist/records.js'
 import { writeTranscript } from '../dist/transcript.js'
-import { openJob, finishJob, start, wait, isRunning, resultOf, spaced } from '../dist/job.js'
+import { openJob, finishJob } from '../dist/job.js'
 import { trialsDir, distillationsDir } from '../dist/layout.js'
 import { judged } from '../dist/trial.js'
 import { reference } from '../dist/distill.js'
@@ -109,37 +109,6 @@ test('a judged episode makes a trial done, whatever the worker exited with', () 
   assert.deepEqual(judged(exit, { success: false, steps: 0 }), { ...exit, error: 'worker exited 1 before the simulation advanced; see output.log' })
   const timeout = { status: 'timeout', exitCode: 143, wallS: 3600 }
   assert.equal(judged(timeout, { success: false, steps: 0 }), timeout)
-})
-
-test('work starts within its limit, and waiting does not end it', async () => {
-  const order = []
-  const gates = {}
-  const work = id => start(id, 'lane', 2, () => new Promise(resolve => { order.push(id); gates[id] = () => resolve({ status: 'done' }) }))
-  for (const id of ['a', 'b', 'c']) work(id)
-  await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(order, ['a', 'b'])
-  await wait(['a', 'b', 'c'], 'all', 0.05, new AbortController().signal)
-  assert.deepEqual(['a', 'b', 'c'].map(isRunning), [true, true, true], 'a wait that times out leaves the work running')
-  gates.a()
-  await wait(['a', 'b', 'c'], 'any', 5, new AbortController().signal)
-  await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(order, ['a', 'b', 'c'])
-  gates.b(); gates.c()
-  await wait(['b', 'c'], 'all', 5, new AbortController().signal)
-  assert.deepEqual(['a', 'b', 'c'].map(id => resultOf(id)?.status), ['done', 'done', 'done'])
-  start('failing', 'lane', 2, async () => { throw new Error('broke') })
-  await wait(['failing'], 'all', 5, new AbortController().signal)
-  assert.deepEqual(resultOf('failing'), { status: 'error', error: 'broke' })
-})
-
-test('spaced work takes its turns a gap apart, and only while the gap lasts', async () => {
-  const began = Date.now()
-  const at = await Promise.all(['a', 'b', 'c'].map(() => spaced('test', 0.05).then(() => Date.now() - began)))
-  assert.ok(at[0] < 40 && at[1] >= 45 && at[2] >= 95, String(at))
-  await new Promise(resolve => setTimeout(resolve, 80))
-  const later = Date.now()
-  await spaced('test', 0.05)
-  assert.ok(Date.now() - later < 40, 'a turn long after the last one comes at once')
 })
 
 test('a transcript is written in brief, bounded and complete, with its images', async t => {

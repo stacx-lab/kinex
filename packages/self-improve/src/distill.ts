@@ -2,20 +2,22 @@ import { cp, mkdir, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Assets } from "@kinex/core/installation/assets"
-import { finishJob, type Job, type Result } from "./job.ts"
-import { trialsDir, versionDir, workspaceDir } from "./layout.ts"
-import { publish } from "./library.ts"
-import { collect, type DistillInput } from "./records.ts"
+import { finishJob, openJob, type Job, type Result } from "./job.ts"
+import { distillationsDir, promptFile, sessionFile, trialsDir, versionDir, workspaceDir } from "./layout.ts"
+import { newestVersion, publish } from "./library.ts"
+import { collect, type DistillInput, type Status } from "./records.ts"
 import type { Run } from "./run.ts"
-import { runSession } from "./session.ts"
+import type { SessionExit } from "./session.ts"
 import FRAME from "./distill-frame.txt"
 import RULES from "./distill-rules.txt"
 import REFERENCE from "./reference.txt"
 
-// The frame and the rules are rsi's distill-lean prompts, edited only where this
-// package differs from rsi: one episode per trial, trials in waves, the folder
-// names, the check and sub-agents as tools, one library with task skills, code as
-// kinex.lib modules rather than a skill's body, no container.
+// A distillation is one turn of the main session in a folder of its own: trial
+// records and the base library in, a checked candidate out. The frame and the
+// rules are rsi's distill-lean prompts, edited only where this package differs
+// from rsi: one episode per trial, trials in waves, the folder names, the check
+// and sub-agents as tools, one library with task skills, code as kinex.lib
+// modules rather than a skill's body, no container.
 export const candidateDir = (workspace: string) => path.join(workspace, "library")
 
 // What a distiller may know of a worker's world, as rsi gives its principal:
@@ -41,8 +43,12 @@ async function rigOf(root: string, trials: readonly string[]): Promise<string | 
   return undefined
 }
 
-/** One distillation: trial records and the base library in, a checked candidate out, published as the next version. */
-export async function runDistillation(run: Run, job: Job, input: DistillInput): Promise<Result> {
+export interface Distillation { job: Job; input: DistillInput; prompt: string; deadline: number }
+
+/** The folder a distiller works in and the prompt it is given: every finished trial's record, the reference, and the newest library as its candidate. */
+export async function prepareDistillation(run: Run, status: Status): Promise<Distillation> {
+  const input: DistillInput = { base: await newestVersion(run.root), trials: status.trials.filter(trial => trial.status).map(trial => trial.id), fresh: status.fresh, timeoutS: run.config.distillTimeoutS }
+  const job = await openJob(distillationsDir(run.root), "d", input)
   const trials = await collect(run.root, run.config, input, path.join(job.workspace, "records"))
   await reference(path.join(job.workspace, "reference"), await rigOf(run.root, input.trials))
   await mkdir(path.join(job.workspace, "notes"))
@@ -55,8 +61,14 @@ export async function runDistillation(run: Run, job: Job, input: DistillInput): 
     TASKS: [...goals].sort().map(([task, goal]) => `- ${task}: ${goal}`).join("\n"),
   }
   const prompt = `${FRAME.replaceAll(/\[\[(\w+)\]\]/g, (_, name: string) => fill[name] ?? "")}\n${RULES}`
-  const session = await runSession("distiller", job.workspace, job.record, prompt, deadline)
-  // An unfinished session may leave a half-written library: only one that ended normally can publish.
+  await writeFile(promptFile(job.record), prompt)
+  // The session a distiller works in is kept in this file: an empty one opens as a fresh session.
+  await writeFile(sessionFile(job.record), "")
+  return { job, input, prompt, deadline }
+}
+
+/** Candidate to version, when the distiller's turn ended normally and the check passes; an unfinished turn may leave a half-written library. */
+export async function finishDistillation(run: Run, { job, input }: Distillation, session: Pick<SessionExit, "status" | "wallS"> & { error?: string }): Promise<Result> {
   const outcome = session.status === "done" ? await publish(run.root, candidateDir(job.workspace), { parent: input.base, source: job.id }) : {}
   return finishJob(job, { ...session, ...outcome })
 }
