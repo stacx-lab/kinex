@@ -121,8 +121,9 @@ study its own attempts and distill them into a library of skills and code:
 /self-improve install L2
 ```
 
-Each task runs as a trial judged by the simulator; a separate session then turns
-the trial records into the next library version, and later trials run with it.
+Each task runs as a trial judged by the simulator; the session then takes a turn,
+in a folder of its own, to distill the trial records into the next library
+version, and later trials run with it. Start Kinex with `--auto` for a run.
 `install` copies a version into the current workspace's `.kinex/`. See
 [self-improve](packages/self-improve/README.md) for the files and limits.
 
