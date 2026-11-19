@@ -28,7 +28,7 @@ The run reaches tools with each call, so no other session becomes a scheduler.
 ## Trials and verdicts
 
 A trial is one stepped episode of one task: `rosbridge launch` on a ROS domain of
-its own, `rosbridge setup` of the task's robot into the trial workspace, the
+its own, `rosbridge setup` of the same task and seed into the trial workspace, the
 library installed, one worker, then `rosbridge stop` and `rosbridge judge`. The
 simulator's verdict decides; the worker's report never counts. A worker that
 exits non-zero after the simulation advanced is still judged; one that fails
