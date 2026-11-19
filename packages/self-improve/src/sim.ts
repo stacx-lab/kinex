@@ -6,7 +6,7 @@ import { promisify } from "node:util"
 // close it and read the simulator's own verdict. rosbridge is called as the
 // command a user runs by hand; it is not imported.
 export interface Task { id: string; robot: string; split?: string }
-export interface Verdict { success: boolean; steps?: number; reason?: string; seed?: number }
+export interface Verdict { success: boolean; steps?: number; reason?: string; cause?: string; seed?: number }
 export interface Sim { run: string; instruction: string; close(): Promise<Verdict> }
 
 const exec = promisify(execFile)
@@ -53,22 +53,23 @@ async function instruction(log: unknown, task: string): Promise<string> {
   return text.match(/^\[[\w-]+\] .*\bseed -?\d+: (\S.*)$/m)?.[1]?.trim() ?? (task.split("/").at(-1) ?? task).replaceAll(/[-_]/g, " ")
 }
 
-/** Launches one stepped episode on a ROS domain of its own and exports the robot's workspace onto that domain. */
-export async function openSim(command: string, input: { task: string; robot: string; seed?: number }, workspace: string): Promise<Sim> {
-  const record = await rosbridge(command, ["launch", input.task, "--execution-mode", "stepped", "--stop-on-success", "--detach",
-    ...(input.seed === undefined ? [] : ["--seed", String(input.seed)])])
+/** Launches one stepped episode on a ROS domain of its own and exports that episode's workspace onto that domain. */
+export async function openSim(command: string, input: { task: string; seed?: number }, workspace: string): Promise<Sim> {
+  // setup exports the workspace a launch of the same task and seed serves; without a seed both take the task's default.
+  const seed = input.seed === undefined ? [] : ["--seed", String(input.seed)]
+  const record = await rosbridge(command, ["launch", input.task, "--execution-mode", "stepped", "--early-stop", "--detach", ...seed])
   const run = String(record.id)
   stopAtExit(run, command)
   const close = async (): Promise<Verdict> => {
     // The outcome of an episode that has not ended is recorded when its run stops.
     await rosbridge(command, ["stop", run]).finally(() => open.delete(run))
-    const judged = await rosbridge(command, ["judge", run]) as { episodes?: { success?: boolean; step?: number; reason?: string; seed?: number }[] }
+    const judged = await rosbridge(command, ["judge", run]) as { episodes?: { success?: boolean; step?: number; reason?: string; cause?: string; seed?: number }[] }
     const outcome = judged.episodes?.at(-1)
     if (!outcome) throw new Error(`rosbridge judged no episode for run ${run}`)
-    return { success: outcome.success === true, steps: outcome.step, reason: outcome.reason, seed: outcome.seed }
+    return { success: outcome.success === true, steps: outcome.step, reason: outcome.reason, cause: outcome.cause, seed: outcome.seed }
   }
   try {
-    await rosbridge(command, ["setup", input.robot, "--directory", workspace, "--domain-id", String(record.domain_id)])
+    await rosbridge(command, ["setup", input.task, ...seed, "--directory", workspace, "--domain-id", String(record.domain_id)])
     return { run, instruction: await instruction(record.log, input.task), close }
   } catch (error) {
     await close().catch(() => {})
