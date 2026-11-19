@@ -2,7 +2,7 @@ import { mkdir, symlink } from "node:fs/promises"
 import path from "node:path"
 import { pythonEnvironment, pythonRuntime } from "@kinex/core/python/environment"
 import { createScope, currentScope, inScope } from "@kinex/core/scope"
-import { finishJob, spaced, type Job, type Result } from "./job.ts"
+import { finishJob, type Job, type Result } from "./job.ts"
 import { pythonDir, versionDir } from "./layout.ts"
 import { install } from "./library.ts"
 import { writeRecord, type TrialInput } from "./records.ts"
@@ -22,7 +22,7 @@ async function sharePython(workspace: string) {
 // Workers are separate processes, and a ROS build is not safe to run twice at once
 // in one folder: each deletes and rebuilds ros/. So this process builds the shared
 // environment, one trial at a time, before any worker can start one of its own.
-// A fresh scope makes the trial workspace's settings decide, not the scheduler's.
+// A fresh scope makes the trial workspace's settings decide, not the run's.
 // uv locks its own environment, so only ROS providers are prepared here. The
 // folder is one for the whole process, so the queue is too, not a runtime's.
 let building: Promise<unknown> = Promise.resolve()
@@ -33,6 +33,15 @@ function preparePython(workspace: string, signal?: AbortSignal): Promise<unknown
   }))
   building = ready
   return ready
+}
+
+// Work that must not begin at the same moment takes turns: each worker's turn
+// comes no sooner than `gapS` after the one before it, whichever run it is in.
+let turn: Promise<void> = Promise.resolve()
+function spaced(gapS: number): Promise<void> {
+  const mine = turn
+  turn = turn.then(() => new Promise<void>(resolve => setTimeout(resolve, gapS * 1000)))
+  return mine
 }
 
 // Whether a trial ran is the simulator's to say, not the worker's exit code: a
@@ -47,7 +56,7 @@ export function judged(session: SessionExit, verdict: Verdict): SessionExit & { 
 }
 
 /** One trial: a fresh episode of one task, a fresh worker with one library version, the simulator's verdict. */
-export async function runTrial(run: Run, job: Job, input: TrialInput): Promise<Result> {
+export async function runTrial(run: Run, job: Job, input: TrialInput, signal: AbortSignal): Promise<Result> {
   const sandbox = run.config.sandbox === true
   if (sandbox) await sandboxReady()
   const sim = await openSim(run.config.rosbridge, input, job.workspace)
@@ -57,9 +66,9 @@ export async function runTrial(run: Run, job: Job, input: TrialInput): Promise<R
     await preparePython(job.workspace, currentScope().signal)
     // Each worker starts a ROS process per device: workers started in the same
     // moment time each other's device loads out. Simulators still launch together.
-    await spaced("workers", run.config.startGapS ?? START_GAP_S)
+    await spaced(run.config.startGapS ?? START_GAP_S)
     const prompt = `${sim.instruction}\n\n${WORKER.trim().replaceAll("$TIMEOUT", String(input.timeoutS))}`
-    return runSession("worker", job.workspace, job.record, prompt, Date.now() + input.timeoutS * 1000, sandbox)
+    return runSession("worker", job.workspace, job.record, prompt, Date.now() + input.timeoutS * 1000, { sandbox, signal })
   })().catch(async (error: unknown) => { await sim.close().catch(() => {}); throw error })
   const verdict = await sim.close()
   const outcome = { ...judged(session, verdict), instruction: sim.instruction, ...verdict }

@@ -78,7 +78,7 @@ export function describeDistillation(distillation: DistillationView, running: bo
   return `${distillation.id}, base ${distillation.base}, ${distillation.trials.length} trials (${distillation.fresh.length} new), ${result}`
 }
 
-/** What the scheduler and the user read: solved tasks per version first, then every job in one line. */
+/** What the user reads of a run: solved tasks per version first, then every job in one line. */
 export function renderStatus(root: string, status: Status, running: (id: string) => boolean): string {
   const solved = solvedTasks(status)
   const tasks = taskIDs(status)
