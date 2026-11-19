@@ -1,1 +1,0 @@
-The self-improve run $ROOT is no longer scheduled in this session. Its scheduler rules no longer apply and the improve_* tools are gone: this is an ordinary Kinex session again. The user continues the run with /self-improve resume.

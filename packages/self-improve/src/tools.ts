@@ -1,138 +1,96 @@
-import { stat } from "node:fs/promises"
 import path from "node:path"
 import { z } from "zod"
 import { define, type Def } from "@kinex/core"
-import { candidateDir, runDistillation } from "./distill.ts"
-import { isRunning, openJob, resultOf, runningIDs, start, startJob, wait } from "./job.ts"
-import { distillationsDir, recordDir, trialsDir } from "./layout.ts"
-import { check, newestVersion, versions } from "./library.ts"
-import { describeDistillation, describeTrial, renderStatus, scan, type DistillInput, type TrialInput } from "./records.ts"
-import { DEADLINE_VARIABLE } from "./roles.ts"
-import { activeRun } from "./run.ts"
+import { startTool, tools as jobTools, type Tool } from "@kinex/jobs/tools"
+import { candidateDir } from "./distill.ts"
+import { check } from "./library.ts"
+import { saveTasks } from "./run.ts"
+import { checked, type Phase, type Scheduled } from "./scheduler.ts"
 import { runSession } from "./session.ts"
-import { listTasks } from "./sim.ts"
-import { runTrial } from "./trial.ts"
+import { listTasks, matching } from "./sim.ts"
 
-const HELPERS_AT_ONCE = 4
+// The main session has this package's tools only while the scheduler has given it
+// a turn: two to convert a free-text request into tasks, three to distill.
+export const toolNames: readonly string[] = ["improve_tasks", "improve_select", "improve_delegate", "improve_wait", "improve_check"]
+
 const output = (title: string, text: string) => ({ title, output: text })
 
-function scheduled() {
-  const run = activeRun()
-  if (!run) throw new Error("No self-improve run is active in this session; the user starts one with /self-improve")
-  return run
+// A tool of @kinex/jobs as Kinex runs its own: the arguments checked against its schema, the result in Kinex's form.
+function adopt<Args>(tool: Tool<Args>): Def {
+  return define(tool.name, {
+    description: tool.description,
+    parameters: z.fromJSONSchema(tool.parameters as Parameters<typeof z.fromJSONSchema>[0]),
+    execute: async (args, ctx) => {
+      const result = await tool.execute(args as Args, ctx.abort)
+      return { title: result.title, output: result.text, ...(result.isError ? { isError: true } : {}) }
+    },
+  })
 }
 
-const Tasks = define("improve_tasks", {
-  description: "Tasks in rosbridge's catalog that match the pattern, split and count: id and robot. improve_run_trial takes ids.",
-  parameters: z.strictObject({
-    simulator: z.string().optional().describe("limit to one simulator, e.g. robocasa"),
-    pattern: z.string().optional().describe("matched against the whole task id; * matches any characters, e.g. libero/libero-spatial-*"),
-    split: z.string().optional().describe("a split the catalog marks, e.g. target"),
-    count: z.number().int().positive().optional().describe("at most this many, in id order"),
-  }),
-  execute: async args => {
-    const catalog = await listTasks(scheduled().config.rosbridge, args.simulator)
-    const pattern = args.pattern && new RegExp(`^${args.pattern.split("*").map(part => part.replaceAll(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`)
-    if (args.split && !catalog.some(task => task.split)) throw new Error("rosbridge does not report task splits; select by pattern or by ids")
-    const matched = catalog.filter(task => (!pattern || pattern.test(task.id)) && (!args.split || task.split === args.split)).slice(0, args.count)
-    return output(`${matched.length} tasks`, matched.map(task => `${task.id} (robot ${task.robot})`).join("\n") || "No task matches.")
-  },
-})
+function selectTools({ run }: Scheduled, { catalog }: Extract<Phase, { kind: "select" }>): Def[] {
+  return [
+    define("improve_tasks", {
+      description: "Tasks in rosbridge's catalog that match the pattern, split and count: id and robot. improve_select takes ids.",
+      parameters: z.strictObject({
+        simulator: z.string().optional().describe("limit to one simulator, e.g. robocasa"),
+        pattern: z.string().optional().describe("matched against the whole task id; * matches any characters, e.g. libero/libero-spatial-*"),
+        split: z.string().optional().describe("a split the catalog marks, e.g. target"),
+        count: z.number().int().positive().optional().describe("at most this many, in id order"),
+      }),
+      execute: async args => {
+        const listed = args.simulator ? await listTasks(run.config.rosbridge, args.simulator) : catalog
+        if (args.split && !listed.some(task => task.split)) throw new Error("rosbridge does not report task splits; select by pattern or by ids")
+        const matched = listed.filter(task => (!args.pattern || matching(args.pattern).test(task.id)) && (!args.split || task.split === args.split)).slice(0, args.count)
+        return output(`${matched.length} tasks`, matched.map(task => `${task.id} (robot ${task.robot})`).join("\n") || "No task matches.")
+      },
+    }),
+    define("improve_select", {
+      description: "Set the tasks this self-improve run practises: ids from improve_tasks, all on one robot. Call it once; the trials start when your turn ends.",
+      parameters: z.strictObject({ tasks: z.array(z.string()).min(1).describe("task ids from improve_tasks") }),
+      execute: async args => {
+        const tasks = checked(args.tasks, catalog)
+        await saveTasks(run, tasks)
+        return output(`${tasks.length} tasks selected`, `The run practises: ${tasks.join(", ")}.`)
+      },
+    }),
+  ]
+}
 
-const RunTrial = define("improve_run_trial", {
-  description: "Start one trial per named task: a fresh sub-agent on each named task, shipped with the newest published library version, or the one named. Returns at once with the trial ids; improve_wait gives the outcomes. At most --parallel run at a time; the rest queue.",
-  parameters: z.strictObject({
-    tasks: z.array(z.string()).min(1).describe("task ids from improve_tasks"),
-    library: z.string().regex(/^L\d+$/).optional().describe("a published version; default: the newest"),
-  }),
-  execute: async args => {
-    const run = scheduled()
-    if (runningIDs().some(id => id.startsWith("d"))) throw new Error("A distillation is running; wait for it so the trials ship its library")
-    const library = args.library ?? await newestVersion(run.root)
-    if (!(await versions(run.root)).includes(library)) throw new Error(`No library version ${library}`)
-    const robots = new Map((await listTasks(run.config.rosbridge)).map(task => [task.id, task.robot]))
-    const unknown = args.tasks.filter(task => !robots.has(task))
-    if (unknown.length) throw new Error(`Unknown tasks: ${unknown.join(", ")}; improve_tasks lists the ids`)
-    const started: string[] = []
-    for (const task of args.tasks) {
-      const input: TrialInput = { task, robot: robots.get(task) ?? "", library, ...(run.config.seed === undefined ? {} : { seed: run.config.seed }), timeoutS: run.config.trialTimeoutS }
-      const job = await openJob(trialsDir(run.root), "t", input)
-      startJob(job, "trials", run.config.parallel, () => runTrial(run, job, input))
-      started.push(`${job.id} ${task}`)
-    }
-    return output(`${started.length} trials started`, `Started with ${library}, at most ${run.config.parallel} at a time:\n${started.join("\n")}`)
-  },
-})
+function distillTools({ distillation, helpers }: Extract<Phase, { kind: "distill" }>): Def[] {
+  const { workspace, record } = distillation.job
+  return [
+    adopt(startTool<{ name: string; prompt: string }>(helpers, {
+      name: "improve_delegate", lane: "helpers",
+      description: "Start a sub-agent: a separate session that works in this folder on the prompt you write, which is all it knows. Returns at once; improve_wait returns when it ends. What it finds, it must write to a file you name.",
+      parameters: { type: "object", additionalProperties: false, required: ["name", "prompt"], properties: {
+        name: { type: "string", pattern: "^[a-z0-9][a-z0-9-]*$", description: "unique in this session; lowercase letters, digits and hyphens" },
+        prompt: { type: "string", minLength: 1 },
+      } },
+      // A sub-agent's record goes beside the distiller's own; it ends with the distillation.
+      job: args => ({ id: args.name, run: async signal => {
+        const exit = await runSession("helper", workspace, path.join(record, "helpers", args.name), args.prompt, distillation.deadline, { signal })
+        return { status: exit.status, summary: `${exit.wallS} s` }
+      } }),
+    })),
+    adopt({ ...jobTools(helpers, { prefix: "improve" }).wait,
+      description: "Wait for sub-agents started with improve_delegate to end and return one line for each: done, error or timeout. Waits at most timeout_s; call again while it says running." }),
+    define("improve_check", {
+      description: "The gate: loads library/payload the way Kinex would and returns what does not load, a lib module named like a builtin kinex.lib module, and a brief.md longer than 15 lines or 2,000 characters. A library with problems is not published.",
+      parameters: z.strictObject({}),
+      execute: async () => {
+        const problems = await check(candidateDir(workspace))
+        return { title: problems.length ? `${problems.length} problems` : "No problems", output: problems.join("\n") || "No problems: the library may ship.", isError: problems.length > 0 }
+      },
+    }),
+  ]
+}
 
-const Distill = define("improve_distill", {
-  description: "Start one distillation: a separate session that reads every finished trial's record and rewrites the library. If its check passes, the result is published as the next library version. Returns at once with the distillation id; improve_wait gives the outcome. Refused while trials are running or when no finished trial is new.",
-  parameters: z.strictObject({}),
-  execute: async () => {
-    const run = scheduled()
-    if (runningIDs().length) throw new Error(`Still running: ${runningIDs().join(", ")}; a distillation starts after every trial of the wave has ended`)
-    const status = await scan(run.root)
-    if (!status.fresh.length) throw new Error("No finished trial is new since the last published version")
-    const input: DistillInput = { base: await newestVersion(run.root), trials: status.trials.filter(trial => trial.status).map(trial => trial.id), fresh: status.fresh, timeoutS: run.config.distillTimeoutS }
-    const job = await openJob(distillationsDir(run.root), "d", input)
-    startJob(job, "distillations", 1, () => runDistillation(run, job, input))
-    return output(`${job.id} started`, `Started ${job.id} from ${input.base} on ${input.trials.length} trials (${input.fresh.length} new).`)
-  },
-})
+const built = new WeakMap<Phase, Def[]>()
 
-const Wait = define("improve_wait", {
-  description: "Wait for trials to end and return each outcome: the simulator's verdict (success), the sub-agent's cost (steps, seconds, dollars), with its record in trials/<id>/record/. Also waits for a distillation (whether its check passed and the version it published) and, inside a distillation, for sub-agents started with improve_delegate (done or failed). Waits at most timeout_s; call again while it says running.",
-  parameters: z.strictObject({
-    ids: z.array(z.string()).optional().describe("default: everything this session started that is still running"),
-    mode: z.enum(["all", "any"]).default("all").describe("return when all have ended, or as soon as one has"),
-    timeout_s: z.number().positive().default(3600),
-  }),
-  execute: async (args, ctx) => {
-    const ids = args.ids ?? runningIDs()
-    if (args.mode === "all" || ids.every(isRunning)) await wait(ids, args.mode, args.timeout_s, ctx.abort)
-    const run = activeRun()
-    const status = run ? await scan(run.root) : undefined
-    const lines = ids.map(id => {
-      const trial = status?.trials.find(view => view.id === id)
-      const distillation = status?.distillations.find(view => view.id === id)
-      if (trial) return describeTrial(trial, isRunning(id))
-      if (distillation) return describeDistillation(distillation, isRunning(id))
-      return `${id}, ${isRunning(id) ? "running" : resultOf(id)?.status ?? "unknown"}`
-    })
-    return output(`${ids.filter(id => !isRunning(id)).length}/${ids.length} ended`, lines.join("\n") || "Nothing is running.")
-  },
-})
-
-const Status = define("improve_status", {
-  description: "The run so far: published library versions and tasks solved per version; every trial, oldest first, with its verdict, cost and library version; then distillations and the finished trials not yet distilled.",
-  parameters: z.strictObject({}),
-  execute: async () => {
-    const run = scheduled()
-    return output("Self-improve status", renderStatus(run.root, await scan(run.root), isRunning))
-  },
-})
-
-const Delegate = define("improve_delegate", {
-  description: "Start a sub-agent: a separate session that works in this folder on the prompt you write, which is all it knows. Returns at once; improve_wait returns when it ends. What it finds, it must write to a file you name.",
-  parameters: z.strictObject({
-    name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/).describe("unique in this session; lowercase letters, digits and hyphens"),
-    prompt: z.string().min(1),
-  }),
-  execute: async (args, ctx) => {
-    // A distiller works in <job>/workspace; its helpers' records go beside its own.
-    const record = path.join(recordDir(path.dirname(ctx.directory)), "helpers", args.name)
-    if (await stat(record).then(() => true, () => false)) throw new Error(`A sub-agent named ${args.name} was already started`)
-    start(args.name, "helpers", HELPERS_AT_ONCE, async () => ({ ...await runSession("helper", ctx.directory, record, args.prompt, Number(process.env[DEADLINE_VARIABLE])) }))
-    return output(`${args.name} started`, `Started sub-agent ${args.name}; at most ${HELPERS_AT_ONCE} run at a time.`)
-  },
-})
-
-const Check = define("improve_check", {
-  description: "The gate: loads library/payload the way Kinex would and returns what does not load, a lib module named like a builtin kinex.lib module, and a brief.md longer than 15 lines or 2,000 characters. A library with problems is not published.",
-  parameters: z.strictObject({}),
-  execute: async (_args, ctx) => {
-    const problems = await check(candidateDir(ctx.directory))
-    return { title: problems.length ? `${problems.length} problems` : "No problems", output: problems.join("\n") || "No problems: the library may ship.", isError: problems.length > 0 }
-  },
-})
-
-export const tools: readonly Def[] = [Tasks, RunTrial, Distill, Wait, Status, Delegate, Check]
+/** The tools of the turn the scheduler has given the session in `directory`, if it has given it one. */
+export function toolsOf(state: Scheduled | undefined, directory: string): Def[] {
+  const phase = state?.phase
+  if (!state || !phase || (phase.kind === "distill" && phase.distillation.job.workspace !== directory)) return []
+  if (!built.has(phase)) built.set(phase, phase.kind === "select" ? selectTools(state, phase) : distillTools(phase))
+  return built.get(phase) ?? []
+}
