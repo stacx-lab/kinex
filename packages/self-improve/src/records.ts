@@ -166,12 +166,14 @@ export async function collect(root: string, config: Config, input: DistillInput,
       reason: trial.reason, cause: trial.cause, steps: trial.steps, wallS: trial.wallS, cost: trial.usage?.cost, note: trial.note, new: input.fresh.includes(trial.id) }))
   }
   await writeFile(path.join(directory, "INDEX.jsonl"), index.join("\n") + "\n")
-  const tasks = [...new Set(trials.map(trial => trial.task))].sort()
+  // Every task of the run, so that the ones a batch has not opened yet are named too.
+  const tasks = [...new Set([...config.tasks ?? [], ...trials.map(trial => trial.task)])].sort()
   await writeFile(path.join(directory, "TASKS.md"), [
     "# Every task: goal, status, trials", "",
     `${tasks.length} tasks: ${solved.size} solved, ${tasks.length - solved.size} unsolved. Per library version: successful trials / trials, then the trials.`, "",
     ...tasks.flatMap(task => {
       const own = trials.filter(trial => trial.task === task)
+      if (!own.length) return [`## ${task} [UNSOLVED]`, "goal: (not run yet)", "not opened yet", ""]
       const stated = own.findLast(trial => trial.instruction)
       const goal = stated ? `${stated.instruction}${stated.instructionSource === "task name" ? " (the task's name: the simulator gave no instruction)" : ""}` : "(not stated)"
       return [`## ${task} [${solved.has(task) ? "solved" : "UNSOLVED"}]`, `goal: ${goal}`, "",
@@ -194,7 +196,9 @@ export async function collect(root: string, config: Config, input: DistillInput,
   late, say) in a trial that was still judged.
 - A sub-agent was given its task's goal in the simulator's own words; where TASKS.md says a goal is the task's name, the
   simulator gave none. The simulator does not announce its step limit: a sub-agent was told that there may be one, and
-  the number only when an earlier trial of its task had been ended at it (prompt.md).
+  the number only when an earlier trial of its task had been ended at it (prompt.md).${config.batches?.length ? `
+- Tasks open in batches of ${config.batches.join(", ")}, then the rest, one batch a wave: a wave runs every open task still unsolved
+  and opens the next batch. TASKS.md marks the tasks not opened yet.` : ""}
 - Every trial shipped one library version (INDEX.jsonl); L0 is the empty library.
 - A task counts as solved once any of its trials succeeded.
 - The \`new\` flags in INDEX.jsonl mark the trials no published library has incorporated yet.

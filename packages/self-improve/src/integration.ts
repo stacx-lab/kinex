@@ -11,7 +11,7 @@ import { toolNames, toolsOf } from "./tools.ts"
 
 export const selfImproveToolNames = toolNames
 
-const USAGE = "Usage: /self-improve <tasks> [--rounds N] [--parallel N] | status [run] | install <version> [run] | resume [run] | stop"
+const USAGE = "Usage: /self-improve <tasks> [--rounds N] [--parallel N] [--batches N,N,...] | status [run] | install <version> [run] | resume [run] | stop"
 
 export function selfImproveContribution(runtime: KinexRuntime): KinexContribution {
   // Whether this session was given a brief, so that it is also told when one is removed.
@@ -38,6 +38,14 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
       if (!Number.isInteger(value) || value < 1) throw new Error(`--${name} needs a positive whole number`)
       return value
     }
+    // The sizes of the first batches of tasks to open: --batches 10,20,40.
+    const batches = () => {
+      const index = tokens.indexOf("--batches")
+      if (index < 0) return {}
+      const sizes = (tokens.splice(index, 2)[1] ?? "").split(",").map(Number)
+      if (!sizes.every(size => Number.isInteger(size) && size > 0)) throw new Error("--batches needs positive whole numbers separated by commas, such as 10,20,40")
+      return { batches: sizes }
+    }
     const [first, second, third] = tokens
     if (first === "status") {
       const run = await openRun(second)
@@ -61,7 +69,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
       return { kind: "output", text: `Stopping the self-improve run ${scheduled.run.root}.` }
     }
     if (first === "resume") return schedule(await openRun(second), context)
-    const settings = { rounds: option("rounds", 1), parallel: option("parallel", 1) }
+    const settings = { rounds: option("rounds", 1), parallel: option("parallel", 1), ...batches() }
     if (!tokens.length) throw new Error(USAGE)
     if (current()) throw new Error(`The self-improve run ${current()?.run.root} is already scheduled in this Kinex; /self-improve stop ends it`)
     return schedule(await createRun(tokens.join(" "), settings), context)
@@ -89,7 +97,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
     }),
     commands: [{
       name: "self-improve", description: "Practise simulated tasks and distill a library of skills and code",
-      arguments: "<tasks> [--rounds N] [--parallel N] | status | install <version> | resume | stop", kind: "operation",
+      arguments: "<tasks> [--rounds N] [--parallel N] [--batches N,N,...] | status | install <version> | resume | stop", kind: "operation",
       // Inside the runtime, as a tracked operation; a run it starts is the process's and outlives it.
       execute: (args, context) => runtime.operation(() => execute(args, context), context.signal),
     }],

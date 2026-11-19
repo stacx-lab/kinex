@@ -1,9 +1,9 @@
-import { cp, mkdir, stat, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Assets } from "@kinex/core/installation/assets"
 import { finishJob, openJob, type Job, type Result } from "./job.ts"
-import { distillationsDir, promptFile, sessionFile, trialsDir, versionDir, workspaceDir } from "./layout.ts"
+import { distillationsDir, parseLine, promptFile, readJson, sessionFile, trialsDir, versionDir, workspaceDir } from "./layout.ts"
 import { check, newestVersion, publish } from "./library.ts"
 import { collect, type DistillInput, type Status } from "./records.ts"
 import { REPAIRS, REPAIR_S, type Run } from "./run.ts"
@@ -11,6 +11,7 @@ import type { SessionExit } from "./session.ts"
 import FRAME from "./distill-frame.txt"
 import REPAIR from "./distill-repair.txt"
 import RULES from "./distill-rules.txt"
+import SCHEDULE from "./distill-schedule.txt"
 import REFERENCE from "./reference.txt"
 
 // A distillation is one turn of the main session in a folder of its own: trial
@@ -56,12 +57,16 @@ export async function prepareDistillation(run: Run, status: Status): Promise<Dis
   await cp(versionDir(run.root, input.base), candidateDir(job.workspace), { recursive: true })
   const deadline = Date.now() + input.timeoutS * 1000
   const goals = new Map(trials.map(trial => [trial.task, trial.instruction ?? ""]))
+  // A task no batch has opened yet has no trial: the distiller is asked to order those.
+  const unopened = (run.config.tasks ?? []).filter(task => !goals.has(task))
+  for (const task of unopened) goals.set(task, "(not opened yet)")
   const fill: Record<string, string> = {
     WORKER_MODEL: "Kinex, the agent and model you are", WORKER_TIMEOUT: String(run.config.trialTimeoutS), SESSION: job.id,
     DEADLINE: new Date(deadline).toISOString(), HOURS: (input.timeoutS / 3600).toFixed(1),
     TASKS: [...goals].sort().map(([task, goal]) => `- ${task}: ${goal}`).join("\n"),
+    SCHEDULE: unopened.length ? SCHEDULE.trim() : "",
   }
-  const prompt = `${FRAME.replaceAll(/\[\[(\w+)\]\]/g, (_, name: string) => fill[name] ?? "")}\n${RULES}`
+  const prompt = `${FRAME}\n${RULES}`.replaceAll(/\[\[(\w+)\]\]/g, (_, name: string) => fill[name] ?? "").replaceAll(/\n{3,}/g, "\n\n")
   await writeFile(promptFile(job.record), prompt)
   // The session a distiller works in is kept in this file: an empty one opens as a fresh session.
   await writeFile(sessionFile(job.record), "")
@@ -88,6 +93,17 @@ export async function distillTurns(distillation: Distillation, turn: (prompt: st
     exit = await turn(REPAIR.trim().replaceAll(/\[\[(\w+)\]\]/g, (_, name: string) => fill[name] ?? ""), distillation.deadline)
   }
   return { ...exit, repairs }
+}
+
+// The order the distiller that made the newest version asked for the tasks not
+// opened yet, as it left it in schedule.json; a file that is absent or not of
+// that form orders nothing.
+export async function scheduled(root: string): Promise<string[]> {
+  const source = (await readJson<{ source?: string }>(path.join(versionDir(root, await newestVersion(root)), "manifest.json")))?.source
+  if (!source) return []
+  const text = await readFile(path.join(workspaceDir(path.join(distillationsDir(root), source)), "schedule.json"), "utf8").catch(() => "")
+  const next = (parseLine(text) as { next?: unknown } | undefined)?.next
+  return Array.isArray(next) ? next.filter(task => typeof task === "string") : []
 }
 
 /** Candidate to version, when the distiller's turn ended normally and the check passes; an unfinished turn may leave a half-written library. */
