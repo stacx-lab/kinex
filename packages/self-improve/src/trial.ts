@@ -55,6 +55,11 @@ export function judged(session: SessionExit, verdict: Verdict): SessionExit & { 
     : { ...session, status: "done", note: `${exit}; see output.log` }
 }
 
+// rosbridge does not report an episode's step limit, so a worker is told the
+// number only once an earlier trial of its task has been ended at it.
+const limitNote = (limit: TrialInput["limit"]) => limit
+  ? ` An earlier trial of this task was ended at that limit after ${limit.steps} steps${limit.worldS === undefined ? "" : ` (${limit.worldS.toFixed(1)} s of world time)`}.` : ""
+
 /** One trial: a fresh episode of one task, a fresh worker with one library version, the simulator's verdict. */
 export async function runTrial(run: Run, job: Job, input: TrialInput, signal: AbortSignal): Promise<Result> {
   const sandbox = run.config.sandbox === true
@@ -67,11 +72,11 @@ export async function runTrial(run: Run, job: Job, input: TrialInput, signal: Ab
     // Each worker starts a ROS process per device: workers started in the same
     // moment time each other's device loads out. Simulators still launch together.
     await spaced(run.config.startGapS ?? START_GAP_S)
-    const prompt = `${sim.instruction}\n\n${WORKER.trim().replaceAll("$TIMEOUT", String(input.timeoutS))}`
+    const prompt = `${sim.instruction.text}\n\n${WORKER.trim().replaceAll("$TIMEOUT", String(input.timeoutS)).replaceAll("$LIMIT", () => limitNote(input.limit))}`
     return runSession("worker", job.workspace, job.record, prompt, Date.now() + input.timeoutS * 1000, { sandbox, signal })
   })().catch(async (error: unknown) => { await sim.close().catch(() => {}); throw error })
   const verdict = await sim.close()
-  const outcome = { ...judged(session, verdict), instruction: sim.instruction, ...verdict }
+  const outcome = { ...judged(session, verdict), instruction: sim.instruction.text, instructionSource: sim.instruction.source, ...verdict }
   // A record that cannot be written must not cost the trial its verdict: the distillation writes it again.
   const unwritten = await writeRecord(run.root, { id: job.id, ...input, ...outcome }).then(() => undefined, (error: unknown) => error instanceof Error ? error.message : String(error))
   return finishJob(job, { ...outcome, ...(unwritten ? { recordError: unwritten } : {}) })
