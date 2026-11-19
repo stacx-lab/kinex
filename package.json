@@ -18,6 +18,7 @@
   "workspaces": [
     "packages/core",
     "packages/setup",
+    "packages/jobs",
     "packages/self-improve"
   ],
   "engines": {
@@ -28,7 +29,7 @@
     "version:check": "node script/version.mjs --check",
     "build:core": "node packages/core/script/build.mjs",
     "build": "node script/build.mjs",
-    "typecheck": "npm run build:setup && node packages/self-improve/script/build.mjs && tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run build:setup && node packages/jobs/script/build.mjs && node packages/self-improve/script/build.mjs && tsc --noEmit -p tsconfig.json",
     "dev": "node bin/kinex.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
     "test:core": "npm run build:core && node --test packages/core/test/*.test.mjs",
@@ -36,15 +37,16 @@
     "pack": "node script/release.mjs",
     "build:setup": "npm run build:core && node packages/setup/script/build.mjs",
     "test:setup": "npm run build:setup && node --test packages/setup/test/*.test.mjs",
-    "check": "npm run build && node --test test/*.test.mjs packages/core/test/*.test.mjs packages/setup/test/*.test.mjs packages/self-improve/test/*.test.mjs && node script/release.mjs --check",
-    "build:self-improve": "npm run build:core && node packages/self-improve/script/build.mjs",
-    "test:self-improve": "npm run build && node --test packages/self-improve/test/*.test.mjs"
+    "check": "npm run build && node --test test/*.test.mjs packages/core/test/*.test.mjs packages/setup/test/*.test.mjs packages/jobs/test/*.test.mjs packages/self-improve/test/*.test.mjs && node script/release.mjs --check",
+    "build:self-improve": "npm run build:core && node packages/jobs/script/build.mjs && node packages/self-improve/script/build.mjs",
+    "test:self-improve": "npm run build && node --test packages/jobs/test/*.test.mjs packages/self-improve/test/*.test.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.6.0",
     "@earendil-works/pi-coding-agent": "1.6.0",
     "@earendil-works/pi-tui": "1.6.0",
     "@kinex/core": "1.1.4",
+    "@kinex/jobs": "1.1.4",
     "@kinex/self-improve": "1.1.4",
     "@kinex/setup": "1.1.4",
     "pi-btw": "0.8.1",
@@ -53,6 +55,7 @@
     "typebox": "1.3.27"
   },
   "bundleDependencies": [
+    "@kinex/jobs",
     "@kinex/self-improve"
   ],
   "devDependencies": {
