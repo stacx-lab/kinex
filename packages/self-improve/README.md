@@ -10,6 +10,7 @@ unprivileged user namespaces to sandbox workers.
 ```text
 /self-improve robocasa/add-ice-cubes robocasa/adjust-heat     named tasks
 /self-improve libero/libero-spatial-* --rounds 3              a group, three rounds
+/self-improve robocasa/* --rounds 6 --batches 10,20,40        open 10 tasks, then 20 more, 40 more, then the rest
 /self-improve ten RoboCasa tasks about doors --parallel 2     free text, two trials at a time
 /self-improve status [run]                                    no model: jobs, solved tasks per version
 /self-improve install L2 [run]                                no model: copy L2 into this workspace
@@ -30,12 +31,16 @@ start.
 | Worker | A headless child session, one per trial, in a fresh rig workspace with one library version installed | none |
 | Helper | A headless child session a distiller starts with a prompt it writes | none |
 
-The scheduler reads the run's folder, starts one trial for every task still
+The scheduler reads the run's folder, starts one trial for every open task still
 unsolved, and when the wave has ended gives the main session a turn to distill
-it; then the next wave runs with the new version. It stops when every task is
-solved, the rounds are done, or a round neither solved a task nor published a
-version. A trial that did not run, which is a setup problem and not a task
-failure, is started once more, and a second such error ends the run. While trials
+it; then the next wave runs with the new version. With `--batches` tasks open a
+batch a wave, in the order the last distiller asked for (`schedule.json`). It
+stops when every task is solved, the rounds are done, or a round neither solved
+a task nor published a version and no task is left to open. What fails is tried
+again first: a trial that did not run (a setup problem, not a task failure) is
+started again up to twice and its task then sits the wave out; a candidate that
+fails the check gets up to two repair turns; a distillation whose turn did not
+end normally is run again up to twice. While trials
 run the session is free; for a distillation Kinex opens an empty session in that
 distillation's folder, and the user's conversation returns when the turn ends.
 
@@ -51,7 +56,8 @@ on the launched ROS domain, the library installed, one worker, then `rosbridge s
 and `rosbridge judge`. The simulator's verdict decides; the worker's report never
 counts. A **distillation** gives the distiller every finished trial's record and the
 newest library, and publishes its candidate as the next version when its turn
-ended normally and `improve_check` finds the candidate loadable. The distill prompts are rsi's distill-lean
+ended normally and `improve_check` finds the candidate loadable, its Python
+compiling and its skills naming only what its code defines. The distill prompts are rsi's distill-lean
 prompts with the edits this design forces (one episode per trial, waves, folder
 names, the check and sub-agents as tools, task skills instead of task briefs,
 code as `kinex.lib` modules instead of a skill's body).
@@ -67,7 +73,7 @@ A run keeps everything under `<Kinex data directory>/self-improve/<run>/`, outsi
 every workspace so that no workspace's `.kinex` leaks into a trial.
 
 ```text
-config.json                 the request, rounds, parallel, limits, the rosbridge command
+config.json                 the request, rounds, parallel, batches, limits, the rosbridge command
 libraries/L0, L1, ...       published versions; never edited, the newest is current
   manifest.json             version, parent, the distillation it came from
   payload/                  what ships: skills/  tools/  lib/  programs/  brief.md
@@ -80,7 +86,7 @@ trials/t001/
                             learned.md  learned/    what the worker kept beyond the library
 distillations/d001/
   input.json                base version, trial ids, which of them are new
-  workspace/                records/  reference/  library/ (the candidate)  notes/
+  workspace/                records/  reference/  library/ (the candidate)  notes/  schedule.json (the order of new tasks)
   record/                   prompt.md  session.jsonl (the distiller's own session)  result.json
                             helpers/<name>/  each as a trial's record
 ```
@@ -109,21 +115,25 @@ distillations/d001/
   session after. The distiller works under the session's permission mode, which
   must be `auto` or `yolo`; in `auto`, a question it asks waits for the user.
 - Headless, `kinex run --auto "/self-improve ..."` returns when the run has ended.
-- Workers are kept to their workspace by a clean workspace, a trimmed environment
-  and an instruction, not by a sandbox, and they keep network access. The numbers
-  show whether a library helps; they are not benchmark results.
-- The check guarantees that a library loads. Whether it is better is measured by
-  the next wave: `status` shows successes per task and version.
+- Workers keep network access. The numbers show whether a library helps; they
+  are not benchmark results.
+- The check guarantees that a library loads and that its code compiles. Whether
+  it is better is measured by the next wave: `status` shows successes per task and
+  version.
 - Trial workspaces link one shared Kinex Python environment,
   `<data>/self-improve/.python`, built by the first worker that needs it.
-- rosbridge prints a task's instruction to its run log only for simulators that
-  have one (RoboCasa); otherwise the worker is given the task's name. Its task list
+- rosbridge does not publish a task's instruction: it is read from the run's
+  folder (a `PROMPT.json`, else the simulator's line in the run log), and a
+  simulator that gives none leaves the worker the task's name, which `status`
+  reports. rosbridge does not report an episode's step limit either, nor take
+  one: a worker is told the number only after an earlier trial of its task was
+  ended at it. Its task list
   does not report splits, so `improve_tasks` selects by simulator, pattern and count.
 - Trials run up to `--parallel` at a time, but their workers start `startGapS`
   apart (10 s): each loads a ROS process per device, and workers that load in the
   same moment run past the devices' ready limit.
 - `config.json` can be edited while no Kinex schedules the run: `seed`, `trialTimeoutS` (3600),
-  `distillTimeoutS` (7200), `startGapS` (10), `rounds`, `parallel`, `helpers` (10,
+  `distillTimeoutS` (7200), `startGapS` (10), `rounds`, `parallel`, `batches`, `helpers` (10,
   how many of a distiller's sub-agents run at once), `sandbox`.
   `KINEX_ROSBRIDGE` names the rosbridge command when a run is created (default
   `rosbridge` on `PATH`).
