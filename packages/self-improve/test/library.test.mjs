@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { check, createLibrary, install, installedBrief, newestVersion, publish, versions } from '../dist/library.js'
@@ -18,6 +20,35 @@ async function directory(t) {
 }
 const put = async (file, text) => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text) }
 const skill = (name, description = 'does a thing') => `---\nname: ${name}\ndescription: ${description}\n---\nText.\n`
+
+// The code checks read Python with the workers' interpreter or the host's; a host with neither skips them.
+const python = await promisify(execFile)('python3', ['--version']).then(() => true, () => false)
+
+test('the check reports code that does not compile, names a module does not define, and rows that are not objects', { skip: !python }, async t => {
+  const candidate = path.join(await directory(t), 'candidate')
+  await put(path.join(candidate, 'payload/lib/doors/__init__.py'), '"""Door helpers."""\nfrom .hinge import swing, HANDLE\n')
+  await put(path.join(candidate, 'payload/lib/doors/hinge.py'), '"""Hinges."""\nHANDLE = 0.4\nasync def swing(angle):\n    return angle\nclass Leaf: ...\n')
+  await put(path.join(candidate, 'payload/lib/grip.py'), '"""Grip helpers."""\nfrom kinex.lib.motion import *\ndef pinch(): ...\n')
+  await put(path.join(candidate, 'payload/programs/open_door.py'), 'from kinex import finish\nfinish(True)\n')
+  await put(path.join(candidate, 'payload/skills/doors/SKILL.md'), skill('doors') + [
+    'Call `doors.swing(30)`, kinex.lib.doors.hinge.Leaf and lib.doors.HANDLE.real; read doors.py or doors.hinge.',
+    'A door opens. Then doors.hinge.pull_open() and `from kinex.lib.doors import latch`: doors.latch(), doors.latch.',
+    'Whatever grip.pinch() and grip.anything() are, grip takes names from elsewhere.', ''].join('\n'))
+  await put(path.join(candidate, 'payload/brief.md'), 'Use doors.swing, never doors.yank().\n')
+  await put(path.join(candidate, 'memory/rows/d001.jsonl'), '{"trial": "t001"}\n\n{"trial": "t002"}\n')
+  assert.deepEqual(await check(candidate), [
+    'payload/skills/doors/SKILL.md: names doors.latch, which payload/lib/doors does not define',
+    'payload/skills/doors/SKILL.md: names doors.pull_open, which payload/lib/doors does not define',
+    'payload/brief.md: names doors.yank, which payload/lib/doors does not define',
+  ])
+  // A file that does not compile is the problem; what its module defines is then unknown, so nothing is called missing.
+  await put(path.join(candidate, 'payload/lib/doors/hinge.py'), 'def swing(:\n')
+  await put(path.join(candidate, 'payload/programs/open_door.py'), 'finish(True\n')
+  await put(path.join(candidate, 'memory/rows/d002.jsonl'), '{"trial": "t003"}\n["t004"]\nnot json\n')
+  assert.deepEqual((await check(candidate)).map(problem => problem.replace(/(does not compile): .*/, '$1')), [
+    'payload/lib/doors/hinge.py: does not compile', 'payload/programs/open_door.py: does not compile', 'memory/rows/d002.jsonl:2: not a JSON object',
+  ])
+})
 
 test('the check reports what Kinex could not load, and only a clean candidate is published', async t => {
   const root = await directory(t)
