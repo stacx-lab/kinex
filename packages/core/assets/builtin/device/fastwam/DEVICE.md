@@ -33,7 +33,7 @@ variant's `yuanty/fastwam` files. Validate, then load.
 
 ### Operations
 
-- `infer`: `kinex_interfaces/srv/Json` taking `obs` `{images, state}`, `task` and
+- `infer`: `custom_interfaces/srv/Json` taking `obs` `{images, state}`, `task` and
   optional `seed` (0), `num_inference_steps` (10) and `compile_action_infer`
   (false); Optional IDM also takes `action_infer_mode` (`first_frame` or `idm`).
   `images` are the variant's camera image paths in the evaluator's orientation
@@ -58,7 +58,7 @@ operations:
     transport: service
     direction: input
     endpoint: /kinex/fastwam/infer
-    type: kinex_interfaces/srv/Json
+    type: custom_interfaces/srv/Json
     timeout_s: 120
 family: fastwam
 variant: libero_uncond_2cam224

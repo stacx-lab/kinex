@@ -11,7 +11,7 @@ repository root.
 
 | Location | Owns |
 | --- | --- |
-| `packages/core` | Device management, ROS communication and supervision, schemas, runtime Python, `kinex_interfaces`, operational tools, setup-device and device guides with reference nodes. No setup, agent or UI dependency. |
+| `packages/core` | Device management, ROS communication and supervision, schemas, runtime Python, `custom_interfaces`, operational tools, setup-device and device guides with reference nodes. No setup, agent or UI dependency. |
 | `packages/setup` | Onboarding and calibration workflows, tools, skills and evidence. Device preparation, including ROS, uses core's setup-device. Imports core through package exports. |
 | `packages/jobs` | Work that outlives the call that started it: jobs, lanes and one wait, from code or as plain tool definitions. Imports only Node; knows no agent host. |
 | `packages/self-improve` | `/self-improve`: a scheduler in code, trials on simulated tasks, distillation as turns of the main session, library versions and installation. Reaches simulators only through the rosbridge command, core through package exports and the session through the command context. |

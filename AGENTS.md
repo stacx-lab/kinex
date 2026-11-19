@@ -7,7 +7,7 @@ Design history and progress belong in git.
 ## Ownership
 
 - `packages/core/src` owns device management and operation; core assets own runtime
-  Python with the builtin function library, `kinex_interfaces`, provisioning bundles,
+  Python with the builtin function library, `custom_interfaces`, provisioning bundles,
   device guides with reference nodes, and setup-device, which also covers ROS device
   onboarding. Core
   must not import setup, a host agent or UI.

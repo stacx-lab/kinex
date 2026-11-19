@@ -61,8 +61,7 @@ public endpoints. Their source routes are implementation details. Kinex remaps
 each device node's `/clock` to the world `time` topic; the world template's clock
 node disables global ROS arguments so it is never remapped into its own output.
 Workspaces exported by [rosbridge](https://github.com/stacx-lab/rosbridge) borrow
-the simulator graph's endpoints and start only the `links.py` nodes of joint and
-gripper devices.
+the simulator graph's endpoints and declare no nodes of their own.
 
 `load`, `unload` and `status` are host lifecycle operations, not declared ROS
 operations; profiles cannot declare them. `stop` calls the declared
@@ -140,7 +139,7 @@ programs and library functions import it with `from kinex import io` and take no
 scope parameter. `io.read(operation)`
 takes the next message of an output topic. A standalone client outside exec
 enters `async with communication(catalog) as io`, which makes its scope the
-active one for the library functions it calls. A `kinex_interfaces/srv/Json`
+active one for the library functions it calls. A `custom_interfaces/srv/Json`
 operation encodes keyword arguments as one JSON object and returns the decoded
 response object; owned nodes serve it with
 `kinex.node.json_service(node, operation, handler)`. `publish`, `subscribe`,
@@ -275,9 +274,10 @@ and publish no static edge. ROS frame IDs use `<device>/<frame>`, including
 `arm/base`, `arm/flange` and `gripper/tcp`. Kinex lookup accepts either qualified
 profile references (`arm:base`) or native ROS IDs (`arm/base`).
 
-A joint or gripper device's `links.py` factory creates a persistent
-`kinex.node.LinkPublisher`. It reads the profile's URDF once, subscribes to
-measured `joint_state`, and publishes every link below the base link as
+Loading a joint or gripper device whose profile has a complete URDF `model` and a
+`joint_state` operation starts a link publisher beside its nodes
+(`kinex.host.links`); profiles declare nothing for it. It reads the profile's URDF
+once, subscribes to measured `joint_state`, and publishes every link below the base link as
 `<device>/<link>`: fixed joints once on `/tf_static`, movable and mimic joints on
 `/tf`. Measurements are never clamped to command limits, and each publication
 retains the measurement timestamp. Dynamic TF retains the latest sample with
@@ -291,7 +291,7 @@ entry. A controller with native kinematics may declare `fk` or `ik` as ordinary
 optional operations.
 
 Kinex automatically owns a persistent tf2 service
-(`kinex_interfaces/srv/LookupTransform`) for each runtime ROS domain with a world
+(`custom_interfaces/srv/LookupTransform`) for each runtime ROS domain with a world
 clock. Use
 `await lib.frames.lookup_transform(target, source, stamp=None, timeout_s=5)`,
 which returns the pose of `source` in `target` as a `RigidTransform`: multiplying it
@@ -333,13 +333,13 @@ to a model device. Pass an image to `finish(file=...)` to attach it for the mode
 
 ## Native validation
 
-`kinex_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
+`custom_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
 services; commands and observations use standard ROS messages. The ROS
 providers build it from `packages/core/assets/ros`; build that directory in any
 other ROS environment that calls these services.
-[rosbridge](https://github.com/stacx-lab/rosbridge) serves
-`kinex_interfaces/srv/Wait` from its own byte-identical copy, so it needs no Kinex
-checkout to build.
+[rosbridge](https://github.com/stacx-lab/rosbridge) serves `Wait` and `Json`
+from its own byte-identical copy of the package, so neither project needs the
+other's checkout to build.
 
 `rosbridge setup <robot> --directory DIR --domain-id N` exports a workspace whose
 devices borrow the running graph's endpoints. Start the simulator with

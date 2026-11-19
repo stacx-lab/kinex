@@ -4,7 +4,7 @@ Raw images and masks stay in their published grid. Nodes use vendor SDKs or
 OpenCV; Kinex does not implement lens-distortion equations.
 
 Declare geometry, unproject and project as input services of type
-kinex_interfaces/srv/Json, with endpoint, timeout and descriptions.
+custom_interfaces/srv/Json, with endpoint, timeout and descriptions.
 
 - geometry accepts {} and returns {"streams":{"color":descriptor,"depth":descriptor}}.
   Omit depth unless native. Stereo returns left and right streams instead.

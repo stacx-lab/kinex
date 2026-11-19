@@ -177,7 +177,7 @@ def scope(catalog):
     return io
 
 
-WAIT = {"world.wait": {"transport": "service", "direction": "input", "type": "kinex_interfaces/srv/Wait", "endpoint": "/wait"},
+WAIT = {"world.wait": {"transport": "service", "direction": "input", "type": "custom_interfaces/srv/Wait", "endpoint": "/wait"},
         "world.stop": {"transport": "service", "direction": "input", "type": "std_srvs/srv/Trigger", "endpoint": "/world/stop"}}
 
 
@@ -188,7 +188,7 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = vars
         with patch.dict(sys.modules, {"rosidl_runtime_py.convert": convert}):
-            error = OperationError("world.wait", "kinex_interfaces/srv/Wait", response)
+            error = OperationError("world.wait", "custom_interfaces/srv/Wait", response)
         self.assertIs(error.response, response)
         self.assertEqual(error.payload()["details"]["response"]["time_s"], 1.5)
         io, calls = scope(WAIT), []
@@ -251,7 +251,7 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, [["arm"]])
 
     async def test_stop_calls_each_declared_stop_service(self):
-        io, endpoints = scope({**WAIT, "detector.detect": {"type": "kinex_interfaces/srv/Json", "endpoint": "/detect"}}), []
+        io, endpoints = scope({**WAIT, "detector.detect": {"type": "custom_interfaces/srv/Json", "endpoint": "/detect"}}), []
 
         async def request(spec, fields, timeout_s=None, **_):
             endpoints.append((spec["endpoint"], fields))

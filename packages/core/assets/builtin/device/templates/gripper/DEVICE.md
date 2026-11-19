@@ -8,8 +8,8 @@ description: Gripper whose geometry is a URDF and whose grip is one actuated joi
 
 Geometry lives in a URDF, not in profile fields. Use the vendor's description
 (expand xacro to plain URDF) or adapt the sibling `gripper.urdf`, and set `model`
-to its path and base link. The sibling `links.py` node publishes every link below
-the base link on TF as `<device>/<link>`, with the base link as `<device>/base`
+to its path and base link. Kinex publishes every link below the base link on TF
+as `<device>/<link>` from `joint_state`, with the base link as `<device>/base`
 and mimic joints derived from measured ones. Give each finger pad or tip its own link, adding
 fixed links when the vendor URDF lacks them, so contact points can be queried;
 link names must not repeat profile frame names. Agents read the resolved tree as
@@ -21,8 +21,7 @@ approach direction.
 Summarize finger shape and conventions in `description`; numbers stay in the URDF.
 
 The sibling `node.py` adapts an existing ROS gripper driver to this contract;
-copy it with `links.py` and the URDF into the device directory and set its topic
-constants. A node that commands hardware directly must still initialize its hold
+copy it with the URDF into the device directory and set its topic constants. A node that commands hardware directly must still initialize its hold
 from measured posture, so a stop before the first command never closes the fingers.
 
 ### Operations
@@ -48,7 +47,7 @@ loaded: false
 description: ''
 runtime:
   observation: joint_state
-  nodes: [{entry: node.py, factory: create}, {entry: links.py, factory: create}]
+  nodes: [{entry: node.py, factory: create}]
 operations:
   joint_state:
     description: Measured grip joint positions in URDF units, stamped at acquisition; Kinex publishes the URDF links from them.
