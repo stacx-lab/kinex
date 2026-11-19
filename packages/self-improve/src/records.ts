@@ -3,7 +3,7 @@ import path from "node:path"
 import { distillationsDir, entries, inputFile, readJson, recordDir, resultFile, sessionFile, trialsDir, versionDir, workspaceDir } from "./layout.ts"
 import { keep } from "./learned.ts"
 import { versions } from "./library.ts"
-import type { Config } from "./run.ts"
+import { RERUNS, RETRIES, type Config } from "./run.ts"
 import { writeTranscript } from "./transcript.ts"
 
 export interface TrialInput {
@@ -39,6 +39,8 @@ export interface DistillationView extends DistillInput {
   status?: "done" | "timeout" | "error"
   version?: string
   problems?: string[]
+  /** How many repair turns the check's problems were given. */
+  repairs?: number
   wallS?: number
   error?: string
   usage?: Usage
@@ -68,6 +70,20 @@ export async function scan(root: string): Promise<Status> {
   return { versions: await versions(root), trials, distillations, fresh: trials.filter(trial => trial.status && !seen.has(trial.id)).map(trial => trial.id) }
 }
 
+// A distillation whose turn did not end normally (it timed out or failed) made
+// nothing of its trials: they are distilled again, from the published library,
+// up to RETRIES times in a row. Every other finished distillation has settled what
+// it was given, published or not, and so has the last of such a row: the run goes
+// on with the version it has.
+export function settled(distillations: readonly DistillationView[]): DistillationView[] {
+  let failed = 0
+  return distillations.filter(distillation => {
+    if (!distillation.status) return false
+    failed = distillation.status === "done" ? 0 : failed + 1
+    return distillation.status === "done" || failed > RETRIES
+  })
+}
+
 /** Per task, where the simulator ended its latest such trial at its own step limit: rosbridge reports the limit nowhere else. */
 export function stepLimits(status: Status): Map<string, NonNullable<TrialInput["limit"]>> {
   return new Map(status.trials.filter(trial => trial.reason === "timeout" && trial.steps)
@@ -87,8 +103,9 @@ export function describeTrial(trial: TrialView, running: boolean): string {
 }
 
 export function describeDistillation(distillation: DistillationView, running: boolean): string {
-  const result = distillation.version ? `published ${distillation.version}` : distillation.status === undefined ? outcome(distillation, running)
-    : `published nothing (${distillation.error ?? (distillation.problems?.length ? `check failed: ${distillation.problems.join("; ")}` : distillation.status)})`
+  const repaired = distillation.repairs ? ` after ${distillation.repairs} repair ${distillation.repairs === 1 ? "turn" : "turns"}` : ""
+  const result = distillation.version ? `published ${distillation.version}${repaired}` : distillation.status === undefined ? outcome(distillation, running)
+    : `published nothing (${distillation.error ?? (distillation.problems?.length ? `check failed${repaired}: ${distillation.problems.join("; ")}` : distillation.status)})`
   return `${distillation.id}, base ${distillation.base}, ${distillation.trials.length} trials (${distillation.fresh.length} new), ${result}`
 }
 
@@ -112,7 +129,7 @@ export function renderStatus(root: string, status: Status, running: (id: string)
     `Trials (${root}/trials/<id>/record):`,
     ...status.trials.map(trial => `- ${describeTrial(trial, running(trial.id))}`),
     "",
-    `Distillations (rounds done: ${status.distillations.filter(distillation => distillation.status).length}):`,
+    `Distillations (rounds done: ${settled(status.distillations).length}):`,
     ...status.distillations.map(distillation => `- ${describeDistillation(distillation, running(distillation.id))}`),
     "",
     `Finished trials not yet distilled: ${status.fresh.join(", ") || "none"}`,
@@ -172,8 +189,9 @@ export async function collect(root: string, config: Config, input: DistillInput,
 - ${config.seed === undefined ? "Every trial of a task starts from the same state: the simulator's default state for that task." : `Every trial of a task starts from the same state (seed ${config.seed}).`}
 - The simulator's own success check decides the outcome (result.json: success, steps, reason, cause). The
   simulator's reason is success, failure (its evaluator's cause in cause), timeout (its step limit) or stopped (the
-  episode was stopped before either, as when the sub-agent ended). status \`timeout\` means the wall time ran out; status \`error\` means the trial itself failed to run and says nothing about the task. A \`note\`
-  records a failure outside the task (a device that loaded late, say) in a trial that was still judged.
+  episode was stopped before either, as when the sub-agent ended). status \`timeout\` means the wall time ran out; status \`error\` means the trial itself failed to run and says nothing about the task:
+  its task is started again, up to ${RERUNS} times a wave. A \`note\` records a failure outside the task (a device that loaded
+  late, say) in a trial that was still judged.
 - A sub-agent was given its task's goal in the simulator's own words; where TASKS.md says a goal is the task's name, the
   simulator gave none. The simulator does not announce its step limit: a sub-agent was told that there may be one, and
   the number only when an earlier trial of its task had been ended at it (prompt.md).

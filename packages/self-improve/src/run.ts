@@ -30,6 +30,13 @@ export const START_GAP_S = 10
 // Sub-agents only read records and call the model, and no trial runs meanwhile: the model account's rate limit is what bounds them.
 export const HELPERS = 10
 
+// What is tried again before a run goes on without it, as rsi does (its infraRetries, distill_retries, gate_repairs and repair_hours):
+// a trial that did not run, a distillation whose turn did not end normally, and a library that fails the check.
+export const RERUNS = 2
+export const RETRIES = 2
+export const REPAIRS = 2
+export const REPAIR_S = 1800
+
 export async function createRun(selection: string, options: Pick<Config, "rounds" | "parallel">): Promise<Run> {
   const stamp = new Date().toISOString().replaceAll(/[-:]|\.\d+Z/g, "").replace("T", "-")
   const root = path.join(runsDir(), stamp)

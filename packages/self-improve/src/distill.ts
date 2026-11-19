@@ -4,11 +4,12 @@ import { fileURLToPath } from "node:url"
 import { Assets } from "@kinex/core/installation/assets"
 import { finishJob, openJob, type Job, type Result } from "./job.ts"
 import { distillationsDir, promptFile, sessionFile, trialsDir, versionDir, workspaceDir } from "./layout.ts"
-import { newestVersion, publish } from "./library.ts"
+import { check, newestVersion, publish } from "./library.ts"
 import { collect, type DistillInput, type Status } from "./records.ts"
-import type { Run } from "./run.ts"
+import { REPAIRS, REPAIR_S, type Run } from "./run.ts"
 import type { SessionExit } from "./session.ts"
 import FRAME from "./distill-frame.txt"
+import REPAIR from "./distill-repair.txt"
 import RULES from "./distill-rules.txt"
 import REFERENCE from "./reference.txt"
 
@@ -67,8 +68,30 @@ export async function prepareDistillation(run: Run, status: Status): Promise<Dis
   return { job, input, prompt, deadline }
 }
 
+type Exit = Pick<SessionExit, "status"> & { error?: string }
+
+/**
+ * The distiller's turn and, while its candidate fails the check, up to REPAIRS
+ * short turns of the same session that are shown what the check found: a library
+ * with a fault is mended by the session that wrote it, not dropped for the
+ * version before (rsi's gate repair). Returns how the last turn ended.
+ */
+export async function distillTurns(distillation: Distillation, turn: (prompt: string, deadline: number) => Promise<Exit>): Promise<Exit & { repairs: number }> {
+  let exit = await turn(distillation.prompt, distillation.deadline)
+  let repairs = 0
+  for (; exit.status === "done" && repairs < REPAIRS; repairs++) {
+    const problems = await check(candidateDir(distillation.job.workspace))
+    if (!problems.length) break
+    // Sub-agents of a repair turn end with it.
+    distillation.deadline = Date.now() + REPAIR_S * 1000
+    const fill: Record<string, string> = { PROBLEMS: problems.join("\n"), DEADLINE: new Date(distillation.deadline).toISOString() }
+    exit = await turn(REPAIR.trim().replaceAll(/\[\[(\w+)\]\]/g, (_, name: string) => fill[name] ?? ""), distillation.deadline)
+  }
+  return { ...exit, repairs }
+}
+
 /** Candidate to version, when the distiller's turn ended normally and the check passes; an unfinished turn may leave a half-written library. */
-export async function finishDistillation(run: Run, { job, input }: Distillation, session: Pick<SessionExit, "status" | "wallS"> & { error?: string }): Promise<Result> {
+export async function finishDistillation(run: Run, { job, input }: Distillation, session: Pick<SessionExit, "status" | "wallS"> & { error?: string; repairs?: number }): Promise<Result> {
   const outcome = session.status === "done" ? await publish(run.root, candidateDir(job.workspace), { parent: input.base, source: job.id }) : {}
   return finishJob(job, { ...session, ...outcome })
 }
