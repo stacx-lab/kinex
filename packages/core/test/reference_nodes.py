@@ -159,6 +159,38 @@ class ReferenceNodes(unittest.TestCase):
         self.assertEqual((held.position.x, held.position.y, held.orientation.w), (1., 0., 1.))
         self.assertEqual(len(trajectories), 1)
 
+    def test_gripper_node_stop_keeps_the_applied_grip_target(self):
+        """A stop keeps the last applied grip target, never the measured aperture, so a held object stays gripped;
+        before any target it holds the measured posture."""
+        stubs = {name: ModuleType(name) for name in (
+            "std_msgs", "std_msgs.msg", "rosidl_runtime_py", "rosidl_runtime_py.utilities")}
+        stubs["std_msgs.msg"].__dict__.update(Float64=NS, Bool=NS)
+        stubs["rosidl_runtime_py.utilities"].get_message = lambda _: object
+        sys.modules.update(stubs)
+        sys.modules["rclpy.qos"].__dict__.update(QoSProfile=NS, ReliabilityPolicy=NS(RELIABLE=0, BEST_EFFORT=1),
+                                                  DurabilityPolicy=NS(VOLATILE=0, TRANSIENT_LOCAL=1))
+        operations = {name: {"endpoint": f"/{name}", "type": "pkg/msg/Type"} for name in ("joint_state", "target", "stop")}
+        reference = node("gripper")
+        gripper = reference.Gripper({"name": "gripper", "grip": {"joint": "finger", "open": .04, "closed": 0.},
+                                     "operations": operations}, None)
+        commands = gripper.published[reference.COMMAND]
+        measure = lambda position: gripper.subscriptions[reference.STATE](NS(name=["finger"], position=[position]))
+        stop = lambda: self.assertTrue(gripper.services["/stop"](None, NS(success=False, message="")).success)
+        measure(.03)
+        stop()
+        self.assertEqual(commands[-1].data, .03)  # before any target: the measured posture, so a stop never closes
+        gripper.subscriptions["/target"](NS(data=0.))
+        measure(.012)  # the fingers stall on an object short of closed
+        stop()
+        self.assertEqual(commands[-1].data, 0.)  # the grip target, not the measured aperture that would release it
+        gripper.subscriptions["/target"](NS(data=.05))
+        self.assertEqual(len(gripper.warnings), 1)  # out of range: rejected, the hold unchanged
+        stop()
+        self.assertEqual(commands[-1].data, 0.)
+        gripper.subscriptions["/target"](NS(data=.04))
+        stop()
+        self.assertEqual(commands[-1].data, .04)  # an open target releases, and a stop keeps it open
+
     def test_unrecorded_inertial_facts_fail_with_guidance(self):
         imu = node("imu")
         channel = {"bias": {"x": 0., "y": 0., "z": 0.}}
