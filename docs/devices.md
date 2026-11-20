@@ -154,6 +154,14 @@ surfaces are informational facts. Document pacing, epoch resets and terminal
 episode behavior on each relevant operation. Workflow loops use world time rather
 than a simulator-specific timer.
 
+Every wait reply reports the episode budget in seconds of world time: `used_s`
+consumed and `max_s` allowed, `max_s` infinite for no cap, both NaN without a
+budget. An optional `budget` output topic (`custom_interfaces/msg/Budget`,
+transient-local) carries the same values whenever consumption changes. Worlds
+convert native counts to seconds, and consumption may include initialization;
+Kinex reports the budget as supplied, without inferring it from `time_s`,
+enforcing it or changing control behavior.
+
 The name is shared but the scope differs. rosbridge's `world` is a ROS node that
 runs the whole simulated environment and hosts every device's endpoints. Kinex's
 world device covers only its time operations (`/clock`, `world/wait`,

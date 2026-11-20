@@ -17,7 +17,11 @@ lookup. Keep task instructions and benchmark judging outside device operations.
 - `wait` (recommended): service `custom_interfaces/srv/Wait`. It completes after
   `duration_s` (finite, nonnegative) of world time; zero is an observation barrier.
   Waits are sequential: one requested while another is pending is rejected.
-  `timeout_s` bounds the longest wait.
+  `timeout_s` bounds the longest wait. Every reply, a rejection included, reports
+  the episode budget in `used_s` and `max_s`.
+- `budget` (optional): output topic `custom_interfaces/msg/Budget`, reliable and
+  `transient_local`, published whenever consumption changes, with the same `used_s`
+  and `max_s` as a wait reply.
 - `stop` (required with `wait`): service `std_srvs/srv/Trigger` that cancels the
   pending wait. Kinex calls it when a script that waited fails or abandons its wait.
 - `reset` (simulators only): service `std_srvs/srv/Trigger` resetting the episode
@@ -28,6 +32,13 @@ A physical workspace keeps time with the real-world clock: copy the sibling
 It has no `reset`. A simulator relays its own clock, wait, stop and reset; describe
 its pacing (realtime, stepped or paused) and terminal-episode behavior on `time`
 and `wait`.
+
+The episode budget is world time in seconds: `used_s` consumed and `max_s` allowed,
+with `max_s` infinite for no cap. Convert native counts to seconds before reporting.
+Consumption may include initialization, so `used_s` can differ from `time_s`. A world
+without a budget, such as the real-world clock, reports NaN for both; never leave them
+at zero. Kinex reports the budget as supplied, showing non-finite values as null; it
+does not infer it from `time_s`, enforce it, or change control behavior.
 
 ### Profile
 
@@ -47,7 +58,7 @@ operations:
     type: rosgraph_msgs/msg/Clock
     qos: {depth: 1, reliability: reliable, durability: transient_local}
   wait:
-    description: Await duration_s seconds of system time (finite, nonnegative, under 120) with 10 ms granularity. Zero is an observation barrier. One wait at a time; returns time_s and waited_s.
+    description: Await duration_s seconds of system time (finite, nonnegative, under 120) with 10 ms granularity. Zero is an observation barrier. One wait at a time; returns time_s and waited_s, and NaN used_s and max_s since real-world time has no episode budget.
     transport: service
     direction: input
     endpoint: /kinex/world/wait
