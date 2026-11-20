@@ -77,8 +77,10 @@ A worker is given its task's goal in the simulator's own words, read from the
 run's folder: a `PROMPT.json` there, else the line the simulator prints to the
 run log when the episode starts. A simulator that gives none leaves the task's
 name, and `status`, `result.json` and the distiller's `TASKS.md` say so. The
-worker is told that the simulation is stepped and that the simulator may end the
-episode at a step limit of its own. rosbridge does not report that limit, so the
+worker is told that the simulation is stepped, that the simulator ends the
+episode as soon as its check passes (Kinex launches it with `--early-stop`), so an
+episode still running is not yet done, and that it may also end the episode at a
+step limit of its own. rosbridge does not report that limit, so the
 number is given only once an earlier trial of the task was ended at it.
 
 ## Libraries

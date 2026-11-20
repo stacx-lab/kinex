@@ -195,8 +195,9 @@ export async function collect(root: string, config: Config, input: DistillInput,
   its task is started again, up to ${RERUNS} times a wave. A \`note\` records a failure outside the task (a device that loaded
   late, say) in a trial that was still judged.
 - A sub-agent was given its task's goal in the simulator's own words; where TASKS.md says a goal is the task's name, the
-  simulator gave none. The simulator does not announce its step limit: a sub-agent was told that there may be one, and
-  the number only when an earlier trial of its task had been ended at it (prompt.md).${config.batches?.length ? `
+  simulator gave none. A sub-agent was told that the episode ends as soon as the simulator's check passes, so that one
+  still running is not done, whatever its cameras show. The simulator does not announce its step limit: a sub-agent was
+  told that there may be one, and the number only when an earlier trial of its task had been ended at it (prompt.md).${config.batches?.length ? `
 - Tasks open in batches of ${config.batches.join(", ")}, then the rest, one batch a wave: a wave runs every open task still unsolved
   and opens the next batch. TASKS.md marks the tasks not opened yet.` : ""}
 - Every trial shipped one library version (INDEX.jsonl); L0 is the empty library.
