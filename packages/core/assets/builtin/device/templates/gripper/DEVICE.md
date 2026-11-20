@@ -22,7 +22,8 @@ Summarize finger shape and conventions in `description`; numbers stay in the URD
 
 The sibling `node.py` adapts an existing ROS gripper driver to this contract;
 copy it with the URDF into the device directory and set its topic constants. A node that commands hardware directly must still initialize its hold
-from measured posture, so a stop before the first command never closes the fingers.
+from measured posture, so a stop before the first command never closes the fingers;
+after a command, its hold is the last applied grip target.
 
 ### Operations
 
@@ -33,8 +34,10 @@ from measured posture, so a stop before the first command never closes the finge
   joint position between open and closed. It persists until replaced or stopped,
   and sending is not arrival. Serve it with `stop` through
   `kinex.node.command_service`.
-- `stop` (recommended): service `std_srvs/srv/Trigger` that holds the measured
-  posture; a stop never opens or closes the fingers.
+- `stop` (recommended): service `std_srvs/srv/Trigger` that keeps the active grip
+  target with its grip force, so a held object stays gripped; it never replaces the
+  target with the measured position, and fingers still travelling finish the
+  commanded grip. Command an open target to release.
 - `grasped` (optional): output topic `std_msgs/msg/Bool`, true while the driver
   detects a held object, for example fingers stalled short of closed.
 
@@ -63,7 +66,7 @@ operations:
     endpoint: /kinex/gripper/target
     type: std_msgs/msg/Float64
   stop:
-    description: Stop motion and hold the measured posture; the fingers neither open nor close.
+    description: Stop and keep the active grip target; a held object stays gripped. Before the first command it holds the measured posture. Command an open target to release.
     transport: service
     direction: input
     endpoint: /kinex/gripper/stop

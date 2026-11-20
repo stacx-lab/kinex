@@ -2,8 +2,9 @@
 
 Set STATE to the driver's JointState topic and COMMAND to its Float64 grip position
 topic, both in URDF joint units, and GRASPED to its object-detection topic when it
-has one. This node republishes measured joints, forwards grip targets and
-holds the measured posture on stop.
+has one. This node republishes measured joints and forwards grip targets. A stop
+keeps the last applied target, so a held object stays gripped; before the first
+target it holds the measured posture.
 """
 import asyncio
 
@@ -25,7 +26,7 @@ class Gripper(Node):
         super().__init__(node_name(profile), context=context)
         grip = profile["grip"]
         self.joint, self.range = grip["joint"], sorted((grip["open"], grip["closed"]))
-        self.position = None
+        self.position = self.applied = None
         operations = profile["operations"]
         state = operations["joint_state"]
         self.state = self.create_publisher(JointState, state["endpoint"], qos(state))
@@ -44,11 +45,14 @@ class Gripper(Node):
         if not self.range[0] <= message.data <= self.range[1]:
             raise ValueError(f"target must lie between open and closed {self.range}")
         self.command.publish(message)
+        self.applied = message.data
 
     def hold(self):
-        # Hold the measured posture: a stop never opens or closes the fingers.
-        if self.position is not None:
-            self.command.publish(Float64(data=self.position))
+        # Keep the applied grip target, never the measured aperture, which would release a held object;
+        # before the first target, hold the measured posture so a stop never closes the fingers.
+        hold = self.position if self.applied is None else self.applied
+        if hold is not None:
+            self.command.publish(Float64(data=hold))
 
     async def ready(self):
         while self.position is None:

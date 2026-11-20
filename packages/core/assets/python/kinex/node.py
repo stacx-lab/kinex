@@ -21,8 +21,9 @@ def command_service(node, operations, commands, hold):
     """Route input topics to their handlers and serve the device's Trigger stop as hold().
 
     commands maps each operation name to apply(message), which forwards the command
-    or raises to reject it; hold() keeps the actuator at its measured posture. A
-    rejection is logged and never stops the node's executor.
+    or raises to reject it; hold() performs the device's documented stop: joints hold
+    their measured posture, a gripper keeps its applied grip target. A rejection is
+    logged and never stops the node's executor.
     """
     from rosidl_runtime_py.utilities import get_message
     from std_srvs.srv import Trigger

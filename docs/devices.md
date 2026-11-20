@@ -129,7 +129,8 @@ available without approval and cancels invocations commanding the device.
 Physical stop behavior and scope must be documented on the device's stop
 operation; actuator profiles also record them as `stop.behavior` (`hold`, `halt`
 or `controller_emergency_stop`) and `stop.affected_devices`, which includes the
-device itself.
+device itself. A gripper's `hold` keeps its applied grip target, never the measured
+aperture.
 
 ### Observations and recording
 
@@ -175,7 +176,8 @@ with strict or native limit handling; `lib.kinematics.joint_model` computes FK a
 from the URDF. `tip_links` lists the links that end its chains, such as an arm's
 flange or a hand's fingertips; FK and IK default to a single tip. A gripper's
 `grip` names the actuated joint with its open and closed positions, and
-`frames.tcp` is the grasp point with +z approach. A suction tool
+`frames.tcp` is the grasp point with +z approach; its stop keeps the applied grip
+target, so it never releases a held object, and an open target releases. A suction tool
 has no URDF: `vacuum` says whether it switches on and off or accepts a level,
 `frames.tcp` is the cup contact centre, and its stop never releases a held object.
 Guides recommend a `sensor_msgs/msg/JointState` `joint_state` for joint devices
