@@ -5,7 +5,7 @@ from pathlib import Path
 
 from kinex.common import urdf
 from kinex.common.geometry import flat, pose, slerp, vector
-from kinex.common.kinematics import DEFAULTS, Chain
+from kinex.common.kinematics import DEFAULTS, GOALS, Chain
 from kinex.common.urdf import joint_target
 
 HOME_RECOVERY_TOLERANCE = math.radians(1)
@@ -29,6 +29,8 @@ class JointModel:
         self.joints = urdf.commanded(self.tree)
         self.names = [joint["name"] for joint in self.joints]
         self.tips = model["tip_links"]
+        home = profile.get("home")
+        self.home = home if isinstance(home, dict) else None
 
     def chain(self, link):
         if not link:
@@ -46,13 +48,16 @@ class JointModel:
         """Commanded positions placing link at target, nearest the seed projected into limits.
 
         Joints off the link's path keep their seed values. options override the
-        solver tolerances, damping, max_iterations and search budget.
+        solver tolerances, damping, max_iterations and search budget, and take
+        search ("local" or "global"), free_axis and position_only. A failed local
+        search raises IKError saying why; the declared home also seeds its probe.
         """
-        unknown = options.keys() - {*DEFAULTS, "budget"}
+        unknown = options.keys() - {*DEFAULTS, "budget", *GOALS}
         if unknown:
             raise ValueError(f"unknown IK options: {', '.join(sorted(unknown))}")
         values = dict(zip(self.names, project_seed(seed, self.joints)))
-        values.update(self.chain(link).ik(pose(target), values, {**DEFAULTS, **options}))
+        extra = [self.home] if self.home else []
+        values.update(self.chain(link).ik(pose(target), values, {**DEFAULTS, **options}, extra))
         return [values[name] for name in self.names]
 
 

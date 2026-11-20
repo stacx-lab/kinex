@@ -227,5 +227,55 @@ class MotionTests(unittest.TestCase):
             self.assert_rates(slow, [0], [velocity*.5], [acceleration*.5])
 
 
+class CartesianTests(unittest.TestCase):
+    def setUp(self):
+        from pathlib import Path
+        from kinex.common.joints import JointModel
+        fixtures = Path(__file__).parent / "fixtures" / "ik"
+        self.arm = JointModel(json.loads((fixtures / "panda.json").read_text()), fixtures)
+        self.start = [0, -.3, 0, -2.2, 0, 2., .8]
+        self.goal = self.arm.fk(self.start)
+        self.goal[0] += .1
+        self.goal[2] -= .05
+
+    def test_a_straight_tool_path_stays_on_its_line_within_the_joint_limits(self):
+        from kinex.lib.motion import cartesian
+        plan = cartesian(self.arm, self.start, self.goal, period_s=.01)
+        here, goal = self.arm.fk(self.start)[:3], self.goal[:3]
+        direction = [(b - a) / math.dist(here, goal) for a, b in zip(here, goal)]
+        for q in plan.actions:
+            point = self.arm.fk(list(q))[:3]
+            along = sum((p - a) * d for p, a, d in zip(point, here, direction))
+            self.assertLess(math.dist(point, [a + along * d for a, d in zip(here, direction)]), 1e-3)
+        self.assertLess(math.dist(self.arm.fk(list(plan.actions[-1]))[:3], goal), 1e-4)
+        rows, step = [self.start, *plan.actions.tolist()], plan.duration_s / len(plan.actions)
+        speed = max(abs(b - a) / step for p, q in zip(rows, rows[1:]) for a, b in zip(p, q))
+        self.assertLessEqual(speed, planning_limits(self.arm.joints)[0].min() * 1.01)
+        slow = cartesian(self.arm, self.start, self.goal, period_s=.01, fraction=.5)
+        self.assertGreater(slow.duration_s, plan.duration_s)
+
+    def test_a_branch_change_or_an_unreachable_waypoint_stops_the_plan(self):
+        from kinex.common.kinematics import IKError
+        from kinex.lib.motion import cartesian
+        with self.assertRaises(IKError) as caught:
+            cartesian(self.arm, self.start, self.goal, period_s=.01, max_joint_step_rad=1e-4)
+        self.assertEqual((caught.exception.details["reason"], caught.exception.details["waypoint"]), ("discontinuity", 1))
+        far = list(self.goal)
+        far[0] += 2
+        with self.assertRaises(IKError) as caught:
+            cartesian(self.arm, self.start, far, period_s=.01, max_step_m=.05, budget={"global_attempts": 2})
+        self.assertGreater(caught.exception.details["waypoint"], 1)
+        self.assertIn(caught.exception.details["reason"], ("out_of_reach", "not_found", "posture_change", "discontinuity"))
+
+    def test_relaxed_goals_pass_through_and_bad_arguments_are_rejected(self):
+        from kinex.lib.motion import cartesian
+        plan = cartesian(self.arm, self.start, self.goal[:3] + [0, 0, 0, 1], period_s=.01, position_only=True)
+        self.assertLess(math.dist(self.arm.fk(list(plan.actions[-1]))[:3], self.goal[:3]), 1e-4)
+        for options in ({"period_s": 0}, {"period_s": .01, "fraction": 0}, {"period_s": .01, "max_step_m": 0},
+                        {"period_s": .01, "max_joint_step_rad": -1}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                cartesian(self.arm, self.start, self.goal, **options)
+
+
 if __name__ == "__main__":
     unittest.main()
