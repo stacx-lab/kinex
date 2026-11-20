@@ -1,6 +1,5 @@
 """Lib programs use protocol operations through the ambient scope; numerical payloads stay in Python."""
 import asyncio
-import math
 from pathlib import Path
 import sys
 from types import SimpleNamespace as NS, ModuleType
@@ -185,17 +184,13 @@ WAIT = {"world.wait": {"transport": "service", "direction": "input", "type": "cu
 class Errors(unittest.IsolatedAsyncioTestCase):
     async def test_service_rejection_retains_response_without_replaying_or_stopping(self):
         from kinex.errors import OperationError
-        response = NS(success=False, message="episode ended", time_s=1.5, waited_s=.1, used_s=1.5, max_s=math.inf)
+        response = NS(success=False, message="episode ended", time_s=1.5, waited_s=.1)
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = vars
         with patch.dict(sys.modules, {"rosidl_runtime_py.convert": convert}):
             error = OperationError("world.wait", "custom_interfaces/srv/Wait", response)
         self.assertIs(error.response, response)
         self.assertEqual(error.payload()["details"]["response"]["time_s"], 1.5)
-        # The episode budget survives the rejection; an uncapped max_s reaches the model as null.
-        from kinex.common.plain import plain
-        self.assertEqual({k: plain(error.payload())["details"]["response"][k] for k in ("used_s", "max_s")},
-                         {"used_s": 1.5, "max_s": None})
         io, calls = scope(WAIT), []
 
         async def rejected(*args, **kwargs):

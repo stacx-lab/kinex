@@ -107,13 +107,10 @@ class ReferenceNodes(unittest.TestCase):
         with patch.dict(sys.modules, stubs):
             world = node("world").WallClock({"name": "world", "operations": {
                 name: {"endpoint": f"/{name}"} for name in ("time", "wait", "stop")}}, None)
-        wait = lambda duration: world.wait(NS(duration_s=duration), NS(success=False, message="", time_s=0., waited_s=0.,
-                                                                        used_s=0., max_s=0.))
-        no_budget = lambda reply: self.assertTrue(math.isnan(reply.used_s) and math.isnan(reply.max_s))
+        wait = lambda duration: world.wait(NS(duration_s=duration), NS(success=False, message="", time_s=0., waited_s=0.))
         first = asyncio.ensure_future(wait(1.))
         await asyncio.sleep(0)
-        self.assertIn("another wait is pending", (rejected := await wait(1.)).message)
-        no_budget(rejected)  # real-world time has no episode budget, and a rejection still says so
+        self.assertIn("another wait is pending", (await wait(1.)).message)
         self.assertTrue(world.stop(None, NS(success=False)).success)
         self.assertEqual(((result := await first).success, result.message), (False, "cancelled by stop"))
         second = asyncio.ensure_future(wait(.5))
@@ -121,7 +118,6 @@ class ReferenceNodes(unittest.TestCase):
         world.nanoseconds = 500_000_000
         world.tick()
         self.assertEqual(((result := await second).success, result.waited_s), (True, .5))
-        no_budget(result)
 
     def test_joint_node_streams_pose_targets_until_a_joint_target_or_stop_replaces_them(self):
         from kinex.common.urdf import read_tree
