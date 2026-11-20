@@ -216,12 +216,12 @@ is pending, and `stop` cancels the pending one. Realtime waits observe progress;
 stepped waits authorize world advancement. A periodic loop must skip missed
 deadlines, and must not assume an expired wait produces a fresh observation.
 
-A wait reply carries `time_s` and that wait's `waited_s`, and the episode budget:
-`used_s` and `max_s` seconds of world time used and allowed, `max_s` infinite for no
-cap, both NaN when the world has no budget. A world may also publish them on an
-optional `budget` topic (`custom_interfaces/msg/Budget`). The budget can include
-initialization, so it is not `time_s`; Kinex reports it as supplied and never
-enforces it.
+A wait reply carries `time_s` and that wait's `waited_s`. A world may report the
+episode budget on an optional `budget` topic (`std_msgs/msg/Float64MultiArray`):
+`data` is `[used_s, max_s]`, seconds of world time used and allowed, `max_s`
+infinite for no cap, and `[NaN, NaN]` in realtime, which has no budget. The budget
+can include initialization, so it is not world time; Kinex reports it as supplied
+and never enforces it.
 
 Subscriptions, TF lookup and calibration sampling never advance the world.
 Host watchdogs use monotonic wall time so timeouts and cancellation still work
@@ -341,10 +341,10 @@ to a model device. Pass an image to `finish(file=...)` to attach it for the mode
 ## Native validation
 
 `custom_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
-services and the world's `Budget` message; commands and observations use standard ROS messages. The ROS
+services; commands and observations use standard ROS messages. The ROS
 providers build it from `packages/core/assets/ros`; build that directory in any
 other ROS environment that calls these services.
-[rosbridge](https://github.com/stacx-lab/rosbridge) serves `Wait`, `Budget` and `Json`
+[rosbridge](https://github.com/stacx-lab/rosbridge) serves `Wait` and `Json`
 from its own byte-identical copy of the package, so neither project needs the
 other's checkout to build.
 

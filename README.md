@@ -94,8 +94,8 @@ Kinex devices are typed ROS topics and services.
 RoboDojo and RoboCasa as ROS graphs that speak the Kinex device contract, and
 exports a Kinex workspace for each of its robots. The exported profiles carry
 their calibration, select the `ros-jazzy` Python provider and borrow the
-simulator's endpoints directly. rosbridge serves `custom_interfaces/srv/Wait` and
-`custom_interfaces/msg/Budget` from its own identical copy of the package, so it builds without a Kinex checkout.
+simulator's endpoints directly. rosbridge serves `custom_interfaces/srv/Wait` from
+its own identical copy of the package, so it builds without a Kinex checkout.
 
 ```sh
 rosbridge setup libero/libero-panda-tabletop --directory ../workspace_libero --domain-id 83

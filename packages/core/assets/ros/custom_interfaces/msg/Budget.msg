@@ -1,4 +1,0 @@
-# The episode budget in seconds of world time, as the world supplies it: used_s consumed (it may include
-# initialization, so it can differ from world time) and max_s allowed (inf: no cap). Both are NaN without a budget.
-float64 used_s
-float64 max_s
