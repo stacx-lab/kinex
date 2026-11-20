@@ -1,0 +1,214 @@
+{
+ "description": "RLE-Bench RoboDojo (seed 0, layout 0) X5 IK failures: base-frame flange goals of the agents' requested TCP poses, from the joint state each agent had recorded. Local search fails on all but the last two; a global search reaches every one, mostly from a distant posture.",
+ "cases": [
+  {
+   "id": "make-toast left from home",
+   "episode": "RLE-Bench RoboDojo seed 0 layout 0",
+   "world_tcp": [
+    -0.18,
+    -0.1,
+    1.09
+   ],
+   "seed": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "goal": [
+    0.34856,
+    -0.120002,
+    0.47507,
+    0.707106781,
+    0.0,
+    -0.707106781,
+    0.0
+   ],
+   "local": "posture_change",
+   "max_travel_rad": 3.142,
+   "global": "solved",
+   "free_axis_local": "posture_change"
+  },
+  {
+   "id": "make-toast right exec 35",
+   "episode": "RLE-Bench RoboDojo seed 0 layout 0",
+   "world_tcp": [
+    0.1,
+    -0.1,
+    1.0
+   ],
+   "seed": [
+    -0.37660104,
+    1.741084695,
+    2.088194609,
+    -1.918009639,
+    -1.939e-06,
+    2.765027046
+   ],
+   "goal": [
+    0.34856,
+    0.199998,
+    0.38507,
+    0.707106781,
+    0.0,
+    -0.707106781,
+    0.0
+   ],
+   "local": "posture_change",
+   "max_travel_rad": 3.142,
+   "global": "solved",
+   "free_axis_local": "posture_change"
+  },
+  {
+   "id": "build-tower left upright",
+   "episode": "RLE-Bench RoboDojo seed 0 layout 0",
+   "world_tcp": [
+    -0.09,
+    -0.07,
+    0.9
+   ],
+   "seed": [
+    0.099272572,
+    2.149966955,
+    2.122380018,
+    -1.543626428,
+    -2.074e-06,
+    -3.04229188
+   ],
+   "goal": [
+    0.22993,
+    -0.210002,
+    0.13356,
+    1.0,
+    0.0,
+    -0.0,
+    0.0
+   ],
+   "local": "posture_change",
+   "max_travel_rad": 3.042,
+   "global": "solved",
+   "free_axis_local": "solved"
+  },
+  {
+   "id": "build-tower left back",
+   "episode": "RLE-Bench RoboDojo seed 0 layout 0",
+   "world_tcp": [
+    -0.09,
+    -0.12,
+    0.802
+   ],
+   "seed": [
+    0.099272572,
+    2.149966955,
+    2.122380018,
+    -1.543626428,
+    -2.074e-06,
+    -3.04229188
+   ],
+   "goal": [
+    0.48007,
+    -0.210002,
+    0.03844,
+    -0.0,
+    -0.0,
+    1.0,
+    -0.0
+   ],
+   "local": "posture_change",
+   "max_travel_rad": 3.042,
+   "global": "solved",
+   "free_axis_local": "posture_change"
+  },
+  {
+   "id": "build-tower right above board",
+   "episode": "RLE-Bench RoboDojo seed 0 layout 0",
+   "world_tcp": [
+    0,
+    -0.08,
+    0.925
+   ],
+   "seed": [
+    -0.12865746,
+    2.059359074,
+    1.982847452,
+    -1.494663239,
+    -9.929e-06,
+    2.576562643
+   ],
+   "goal": [
+    0.370002,
+    0.29856,
+    0.31007,
+    0.5,
+    0.5,
+    -0.5,
+    0.5
+   ],
+   "local": "posture_change",
+   "max_travel_rad": 3.467,
+   "global": "solved",
+   "free_axis_local": "posture_change"
+  },
+  {
+   "id": "build-tower right lower",
+   "episode": "RLE-Bench RoboDojo seed 0 layout 0",
+   "world_tcp": [
+    0,
+    -0.08,
+    0.875
+   ],
+   "seed": [
+    -0.12865746,
+    2.059359074,
+    1.982847452,
+    -1.494663239,
+    -9.929e-06,
+    2.576562643
+   ],
+   "goal": [
+    0.370002,
+    0.29856,
+    0.26007,
+    0.5,
+    0.5,
+    -0.5,
+    0.5
+   ],
+   "local": "posture_change",
+   "max_travel_rad": 3.142,
+   "global": "solved",
+   "free_axis_local": "posture_change"
+  },
+  {
+   "id": "build-tower right at board",
+   "episode": "RLE-Bench RoboDojo seed 0 layout 0",
+   "world_tcp": [
+    0,
+    -0.08,
+    0.858
+   ],
+   "seed": [
+    -0.12865746,
+    2.059359074,
+    1.982847452,
+    -1.494663239,
+    -9.929e-06,
+    2.576562643
+   ],
+   "goal": [
+    0.370002,
+    0.29856,
+    0.24307,
+    0.5,
+    0.5,
+    -0.5,
+    0.5
+   ],
+   "local": "solved",
+   "global": "solved",
+   "free_axis_local": "solved"
+  }
+ ]
+}

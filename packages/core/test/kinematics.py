@@ -17,7 +17,10 @@ from joint_model import model as joint_model, simple
 FIXTURES = Path(__file__).parent / "fixtures" / "ik"
 PANDA = JointModel(json.loads((FIXTURES / "panda.json").read_text()), FIXTURES)
 CORPUS = json.loads((FIXTURES / "corpus.json").read_text())
-RECOVERY = next(case for case in CORPUS["cases"] if case["id"] == "medium52")
+# Needs the bounded restarts: one seed fails, five solve.
+RECOVERY = next(case for case in CORPUS["cases"] if case["id"] == "global93")
+# Reachable only from a distant posture (2.9 rad on one joint).
+POSTURE_CHANGE = "global14"
 TIGHT = {"position_tolerance_m": 1e-6, "rotation_tolerance_rad": 1e-6}
 
 
@@ -32,11 +35,13 @@ class SearchTests(unittest.TestCase):
 
     def test_defaults_and_raw_python_validation(self):
         self.assertEqual(kinematics.budget_options({}),
-                         {"max_attempts": 5, "attempt_time_s": .02, "max_time_s": .1})
+                         {"max_attempts": 5, "attempt_time_s": .02, "max_time_s": .1,
+                          "global_attempts": 32, "global_time_s": .2})
         self.assertEqual(kinematics.budget_options({"budget": {"max_attempts": 1}})["attempt_time_s"], .02)
         bad = [None, [], {"unknown": 1}]
-        bad += [{"max_attempts": v} for v in (True, False, 0, -1, 1.5, "5", math.inf)]
-        bad += [{key: v} for key in ("attempt_time_s", "max_time_s")
+        bad += [{key: v} for key in ("max_attempts", "global_attempts")
+                for v in (True, False, 0, -1, 1.5, "5", math.inf)]
+        bad += [{key: v} for key in ("attempt_time_s", "max_time_s", "global_time_s")
                 for v in (True, 0, -1, "1", math.inf, math.nan)]
         for search in bad:
             with self.subTest(search=search), self.assertRaises(ValueError):
@@ -46,7 +51,8 @@ class SearchTests(unittest.TestCase):
         options = {"budget": {"max_attempts": 2, "attempt_time_s": .03}}
         before = copy.deepcopy(options)
         self.assertEqual(kinematics.budget_options(options),
-                         {"max_attempts": 2, "attempt_time_s": .03, "max_time_s": .1})
+                         {"max_attempts": 2, "attempt_time_s": .03, "max_time_s": .1,
+                          "global_attempts": 32, "global_time_s": .2})
         self.assertEqual(options, before)
 
     def test_initial_seed_success_still_compares_candidates_without_mutating_inputs(self):
@@ -71,9 +77,56 @@ class SearchTests(unittest.TestCase):
         self.assertLessEqual(error["rotation_rad"], kinematics.DEFAULTS["rotation_tolerance_rad"])
 
     def test_target_requiring_global_recovery_is_rejected(self):
-        case = next(case for case in CORPUS["cases"] if case["id"] == "medium34")
+        case = next(case for case in CORPUS["cases"] if case["id"] == POSTURE_CHANGE)
         with self.assertRaisesRegex(ValueError, "IK search exhausted"):
             PANDA.ik(case["goal"], case["seed"])
+
+    def test_a_local_failure_reports_the_posture_change_that_global_search_returns(self):
+        case = next(case for case in CORPUS["cases"] if case["id"] == POSTURE_CHANGE)
+        budget = {"global_attempts": 8}
+        with self.assertRaises(kinematics.IKError) as caught:
+            PANDA.ik(case["goal"], case["seed"], budget=budget)
+        details = caught.exception.details
+        self.assertEqual(details["reason"], "posture_change")
+        self.assertRegex(str(caught.exception), r"IK search exhausted .*reachable only by a posture change")
+        alternative = [details["alternative_joints"][name] for name in PANDA.names]
+        for name, start in zip(PANDA.names, case["seed"]):
+            self.assertAlmostEqual(details["travel_rad"][name], details["alternative_joints"][name] - start)
+        error = pose_error(case["goal"], PANDA.fk(alternative))
+        self.assertLessEqual(error["position_m"], kinematics.DEFAULTS["position_tolerance_m"])
+        self.assertLessEqual(error["rotation_rad"], kinematics.DEFAULTS["rotation_tolerance_rad"])
+        # The probe is deterministic, and a global search returns the posture it reported.
+        with self.assertRaises(kinematics.IKError) as again:
+            PANDA.ik(case["goal"], case["seed"], budget=budget)
+        self.assertEqual(again.exception.details["alternative_joints"], details["alternative_joints"])
+        self.assertEqual(PANDA.ik(case["goal"], case["seed"], search="global", budget=budget), alternative)
+
+    def test_a_target_beyond_reach_is_reported_as_out_of_reach(self):
+        far = PANDA.fk([0] * 7)
+        far[:3] = [2.0, 0.0, 0.5]
+        with self.assertRaises(kinematics.IKError) as caught:
+            PANDA.ik(far, [0] * 7, budget={"global_attempts": 4})
+        details = caught.exception.details
+        self.assertEqual(details["reason"], "out_of_reach")
+        self.assertGreater(details["closest_position_error_m"], 1.)
+        self.assertEqual(sorted(details["best_joints"]), sorted(PANDA.names))
+        with self.assertRaises(kinematics.IKError):
+            PANDA.ik(far, [0] * 7, search="global", budget={"global_attempts": 4})
+
+    def test_relaxed_goals_free_the_approach_axis_or_the_rotation(self):
+        seed = [0, -.3, 0, -2.2, 0, 2., .8]
+        goal = PANDA.fk([.3, -.1, .2, -2., .1, 1.9, 2.4])
+        result = PANDA.ik(goal, seed, free_axis=[0, 0, 1])
+        reached = PANDA.fk(result)
+        self.assertLessEqual(pose_error(goal[:3] + reached[3:], reached)["position_m"], 1e-4)
+        axis = lambda pose: kinematics.apply_rt((kinematics.quat_to_mat(pose[3:]), [0, 0, 0]), [0, 0, 1])
+        self.assertGreater(sum(a*b for a, b in zip(axis(goal), axis(reached))), math.cos(1e-3))
+        moved = PANDA.ik(goal[:3] + [0, 0, 0, 1], seed, position_only=True)
+        self.assertLessEqual(math.dist(PANDA.fk(moved)[:3], goal[:3]), 1e-4)
+        for options in ({"search": "nearby"}, {"free_axis": [0, 0, 0]}, {"position_only": 1},
+                        {"free_axis": [0, 0, 1], "position_only": True}, {"approach": [0, 0, 1]}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                PANDA.ik(goal, seed, **options)
 
     def test_fallback_selects_nearest_verified_candidate_with_stable_ties(self):
         attempt = Mock(side_effect=[None, [.8], [-.3], [.3], [.1]])
@@ -178,6 +231,50 @@ class SearchTests(unittest.TestCase):
     def test_seeds_outside_limits_are_projected(self):
         self.assertAlmostEqual(self.model.ik(self.model.fk([.9]), [2], **TIGHT)[0], .9, places=5)
 
+
+class TraceTests(unittest.TestCase):
+    """RLE-Bench RoboDojo X5 IK failures, from the joint state each agent had recorded: reachable, but
+    mostly only from a distant posture, which the local search reports and a global search returns."""
+
+    def setUp(self):
+        self.model = JointModel(json.loads((FIXTURES / "x5.json").read_text()), FIXTURES)
+        self.cases = json.loads((FIXTURES / "x5-traces.json").read_text())["cases"]
+        self.budget = {"global_attempts": 12}
+        clock = patch.object(kinematics, "monotonic", return_value=0)  # attempt counts, not load, bound the search
+        clock.start()
+        self.addCleanup(clock.stop)
+
+    def outcome(self, case, **options):
+        try:
+            result = self.model.ik(case["goal"], case["seed"], budget=self.budget, **options)
+        except kinematics.IKError as error:
+            return error.details["reason"], error.details
+        return "solved", result
+
+    def test_local_search_reports_posture_changes_and_global_search_reaches_them(self):
+        for case in self.cases:
+            with self.subTest(case=case["id"]):
+                reason, details = self.outcome(case)
+                self.assertEqual(reason, case["local"])
+                if reason == "posture_change":
+                    travel = max(abs(v) for v in details["travel_rad"].values())
+                    self.assertAlmostEqual(travel, case["max_travel_rad"], places=2)
+                    self.assertGreater(travel, 2.5)  # far beyond the nearby retries' reach
+                reason, result = self.outcome(case, search="global")
+                self.assertEqual(reason, "solved")
+                error = pose_error(case["goal"], self.model.fk(result))
+                self.assertLessEqual(error["position_m"], kinematics.DEFAULTS["position_tolerance_m"])
+                self.assertLessEqual(error["rotation_rad"], kinematics.DEFAULTS["rotation_tolerance_rad"])
+
+    def test_a_free_approach_axis_keeps_some_targets_local(self):
+        for case in self.cases:
+            if case["free_axis_local"] != "solved" or case["local"] == "solved":
+                continue
+            with self.subTest(case=case["id"]):
+                reason, result = self.outcome(case, free_axis=[1, 0, 0])
+                self.assertEqual(reason, "solved")
+                reached = self.model.fk(result)
+                self.assertLessEqual(math.dist(reached[:3], case["goal"][:3]), kinematics.DEFAULTS["position_tolerance_m"])
 
 
 if __name__ == "__main__":

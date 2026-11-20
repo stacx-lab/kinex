@@ -1,0 +1,1 @@
+{"name": "arm", "type": "joint", "home": {"joint1": 0.0, "joint2": 0.0, "joint3": 0.0, "joint4": 0.0, "joint5": 0.0, "joint6": 0.0}, "model": {"format": "urdf", "path": "x5.urdf", "base_link": "base_link", "tip_links": ["flange"]}}

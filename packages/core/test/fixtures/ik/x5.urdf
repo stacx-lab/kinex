@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!-- RoboDojo ARX X5 arm from Assets/Robots/x5/X5A.urdf: base_link..link6; flange is the link6 frame. -->
+<robot name="x5_left_arm">
+  <link name="base_link"/>
+  <link name="link1"/>
+  <link name="link2"/>
+  <link name="link3"/>
+  <link name="link4"/>
+  <link name="link5"/>
+  <link name="flange"/>
+  <joint name="joint1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.0605" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-10" upper="10" effort="100" velocity="10"/>
+  </joint>
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="0.02 0 0.04" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-10" upper="10" effort="100" velocity="10"/>
+  </joint>
+  <joint name="joint3" type="revolute">
+    <parent link="link2"/>
+    <child link="link3"/>
+    <origin xyz="-0.264 0 0" rpy="-3.14158530718 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-10" upper="10" effort="100" velocity="10"/>
+  </joint>
+  <joint name="joint4" type="revolute">
+    <parent link="link3"/>
+    <child link="link4"/>
+    <origin xyz="0.245 0 -0.056" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-10" upper="10" effort="100" velocity="10"/>
+  </joint>
+  <joint name="joint5" type="revolute">
+    <parent link="link4"/>
+    <child link="link5"/>
+    <origin xyz="0.06775 0.0005 -0.0865" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-10" upper="10" effort="100" velocity="10"/>
+  </joint>
+  <joint name="joint6" type="revolute">
+    <parent link="link5"/>
+    <child link="flange"/>
+    <origin xyz="0.02895 0 0.0865" rpy="3.14158530718 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14" upper="3.14" effort="100" velocity="10"/>
+  </joint>
+</robot>

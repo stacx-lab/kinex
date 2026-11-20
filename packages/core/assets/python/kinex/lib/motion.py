@@ -1,15 +1,17 @@
-"""Synchronized rest-to-rest joint trajectory planning, without device I/O.
+"""Synchronized rest-to-rest joint trajectory planning and straight tool paths, without device I/O.
 
 A program submits a plan through the device's declared command operation, waits on
 the world clock and verifies measured arrival.
 """
 
+import bisect
 import math
 from dataclasses import dataclass
 from numbers import Real
 
-from kinex.common.geometry import number, vector
+from kinex.common.geometry import number, slerp, vector
 from kinex.common.joints import recovery_targets
+from kinex.common.kinematics import IKError
 from kinex.common.urdf import joint_target
 
 
@@ -93,4 +95,79 @@ def trajectory(joints, start, target, period_s, fraction=1.0, max_velocity=None,
     if check_limits:
         recovery_targets(result, joints, start_tolerance)
     import numpy as np
+    return Trajectory(actions=np.array(result, dtype=float), duration_s=duration)
+
+
+def cartesian(model, start, poses, period_s, max_step_m=0.005, max_step_rad=0.05, max_joint_step_rad=0.2,
+              fraction=1.0, max_velocity=None, max_acceleration=None, link=None, **ik_options):
+    """Plan a straight tool path from the link's pose at start through each pose, without device I/O.
+
+    model is a joint model (lib.kinematics.joint_model); start is joint positions; poses is one
+    pose or several in <device>/base, in any form. The link moves in straight lines with slerped
+    rotation, waypoints at most max_step_m and max_step_rad apart, each solved by local IK from
+    the previous one; ik_options (free_axis, position_only, tolerances, budget) pass through. A
+    waypoint with no nearby solution raises the IK's IKError with its index as details.waypoint;
+    one that moves any joint more than max_joint_step_rad, a branch change, raises IKError with
+    reason "discontinuity". Returns Trajectory(actions, duration_s) as trajectory() does, timed by
+    the same limits along the joint path.
+
+    Example: plan = lib.motion.cartesian(arm, start, arm.fk(start) * lift, period_s=0.01)
+    """
+    from kinex.values import components
+    import numpy as np
+    if not math.isfinite(period_s) or period_s <= 0 or not 0 < fraction <= 1:
+        raise ValueError("invalid trajectory period or speed fraction")
+    for name, value in (("max_step_m", max_step_m), ("max_step_rad", max_step_rad),
+                        ("max_joint_step_rad", max_joint_step_rad)):
+        if number(value, name) <= 0:
+            raise ValueError(f"{name} must be positive")
+    joints = model.joints
+    path = [joint_target(start, joints, check_limits=False)]
+    goals = np.atleast_2d(components(poses)).tolist()
+    here = components(model.fk(path[0], link), single=True).tolist()
+    waypoints = []
+    for goal in goals:
+        span = math.dist(here[:3], goal[:3])
+        dot = min(1.0, abs(sum(a*b for a, b in zip(here[3:], goal[3:]))))
+        count = max(1, math.ceil(span / max_step_m), math.ceil(2 * math.acos(dot) / max_step_rad))
+        for i in range(1, count + 1):
+            s = i / count
+            waypoints.append([a + s * (b - a) for a, b in zip(here[:3], goal[:3])] + slerp(here[3:], goal[3:], s))
+        here = goal
+    for index, waypoint in enumerate(waypoints):
+        previous = path[-1]
+        try:
+            q = [float(v) for v in model.ik(waypoint, previous, link, **ik_options)]
+        except IKError as error:
+            raise IKError(f"cartesian waypoint {index + 1} of {len(waypoints)}: {error}",
+                          {**error.details, "waypoint": index + 1, "waypoints": len(waypoints)}) from None
+        jump = max(abs(a - b) for a, b in zip(q, previous))
+        if jump > max_joint_step_rad:
+            names = [joint["name"] for joint in joints]
+            raise IKError(f"cartesian waypoint {index + 1} of {len(waypoints)} needs a {jump:.3f} rad joint step, "
+                          f"more than max_joint_step_rad {max_joint_step_rad}: the path crosses a posture change",
+                          {"reason": "discontinuity", "waypoint": index + 1, "waypoints": len(waypoints),
+                           "joints": dict(zip(names, q)), "travel_rad": {n: a - b for n, a, b in zip(names, q, previous)}})
+        path.append(q)
+    velocities, accelerations = planning_limits(joints, max_velocity, max_acceleration)
+    # Each step's share of the move: its slowest joint at the velocity (and acceleration) limit.
+    steps = [max(abs(b - a) / (v * fraction) for a, b, v in zip(p, q, velocities)) for p, q in zip(path, path[1:])]
+    pulls = [max(abs(b - a) / (c * fraction) for a, b, c in zip(p, q, accelerations)) for p, q in zip(path, path[1:])]
+    # Exact extrema of 10s^3 - 15s^4 + 6s^5, as trajectory() bounds a straight joint move.
+    duration = max(period_s, 1.875 * sum(steps), math.sqrt(10 / math.sqrt(3) * sum(pulls)))
+    count = math.ceil(duration / period_s)
+    if count > 1_000_000:
+        raise ValueError("trajectory exceeds one million references")
+    total, cumulative = sum(steps), [0.0]
+    for step in steps:
+        cumulative.append(cumulative[-1] + step)
+    result = []
+    for tick in range(1, count + 1):
+        t = tick / count
+        reach = t ** 3 * (10 + t * (-15 + 6 * t)) * total
+        k = min(len(path) - 1, max(1, bisect.bisect_left(cumulative, reach)))
+        width = cumulative[k] - cumulative[k - 1]
+        s = (reach - cumulative[k - 1]) / width if width > 0 else 1.0
+        result.append([a + s * (b - a) for a, b in zip(path[k - 1], path[k])])
+    result[-1] = list(path[-1])
     return Trajectory(actions=np.array(result, dtype=float), duration_s=duration)
