@@ -5,6 +5,7 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Budget.msg"
   "srv/Json.srv"
   "srv/Wait.srv"
   "srv/LookupTransform.srv"

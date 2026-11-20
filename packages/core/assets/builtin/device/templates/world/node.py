@@ -35,6 +35,7 @@ class WallClock(Node):
             self.finish(True, "")
 
     async def wait(self, request, response):
+        response.used_s = response.max_s = math.nan  # real-world time has no episode budget
         if self.pending:
             response.message = "another wait is pending; world waits are sequential"
         elif not math.isfinite(request.duration_s) or request.duration_s < 0:
