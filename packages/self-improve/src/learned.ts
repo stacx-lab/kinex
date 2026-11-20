@@ -45,7 +45,9 @@ async function describe(resource: string, folder: string): Promise<string> {
       return typeof manifest?.description === "string" ? short(oneLine(manifest.description), 240) : ""
     } catch { return "" }
   }
-  const first = (await stat(resource)).isFile() ? (await read(resource))?.split("\n").map(line => line.replace(/^(#+|"""|\/\/)\s*/, "").trim()).find(Boolean) : undefined
+  const first = (await stat(resource)).isFile()
+    ? (await read(resource))?.split("\n").filter(line => !line.startsWith("#!")).map(line => line.replace(/^(#+|"""|'''|\/\/)\s*/, "").replace(/\s*("""|''')$/, "").trim()).find(Boolean)
+    : undefined
   return first ? `begins: ${short(first, 200)}` : ""
 }
 
