@@ -3,11 +3,8 @@ import { toModelSchema } from "@kinex/core/tool/registry"
 import { inspectPlan, savePlan, selectTask, recordOutcome } from "./planning/plan.ts"
 import type { Plan, Outcome } from "./planning/schema.ts"
 import { SetupPlanTool } from "./tool/setup_plan.ts"
-import { CalibSampleTool } from "./tool/calib_sample.ts"
-import { CalibComputeTool } from "./tool/calib_compute.ts"
-import INSTRUCTIONS from "./instructions.txt"
 
-const tools: readonly Def[] = [SetupPlanTool, CalibSampleTool, CalibComputeTool]
+const tools: readonly Def[] = [SetupPlanTool]
 export const setupToolNames: readonly string[] = tools.map(tool => tool.id)
 
 /** Borrows the core runtime; construction has no filesystem or device effects. */
@@ -28,10 +25,6 @@ export function createKinexSetup(runtime: KinexRuntime) {
         return runtime.tools.execute(def, input, call)
       },
     },
-    context: () => runtime.operation(async () => ({
-      instructions: INSTRUCTIONS,
-      sections: {},
-    })),
   }
 }
 export type KinexSetup = ReturnType<typeof createKinexSetup>

@@ -1,7 +1,6 @@
 ---
 name: setup-device
 description: Add a device or repair its ROS nodes — choose an instance or type guide, provision its runtime, fill a profile and verify the interface.
-resolves: access:world,access:locomotion,access:joint,access:gripper,access:suction,access:rgb,access:rgbd,access:imu,access:force_torque,access:model,profile:model,access:other
 ---
 
 # Set up a device
@@ -12,7 +11,8 @@ Device guide roots, search all `<root>/<name>/DEVICE.md` paths before the first
 `<root>/templates/<type>/DEVICE.md`. Read Setup and start from its Profile YAML.
 Type guides recommend operation names and semantics; implement those the device
 supports. Schemas validate only physical facts and calibration. Every workspace
-requires a world device.
+requires a world device. Keep an existing working integration unless the user asks
+to replace it.
 
 Use the nearest `.kinex/` in this directory or its ancestors. Store the profile
 and owned node sources in `.kinex/devices/<name>/`; code shared with exec
@@ -64,8 +64,7 @@ check what is installed after sourcing that ROS distribution. Keep credentials i
 the environment.
 
 Use `profile_write` to validate and preserve typed facts/provenance. Leave unknown
-facts as `???`, mark missing calibration and clear resolved requests with
-`needs_calibration: null`. New devices stay unloaded. Kinex publishes known static
+facts as `???`. New devices stay unloaded. Kinex publishes known static
 frames and, for a joint or gripper device, its URDF links from measured
 `joint_state`; no device node publishes them. Kinex owns tf2 lookup
 (`lib.frames.lookup_transform`); devices never serve it.
@@ -76,15 +75,15 @@ Keep task metadata and benchmark judges outside the agent device graph.
 
 Validate schema, imports and syntax before activation. Load through the host only
 within the authorized task scope, inspect readiness and verify the declared
-operations. Test input rejection, stop and teardown. Unload
+operations. Test input rejection, stop and teardown on the live interface; add or
+run Python test suites only when necessary. Unload
 before editing node/runtime definitions, then validate and explicitly reload.
 
 ### Profile facts and frames
 
 Write physical facts directly at the top level: `model`, `home`, `limits`, `grip`,
 `color`, `depth`, `frames`, etc. Do not write intrinsics/extrinsics wrappers.
-Use one top-level calibration record (`source`, `method`, `calibrated_at`,
-`needs_calibration`); readiness uses `profile:<device>` and `access:<device>`.
+Use one top-level calibration record (`source`, `method`, `calibrated_at`).
 Every spatial device declares `frames.base`. Every frame explicitly supplies
 `parent: device:frame` or `parent: null` for an independent root. There is no
 implicit base parent. Root transform values are ignored; write null components.
@@ -94,4 +93,4 @@ gripper devices are frames under their base, named by link, whose live transform
 come from measured joint states; parents may reference them, and profile frames
 must not reuse their names. Parent references must exist and be acyclic.
 
-Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred; needs_calibration:null clears a resolved marker.
+Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred.

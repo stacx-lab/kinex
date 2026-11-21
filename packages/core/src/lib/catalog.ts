@@ -4,11 +4,12 @@ import { z } from "zod"
 import { ConfigPaths } from "../config/paths.ts"
 import { Global } from "../global.ts"
 import { Assets } from "../installation/assets.ts"
+import { currentScope } from "../scope.ts"
 import { scanPython } from "./python.ts"
 
-// The function library is the kinex.lib package: builtin modules plus the lib/
-// directory of every workspace and the global configuration. Its tree is what
-// Python's import system resolves, read from source without starting Python.
+// The function library is the kinex.lib package: builtin modules, those contributed
+// packages add, and the lib/ directory of every workspace and the global configuration.
+// Its tree is what Python's import system resolves, read from source without starting Python.
 export const LibPath = z.string().regex(/^(?:[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)?$/, "a dotted module or function path")
 const Origin = z.enum(["workspace", "global", "builtin"])
 export const LibModule = z.strictObject({
@@ -43,11 +44,12 @@ const IDENTIFIER = /^[A-Za-z_]\w*$/
 const isFile = (target: string) => stat(target).then(found => found.isFile(), () => false)
 const entries = (directory: string) => readdir(directory, { withFileTypes: true }).catch(() => [])
 
-/** Search roots of kinex.lib, nearest workspace first and the builtin package last. */
+/** Search roots of kinex.lib, nearest workspace first and the shipped package last. */
 export async function libRoots(cwd: string): Promise<Root[]> {
   const configured = (await ConfigPaths.directories(cwd)).toReversed()
   return [
     ...configured.map(directory => ({ directory: path.join(directory, "lib"), origin: directory === Global.Path.config ? "global" as const : "workspace" as const })),
+    ...(currentScope().builtinLibRoots ?? []).map(directory => ({ directory, origin: "builtin" as const })),
     { directory: Assets.python("kinex", "lib"), origin: "builtin" },
   ]
 }

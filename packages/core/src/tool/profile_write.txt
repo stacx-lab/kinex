@@ -1,16 +1,7 @@
-Persist profile facts in the workspace:
-- robot: partial manifest; identity requires id, name and kind initially. identity.kind describes the whole robot's morphology and must be arm, mobile, quadruped, humanoid or other. Use other when no category fits; ??? is not accepted for this field.
-- device: partial profile; name is required, type and description on first write, plus frames.base for spatial devices. Use setup-device and the selected guide for new devices.
-- needed: {item,note?}; queue the reason without changing existing provenance.
+Persist profile facts in the workspace. Invalid updates are not saved; errors name the fields and the device guide to consult.
+- robot: partial workspace manifest; identity needs id, name and kind (arm, mobile, quadruped, humanoid or other) on first write.
+- device: partial profile with its name; type and description on first write. Follow setup-device and the device guide for its fields.
 
-Patches deep-merge. To switch a strict variant, supply the complete top-level section and list it in replace (e.g. ["model"]). Arrays replace wholesale. null removes an optional section only when listed in replace. Changing device type or rgb layout replaces its profile, so supply the complete profile. Invalid updates are not saved.
+Patches deep-merge; arrays replace wholesale. To replace a top-level section, supply it whole and list it in replace; null there removes an optional section. Changing a device's type or rgb layout replaces its profile, so supply all of it. Unknown facts stay ???; null means absent or inapplicable, never unknown. Set source to where the data came from.
 
-Outstanding requests persist across reads and replacements. Clear a resolved request with top-level needs_calibration:null for profile:<device> (or in access for access:<device>); the store rejects clearing incomplete facts. Unknown required facts remain ???. Set source to the origin of the data; keep diagnostics in calibration evidence.
-
-New devices use loaded:false; activation uses the device tool (action="load") or /load, not profile edits. Profiles live at .kinex/devices/<name>/profile.yaml beside node sources, using the nearest .kinex/ in the current directory or its ancestors (the current directory's .kinex/ if none exists). Validation errors identify fields and the guide to consult.
-
-Device description gives general identity, capabilities and limitations. Each operation requires its own description for payload conventions and behavior; both descriptions are required strings and may be empty. Typed templates guide setup, while actual operation names are device-specific.
-
-Physical facts (model, limits, color, frames, etc.) are top-level. Every frame requires parent: device:frame or null for an independent root; there is no implicit parent. Root transform components must be null (inapplicable). Non-root ??? components mean unknown, never identity. Mounts are frames.base.
-
-Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred; needs_calibration:null clears a resolved marker.
+Activation is not a profile fact: new devices are unloaded, and loading uses the device tool (action="load") or /load. Unload a device before changing its type, runtime or operations.

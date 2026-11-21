@@ -25,10 +25,9 @@ requires movement, use a narrowly scoped motion/posture procedure. Fix proven
 conversion or frame-mapping errors in the device node, reload through core lifecycle,
 and verify the corrected output. Do not silently tune the controller.
 
-Archive relevant exact assertions in a measurements file, naming only required
-checks. `calib_compute operation:verify-base` evaluates those assertions; its tool
-description defines the evidence format. Persist verified profile facts and record
-only the resolved plan node. Do not turn all possible interface checks into a
+Evaluate the relevant exact assertions with `lib.calibration.base.verify`, naming
+only the required checks. Persist verified profile facts and record only the
+resolved plan node. Do not turn all possible interface checks into a
 mandatory prerequisite for every task.
 
-See [procedure.json](procedure.json) for roles and computations.
+See [procedure.json](procedure.json) for machine-readable roles and field coverage.

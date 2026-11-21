@@ -1,4 +1,4 @@
-import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } from "@kinex/setup"
+import { createKinexSetup, setupContribution, setupLibRoots, setupSkillRoots, setupToolNames } from "@kinex/setup"
 import path from "node:path"
 import {
   createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices,
@@ -18,12 +18,13 @@ import { composeContributions, coreContribution, type KinexContribution } from "
 
 export interface ApplicationComposition {
   builtinSkillRoots?: readonly string[]
+  builtinLibRoots?: readonly string[]
   reservedToolNames?: readonly string[]
   contributions(runtime: KinexRuntime): readonly KinexContribution[]
 }
 
 const defaultComposition: ApplicationComposition = {
-  builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames,
+  builtinSkillRoots: setupSkillRoots, builtinLibRoots: setupLibRoots, reservedToolNames: setupToolNames,
   contributions: runtime => [coreContribution(runtime), setupContribution(createKinexSetup(runtime))],
 }
 
@@ -46,9 +47,10 @@ export async function createApplication(options: ApplicationOptions) {
   if (options.provider && !options.model) throw new Error("--provider requires --model")
   const sessionPath = options.session ? await resolveSession(options.session, cwd) : undefined
   const authPath = await prepareAuthPath(storage.agent, storage.state)
-  const { contributions, builtinSkillRoots = [], reservedToolNames = [] } = options.composition ?? defaultComposition
+  const { contributions, builtinSkillRoots = [], builtinLibRoots = [], reservedToolNames = [] } = options.composition ?? defaultComposition
   const owner = new RoboticsOwner(options.enableRecording ?? false, options.mode ?? "ask", {
     builtinSkillRoots: [...builtinSkillRoots],
+    builtinLibRoots: [...builtinLibRoots],
     reservedToolNames: [...reservedToolNames],
   })
   const modelRuntime = await ModelRuntime.create({

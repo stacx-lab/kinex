@@ -26,14 +26,13 @@ tracking but cannot independently certify localization. In particular, normalize
 commands remain normalized; do not label command-to-measured differences as SI
 tracking error. Separate localization, tracking, expiry, and stopping checks.
 
-Record evidence using calib_sample and archive command/observation/reference
-associations. Summarize only selected measurements into the format described by
-calib_compute and run operation:verify-base. Numerical checks require explicit
-units and tolerance; insufficient references remain needs-input or partial.
+Record readings with `run.sample` and save command/observation/reference
+associations with `run.save`. Evaluate only the selected measurements with
+`lib.calibration.base.verify`; insufficient references remain needs-input or partial.
 
 Record trial conditions and coverage. Repeat only failed or underdetermined checks.
 Correct verified node conversion errors if needed, then reload and retest that
 check. Do not optimize odometry, wheel geometry or gait control. Once the current
 task's required fact is established, resume the task.
 
-See [procedure.json](procedure.json) for roles and computations.
+See [procedure.json](procedure.json) for machine-readable roles and field coverage.

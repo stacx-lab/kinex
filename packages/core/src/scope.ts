@@ -7,11 +7,12 @@ export interface RuntimeScope {
   closed?: boolean
   assetsRoot?: string
   builtinSkillRoots?: readonly string[]
+  builtinLibRoots?: readonly string[]
   settings?: CoreSettings
   processes: Set<ManagedProcess>
 }
 
-export const createScope = (options: { assetsRoot?: string; builtinSkillRoots?: readonly string[]; settings?: CoreSettings } = {}): RuntimeScope => ({ ...options, processes: new Set() })
+export const createScope = (options: Pick<RuntimeScope, "assetsRoot" | "builtinSkillRoots" | "builtinLibRoots" | "settings"> = {}): RuntimeScope => ({ ...options, processes: new Set() })
 const storage = new AsyncLocalStorage<RuntimeScope>()
 const signals = new AsyncLocalStorage<AbortSignal>()
 export const currentSignal = () => signals.getStore() ?? currentScope().signal

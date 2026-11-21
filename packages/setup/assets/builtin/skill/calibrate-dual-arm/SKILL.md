@@ -17,10 +17,9 @@ Use supported low speed and user-confirmed approximately 5 mm contact approaches
 Never move while touching; retract before switching arms. Keep the arm-base
 relationship fixed during measurement, including mobile-base/torso posture.
 
-Archive `{anchor_points_m:[[...]],second_points_m:[[...]]}` in matching order.
 Use at least 4 well-spread noncoplanar points and preserve repeat measurements.
-Run `calib_compute operation:fit-dual` with `points`. Require RMS <= 2 mm,
-maximum residual <= 4 mm, nondegenerate geometry and proper rotation.
+Fit with `lib.calibration.rigid.fit_dual`, which archives the points. Require RMS
+<= 2 mm, maximum residual <= 4 mm, nondegenerate geometry and proper rotation.
 
 The proposed mount is second-base-in-anchor-base. Apply only when that parent
 relationship is intended and does not introduce a frame cycle; otherwise explicitly

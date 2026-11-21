@@ -26,16 +26,15 @@ null: no budget, as in realtime). Use the device tool to load, unload, read and 
 exec runs Kinex Python, separate from device and simulator environments; never patch sys.path.
 Discover devices with `runtime` and lib functions with the lib tool; finish with only what you need.
 Save functions you will reuse to `lib/` and whole tasks to `programs/`.
-ROS resources a program creates end with it. Install missing ROS packages through setup.
+ROS resources a program creates end with it. Install missing ROS packages through setup-device.
 
 ## Principles
 
-Follow profile units, limits and safety; never assume missing facts. Avoid unintended
-collisions along the whole path. A sent command or arrival is not success; verify with
-measurements. On faults, unexpected contact or lost feedback, call device_stop first.
-Work efficiently: skip checks that add nothing, combine tool calls if necessary
-(e.g. perceive and move inside the same exec),
-but never at the cost of soundness and task completion.
+- Follow profile units, limits and descriptions.
+- Avoid unintended collisions along the whole path.
+- On faults, unexpected contact or lost feedback, stop the devices first with device_stop.
+- Work efficiently: skip checks that add nothing and combine tool calls where it helps
+  (e.g. perceive and move in the same exec), never at the cost of soundness or task fulfillment.
 
 ## Tools and the user
 

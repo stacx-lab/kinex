@@ -20,8 +20,5 @@
       "pointer": "/measurement"
     }
   ],
-  "computes": [
-    "sensor-bias"
-  ],
   "quality": "At least 20 static readings; review per-axis spread against the residual. Specific-force accelerometers need the expected gravity reading from an independent orientation."
 }

@@ -13,11 +13,12 @@ core still validates each operation and the host still owns permissions.
 ```ts
 import { createKinexRuntime } from "@kinex/core"
 import { coreContribution, composeContributions } from "@kinex/core/integration"
-import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } from "@kinex/setup"
+import { createKinexSetup, setupContribution, setupLibRoots, setupSkillRoots, setupToolNames } from "@kinex/setup"
 
 const runtime = createKinexRuntime({
   directory: process.cwd(),
   builtinSkillRoots: setupSkillRoots,
+  builtinLibRoots: setupLibRoots,
   reservedToolNames: setupToolNames,
   host: { ask: async request => { /* authorize or throw */ } },
 })
@@ -41,23 +42,22 @@ inspection do not create a workspace or initialize Python.
 Standalone's `ApplicationOptions.composition` selects roots, reserved names and a
 `contributions(runtime)` factory together, before runtime construction.
 For core alone use `{ contributions: runtime => [coreContribution(runtime)] }`.
-Custom setup composition explicitly supplies `setupSkillRoots`, `setupToolNames`
-and its setup contribution. Omitted values do not inherit standalone's defaults.
+Custom setup composition explicitly supplies `setupSkillRoots`, `setupLibRoots`,
+`setupToolNames` and its setup contribution. Omitted values do not inherit standalone's defaults.
 
 Device preparation, including ROS dependencies and Kinex Python for ROS, follows
 core's [setup-device](../core/assets/builtin/skill/setup-device/SKILL.md) skill.
 Nodes consume core runtime modules to remain operational without setup.
 
-## Tools and workflows
+## Tools, library and workflows
 
-| Tool | Responsibility |
-| --- | --- |
-| `setup_plan` | Read/save a DAG, select a task's targets, and record evidence-backed outcomes. |
-| `calib_sample` | Read one measured sample into an isolated, participant-bound attempt. |
-| `calib_compute` | Run bundled offline solvers or model introspection and propose exact profile changes. |
-
-`calib_sample.settle` waits for measured joint or odometry velocities to stay below
-a threshold over distinct device timestamps; see the
+The `setup_plan` tool reads and saves the DAG, selects a task's targets and records
+evidence-backed outcomes. Measurement runs in exec programs through
+`kinex.lib.calibration`, which `setupLibRoots` adds to core's function library:
+calibration runs, sampling and the solvers (`rigid`, `tcp`, `camera`, `sensor`,
+`base`). A program can move, wait, sample and solve in one call; the `lib` tool
+reads each function's contract without starting Python. Sampling settles on measured
+joint or odometry velocities; see the
 [sampling contract](../../docs/setup.md#task-prerequisites-and-calibration-evidence).
 
 `/onboarding [objective]` prepares the embodiment and follows only the requested
@@ -72,9 +72,9 @@ explicitly only when their whole section is resolved. Translation-only TCP evide
 may satisfy a task while its orientation request remains open.
 
 Hosts can pass `setupPermissionDefaults` to `kinexPermissionAction`: local plan
-mutations default to `setup_plan: allow`, offline computations to
-`calib_compute: ask`. Explicit rules take precedence. Samples retain `device_read`;
-physical operations use existing core permissions. Public package APIs are trusted
+mutations default to `setup_plan: allow`. Explicit rules take precedence. Sampling
+and solving run under the exec approval; physical operations use existing core
+permissions. Public package APIs are trusted
 host operations; model calls must use the permission-checked tool contribution.
 
 ## Plan and evidence contracts
@@ -94,16 +94,16 @@ Use narrow profile pointers for both inputs and outputs, tracking only facts rel
 to the node's conclusion. Keep volatile loaded/meta fields and live poses out of
 persistent calibration dependencies and outputs. World motion does not invalidate
 arm-to-base geometry.
-Record required node/model files as inputs. Plan inspection checks their presence;
-calibration attempts separately fingerprint input contents, including URDF bytes.
+Record required node/model files as inputs; plan inspection checks their presence.
 Planning never resolves models or reads hardware.
 
 A task has `objective`, `targets` (node IDs), and optional direct `facts`. Only the
 targets and their transitive prerequisites are required now. Empty targets can
 express a task requiring no calibration. `task:null` defers all measurement work.
-The default view collapses deferred and completed work; `full:true` includes nodes
-and procedure descriptors. `taskSatisfied` concerns declared requirements, not a
-certification that the robot can safely accomplish the task.
+The default view collapses deferred and completed work; `full:true` includes nodes,
+procedure descriptors and the plan format, which the tool's schema leaves out.
+`taskSatisfied` concerns declared requirements, not a certification that the robot
+can safely accomplish the task.
 
 Save/select/record require the returned revision. Invalid references, cycles,
 participant mismatches and missing producer dependencies are rejected. Outcomes
@@ -113,9 +113,9 @@ Completed nodes become stale when required facts, outputs, evidence files or com
 prerequisites are missing, including when an explicit profile value no longer matches.
 Content changes, node-definition edits and re-recorded completed prerequisites alone
 do not invalidate receipts. Reassess their relevance when modifying a completed plan.
-Receipts contain status, note, evidence and time. Calibration attempts and solver results retain
-their separate input, definition and prerequisite checks. Malformed deferred
-procedures are reported without gating unrelated tasks.
+Receipts contain status, note, evidence and time. A solver result cannot complete a
+node when its computation or quality failed, or before its resolved values are
+applied. Malformed deferred procedures are reported without gating unrelated tasks.
 
 For example, establish an existing camera connection without calibrating geometry:
 
@@ -140,22 +140,21 @@ This example checks declared output presence; the agent must choose and substant
 checks appropriate to the actual interface, rather than treating file existence as
 proof of live connectivity.
 
-Attempts live in `.kinex/calib/<run-id>/` with a manifest, `samples.json`, immutable
-artifacts, numbered solver results and a latest `result.json`. Start sampling or
-computing with `node`, or with `procedure` plus bindings and inputs. Reuse the
-returned `run` thereafter. Participants/procedure/inputs cannot change within an
-attempt. Camera image and depth files and solver input files are copied before use.
-Old samples are preserved; record exclusions in a separate solver input with
-references to them.
-Results separate computation, quality, resolved fields, unresolved facts and
-`proposedChanges`. Failed quality proposes no writes. Warnings require review against
+Runs live in `.kinex/calib/<run-id>/` with a manifest of the procedure and its
+bindings, `samples.json`, artifacts, saved evidence and numbered solver results with a
+latest `result.json`. `lib.calibration.start` opens a run and `resume` reopens it by
+ID. Only bound devices are sampled; camera images are archived before a sample is
+appended, and solvers archive their inputs. Old samples are preserved; record
+exclusions with `run.save`.
+Results separate computation, quality, resolved fields, unresolved facts and the
+`proposed` patch. Failed quality proposes no writes. Warnings require review against
 task accuracy. If the user explicitly requests keeping an over-limit result during
 setup, honor that request without refusing or forcing recollection due to the error.
-When requested, apply computed fields from archived solver data with `profile_write`
-even when `proposedChanges` is empty, preserving frame conventions and validation.
-Archive the errors, limits and user decision; retain the original quality assessment
-and do not mark a failed-quality node done. Record the returned numbered `evidence` path after applying and
-verifying accepted changes; later solves do not overwrite that evidence.
+When requested, apply computed fields from the result's data with `profile_write`,
+preserving frame conventions and validation. Save the errors, limits and user
+decision; retain the original quality assessment and do not mark a failed-quality
+node done. Record the returned numbered `evidence` path after applying and verifying
+accepted changes; later solves do not overwrite that evidence.
 
 `setup.plan` exposes `inspect`, `save`, `select` and `record`.
 
@@ -163,11 +162,11 @@ verifying accepted changes; later solves do not overwrite that evidence.
 
 Measurement skills have a `procedure.json` declaring concrete roles, applicable
 types, distinct participants, parent relationships, required profile pointers,
-produced fields, supported computations and quality criteria. Setup reads the
-sidecar from the skill directory selected by core discovery. Custom skills without
-sidecars remain usable with explicitly authored requirements/evidence. The compute
-tool executes only known bundled programs in Kinex Python; overriding prose does
-not replace them. Custom computations use host tools and archive their evidence.
+produced fields and quality criteria; each skill names its `lib.calibration`
+solver. Setup reads the sidecar from the skill directory selected by core
+discovery. Custom skills without sidecars remain usable with explicitly authored
+requirements/evidence. Custom computations run in exec and archive their evidence
+in a run.
 
 | Skills | Coverage |
 | --- | --- |
@@ -177,7 +176,7 @@ not replace them. Custom computations use host tools and archive their evidence.
 | `calibrate-joint-range`, `calibrate-world-geometry` | Joint/model limits and independently measured environment geometry. |
 | `calibrate-gripper-grip` | The grip joint and its open and closed positions. |
 | `calibrate-sensor-bias` | IMU gyro/accelerometer and force/torque bias from static readings. |
-| `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected locomotion-base conventions, motion response, expiry/stop and posture references, evaluated with `verify-base`. |
+| `verify-base-interface`, `verify-base-motion`, `verify-base-posture` | Selected locomotion-base conventions, motion response, expiry/stop and posture references, evaluated with `lib.calibration.base.verify`. |
 
 Fixed arms, dual arms, wheeled manipulators, quadrupeds with arms and humanoids use
 actual endpoint/frame compositions. Moving torso attachments and body/heading
@@ -190,14 +189,14 @@ minimum evidence, coverage and quality meet the task. Explicit tolerances are
 required for verification measurements; missing references remain incomplete.
 Device preparation follows core's `setup-device`, verifying the declared operations,
 input rejection, stop and teardown; failed checks leave onboarding incomplete.
-Existing base procedures use `verify-base` with the evidence format documented in
-the `calib_compute` tool description.
+Base procedures evaluate their checks with `lib.calibration.base.verify`, whose
+docstring defines the check format.
 
 ## Checks
 
 Existing calibration evidence can be referenced after checking its provenance; it is
 not automatically promoted to a completed plan. Removing setup leaves core devices
-operational. Unregistering a device preserves attempt history; affected plan
+operational. Unregistering a device preserves run history; affected plan
 requirements become missing or stale.
 
 From the repository root run `npm run typecheck`, `npm test`, `npm run test:core`,

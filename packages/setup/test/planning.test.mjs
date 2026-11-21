@@ -69,6 +69,14 @@ test('only task targets and ancestors advance; no global calibration gate', asyn
   assert.ok(!(await runtime.tools.call('device', { deviceID: 'sensor', action: 'read' }, { sessionID: 'task' })).isError)
   const result = await setup.tools.call('setup_plan', { action: 'read' }, { sessionID: 'task' })
   assert.deepEqual(JSON.parse(result.output).nodes, [])
+  // The plan format stays out of the tool schema: a full read and validation errors supply it.
+  const full = JSON.parse((await setup.tools.call('setup_plan', { action: 'read', full: true }, { sessionID: 'task' })).output)
+  assert.match(full.format, /fact: \{kind: "profile"/)
+  assert.equal(JSON.parse(result.output).format, undefined)
+  const invalid = await setup.tools.call('setup_plan', { action: 'save', revision: full.revision, plan: { version: 1, nodes: [{ id: 'x' }] } }, { sessionID: 'task' })
+  assert.equal(invalid.isError, true)
+  assert.match(invalid.output, /nodes\.0\.title.*full:true/)
+  assert.match((await setup.tools.call('setup_plan', { action: 'select', task: null }, { sessionID: 'task' })).output, /needs the revision/)
 })
 
 test('reject cycles, missing dependencies, wrong task targets and stale revisions', async t => {
@@ -148,18 +156,16 @@ test('inspection checks file presence and explicit profile values without compar
   assert.equal(view.taskSatisfied, false)
 })
 
-test('partial TCP facts can satisfy a task while rotation and section request remain unknown', async t => {
+test('partial TCP facts can satisfy a task while rotation remains unknown', async t => {
   const { runtime, setup, save } = await fixture(t)
   await runtime.profiles.writeDevice({ description: '',
     name: 'tool',
     type: 'gripper',
-    needs_calibration: 'orientation unknown',
     frames: { base: { parent: "arm:flange", translation_m: [0, 0, .1], rotation_xyzw: '???' } } })
   await save([], [], [fact('tool', '/frames/base/translation_m')])
   assert.equal((await setup.plan.inspect()).taskSatisfied, true)
   await setup.plan.select({ objective: 'Full pose', targets: [], facts: [fact('tool', '/frames/base/rotation_xyzw')] }, 1)
   assert.equal((await setup.plan.inspect()).taskSatisfied, false)
-  assert.equal((await runtime.devices.list()).find(device => device.name === 'tool').needs_calibration, 'orientation unknown')
 })
 
 test('dual-arm prerequisites bind both particular TCPs, with producer dependencies', async t => {

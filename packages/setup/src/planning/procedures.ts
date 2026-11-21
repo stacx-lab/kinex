@@ -11,7 +11,7 @@ export const Procedure = z.strictObject({
   distinct: z.array(z.array(ID).min(2)).default([]),
   links: z.array(z.strictObject({ child: ID, parent: ID })).default([]),
   requires: z.array(Requirement).default([]), produces: z.array(Requirement).default([]),
-  computes: z.array(z.string()).default([]), quality: z.string().min(1),
+  quality: z.string().min(1),
 }).superRefine((value, ctx) => {
   const referenced = [...value.requires.map(item => item.role), ...value.produces.map(item => item.role),
     ...value.distinct.flat(), ...value.links.flatMap(link => [link.child, link.parent])]

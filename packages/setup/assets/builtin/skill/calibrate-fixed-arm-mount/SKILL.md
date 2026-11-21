@@ -20,10 +20,10 @@ For touch probing, add dependencies on the particular arm's URDF model, motion
 operations and TCP. Approach slowly in user-confirmed approximately 5 mm steps; never command
 motion while touching. A non-motion survey does not require loading the arm.
 
-Archive `{arm_points_m:[[...]],parent_points_m:[[...]]}`. Use at least 4 well-spread,
-noncoplanar points. Run `calib_compute operation:fit-mount` with `points` and the
-actual `parent_frame`. The solver requires nondegenerate geometry, RMS <= 2 mm,
-maximum residual <= 4 mm, and a proper rotation.
+Use at least 4 well-spread, noncoplanar points. Fit with
+`lib.calibration.rigid.fit_mount` and the actual parent frame; it archives the points
+and requires nondegenerate geometry, RMS <= 2 mm, maximum residual <= 4 mm, and a
+proper rotation.
 
 Persist the accepted parent<-arm transform directly. Keep raw pairs and residuals
 in evidence. On mobile robots verify the measured reference relationship stayed

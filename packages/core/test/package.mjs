@@ -94,7 +94,7 @@ export async function checkCorePackage(directory, env, pack) {
         'from kinex.lib.motion import trajectory',
         'from kinex.lib.frames import lookup_transform',
         'assert callable(lookup_transform) and "rclpy" not in sys.modules',
-        'assert budget_options({}) == dict(max_attempts=5, attempt_time_s=.02, max_time_s=.1)',
+        'assert budget_options({}) == dict(max_attempts=5, attempt_time_s=.02, max_time_s=.1, global_attempts=32, global_time_s=.2)',
         'joints = [dict(name="x", type="prismatic", limits=dict(min=0, max=1))]',
         'plan = trajectory(joints, [0], [.4], .01)',
         'assert plan.actions[-1] == [.4] and plan.duration_s > 0',

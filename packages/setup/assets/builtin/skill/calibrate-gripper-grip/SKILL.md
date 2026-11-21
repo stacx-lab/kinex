@@ -10,14 +10,14 @@ its `open` and `closed` positions in that joint's units; the node rejects target
 outside them.
 
 Prefer vendor documentation of the commanded open and closed positions. Otherwise
-run `calib_compute operation:urdf-introspect` to read the URDF's movable joints
-and their limits; the joint limits bound the range but may exceed what the
+read the URDF's movable joints and their limits from the gripper's `resolved_model`
+in `kinex.profile`; the joint limits bound the range but may exceed what the
 hardware commands. Choose the joint the vendor driver actually commands; mimic
 joints follow it.
 
 To measure, load the gripper with nothing between the fingers. Open and then
 close it fully through the vendor's own interface or by hand, since `target`
-already requires a valid grip. Record each end with `calib_sample` after its
+already requires a valid grip. Record each end with `run.sample` after its
 `joint_state` stops changing, and take `open` and `closed` from the grip joint's
 measured positions. A closed position may be negative or larger than open;
 preserve the measured direction.

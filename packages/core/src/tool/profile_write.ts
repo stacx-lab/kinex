@@ -7,34 +7,18 @@ import { resolveDeviceTemplate } from "../device/templates.ts"
 export const ProfileWriteTool = define("profile_write", {
   description: DESCRIPTION,
   parameters: z.object({
-    kind: z.enum(["robot", "device", "needed"]),
+    kind: z.enum(["robot", "device"]),
     replace: z.array(z.string()).default([]).describe("Supplied top-level sections to replace instead of merge; null removes optional sections"),
     data: z
       .record(z.string(), z.unknown())
       .describe(
-        "partial workspace manifest patch (identity required on first write) for kind=robot, partial device patch (must include name; type on first write) for kind=device, or {item, note?} for kind=needed",
+        "partial workspace manifest for kind=robot, or partial device profile with its name for kind=device",
       ),
   }),
   execute: async (args, ctx) => {
     await ctx.ask({ permission: "profile_write", description: `write ${args.kind} record` })
 
     ctx.abort.throwIfAborted()
-    if (args.kind === "needed") {
-      const entry = args.data as { item?: string; note?: string }
-      if (typeof entry.item !== "string" || entry.item === "")
-        return { title: "invalid patch", output: "data.item (a readiness item id) is required", isError: true }
-      const marked = await ProfileStore.markNeeded(ctx.directory, entry.item, entry.note).then(
-        () => undefined,
-        (error: unknown) => (error instanceof Error ? error.message : String(error)),
-      )
-      if (marked !== undefined) return { title: "invalid item", output: `${marked}. Fix and retry.`, isError: true }
-      const queue = await ProfileStore.listNeeded(ctx.directory)
-      return {
-        title: `needs calibration: ${entry.item}`,
-        output: `marked needs_calibration on its section (${queue.length} item${queue.length === 1 ? "" : "s"} in the queue; clear a resolved marker explicitly with needs_calibration:null)`,
-      }
-    }
-
     const patch = args.data as Record<string, unknown> & { name?: string }
     if (args.kind === "device" && (typeof patch.name !== "string" || patch.name === ""))
       return { title: "invalid patch", output: "data.name is required and must be a non-empty string", isError: true }
