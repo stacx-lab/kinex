@@ -216,7 +216,11 @@ is pending, and `stop` cancels the pending one. Realtime waits observe progress;
 stepped waits authorize world advancement. A periodic loop must skip missed
 deadlines, and must not assume an expired wait produces a fresh observation.
 
-A wait reply carries `time_s` and that wait's `waited_s`. A world may report the
+A wait reply carries `time_s` and that wait's `waited_s`. A world may end a wait
+early, unsuccessfully, when a device refuses a command or stops a motion it cannot
+execute: `waited_s` says how far it ran, the message says why, and a stepped world
+never advances, or charges, the rest. Since a failed wait raises, a script learns of
+the refusal at once instead of waiting it out. A world may report the
 episode budget on an optional `budget` topic (`std_msgs/msg/Float64MultiArray`):
 `data` is `[used_s, max_s]`, seconds of world time used and allowed, `max_s`
 infinite for no cap, and `[NaN, NaN]` in realtime, which has no budget. The budget

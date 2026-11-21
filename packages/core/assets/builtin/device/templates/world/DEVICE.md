@@ -17,7 +17,9 @@ lookup. Keep task instructions and benchmark judging outside device operations.
 - `wait` (recommended): service `custom_interfaces/srv/Wait`. It completes after
   `duration_s` (finite, nonnegative) of world time; zero is an observation barrier.
   Waits are sequential: one requested while another is pending is rejected.
-  `timeout_s` bounds the longest wait.
+  `timeout_s` bounds the longest wait. A world may end a wait early, with `success`
+  false, when a device refuses a command or stops a motion it cannot execute;
+  `waited_s` is how far it ran, and a stepped world never advances the rest.
 - `budget` (optional): output topic `std_msgs/msg/Float64MultiArray`, reliable and
   `transient_local`, whose `data` is `[used_s, max_s]`, published whenever
   consumption changes.
