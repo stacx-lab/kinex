@@ -455,13 +455,17 @@ test('runtime discovery is read-only and exec does not borrow device interpreter
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const source = `import sys
 from kinex import finish, runtime
-finish({"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operations("clock")})`
+entry = next(d for d in runtime.devices() if d["name"] == "clock")
+finish({"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operations("clock"),
+        "entry_ops":runtime.operations(entry),"entry_device":runtime.device(entry)["name"]})`
   const result = await execScript(runtime,{python:source})
   assert.ok(!result.isError,result.output)
   const value = JSON.parse(result.output).result
   assert.equal(value.python,path.join(directory,'.kinex/python/.venv/bin/python3'))
   assert.deepEqual(value.devices.find(d=>d.name==='clock'),{name:'clock',type:'world',loaded:false,ready:false})
   assert.equal(value.ops.time.type,'rosgraph_msgs/msg/Clock')
+  assert.deepEqual(value.entry_ops,value.ops)
+  assert.equal(value.entry_device,'clock')
   const override = await runtime.tools.call('exec',{python:'raise Exception("must not run")',interpreter:'/must/not/run'},{sessionID:'override'})
   assert.equal(override.isError,true)
   const noDevices = await execScript(runtime,{python:'import asyncio\nfrom kinex import io\nasyncio.run(io.read("clock.time"))'})

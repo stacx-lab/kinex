@@ -8,16 +8,21 @@ def devices():
     return _rpc({"call": "runtime_devices"})["result"]
 
 
+def _name(device):
+    """A device name, given directly or as an entry of devices()."""
+    return device["name"] if isinstance(device, dict) else device
+
+
 def device(name):
     """One device's general description and host-known state, even when unloaded."""
     from kinex import _rpc
-    return _rpc({"call": "runtime_device", "device": name})["result"]
+    return _rpc({"call": "runtime_device", "device": _name(name)})["result"]
 
 
 def operations(device):
-    """Declared operation metadata, including on unloaded devices."""
+    """Declared operation metadata, including on unloaded devices; device is a name or an entry of devices()."""
     from kinex import _rpc
-    return _rpc({"call": "runtime_operations", "device": device})["result"]
+    return _rpc({"call": "runtime_operations", "device": _name(device)})["result"]
 
 
 def describe(operation):
