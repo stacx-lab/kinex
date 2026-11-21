@@ -21,8 +21,7 @@ class JointModel(joints.JointModel):
         """Commanded positions, as an array, placing link at target nearest the seed
         projected into limits. target is a pose in any form. Joints off the link's
         path keep their seed values; options override the solver tolerances, damping,
-        max_iterations and search budget, and take search ("local" or "global"),
-        free_axis and position_only."""
+        max_iterations and search budget, and take free_axis and position_only."""
         import numpy as np
         return np.array(super().ik(components(target, single=True).tolist(), seed, link, **options))
 
@@ -37,8 +36,8 @@ def joint_model(device):
     returns a distant posture. When none is found it raises IKError (a ValueError) whose
     details.reason says why: "posture_change" (reachable only from a distant posture,
     given as details.alternative_joints with details.travel_rad), "out_of_reach" or
-    "not_found". ik(..., search="global") returns that distant posture instead; move there
-    deliberately, for example by retracting with lib.motion.cartesian first.
+    "not_found". A posture change is a joint move of its own to plan, for example with
+    lib.motion.trajectory after retracting with lib.motion.cartesian.
     ik(..., free_axis=[x, y, z]) leaves rotation about that link-frame axis free, such as a
     gripper's approach axis, and ik(..., position_only=True) ignores rotation.
     link defaults to the only tip. Positions are any sequence, a joint_state's included.

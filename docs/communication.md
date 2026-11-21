@@ -306,8 +306,7 @@ search fails, a bounded probe from seeds spread over the joint ranges (and the
 declared home) explains why in `kinex.lib.kinematics.IKError`, a `ValueError`:
 `details.reason` is `posture_change` (reachable only from a distant posture, given
 as `details.alternative_joints` with its `travel_rad`), `out_of_reach` or `not_found`.
-`ik(..., search="global")` returns the distant posture instead; a program moves there
-deliberately. `free_axis` leaves rotation about a link-frame axis free, such as a
+IK never returns that posture: a program plans the joint move to it deliberately. `free_axis` leaves rotation about a link-frame axis free, such as a
 gripper's approach axis, and `position_only` ignores rotation.
 `lib.motion.cartesian(model, start, poses, period_s)` plans straight tool paths for
 approaching, retracting and lifting: local IK solves each waypoint from the previous one,
