@@ -81,7 +81,7 @@ class SearchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "IK search exhausted"):
             PANDA.ik(case["goal"], case["seed"])
 
-    def test_a_local_failure_reports_the_posture_change_that_global_search_returns(self):
+    def test_a_failure_reports_the_posture_change_and_never_returns_it(self):
         case = next(case for case in CORPUS["cases"] if case["id"] == POSTURE_CHANGE)
         budget = {"global_attempts": 8}
         with self.assertRaises(kinematics.IKError) as caught:
@@ -95,11 +95,12 @@ class SearchTests(unittest.TestCase):
         error = pose_error(case["goal"], PANDA.fk(alternative))
         self.assertLessEqual(error["position_m"], kinematics.DEFAULTS["position_tolerance_m"])
         self.assertLessEqual(error["rotation_rad"], kinematics.DEFAULTS["rotation_tolerance_rad"])
-        # The probe is deterministic, and a global search returns the posture it reported.
+        # The probe is deterministic, and no option makes IK return the posture it reported.
         with self.assertRaises(kinematics.IKError) as again:
             PANDA.ik(case["goal"], case["seed"], budget=budget)
         self.assertEqual(again.exception.details["alternative_joints"], details["alternative_joints"])
-        self.assertEqual(PANDA.ik(case["goal"], case["seed"], search="global", budget=budget), alternative)
+        with self.assertRaisesRegex(ValueError, "unknown IK options: search"):
+            PANDA.ik(case["goal"], case["seed"], search="global", budget=budget)
 
     def test_a_target_beyond_reach_is_reported_as_out_of_reach(self):
         far = PANDA.fk([0] * 7)
@@ -110,8 +111,6 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(details["reason"], "out_of_reach")
         self.assertGreater(details["closest_position_error_m"], 1.)
         self.assertEqual(sorted(details["best_joints"]), sorted(PANDA.names))
-        with self.assertRaises(kinematics.IKError):
-            PANDA.ik(far, [0] * 7, search="global", budget={"global_attempts": 4})
 
     def test_relaxed_goals_free_the_approach_axis_or_the_rotation(self):
         seed = [0, -.3, 0, -2.2, 0, 2., .8]
@@ -234,7 +233,7 @@ class SearchTests(unittest.TestCase):
 
 class TraceTests(unittest.TestCase):
     """RLE-Bench RoboDojo X5 IK failures, from the joint state each agent had recorded: reachable, but
-    mostly only from a distant posture, which the local search reports and a global search returns."""
+    mostly only from a distant posture, which the search reports."""
 
     def setUp(self):
         self.model = JointModel(json.loads((FIXTURES / "x5.json").read_text()), FIXTURES)
@@ -251,17 +250,16 @@ class TraceTests(unittest.TestCase):
             return error.details["reason"], error.details
         return "solved", result
 
-    def test_local_search_reports_posture_changes_and_global_search_reaches_them(self):
+    def test_the_search_reports_posture_changes_that_reach_the_goal(self):
         for case in self.cases:
             with self.subTest(case=case["id"]):
-                reason, details = self.outcome(case)
+                reason, result = self.outcome(case)
                 self.assertEqual(reason, case["local"])
                 if reason == "posture_change":
-                    travel = max(abs(v) for v in details["travel_rad"].values())
+                    travel = max(abs(v) for v in result["travel_rad"].values())
                     self.assertAlmostEqual(travel, case["max_travel_rad"], places=2)
                     self.assertGreater(travel, 2.5)  # far beyond the nearby retries' reach
-                reason, result = self.outcome(case, search="global")
-                self.assertEqual(reason, "solved")
+                    result = [result["alternative_joints"][name] for name in self.model.names]
                 error = pose_error(case["goal"], self.model.fk(result))
                 self.assertLessEqual(error["position_m"], kinematics.DEFAULTS["position_tolerance_m"])
                 self.assertLessEqual(error["rotation_rad"], kinematics.DEFAULTS["rotation_tolerance_rad"])

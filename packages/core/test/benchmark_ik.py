@@ -1,8 +1,8 @@
 """Offline Panda and ARX X5 IK comparison; run separately from CI's correctness tests.
 
 The X5 section samples reachable flange poses and seeds each near its solution (local search
-must solve) or anywhere in a turn (the local search fails as a posture change and
-search="global" solves), and replays the RLE-Bench traces in fixtures/ik/x5-traces.json.
+must solve) or anywhere in a turn (the search fails as a posture change), and replays the
+RLE-Bench traces in fixtures/ik/x5-traces.json.
 
 PYTHONPATH=packages/core/assets/python python3 packages/core/test/benchmark_ik.py --output /tmp/kinex-ik.json
 """
@@ -126,14 +126,12 @@ def x5_cases(model, rng, count):
         yield {"id": index, "goal": model.fk(q), "posture": q, "near": near, "far": far}
 
 
-def x5(global_search=True, count=100):
-    """Local and (when the solver has it) global search on the ARX X5 and its RLE-Bench traces."""
+def x5(count=100):
+    """The search on the ARX X5, from near and far seeds, and on its RLE-Bench traces."""
     model = JointModel(json.loads((FIXTURES / "x5.json").read_text()), FIXTURES)
     traces = json.loads((FIXTURES / "x5-traces.json").read_text())["cases"]
     cases = list(x5_cases(model, random.Random(45), count))
-    modes = {"local_near": ("near", {}), "local_far": ("far", {})}
-    if global_search:
-        modes["global_far"] = ("far", {"search": "global"})
+    modes = {"near": ("near", {}), "far": ("far", {})}
     for case in cases[:3]:
         measure(model, {}, case["goal"], case["near"])
     rows = {name: [] for name in modes}
@@ -142,9 +140,7 @@ def x5(global_search=True, count=100):
             row = measure(model, options, case["goal"], case[seed])
             row["posture_travel_rad"] = max(abs(a-b) for a, b in zip(case[seed], case["posture"]))
             rows[name].append({"id": case["id"], **row})
-    trace_modes = {"local": {}, **({"global": {"search": "global"}} if global_search else {})}
-    trace_rows = [{"id": case["id"], **{name: measure(model, options, case["goal"], case["seed"])
-                                        for name, options in trace_modes.items()}} for case in traces]
+    trace_rows = [{"id": case["id"], **measure(model, {}, case["goal"], case["seed"])} for case in traces]
 
     def describe(rows):
         failed = [row for row in rows if not row["ok"]]
@@ -155,11 +151,9 @@ def x5(global_search=True, count=100):
                 "travel_rad": spread([row["travel_rad"] for row in rows if row["ok"]]),
                 "travel_beyond_sampled_posture": sum(row["ok"] and row["travel_rad"] > row.get("posture_travel_rad", math.inf)
                                                      + 1e-6 for row in rows)}
-    return {"summary": {name: describe(rows[name]) for name in modes} | {
-                "traces": {name: describe([row[name] for row in trace_rows]) for name in trace_modes}},
-            "poses": rows, "traces": [{"id": row["id"], **{name: {key: row[name][key] for key in
-                                       ("ok", "reason", "elapsed_ms", "probe_ms", "travel_rad")}
-                                       for name in trace_modes}} for row in trace_rows]}
+    return {"summary": {name: describe(rows[name]) for name in modes} | {"traces": describe(trace_rows)},
+            "poses": rows, "traces": [{key: row[key] for key in ("id", "ok", "reason", "elapsed_ms", "probe_ms")}
+                                      for row in trace_rows]}
 
 
 def benchmark():
@@ -212,7 +206,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, help="Write detailed results as JSON")
     arguments = parser.parse_args()
     report = benchmark()
-    x5_report = x5(global_search=hasattr(kinematics, "probe"))
+    x5_report = x5()
     report["summary"]["x5"] = x5_report["summary"]
     report["x5"] = x5_report
     if arguments.output:
