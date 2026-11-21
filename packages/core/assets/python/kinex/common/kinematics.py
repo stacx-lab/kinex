@@ -3,8 +3,8 @@ standard library only.
 
 The search stays near the seed, so a solution never asks for a distant posture. When it
 fails, a bounded probe from seeds spread over the joint ranges says why: the target is
-reachable only by a posture change (that posture is reported, and returned only when the
-caller asks for a global search), or no solution was found."""
+reachable only by a posture change (that posture is reported, never returned), or no
+solution was found."""
 
 import hashlib
 import json
@@ -18,9 +18,8 @@ from kinex.common.urdf import displacement, joint_target
 
 # Solver policy; the tolerances bound the verified FK residual of an accepted solution.
 DEFAULTS = {"position_tolerance_m": 1e-4, "rotation_tolerance_rad": 1e-3, "max_iterations": 200, "damping": .01}
-# Goal and search options beyond the solver policy.
-GOALS = ("search", "free_axis", "position_only")
-SEARCHES = ("local", "global")
+# Goal options beyond the solver policy.
+GOALS = ("free_axis", "position_only")
 # A failure whose closest pose misses the target position by more than this is out of reach.
 OUT_OF_REACH_M = .01
 
@@ -68,7 +67,7 @@ def reached(options, position, rotation):
 
 
 DEFAULT_BUDGET = {"max_attempts": 5, "attempt_time_s": 0.02, "max_time_s": 0.1}
-# The global probe after a failed local search: seeds spread over the joint ranges.
+# The probe that explains a failed search: seeds spread over the joint ranges.
 DEFAULT_GLOBAL_BUDGET = {"global_attempts": 32, "global_time_s": 0.2}
 
 
@@ -243,7 +242,7 @@ def explain(error, found, progress, joints, original):
         largest = sorted(travel.items(), key=lambda item: -abs(item[1]))[:3]
         details.update(reason="posture_change", alternative_joints=dict(zip(names, found)), travel_rad=travel)
         message += ("; reachable only by a posture change (" + ", ".join(f"{name} {delta:+.2f} rad" for name, delta in largest)
-                    + "); details.alternative_joints has it, and search='global' returns it")
+                    + "); details.alternative_joints has it, a separate joint move away")
         return IKError(message, details)
     closest = [(details.get("position_error_m"), details.get("rotation_error_rad"))]
     closest.append((progress.position_error_m, progress.rotation_error_rad))
@@ -339,8 +338,7 @@ class Chain:
 
         The search stays near the seed. When it fails, a probe from extra_seeds (positions by
         name, such as a declared home) and seeds spread over the joint ranges explains the
-        failure as an IKError; with options search="global" the probe's solution nearest the
-        seed is returned instead. free_axis or position_only relax the goal (goal_options)."""
+        failure as an IKError. free_axis or position_only relax the goal (goal_options)."""
         if not self.joints or any(joint["mimic"] for joint in self.joints):
             raise ValueError("IK requires a link reached through independent movable joints")
         iterations = options["max_iterations"]
@@ -349,7 +347,7 @@ class Chain:
         for key in ("damping", "position_tolerance_m", "rotation_tolerance_rad"):
             if number(options[key], f"IK {key}") <= 0:
                 raise ValueError(f"IK {key} must be positive")
-        mode, goal = goal_options(options)
+        goal = goal_options(options)
         budget_options(options)  # validated before any attempt runs
 
         def attempt(q, deadline, progress):
@@ -365,34 +363,27 @@ class Chain:
             extra = [[values[joint["name"]] for joint in self.joints] for values in extra_seeds
                      if all(joint["name"] in values for joint in self.joints)]
             found, progress = probe(self.joints, options, [target], original, extra, attempt, verify)
-            if found is None or mode == "local":
-                raise explain(error, found, progress, self.joints,
-                              list(joint_target(original, self.joints))) from None
-            solved = found
+            raise explain(error, found, progress, self.joints, list(joint_target(original, self.joints))) from None
         return {joint["name"]: value for joint, value in zip(self.joints, solved)}
 
 
 def goal_options(options):
-    """The search scope and relaxed goal: search is "local" (default) or "global"; free_axis is a
-    unit axis in the link frame about which rotation is free, such as a gripper's approach axis;
-    position_only ignores rotation."""
-    mode = options.get("search", "local")
-    if mode not in SEARCHES:
-        raise ValueError("IK search must be 'local' or 'global'")
+    """The relaxed goal, None for the full pose: free_axis is a unit axis in the link frame about which
+    rotation is free, such as a gripper's approach axis; position_only ignores rotation."""
     axis, position_only = options.get("free_axis"), options.get("position_only", False)
     if not isinstance(position_only, bool):
         raise ValueError("IK position_only must be true or false")
     if axis is not None and position_only:
         raise ValueError("IK takes free_axis or position_only, not both")
     if position_only:
-        return mode, ("position",)
+        return ("position",)
     if axis is None:
-        return mode, None
+        return None
     axis = vector(axis, 3, "IK free_axis")
     norm = math.hypot(*axis)
     if not norm > 1e-9:
         raise ValueError("IK free_axis must be a nonzero axis")
-    return mode, ("axis", [v / norm for v in axis])
+    return ("axis", [v / norm for v in axis])
 
 
 def axis_error(target, current, axis):

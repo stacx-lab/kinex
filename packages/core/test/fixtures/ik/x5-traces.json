@@ -1,5 +1,5 @@
 {
- "description": "RLE-Bench RoboDojo (seed 0, layout 0) X5 IK failures: base-frame flange goals of the agents' requested TCP poses, from the joint state each agent had recorded. Local search fails on all but the last two; a global search reaches every one, mostly from a distant posture.",
+ "description": "RLE-Bench RoboDojo (seed 0, layout 0) X5 IK failures: base-frame flange goals of the agents' requested TCP poses, from the joint state each agent had recorded. The search fails on all but the last: each needs a posture change.",
  "cases": [
   {
    "id": "make-toast left from home",
@@ -28,7 +28,6 @@
    ],
    "local": "posture_change",
    "max_travel_rad": 3.142,
-   "global": "solved",
    "free_axis_local": "posture_change"
   },
   {
@@ -58,7 +57,6 @@
    ],
    "local": "posture_change",
    "max_travel_rad": 3.142,
-   "global": "solved",
    "free_axis_local": "posture_change"
   },
   {
@@ -88,7 +86,6 @@
    ],
    "local": "posture_change",
    "max_travel_rad": 3.042,
-   "global": "solved",
    "free_axis_local": "solved"
   },
   {
@@ -118,7 +115,6 @@
    ],
    "local": "posture_change",
    "max_travel_rad": 3.042,
-   "global": "solved",
    "free_axis_local": "posture_change"
   },
   {
@@ -148,7 +144,6 @@
    ],
    "local": "posture_change",
    "max_travel_rad": 3.467,
-   "global": "solved",
    "free_axis_local": "posture_change"
   },
   {
@@ -178,7 +173,6 @@
    ],
    "local": "posture_change",
    "max_travel_rad": 3.142,
-   "global": "solved",
    "free_axis_local": "posture_change"
   },
   {
@@ -207,7 +201,6 @@
     0.5
    ],
    "local": "solved",
-   "global": "solved",
    "free_axis_local": "solved"
   }
  ]

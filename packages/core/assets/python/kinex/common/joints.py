@@ -49,8 +49,8 @@ class JointModel:
 
         Joints off the link's path keep their seed values. options override the
         solver tolerances, damping, max_iterations and search budget, and take
-        search ("local" or "global"), free_axis and position_only. A failed local
-        search raises IKError saying why; the declared home also seeds its probe.
+        free_axis and position_only. A failed search raises IKError saying why; the
+        declared home also seeds its probe.
         """
         unknown = options.keys() - {*DEFAULTS, "budget", *GOALS}
         if unknown:
