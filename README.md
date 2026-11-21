@@ -110,6 +110,23 @@ repeating it while paused, so Kinex can read them while a stepped world is
 paused. See [ROS communication](docs/communication.md) for the operation and
 Python contracts.
 
+### Practise tasks and keep what was learned
+
+With a simulator prepared, `/self-improve` lets Kinex attempt a set of tasks,
+study its own attempts and distill them into a library of skills and code:
+
+```text
+/self-improve robocasa/add-ice-cubes robocasa/adjust-heat --rounds 2
+/self-improve status
+/self-improve install L2
+```
+
+Each task runs as a trial judged by the simulator; the session then takes a turn,
+in a folder of its own, to distill the trial records into the next library
+version, and later trials run with it. Start Kinex with `--auto` for a run.
+`install` copies a version into the current workspace's `.kinex/`. See
+[self-improve](packages/self-improve/README.md) for the files and limits.
+
 ## Use Kinex with Real-World Robots
 
 Open Kinex in your robot workspace and describe your hardware, how it connects,

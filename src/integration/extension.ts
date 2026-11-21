@@ -1,7 +1,7 @@
 import { Type } from "typebox"
 import { Text } from "@earendil-works/pi-tui"
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "@earendil-works/pi-coding-agent"
-import { type KinexRuntime } from "@kinex/core"
+import { type KinexRuntime, type Turn } from "@kinex/core"
 import { formatJSON } from "@kinex/core/util/json"
 import type { KinexCapabilities } from "@kinex/core/integration"
 import { registerCommands, executeCommand, commandProgress } from "./commands.ts"
@@ -20,7 +20,14 @@ export interface SessionControl {
   compaction: CompactionControl
 }
 
-export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capabilities: KinexCapabilities, report: (text: string) => void, session: SessionControl): ExtensionFactory {
+/** The session in front of the user, whichever it is now: what outlives the session a command was typed in. */
+export interface MainSession {
+  turn(turn: Turn, signal?: AbortSignal): Promise<void>
+  /** Shows text in the session without starting a turn. */
+  post(text: string): void
+}
+
+export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capabilities: KinexCapabilities, report: (text: string) => void, session: SessionControl, main: MainSession): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
     const bridge = toolBridge(pi, capabilities, owner.interaction)
     await bridge.refresh()
@@ -58,6 +65,14 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       if (!ctx.hasUI) throw error
       ctx.ui.notify(owner.failure.message, "error")
     }
+    // The session may work unattended in any mode but ask; from ask, the user can allow it here.
+    const unattended = (ctx: ExtensionContext) => async (reason: string) => {
+      if (owner.interaction.mode !== "ask") return true
+      if (!ctx.hasUI || !await ctx.ui.confirm("Switch Kinex to auto mode?", `${reason}. In auto mode Kinex runs commands and edits files without asking.`)) return false
+      owner.interaction.reset()
+      owner.interaction.mode = "auto"
+      return true
+    }
     const execute = async (name: string, args: string, ctx: ExtensionContext) => {
       const command = { name, args: args.trim() }
       const progress = commandProgress(ctx, name, command.args)
@@ -65,7 +80,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       try {
         const found = capabilities.commands.find(item => item.name === name)
         if (!found) throw new Error(`Unknown command: ${name}`)
-        const result = await executeCommand(found, args, ctx, progress.signal)
+        const result = await executeCommand(found, args, ctx, progress.signal, { turn: main.turn, unattended: unattended(ctx) })
         progress.end()
         if (result.kind === "workflow") await session.prompt(result.prompt)
         else {
@@ -75,6 +90,10 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
           })
           if (!ctx.hasUI) report(result.text)
           if (result.isError) owner.failure = new Error(result.text)
+          // Work the command left running may replace this session, so its end is told through the application:
+          // posted to whichever session is then in front of the user, or, where the process ends with its prompts, awaited here.
+          if (result.background && ctx.hasUI) void result.background.then(main.post)
+          else if (result.background) report(await result.background)
         }
       } catch (error) {
         progress.end()
