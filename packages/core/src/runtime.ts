@@ -5,7 +5,6 @@ import { pythonEnvironment, initializePython, preparePython } from "./python/env
 import { createScope, inScope, withSignal } from "./scope.ts"
 import type { CoreSettings } from "./config/config.ts"
 import { ProfileStore } from "./device/profile/store.ts"
-import { readinessPlan } from "./device/profile/readiness.ts"
 import { roboticsContext } from "./context/index.ts"
 import { checkDeviceCall, dispatchDevice, deactivateDevice } from "./device/dispatch.ts"
 import { listDeviceTemplates } from "./device/templates.ts"
@@ -24,6 +23,7 @@ export interface RuntimeOptions {
   directory: string
   assetsRoot?: string
   builtinSkillRoots?: readonly string[]
+  builtinLibRoots?: readonly string[]
   reservedToolNames?: readonly string[]
   settings?: CoreSettings
   enableRecording?: boolean
@@ -159,7 +159,6 @@ export function createKinexRuntime(options: RuntimeOptions) {
       writeManifest: (patch: Record<string, unknown>) => operation(() => ProfileStore.writeManifest(directory, patch)),
       writeDevice: (patch: Record<string, unknown> & { name: string }) => operation(() => ProfileStore.writeDevice(directory, patch)),
     },
-    readiness: () => operation(() => readinessPlan(directory)),
     recording: {
       start: (input: StartInput) => operation(() => Recorder.start(directory, input)),
       snap: (input: SnapInput) => operation(() => Recorder.snap(directory, input)),

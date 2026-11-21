@@ -17,9 +17,9 @@ built-ins complement the host's coding tools, such as shell and file editing.
 | `device` | Call one device: read observations, submit commands, run inference, or load/unload it. |
 | `devices` | Call multiple devices concurrently, returning results in input order with per-call errors. |
 | `device_stop` | Stop a device or every loaded device with a stop operation, within declared stop scopes, and cancel running scripts that commanded a stopped device; no approval required. |
-| `profile_write` | Validate and save workspace/device facts, including calibration requests. New devices remain unloaded. |
+| `profile_write` | Validate and save workspace/device facts. New devices remain unloaded. |
 | `record` | Start/stop observation capture, take snapshots and inspect recordings. Exposed to the model only when recording is enabled. |
-| `skill` | Load a named skill's instructions into the agent's context, warning about unmet calibration requirements. |
+| `skill` | Load a named skill's instructions into the agent's context. |
 
 ### Programs and the library: `exec` and `lib`
 
@@ -249,9 +249,9 @@ writing a profile and verifying the interface, including ROS dependencies and
 Kinex Python for ROS workspaces. It also supports node repair. The agent performs
 these steps through tools; loading the skill does not run them automatically.
 
-`@kinex/setup` adds the onboarding and calibration workflows, the `setup_plan`,
-`calib_sample` and `calib_compute` tools, and calibration and base-verification
-skills; see [setup and calibration](setup.md). For tool arguments and examples,
+`@kinex/setup` adds the onboarding and calibration workflows, the `setup_plan` tool,
+the `kinex.lib.calibration` library that exec programs sample and solve with, and
+calibration and base-verification skills; see [setup and calibration](setup.md). For tool arguments and examples,
 see the [core API](../packages/core/README.md#device-calls-and-control).
 
 [Design index](README.md)

@@ -26,9 +26,7 @@ Types are `world`, `joint`, `gripper`, `suction`, `locomotion`, `rgb`, `rgbd`,
 `imu`, `force_torque`, `model` and the fallback `other`, which prescribes no facts
 or operations. The description gives general identity, capabilities and
 limitations. Top-level physical facts and explicit frames keep typed schema checks;
-type does not imply an operation name or payload. Nodes own device connections;
-`access` holds only `needs_calibration`, the explicit request against the
-`access:<device>` readiness item.
+type does not imply an operation name or payload. Nodes own device connections.
 
 `operations.<name>` requires its own `description`, transport, direction, endpoint
 and ROS type. Describe only that operation: units, frames, timing, input/output
@@ -130,8 +128,8 @@ asyncio.run(main())
   are retained.
   Failed deactivation preserves device files. This trusted method
   does not prompt; the `/unregister` command confirms through its host.
-- `profiles.writeManifest()/writeDevice()` and `readiness()` expose workspace
-  state. Profile writes validate using the existing schemas.
+- `profiles.writeManifest()/writeDevice()` write workspace state, validating with
+  the existing schemas.
 - `recording.start()/snap()/stop()/status()/recent()` manage topic bags and explicit
   snapshots. Start specs accept `{rate, operations?}` per device; the default is all
   declared topics. Rates cap outputs in world time, while commands, clock and TF
@@ -159,13 +157,10 @@ intended integration surface.
 Onboarding and calibration use `createKinexSetup(runtime)` and
 `setupContribution(setup)` from `@kinex/setup`. Core retains registration workflows
 at `@kinex/core/workflows/index`, template discovery and unregister.
-`runtime.readiness()` reports profile completeness and prerequisite status without
-procedural calibration guidance.
 
-The core model tool `profile_write` writes workspace facts (`kind: robot`), device
-profiles (`kind: device`) and calibration-request markers (`kind: needed`). It
-preserves validation, merge/replace semantics, provenance and explicit marker
-clears. New devices remain unloaded; edits preserve activation intent. The trusted
+The core model tool `profile_write` writes workspace facts (`kind: robot`) and device
+profiles (`kind: device`). It preserves validation, merge/replace semantics and
+provenance. New devices remain unloaded; edits preserve activation intent. The trusted
 profile API remains available for hosts. The tool requests `profile_write`
 permission, whose core resolver default is `allow`; explicit rules and host
 callbacks still apply.
@@ -272,8 +267,9 @@ A saved program is a file, by convention under `.kinex/programs`.
 
 `kinex.lib` holds the functions programs share. It is one Python package whose
 search path is the workspace's `.kinex/lib`, its ancestors', the global
-configuration's and the builtin modules, in that order; `KINEX_LIB` carries the
-non-builtin roots to exec and device nodes. Modules nest to any depth. Standard
+configuration's, the runtime's `builtinLibRoots` (setup's calibration library) and
+the builtin modules, in that order; `KINEX_LIB` carries all but the last to exec and
+device nodes, and `KINEX_WORKSPACE` names the workspace's `.kinex`. Modules nest to any depth. Standard
 imports work (`from kinex.lib.tabletop import grasp`), and `lib.tabletop.grasp`
 loads modules on first use. Library functions take no scope parameter: they
 import `io` from `kinex`. The `lib` tool and the `/lib` command return one node of

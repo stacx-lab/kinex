@@ -1,16 +1,11 @@
 """Recover known camera models from diverse synthetic calibration views."""
-import importlib.util
-from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 import cv2
 import numpy as np
 
-script = Path(__file__).resolve().parents[1] / "assets/builtin/skill/calibrate-camera-intrinsics/scripts/calibrate_intrinsics.py"
-spec = importlib.util.spec_from_file_location("calibrate_intrinsics", script)
-calibration = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(calibration)
+from kinex.lib.calibration import _intrinsics as calibration
 
 
 def coefficients_of(distortion):

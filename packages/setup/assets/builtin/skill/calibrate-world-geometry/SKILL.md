@@ -17,7 +17,6 @@ extent stays unknown. Follow the core world guide for the profile schema.
 Do not infer a support surface from an arm reach AABB, or use a sampled reachable
 region as environment bounds. For TCP observations preserve reference frames and
 apply each offset once. Archive the measurements and fitting diagnostics, then
-write only the requested verified fields with `profile_write`. Keep broader
-requests open if unrelated fields remain incomplete.
+write only the requested verified fields with `profile_write`.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.

@@ -21,7 +21,7 @@ export class RoboticsOwner {
   private context?: ExtensionContext
   private trace?: ExtensionContext["sessionManager"]
   private observed = new Set<string>()
-  constructor(public enableRecording: boolean, mode: Mode, private readonly resources: Pick<RuntimeOptions, "builtinSkillRoots" | "reservedToolNames"> = {}) { this.interaction = new Interaction(mode) }
+  constructor(public enableRecording: boolean, mode: Mode, private readonly resources: Pick<RuntimeOptions, "builtinSkillRoots" | "builtinLibRoots" | "reservedToolNames"> = {}) { this.interaction = new Interaction(mode) }
 
   async enter(cwd: string): Promise<KinexRuntime> {
     const directory = path.resolve(cwd)

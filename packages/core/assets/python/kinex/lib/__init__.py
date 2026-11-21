@@ -1,7 +1,8 @@
 """The Kinex function library: reusable functions that exec programs import and compose.
 
-Builtin modules ship in this directory; workspace and global modules come from the
-.kinex/lib roots in KINEX_LIB, nearest first, and replace a builtin of the same name.
+Builtin modules ship in this directory and in the packages composed with core, such as
+setup; workspace and global modules come from the .kinex/lib roots. KINEX_LIB lists the
+roots beyond this directory, nearest first; a nearer module replaces one of the same name.
 Browse the library with the lib tool. Modules load on first use, at any depth.
 """
 import os

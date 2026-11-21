@@ -11,14 +11,14 @@ export async function checkSetupPackage(relocated, installed, env, setup) {
   assert.ok(!setup.files.some(file => file.path.includes('assets/builtin/device/') || file.path.includes('/setup-device/')))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/calibrate-camera-intrinsics/SKILL.md'))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/verify-base-motion/procedure.json'))
-  assert.ok(setup.files.some(file => file.path === 'assets/compute/verify_base.py'))
+  assert.ok(setup.files.some(file => file.path === 'assets/lib/calibration/base.py'))
   assert.ok(!setup.files.some(file => file.path.includes('assets/python/kinex/') || file.path.endsWith('.pyc')))
   assert.ok(setup.files.some(file => file.path === 'assets/builtin/skill/calibrate-tcp-offset/SKILL.md'))
   await writeFile(path.join(relocated, 'consumer.mts'), `
 import { createKinexRuntime } from '@kinex/core'
 import { composeContributions, coreContribution } from '@kinex/core/integration'
-import { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } from '@kinex/setup'
-const runtime = createKinexRuntime({ directory: process.cwd(), builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames })
+import { createKinexSetup, setupContribution, setupLibRoots, setupSkillRoots, setupToolNames } from '@kinex/setup'
+const runtime = createKinexRuntime({ directory: process.cwd(), builtinSkillRoots: setupSkillRoots, builtinLibRoots: setupLibRoots, reservedToolNames: setupToolNames })
 const setup = createKinexSetup(runtime)
 const capabilities = composeContributions([coreContribution(runtime), setupContribution(setup)])
 await capabilities.tools.list()
@@ -36,8 +36,8 @@ import { Assets as CoreAssets } from '@kinex/core/installation/assets'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { deviceGuideProfile } from ${JSON.stringify(new URL('../../core/test/fixtures/guide.mjs',import.meta.url).href)}
-import { createKinexSetup, setupSkillRoots } from '@kinex/setup'
-const runtime = createKinexRuntime({directory: process.cwd(), builtinSkillRoots: setupSkillRoots, host: {ask: async () => {}}})
+import { createKinexSetup, setupLibRoots, setupSkillRoots } from '@kinex/setup'
+const runtime = createKinexRuntime({directory: process.cwd(), builtinSkillRoots: setupSkillRoots, builtinLibRoots: setupLibRoots, host: {ask: async () => {}}})
 const setup = createKinexSetup(runtime)
 try {
   assert.ok((await runtime.skills.load('setup-device')).info.directory.includes('node_modules'))
@@ -53,6 +53,8 @@ try {
   await protocolDevice(runtime, process.cwd(), 'sensor')
   assert.equal((await setup.plan.inspect()).taskSatisfied, null)
   assert.ok(await runtime.skills.load('calibrate-tcp-offset'))
+  const lib = JSON.parse((await runtime.tools.call('lib', {path:'calibration'}, {sessionID:'lib'})).output)
+  assert.ok(lib.node.file.includes('node_modules') && lib.node.modules.some(module => module.name === 'camera'))
 } finally {await runtime.dispose()}
 `], { cwd: relocated, env })
   await rm(path.join(installed, 'node_modules/@kinex/setup'), { recursive: true })
@@ -70,7 +72,8 @@ const runtime = createKinexRuntime({directory: process.cwd(), host:{ask: async (
 try {
   const tools = (await runtime.tools.list()).tools.map(tool => tool.name)
   for (const name of ['profile_write','device','devices','device_stop','exec','lib']) assert.ok(tools.includes(name), name)
-  for (const name of ['setup_plan','calib_compute','calib_sample']) assert.ok(!tools.includes(name), name)
+  assert.ok(!tools.includes('setup_plan'))
+  assert.ok(!JSON.parse((await runtime.tools.call('lib', {}, {sessionID:'lib'})).output).node.modules.some(module => module.name === 'calibration'))
   assert.ok(await runtime.skills.load('setup-device'))
   assert.ok(!(await runtime.skills.list()).some(skill => skill.name === 'calibrate-tcp-offset'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'fastwam'))

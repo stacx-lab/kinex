@@ -279,7 +279,7 @@ test('SDK configuration reload keeps isolation and nested cwd preserves the ance
 
 test('composition owns setup discovery and reservations across session and workspace replacement', async t => {
   const { coreContribution } = await import('@kinex/core/integration')
-  const { createKinexSetup, setupContribution, setupSkillRoots, setupToolNames } = await import('@kinex/setup')
+  const { createKinexSetup, setupContribution, setupLibRoots, setupSkillRoots, setupToolNames } = await import('@kinex/setup')
   await fakeProvider(t, isolation.root)
   for (const kind of ['default', 'core', 'custom']) {
     await t.test(kind, async t => {
@@ -296,7 +296,7 @@ test('composition owns setup discovery and reservations across session and works
       }
       const composition = kind === 'default' ? undefined : kind === 'core'
         ? { contributions: runtime => [coreContribution(runtime)] }
-        : { builtinSkillRoots: setupSkillRoots, reservedToolNames: setupToolNames,
+        : { builtinSkillRoots: setupSkillRoots, builtinLibRoots: setupLibRoots, reservedToolNames: setupToolNames,
             contributions: runtime => [coreContribution(runtime), setupContribution(createKinexSetup(runtime))] }
       const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto', composition })
       t.after(() => app.dispose())
@@ -306,7 +306,7 @@ test('composition owns setup discovery and reservations across session and works
         const core = app.owner.runtime
         const setup = kind !== 'core'
         assert.equal((await core.skills.list()).some(skill => skill.name === 'calibrate-tcp-offset'), setup)
-        assert.equal(app.host.session.getAllTools().some(tool => tool.name === 'calib_compute'), setup)
+        assert.equal((await core.context()).lib.includes('calibration'), setup)
         assert.equal(Boolean(app.host.session.extensionRunner.getCommand('onboarding')), setup)
         for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2'])
           assert.equal(app.host.session.extensionRunner.getCommand(name), undefined)

@@ -12,7 +12,6 @@ export function setupContribution(setup: KinexSetup): KinexContribution {
         sessionID: call.sessionID, callID: call.callID, signal: call.abort, ask: call.ask, questions: call.questions,
       }),
     },
-    context: setup.context,
     commands: ([
       { name: "onboarding", description: "Set up a robotics workspace", arguments: "[description]" },
       { name: "calibrate", description: "Resolve calibration requirements", arguments: "[scope]" },

@@ -37,7 +37,7 @@ test('device and operation descriptions are required strings and accept empty te
  const op=outputOperation();delete op.description
  assert.throws(()=>Operation.parse(op),/description/)
  assert.equal(Operation.parse({...op,description:''}).description,'')
- assert.throws(()=>Device.parse({...base,description:'',access:{extra:true}}),/extra/)
+ assert.throws(()=>Device.parse({...base,description:'',access:{}}),/access/)
 })
 
 test('descriptions are discovered unloaded without ROS imports; type does not determine operations',async t=>{

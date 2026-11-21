@@ -6,7 +6,7 @@ export const field = <T extends z.ZodType>(schema: T) => may(schema).default(MIS
 export const known = <T>(value: T | typeof MISSING): value is T => value !== MISSING
 export const Source = z.enum(["user", "calibration", "introspected", "default", "unknown"])
 export type Source = z.infer<typeof Source>
-export const section = { source: Source.default("unknown"), needs_calibration: z.string().min(1).nullable().optional() }
+export const section = { source: Source.default("unknown") }
 export const measured = { ...section, calibrated_at: z.iso.datetime().nullable().default(null) }
 
 export const xyz = z.tuple([z.number(), z.number(), z.number()])
@@ -37,7 +37,6 @@ export function hasMissing(value: unknown, optional: readonly string[] = []): bo
   if (!value || typeof value !== "object") return false
   return Object.entries(value).some(([key, entry]) => !optional.includes(key) && hasMissing(entry, optional))
 }
-export const anyMissing = (...values: unknown[]) => values.some(value => hasMissing(value))
 
 /** Host lifecycle actions every device has; they are never declared operations. */
 export const lifecycle: readonly string[] = ["load", "unload", "status"]

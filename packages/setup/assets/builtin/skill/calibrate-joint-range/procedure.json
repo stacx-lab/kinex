@@ -19,8 +19,5 @@
       "pointer": "/model"
     }
   ],
-  "computes": [
-    "urdf-introspect"
-  ],
   "quality": "Reuse documented model limits. Measured fallback needs referenced, stationary observations; home is a separate configuration."
 }

@@ -360,12 +360,12 @@ test('core discovery and context contain robotics tools and packaged assets', as
   const { tools, problems } = await runtime.tools.list()
   assert.deepEqual(problems, [])
   assert.ok(tools.some(tool => tool.name === 'device'))
-  for (const name of ['shell', 'read', 'write', 'edit', 'todo', 'record', 'calib_sample']) assert.ok(!tools.some(tool => tool.name === name))
+  for (const name of ['shell', 'read', 'write', 'edit', 'todo', 'record', 'setup_plan']) assert.ok(!tools.some(tool => tool.name === name))
   assert.ok(await runtime.skills.load('setup-device'))
   assert.ok(tools.some(tool => tool.name === 'profile_write'))
   assert.ok((await runtime.devices.templates()).some(template => template.name === 'world'))
   assert.equal(typeof runtime.devices.unregister, 'function')
-  assert.ok((await runtime.readiness()).items)
+  assert.equal(runtime.readiness, undefined)
 })
 
 test('dynamic TypeScript and JavaScript tools reload under Node', async t => {

@@ -72,9 +72,6 @@
       "pointer": "/frames/base"
     }
   ],
-  "computes": [
-    "fit-dual"
-  ],
   "quality": "At least 4 nondegenerate shared touched points; RMS <= 2 mm and max <= 4 mm.",
   "distinct": [
     [

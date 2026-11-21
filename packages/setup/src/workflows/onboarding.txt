@@ -37,7 +37,7 @@ before motion checks. World geometry (bounds, surfaces and surveyed frames) rema
 
 Use setup_plan save with version:1, nodes and an optional current task. Each node has
 an id, title, kind, selected skill, role bindings, dependsOn IDs, precise input facts
-and expected outputs. Inspect full:true for procedure roles and requirements.
+and expected outputs. Read full:true for the exact format and procedure roles.
 Keep alternate methods as a choice, not cumulative prerequisites. Include required
 model and node files in inputs so missing files invalidate completion. Use narrow profile
 pointers for both inputs and outputs. Track only facts relevant to the node's
@@ -68,5 +68,3 @@ Existing valid facts can complete a node without new measurement.
 Unresolved facts block only dependent operations; never demand global profile completeness.
 Keep output short and avoid long markdown documents. Continue until every device of the
 embodiment is registered and usable, then archive the evidence used.
-
-Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred; needs_calibration:null clears a resolved marker.

@@ -50,21 +50,6 @@ test('changing an rgb layout replaces the profile instead of merging eyes into c
   assert.equal(back.color, '???')
 })
 
-test('stereo readiness requires each eye and its measured frame', async t => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-stereo-'))
-  const runtime = createKinexRuntime({ directory })
-  t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
-  await runtime.profiles.writeManifest({ identity: { id: 'robot', name: 'Robot', kind: 'arm' } })
-  const { meta, ...profile } = stereo
-  const item = async () => (await runtime.readiness()).items.find(entry => entry.id === 'profile:pair')
-  await runtime.profiles.writeDevice({ ...profile, loaded: true, left: '???' })
-  assert.match((await item()).detail, /left is incomplete/)
-  await runtime.profiles.writeDevice({ name: 'pair', left: color(4, 3), frames: { left: { ...frame(0), translation_m: '???' } } })
-  assert.match((await item()).detail, /frames\.left transform is unknown/)
-  await runtime.profiles.writeDevice({ name: 'pair', frames: { left: frame(0) } })
-  assert.match((await item()).detail, /stereo left and right/)
-})
-
 test('stereo snapshots record both eyes without a primary file', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'kinex-stereo-'))
   await useUv(path.join(directory, '.kinex'))
