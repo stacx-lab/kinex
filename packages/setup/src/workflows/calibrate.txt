@@ -18,18 +18,17 @@ facts first, and collect measurements only for necessary gaps. Batch related
 questions and preparation. Verify participating devices respond before preparation;
 activation remains an explicit core lifecycle operation with existing permissions.
 
-Start calib_sample with node:<id> or procedure plus bindings; reuse the returned run
-ID. Evidence lives under .kinex/calib/<run>/. Save manual observations, timestamps,
-frame conventions and exclusions there too. Never edit sampler-owned samples.json.
-calib_compute runs bundled offline computations and archives their inputs. For custom
-procedures use host tools and archive their output. Scripts use core Python and its
-library paths from context; missing dependencies require explicit environment repair.
+Measure and solve in exec programs with lib.calibration; read it with the lib tool.
+Start a run with the node's procedure and bindings and keep its ID; later programs
+resume it. One program can move, wait, sample and solve, finishing with only what you
+need. Evidence lives under .kinex/calib/<run>/: save manual observations, timestamps,
+frame conventions and exclusions there with run.save, and archive the inputs and
+outputs of custom procedures the same way. Never edit samples.json or result files.
 
-After submitting motion, wait on the loaded world's declared wait operation.
-Verify arrival with measured feedback. References do not prove arrival or contact.
-Respect the selected procedure's speed.
-calib_sample settling requires fresh measured velocities. With no such feedback, use
-independent stationary confirmation. On mobile embodiments, verify any reference
+After submitting motion, wait on the loaded world's declared wait operation, then
+verify arrival with fresh measured feedback; references do not prove arrival or
+contact. Respect the selected procedure's speed. Settling needs measured velocities;
+without them, confirm rest independently. On mobile embodiments, verify any reference
 relationship the chosen solver assumes fixed throughout acquisition.
 
 Stop collecting when the procedure's minimum evidence, coverage and quality criteria
@@ -38,20 +37,18 @@ budget. Do not repeat calibration solely to meet accuracy targets after acceptan
 Preserve measured errors and the original quality assessment. Otherwise, on failed
 quality preserve accepted facts and normally recollect only the deficient evidence.
 Missing or invalid results are not approximate estimates. Partial evidence stays partial.
+If the user explicitly keeps a result beyond a limit, honor it without repeated
+confirmation or forced recollection: persist its computed fields from the result's
+data in the procedure's frame conventions, save the errors, limits and decision with
+run.save, and never record its node done.
 
-If the user explicitly keeps a result that exceeds a limit, follow the calib_compute
-acceptance rules; schema validation and host permissions still apply.
-
-Inspect proposed changes and warning results against the task's accuracy requirements.
+Check proposed patches and warnings against the task's accuracy requirements.
 Persist accepted fields through profile_write. Its default deep merge retains other
 facts; strict variant changes need a complete section and replace:[section]. Preserve
-source/method/time provenance. Only clear needs_calibration:null when the complete
-section is resolved. Keep diagnostics and evidence outside strict profiles.
+source/method/time provenance. Keep diagnostics and evidence outside strict profiles.
 
-Read back outputs, record the node outcome with evidence paths relative to .kinex and
-the current revision, then read setup_plan again. If relevant inputs changed, reassess
+Read back outputs, record the node outcome with the result's evidence path and the
+current revision, then read setup_plan again. If relevant inputs changed, reassess
 only affected steps. Once task requirements are satisfied, resume the task immediately.
 Report the current result and any necessary next action concisely; leave deferred work
 collapsed. Planning evidence does not certify safe motion or replace host permissions.
-
-Unknown profile facts use ???; null means explicitly absent or inapplicable, never lack of evidence. Keep required structural fields valid; do not invent a root frame when its attachment is unknown. Explicitly absent channels, no additional limits and open bounds may use null. Calibration timestamps may be null when no calibration has occurred; needs_calibration:null clears a resolved marker.

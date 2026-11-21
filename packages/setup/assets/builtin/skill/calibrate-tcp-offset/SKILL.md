@@ -22,16 +22,16 @@ Never command motion while touching. When powered approaches are needed, retract
 before reorientation and approach in user-confirmed approximately 5 mm steps at
 an appropriate low speed. Wait for execution and verify measured arrival.
 
-Capture with `calib_sample frame:<attachment-link>` into one attempt, using settling only when supported
-by measured velocity feedback. Collect at least 4 orientations separated by roughly
-20 degrees; 6–8 are typical. From sample 4 onward run `calib_compute operation:fit-tcp`
-with `samples` and the actual attachment `frame`, reusing the run ID. Stop collecting
+Capture each touch with `run.sample(arm, frame=<attachment-link>)` in one run,
+settling only when measured velocity feedback supports it. Collect at least 4
+orientations separated by roughly 20 degrees; 6–8 are typical. From sample 4 onward
+fit with `lib.calibration.tcp.fit` and the actual attachment frame. Stop collecting
 when quality and diversity satisfy the task.
 
 Mean residual < 5 mm is good, 5–10 mm needs review against the task's accuracy, and
 > 10 mm fails. Archive exclusions and original readings rather than silently
 removing outliers. Persist accepted translation only. Pivoting does not measure
 orientation: preserve a verified rotation, or leave it unknown. A task requiring
-translation alone may proceed while a broader profile calibration request stays open.
+translation alone may proceed.
 
 See [procedure.json](procedure.json) for machine-readable roles and field coverage.

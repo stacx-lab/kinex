@@ -47,20 +47,16 @@ async function waitFor(file) {
   throw new Error(`timed out waiting for ${file}`)
 }
 
-test('core profile writes preserve validation, loaded intent and explicit calibration clears', async t => {
+test('core profile writes preserve validation and loaded intent', async t => {
   const { runtime, directory } = await fixture(t)
   await seed(runtime)
   const write = data => runtime.tools.call('profile_write', data, call)
   assert.equal((await write({ kind: 'device', data: { name: 'sensor', loaded: true } })).isError, true)
-  assert.ok(!(await write({ kind: 'needed', data: { item: 'access:sensor', note: 'verify connection' } })).isError)
-  assert.equal((await runtime.readiness()).items.find(item => item.id === 'access:sensor').status, 'needs-calibration')
-  await assert.rejects(runtime.profiles.writeDevice({ description: '', name: 'sensor', runtime: null, access: { needs_calibration: null } }), /runtime/)
-  await runtime.profiles.writeDevice({ description: '', name: 'sensor', access: { needs_calibration: null } })
-  assert.equal((await runtime.readiness()).items.find(item => item.id === 'access:sensor').status, 'done')
+  assert.equal((await write({ kind: 'needed', data: { item: 'access:sensor' } })).isError, true)
+  await assert.rejects(runtime.profiles.writeDevice({ description: '', name: 'sensor', runtime: null }), /runtime/)
   const before = await readFile(path.join(directory, '.kinex/devices/sensor/profile.yaml'), 'utf8')
-  const invalid = await write({ kind: 'device', data: { name: 'sensor', access: { needs_calibration: '' } } })
+  const invalid = await write({ kind: 'device', data: { name: 'sensor', needs_calibration: 'verify connection' } })
   assert.equal(invalid.isError, true)
-  await runtime.readiness()
   assert.equal(await readFile(path.join(directory, '.kinex/devices/sensor/profile.yaml'), 'utf8'), before)
   await (await runtime.devices.load('sensor')).ready
   assert.ok(!(await write({ kind: 'device', data: { name: 'sensor', description: 'Test sensor' } })).isError)
@@ -85,14 +81,14 @@ test('profile writing respects invocation permissions, configured denial and can
   await assert.rejects(noHost.tools.call('profile_write', { kind: 'device', data: { name: 'sensor' } }, call), PermissionDeniedError)
 })
 
-test('skill overrides refresh, retain prerequisites and never create a nearer workspace', async t => {
+test('skill overrides refresh and never create a nearer workspace', async t => {
   const { runtime, directory, capabilities } = await fixture(t)
   await seed(runtime)
   const skill = path.join(directory, '.kinex/skills/setup-device')
   await mkdir(skill, { recursive: true })
-  await writeFile(path.join(skill, 'SKILL.md'), '---\nname: setup-device\ndescription: local\nrequires: access:missing\n---\nlocal procedure')
+  await writeFile(path.join(skill, 'SKILL.md'), '---\nname: setup-device\ndescription: local\n---\nlocal procedure')
   assert.equal((await capabilities.skills.load('setup-device')).content, 'local procedure')
-  assert.match((await runtime.tools.call('skill', { name: 'setup-device' }, call)).output, /WARNING/)
+  assert.match((await runtime.tools.call('skill', { name: 'setup-device' }, call)).output, /local procedure/)
   await writeFile(path.join(skill, 'SKILL.md'), '---\nname: setup-device\ndescription: changed\n---\nupdated procedure')
   assert.equal((await capabilities.skills.load('setup-device')).content, 'updated procedure')
   await mkdir(path.join(directory, '.kinex/tools'), { recursive: true })

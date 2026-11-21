@@ -19,8 +19,5 @@
       "pointer": "/grip"
     }
   ],
-  "computes": [
-    "urdf-introspect"
-  ],
   "quality": "Open and closed come from vendor documentation or measured joint_state at the ends of travel, on the actuated non-mimic joint."
 }

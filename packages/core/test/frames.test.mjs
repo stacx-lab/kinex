@@ -70,18 +70,14 @@ test('flat calibration patches retain requests, validate clears and protect requ
   t.after(async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }) })
   await runtime.profiles.writeDevice({ ...profile({}, 'world'), type: 'world', loaded: false })
   await runtime.profiles.writeDevice({ ...profile({ base: { parent: 'world:base', translation_m: '???', rotation_xyzw: '???' } }, 'tool'), loaded: false,
-    source: 'user', method: 'survey', needs_calibration: 'Measure mounting pose' })
-  await assert.rejects(runtime.profiles.writeDevice({ name: 'tool', needs_calibration: null }), /cannot clear profile:tool/)
+    source: 'user', method: 'survey' })
   await runtime.profiles.writeDevice({ name: 'tool', frames: { base: { translation_m: [0, 0, .2] } } })
-  assert.equal((await runtime.devices.list()).find(d => d.name === 'tool').needs_calibration, 'Measure mounting pose')
-  await assert.rejects(runtime.profiles.writeDevice({ name: 'tool', needs_calibration: null }), /unknown/)
-  await runtime.profiles.writeDevice({ name: 'tool', frames: { base: { rotation_xyzw: [0, 0, 0, 1] } }, needs_calibration: null })
+  await runtime.profiles.writeDevice({ name: 'tool', frames: { base: { rotation_xyzw: [0, 0, 0, 1] } } })
   const tool = (await runtime.devices.list()).find(d => d.name === 'tool')
   assert.equal(tool.source, 'user')
-  assert.equal(tool.needs_calibration, null)
+  assert.deepEqual(tool.frames.base, { parent: 'world:base', translation_m: [0, 0, .2], rotation_xyzw: [0, 0, 0, 1] })
   await runtime.operation(async () => {
     await assert.rejects(ProfileStore.writeDevice(directory, { name: 'tool', frames: null }, ['frames']), /cannot remove required/)
-    await assert.rejects(ProfileStore.markNeeded(directory, 'mount:tool'), /unknown calibration item/)
   })
   // An unrelated unloaded declaration cannot block this device's valid graph.
   await runtime.profiles.writeDevice({ ...profile({ base: frame('missing:base') }, 'unrelated'), loaded: false })
@@ -119,15 +115,6 @@ test('unspecified metadata stays unknown while explicit absence remains null', (
   assert.equal(imu.measurement.angular_velocity.resolution, '???')
   assert.equal(imu.measurement.orientation, null)
   assert.equal(Device.parse({ ...profile(), type: 'world', bounds: null }).bounds, null)
-})
-
-test('optional unknown sensor specifications do not block readiness', async () => {
-  const { checkReadinessItem } = await import('../dist/device/profile/readiness.js')
-  const device = Device.parse({ ...profile(), type: 'imu', measurement: {
-    angular_velocity: { axes: ['x'], bias: { x: 0 } },
-    linear_acceleration: null, orientation: null, magnetic_field: null,
-  } })
-  assert.equal(checkReadinessItem({ devices: [device] }, 'profile:sensor').done, true)
 })
 
 test('device template profile examples satisfy the schema', async () => {

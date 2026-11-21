@@ -22,6 +22,5 @@
       "pointer": "/frames"
     }
   ],
-  "computes": [],
   "quality": "Independent measured world coordinates, with explicit units and uncertainty; reachable arm bounds are not world geometry."
 }

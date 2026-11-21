@@ -106,7 +106,6 @@ test('gripper URDF trees resolve mimic joints, validate the grip and expose the 
     [{ grip, frames: { ...gripper.frames, left_pad: tcp } }, /gripper:left_pad: URDF link collides with a profile frame/],
   ]) await assert.rejects(runtime.profiles.writeDevice({ ...gripper, ...patch }), error)
   await runtime.profiles.writeDevice({ ...gripper, grip })
-  assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:gripper').detail, '5 URDF links, grip finger_joint')
   const result = await runtime.tools.call('exec', { python: `from kinex import finish, profile
 model = profile("gripper")["resolved_model"]
 finish({"links": model["links"], "mimic": [joint["mimic"] for joint in model["joints"] if joint.get("mimic")]})` }, { sessionID: 'gripper', ask: async () => {} })
@@ -139,7 +138,6 @@ test('joint URDF trees validate home and links and serve helper kinematics', asy
     [{ frames: { base: root, tool: { ...root, translation_m: '???', rotation_xyzw: '???', parent: 'arm:typo' } } }, /arm:tool: unknown parent frame arm:typo/],
   ]) await assert.rejects(runtime.profiles.writeDevice({ ...arm, ...patch }), error)
   await runtime.profiles.writeDevice({ ...arm, frames: { base: root, tool: { parent: 'arm:flange', translation_m: [0, 0, .1], rotation_xyzw: [0, 0, 0, 1] } } })
-  assert.equal((await runtime.readiness()).items.find(item => item.id === 'profile:arm').detail, '7 joints, native limits, tip flange')
   const result = await runtime.tools.call('exec', { python: `from kinex import finish, lib
 arm = lib.kinematics.joint_model("arm")
 seed = [0, 0, 0, -1.5, 0, 1.5, 0]

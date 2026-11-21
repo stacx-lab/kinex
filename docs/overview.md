@@ -28,7 +28,8 @@ runtime through tracked operations and tool execution, sharing cancellation,
 permissions and recording attribution without a separate resource lifecycle.
 Registration leaves devices unloaded. The model's `profile_write` tool preserves
 activation intent; trusted host profile APIs can write it directly. Core owns
-readiness facts; setup owns procedures that obtain them.
+the profile facts; setup owns the procedures that obtain them and the record of
+what was done.
 
 ## Runtime, discovery and lifecycle
 

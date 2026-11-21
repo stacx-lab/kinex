@@ -33,9 +33,6 @@
       "pointer": "/frames/tcp/translation_m"
     }
   ],
-  "computes": [
-    "fit-tcp"
-  ],
   "quality": "At least 4 diverse touches; mean residual < 5 mm good, 5\u201310 mm warning, > 10 mm fails. Does not measure orientation.",
   "links": [
     {

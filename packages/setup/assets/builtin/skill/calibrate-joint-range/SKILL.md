@@ -6,16 +6,15 @@ description: Resolve joint limits from models or referenced measurements only wh
 # Calibrate joint range
 
 Bind `arm` to the joint device. Prefer its device-owned URDF or vendor metadata.
-`calib_compute operation:urdf-introspect`
-resolves the selected URDF offline; no device activation is needed. Preserve the
-model reference. Home is a separate named configuration, never inferred from URDF.
+`lib.kinematics.joint_model` reads the URDF's joints and limits offline; no device
+activation is needed. Preserve the model reference. Home is a separate named configuration, never inferred from URDF.
 
 `scripts/estimate_reach.py` optionally samples each tip link's FK reach in the device base frame.
 This is analysis without collision checking; do not persist it as world bounds.
 
 Measure limits only when the task needs missing or explicitly requested measured
 limits. Require responsive measured feedback before physical preparation. Prefer
-operator hand-guiding with stationary `calib_sample` readings. A powered sweep
+operator hand-guiding with stationary `run.sample` readings. A powered sweep
 requires clear surroundings, payload removed, an operator at the e-stop, one joint
 at a time, and observation for self-collision. Use small type-appropriate increments
 (2–5 degrees in radians for revolute joints, small metre increments for prismatic

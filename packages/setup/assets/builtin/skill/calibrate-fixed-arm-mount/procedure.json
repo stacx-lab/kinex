@@ -22,9 +22,6 @@
       "pointer": "/frames/base"
     }
   ],
-  "computes": [
-    "fit-mount"
-  ],
   "quality": "At least 4 nondegenerate surveyed pairs; RMS <= 2 mm and max <= 4 mm.",
   "distinct": [
     [

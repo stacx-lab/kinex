@@ -3,7 +3,7 @@ import { NamedError } from "@kinex/core/util/error"
 import { serialize } from "@kinex/core/util/serialize"
 import { z } from "zod"
 import { Plan, StoredPlan, Outcome, Task, Fact, ID, Pointer, type PlanNode } from "./schema.ts"
-import { atomicJSON, digest, fail, inspectFacts, location, missingFacts, optionalText } from "./facts.ts"
+import { atomicJSON, fail, inspectFacts, location, missingFacts, optionalText } from "./facts.ts"
 import { procedures, requirements } from "./procedures.ts"
 
 const writes = new Map<string, Promise<void>>()
@@ -88,7 +88,6 @@ export async function selectTask(cwd: string, task: typeof Task._output | null, 
   })
 }
 type NodeStatus = "ready" | "blocked" | "needs-input" | "partial" | "done" | "failed" | "stale"
-export const dependencies = (plan: StoredPlan, node: PlanNode) => digest(node.dependsOn.map(id => [id, plan.receipts[id]]))
 async function inspectValidPlan(cwd: string) {
   const plan = await readPlan(cwd)
   const catalog = await procedures(cwd)
@@ -155,18 +154,13 @@ export async function recordOutcome(cwd: string, id: string, input: Outcome, rev
       for (const artifact of outcome.evidence) {
         if (!/\/result(?:-\d+)?\.json$/.test(artifact)) continue
         const text = await optionalText(await location(cwd, artifact))
+        // A solver's result: lib.calibration writes these into each run.
         const result = z.object({
-          quality: z.enum(["passed", "warning", "failed", "not-evaluated"]).optional(),
-          computation: z.enum(["failed", "succeeded"]).optional(), node: ID.optional(),
-          inputs: z.array(Fact).optional(), fingerprint: z.string().optional(),
-          dependencies: z.string().optional(),
+          quality: z.enum(["passed", "warning", "failed"]).optional(),
+          computation: z.enum(["failed", "succeeded"]).optional(),
           resolved: z.array(z.object({ device: ID, pointer: Pointer, value: z.unknown() })).default([]),
         }).parse(text ? JSON.parse(text) : undefined)
         if (result.quality === "failed" || result.computation === "failed") fail("Failed computation or quality cannot establish completion")
-        if (result.node && result.node !== node.id) fail("Result belongs to a different plan node")
-        if (result.dependencies && result.dependencies !== dependencies(plan, node)) fail("Computation prerequisites changed; start a new attempt")
-        if (result.inputs && result.fingerprint && (await inspectFacts(cwd, result.inputs)).hash !== result.fingerprint)
-          fail("Computation inputs changed; reassess before completing the node")
         const expected = result.resolved.map(field => ({ kind: "profile" as const, ...field }))
           .filter(field => node.outputs.some(output => covers(output, field)))
         if ((await inspectFacts(cwd, expected)).missing.length) fail("Apply and verify the solver's resolved output values first")
@@ -178,11 +172,13 @@ export async function recordOutcome(cwd: string, id: string, input: Outcome, rev
     return inspectPlan(cwd)
   })
 }
-export function renderSetup(view: Awaited<ReturnType<typeof inspectPlan>>, full = false) {
+/** The current task's open nodes; with a format, the whole graph, the procedure descriptors and that format. */
+export function renderSetup(view: Awaited<ReturnType<typeof inspectPlan>>, format?: string) {
+  const full = format !== undefined
   const nodes = full ? view.nodes : view.nodes.filter(node => node.relevance === "required-now" && node.status !== "done")
   return JSON.stringify({ revision: view.revision, task: view.task,
     taskSatisfied: view.taskSatisfied, message: "message" in view ? view.message : view.task ? undefined : "No active task; calibration is deferred and operations remain available.",
     next: view.next, missing: "missing" in view ? view.missing : [], nodes,
     deferred: view.nodes.filter(node => node.relevance !== "required-now").length,
-    ...(full ? { procedures: view.procedures } : {}) }, null, 2)
+    ...(full ? { procedures: view.procedures, format } : {}) }, null, 2)
 }

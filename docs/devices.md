@@ -28,17 +28,14 @@ strings are allowed; absent descriptions are invalid. Do not invent unknown fact
 node factories, the snapshot `observation` and readiness timeout. `operations`
 declares topic/service transport, direction, endpoint, ROS type, QoS and timeout.
 Physical facts (`model`, `limits`, `color`, `frames`, etc.) are top-level fields
-with typed validation. One device-level `source`, `method`, `calibrated_at` and
-`needs_calibration` record covers calibration. `loaded` is lifecycle intent;
-status reports live readiness. Unknown facts use `???`; null has only the
-schema-defined meaning.
+with typed validation. One device-level `source`, `method` and `calibrated_at`
+record covers calibration. `loaded` is lifecycle intent; status reports live
+readiness. Unknown facts use `???`; null has only the schema-defined meaning.
 
-Readiness tracks two items per device. `access:<device>` is done once `runtime` is
-declared; nodes own how hardware is reached, so `access.needs_calibration` only
-records an explicit request against this item. `profile:<device>` is done when
-required typed facts and non-root frame transforms are known. Loaded joint,
-gripper, suction, locomotion and camera devices gate task readiness, and the
-device inventory requires a world device.
+A device is ready when it is loaded and its nodes answer. Kinex keeps no measure of
+profile completeness: an uncalibrated camera still shows the scene, and each
+operation or procedure checks the facts it needs. Every workspace requires a world
+device.
 
 Builtin DEVICE.md files are setup templates with profile examples; most ship
 reference nodes beside them. They help authors write device/operation
@@ -94,8 +91,7 @@ depth-to-color geometry through tf2. RGB profiles state `layout: mono` or
 `color`, plus `frames.left` and `frames.right` optical frames chained `base` ->
 reference eye -> other eye, where `base` carries the mount.
 Model devices have no frames.
-Calibration procedures write top-level facts and `frames.<name>`, using
-`profile:<device>` readiness items.
+Calibration procedures write top-level facts and `frames.<name>`.
 
 ## Nodes
 

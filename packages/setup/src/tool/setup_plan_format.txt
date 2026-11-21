@@ -1,0 +1,6 @@
+plan: {version: 1, nodes: [node], task?: task}
+node: {id, title, kind: prepare|calibrate|verify, skill, bindings: {role: device}, dependsOn: [id], inputs: [fact], outputs: [fact], optional?: bool}
+fact: {kind: "profile", device? (omit for the workspace manifest), pointer (JSON pointer), value? (exact match)} or {kind: "file", path (relative to .kinex)}
+task: {objective, targets: [id], facts?: [fact]}; empty targets describe a task that needs no calibration
+outcome: {status: done|partial|failed|needs-input, note, evidence: [path relative to .kinex]}
+Use narrow pointers for inputs and outputs, only for facts the node's conclusion needs; keep loaded/meta fields and live poses out. Split broad nodes into independently useful outputs so a partial result can satisfy a narrower task. Never mark deferred work done.

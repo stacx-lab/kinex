@@ -1,7 +1,7 @@
 ---
 name: force_torque
 type: force_torque
-description: Force-only, torque-only or combined load measurements with explicit quantity, target, axes and reference frame. Optional for task readiness.
+description: Force-only, torque-only or combined load measurements with explicit quantity, target, axes and reference frame.
 ---
 
 ## Setup

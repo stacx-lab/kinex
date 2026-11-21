@@ -4,22 +4,21 @@
 
 Setup owns a persisted, task-scoped DAG; inspection is read-only. Completion checks
 fact availability, explicit values, evidence and completed prerequisites; content
-edits alone do not invalidate it. Calibration attempts and solver results keep
-their own fingerprint checks. Sampler settling requires fresh measured velocities
-and never advances simulation time; a locomotion device settles on the odometry its
-`runtime.observation` names. A timeout after a read saves `settled:false`; FK and
-archival still honor caller cancellation. Without a configured observation, camera
-samples read the native `image` topic and, for RGBD, the equally stamped `depth`, or
-a stereo camera's `left_image` and `right_image`; every file is archived before the
-sample is appended. Profile writes are
-validated; unrelated calibration never gates all operations. See the
+edits alone do not invalidate it, and a failed solver result never completes a node.
+Measurement runs in [programs run with `exec`](tools-and-skills.md#running-with-exec)
+through `kinex.lib.calibration`, which setup adds to the function library. A run's
+sampler settles on fresh measured velocities, checked every 0.3 s, and never advances
+simulation time; a locomotion device settles on the odometry its `runtime.observation`
+names. A timeout keeps the last reading with `settled:false`. Without a configured
+observation, camera samples read the native `image` topic and, for RGBD, the equally
+stamped `depth`, or a stereo camera's `left_image` and `right_image`; every file is
+archived before the sample is appended. Profile writes are validated; unrelated
+calibration never gates all operations. See the
 [setup evidence contracts](../packages/setup/README.md#plan-and-evidence-contracts).
 
 For calibration motion, explicitly wait through the loaded world's declared `wait`
 and check fresh measured feedback before sampling; if simulation needs more time,
-advance it explicitly before invoking the sampler. General
-feedback loops use [programs run with `exec`](tools-and-skills.md#running-with-exec);
-the sampler's own settling and evidence checks remain part of setup.
+advance it explicitly before sampling.
 
 ## ROS integration
 

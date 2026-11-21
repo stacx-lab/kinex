@@ -26,11 +26,11 @@ retention, verify that velocity expiry or stop retains the declared posture.
 Zero velocity and a submitted command do not prove stationarity or achieved posture.
 Stop on faults, unexpected movement or operator interruption.
 
-Archive samples, independent references and selected acceptance criteria, then run
-calib_compute operation:verify-base using its documented measurement format.
+Save samples, independent references and selected acceptance criteria in the run,
+then evaluate them with `lib.calibration.base.verify`.
 Report missing measurements as partial. Persist only verified reference/default
 facts; correct proven node conversion errors through setup-device and reload.
 Do not infer safe limits from a handful of successful trials or tune the gait.
 Return to the task once its selected requirements are met.
 
-See [procedure.json](procedure.json) for roles and computations.
+See [procedure.json](procedure.json) for machine-readable roles and field coverage.

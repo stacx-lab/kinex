@@ -11,15 +11,6 @@ export interface SkillInfo {
   description: string
   file: string
   directory: string
-  // Calibration skills: comma-separated selectors this skill can resolve —
-  // exact readiness item ids (profile:wrist_cam) or <section>:<device type>
-  // patterns (profile:rgb). Surfaced in <available_skills> so setup workflows
-  // can match requests without loading every skill.
-  resolves?: string
-  // Same selector grammar, opposite direction: calibration items that must be
-  // DONE before this skill is usable. Advisory — the skill tool warns about
-  // unmet items instead of refusing.
-  requires?: string
 }
 
 // Built-in skills ship with the package at builtin/skill/ (the same shipping
@@ -58,8 +49,6 @@ export async function listSkills(cwd: string): Promise<SkillInfo[]> {
         description: meta["description"] ?? "",
         file,
         directory: path.dirname(file),
-        ...(meta["resolves"] ? { resolves: meta["resolves"] } : {}),
-        ...(meta["requires"] ? { requires: meta["requires"] } : {}),
       })
     }
   }
@@ -75,10 +64,7 @@ export async function loadSkill(cwd: string, name: string): Promise<{ info: Skil
 }
 
 export function formatSkills(skills: SkillInfo[]): string {
-  const lines = skills.map(
-    (skill) =>
-      `  - ${skill.name}: ${skill.description}${skill.resolves ? ` [resolves: ${skill.resolves}]` : ""}${skill.requires ? ` [requires: ${skill.requires}]` : ""}`,
-  )
+  const lines = skills.map(skill => `  - ${skill.name}: ${skill.description}`)
   return ["<available_skills>", "Load a skill with the skill tool when its description matches the task.", ...lines, "</available_skills>"].join(
     "\n",
   )

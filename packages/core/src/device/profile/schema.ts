@@ -54,9 +54,6 @@ const provenance = {
 const localFrames = {
   frames: z.record(z.string().regex(/^[^:/]+$/, "local frame names cannot contain ':' or '/'"), LocalFrame),
 }
-// How a device is reached belongs to its runtime nodes; access only carries an
-// explicit request against the access:<device> readiness item.
-const Access = z.strictObject({ needs_calibration: section.needs_calibration })
 const deviceBase = {
   name: z.string().regex(/^[^:/]+$/),
   description: z.string().describe("General device identity, capabilities and limitations; may be empty"),
@@ -64,7 +61,6 @@ const deviceBase = {
   runtime: RosRuntime.optional(),
   operations: z.record(z.string().regex(/^[a-zA-Z_]\w*$/), Operation).default({}),
   loaded: z.boolean().default(true),
-  access: Access.optional(),
   meta: z.strictObject({ created_at: z.string(), updated_at: z.string() }),
 }
 const spatial = { ...deviceBase, ...localFrames }
@@ -137,9 +133,8 @@ export const RobotManifest = z.strictObject({
     kind: z.enum(["arm", "mobile", "quadruped", "humanoid", "other"]),
     model: field(z.string()).describe("make/model, e.g. UR5e, Panda"),
   }),
-  // [devices-declared] — inventory marker only; devices/*/profile.yaml are ground truth.
+  // Inventory provenance only; devices/*/profile.yaml are ground truth.
   devices: z.object({ ...section }).prefault({}),
-  // Keep-out zones are manifest data; no readiness item gates them.
   safety: z.object({ source: section.source, keep_out_zones: z.array(Aabb).default([]) }).prefault({}),
   meta: z.object({
     created_at: z.string(),
@@ -147,22 +142,6 @@ export const RobotManifest = z.strictObject({
   }),
 })
 export type RobotManifest = z.infer<typeof RobotManifest>
-
-// One compact line for possibly-open workspace bounds — shared by the DAG
-// detail and the system-prompt summary: "x∈[-0.6,0.6] y∈[-0.6,0.6] z≥0.02 (open above)".
-export function renderWorkspaceBounds(bounds: WorkspaceBounds): string {
-  const axes = ["x", "y", "z"] as const
-  return axes
-    .map((axis, index) => {
-      const min = bounds.min[index]
-      const max = bounds.max[index]
-      if (min !== null && max !== null) return `${axis}∈[${min},${max}]`
-      if (min !== null) return `${axis}≥${min} (open above)`
-      if (max !== null) return `${axis}≤${max} (open below)`
-      return `${axis} open`
-    })
-    .join(" ")
-}
 
 // rgbd IS a camera: a tool's `devices: [rgb]` requirement is satisfied by
 // either camera type.

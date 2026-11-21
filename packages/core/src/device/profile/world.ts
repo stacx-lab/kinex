@@ -37,7 +37,6 @@ export const Surface = z.strictObject({
 export type Surface = z.infer<typeof Surface>
 
 export const worldShape = {
-  needs_calibration: section.needs_calibration,
   method: z.enum(["unknown", "manual", "survey", "introspection", "plane_fit"]).default("unknown"),
   calibrated_at: z.iso.datetime().nullable().default(null),
   bounds: field(WorkspaceBounds.nullable()),
