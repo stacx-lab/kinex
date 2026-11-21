@@ -1,4 +1,4 @@
-"""Synchronized rest-to-rest joint trajectory planning and straight tool paths, without device I/O.
+"""Synchronized rest-to-rest joint trajectories timed within velocity and acceleration limits, and straight tool paths, without device I/O.
 
 A program submits a plan through the device's declared command operation, waits on
 the world clock and verifies measured arrival.

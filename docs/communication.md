@@ -75,7 +75,8 @@ reload. Read device and operation descriptions directly from profiles. Discovery
 remains read-only. A program imports `runtime` from `kinex`: use
 `runtime.devices()` for configured devices and host-known readiness,
 `runtime.device(name)` for one device's description and state,
-`runtime.operations(device)` for declared operations (including unloaded devices),
+`runtime.operations(device)` for declared operations (including unloaded devices;
+both take a name or an entry of `runtime.devices()`),
 and `runtime.describe("device.operation")` for protocol metadata and recursive
 ROS payload definitions. These queries never load devices or advance time.
 Catalogs stay in Python unless the program finishes with them; they are not
