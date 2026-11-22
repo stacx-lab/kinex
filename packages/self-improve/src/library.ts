@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises
 import path from "node:path"
 import { promisify } from "node:util"
 import { ConfigPaths } from "@kinex/core/config/paths"
-import { Assets } from "@kinex/core/installation/assets"
+import { libRoots } from "@kinex/core/lib/catalog"
 import { parseFrontmatter } from "@kinex/core/skill/index"
 import { which } from "@kinex/core/util/process"
 import { entries, librariesDir, parseLine, pythonDir, versionDir, writeJson } from "./layout.ts"
@@ -165,8 +165,10 @@ export async function check(library: string): Promise<string[]> {
   for (const name of await entries(tools))
     if (!/\.(ts|js)$/.test(name) || !(await stat(path.join(tools, name))).isFile())
       problems.push(`payload/tools/${name}: Kinex loads only .ts and .js files in tools/; put Python code in a kinex.lib module`)
-  // A workspace module replaces the builtin kinex.lib module of the same name, in every worker.
-  const builtins = new Set((await entries(Assets.python("kinex", "lib"))).map(name => name.replace(/\.py$/, "")))
+  // A workspace module replaces the builtin kinex.lib module of the same name, in every worker:
+  // one of core's own, or one a package composed with it adds, as setup adds calibration.
+  const shippedRoots = (await libRoots(library)).filter(root => root.origin === "builtin")
+  const builtins = new Set((await Promise.all(shippedRoots.map(root => entries(root.directory)))).flat().map(name => name.replace(/\.py$/, "")))
   for (const name of await shipped(library, "lib"))
     if (!name.startsWith("_") && builtins.has(name.replace(/\.py$/, "")))
       problems.push(`payload/lib/${name}: replaces the builtin kinex.lib module of the same name for every worker; rename it`)
