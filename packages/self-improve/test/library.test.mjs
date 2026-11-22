@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { createScope, inScope } from '@kinex/core/scope'
 import { check, createLibrary, install, installedBrief, newestVersion, publish, versions } from '../dist/library.js'
 import { collect, renderStatus, scan, writeRecord } from '../dist/records.js'
 import { writeTranscript } from '../dist/transcript.js'
@@ -82,6 +83,14 @@ test('the check reports what Kinex could not load, and only a clean candidate is
   await put(path.join(candidate, 'payload/brief.md'), 'x'.repeat(2001))
   assert.deepEqual(await check(candidate), ['payload/brief.md: 1 lines and 2001 characters, at most 15 lines and 2000 characters'])
   await put(path.join(candidate, 'payload/brief.md'), 'Load good first.\n')
+  // A package composed with core adds kinex.lib modules of its own, which a library must not replace either.
+  const composed = path.join(root, 'composed')
+  await put(path.join(composed, 'calibration/__init__.py'), '"""A module of a composed package."""\n')
+  await put(path.join(candidate, 'payload/lib/calibration.py'), '"""Shadows it."""\n')
+  assert.deepEqual(await check(candidate), [])
+  assert.deepEqual(await inScope(createScope({ builtinLibRoots: [composed] }), () => check(candidate)),
+    ['payload/lib/calibration.py: replaces the builtin kinex.lib module of the same name for every worker; rename it'])
+  await rm(path.join(candidate, 'payload/lib/calibration.py'))
   assert.deepEqual(await publish(root, candidate, { parent: 'L0', source: 'd001' }), { problems: [], version: 'L1' })
   assert.equal(await newestVersion(root), 'L1')
   assert.equal(await readFile(path.join(root, 'libraries/L1/memory/EVIDENCE.md'), 'utf8'), 'kept\n')

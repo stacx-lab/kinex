@@ -176,15 +176,18 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
   fake.respond = request => {
     const text = JSON.stringify(request.messages)
     const step = request.messages.filter(message => message.role === 'tool').length
-    // The repair turn continues the distiller's session: three tool results are already behind it.
+    // The repair turn continues the distiller's session: four tool results are already behind it.
     if (text.includes('did not pass improve_check')) return [
       call('write', { path: 'library/payload/brief.md', content: 'BRIEF_MARKER load the press skill first.\n' }),
+      call('bash', { command: 'rm library/payload/lib/calibration.py' }),
       call('improve_check'),
       { text: 'Repaired.' },
-    ][step - 3]
+    ][step - 4]
     if (text.includes('You turn the records of earlier trials')) return [
       call('write', { path: 'library/payload/skills/press/SKILL.md', content: SKILL }),
       call('write', { path: 'library/payload/brief.md', content: 'x'.repeat(2001) }),
+      // Setup's calibration library is a kinex.lib module of this Kinex, which a library must not replace.
+      call('write', { path: 'library/payload/lib/calibration.py', content: '"""Shadows the calibration library."""\n' }),
       call('write', { path: 'schedule.json', content: JSON.stringify({ next: [second] }) }),
       { text: 'The library is ready.' },
     ][step]
@@ -224,7 +227,7 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
     const result = await json('distillations/d001/record/result.json')
     assert.deepEqual({ status: result.status, version: result.version, problems: result.problems, repairs: result.repairs }, { status: 'done', version: 'L1', problems: [], repairs: 1 })
     const transcript = await read('distillations/d001/record/session.jsonl')
-    assert.match(transcript, /did not pass improve_check[^]*payload\/brief\.md: 1 lines and 2001 characters/)
+    assert.match(transcript, /did not pass improve_check[^]*payload\/lib\/calibration\.py: replaces the builtin kinex\.lib module[^]*payload\/brief\.md: 1 lines and 2001 characters/)
     assert.match(transcript, /The library is ready[^]*Repaired\./, 'one session, the repair after the distillation')
     assert.match(await read('libraries/L1/payload/brief.md'), /BRIEF_MARKER/)
     assert.match(stdout, /- d001, base L0, 2 trials \(2 new\), published L1 after 1 repair turn/)

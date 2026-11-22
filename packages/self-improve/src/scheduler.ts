@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import type { Turn } from "@kinex/core"
-import { createScope, inScope, withSignal } from "@kinex/core/scope"
+import { createScope, currentScope, inScope, withSignal } from "@kinex/core/scope"
 import { createJobs, type Jobs } from "./jobs/index.ts"
 import { distillTurns, finishDistillation, prepareDistillation, scheduled as ordered, type Distillation } from "./distill.ts"
 import { finishJob, openJob, type Result } from "./job.ts"
@@ -192,7 +192,8 @@ export function start(run: Run, host: Host): Scheduled {
   if (scheduled) throw new Error(`The self-improve run ${scheduled.run.root} is already scheduled in this Kinex; /self-improve stop ends it`)
   const abort = new AbortController()
   // The run's own scope: its children are not those of the workspace a session happens to be in.
-  const scope = createScope()
+  // It keeps the kinex.lib roots this Kinex was composed with, which a library must not shadow.
+  const scope = createScope({ builtinLibRoots: currentScope().builtinLibRoots })
   scope.signal = abort.signal
   const state: Scheduled = {
     run, jobs: createJobs({ limits: { trials: run.config.parallel } }), ended: Promise.resolve(""),
