@@ -30,7 +30,8 @@ ROS resources a program creates end with it. Install missing ROS packages throug
 
 ## Principles
 
-- Follow profile units, limits and descriptions.
+- Before acting, read the devices and their profiles; plan from what they declare
+  and follow their units, limits and descriptions.
 - Avoid unintended collisions along the whole path.
 - A sent command or an arrival is not success: verify the outcome with measurements.
 - On faults, unexpected contact or lost feedback, stop the devices first with device_stop.
