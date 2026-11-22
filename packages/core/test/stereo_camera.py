@@ -1,4 +1,4 @@
-"""Stereo reads keep each eye's stamp and frame; localization uses the selected eye's geometry."""
+"""Stereo reads keep each eye's stamp and frame; geometry uses the selected eye's calibration."""
 import asyncio
 import sys
 from pathlib import Path
@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from kinex.communication import ambient
-from kinex.lib import images, perception
+from kinex.lib import images
 from kinex.common.camera import frame, stereo_frame
 
 
@@ -43,8 +43,6 @@ class Scope:
 
     async def request(self, reference, **fields):
         self.requests.append((reference, fields))
-        if reference.endswith(".detect"):
-            return {"results": [{"box": [0, 0, 4, 2], "score": .9, "label": "mug"}]}
         if reference.endswith(".geometry"):
             pinhole = {"model": "pinhole", "fx": 1, "fy": 1, "cx": 0, "cy": 0, "skew": 0}
             streams = {eye: {"width": 4, "height": 2, "frame": f"camera/{eye}", "calibration_id": eye,
@@ -71,6 +69,9 @@ class StereoFrames(unittest.IsolatedAsyncioTestCase):
         with patch.object(images, "profile", lambda _: STEREO):
             with self.assertRaisesRegex(ValueError, "eye is required"), ambient(scope):
                 await images.camera_frame("camera")
+        with patch.object(images, "profile", lambda _: {"type": "rgb", "layout": "mono", "color": {}}):
+            with self.assertRaisesRegex(ValueError, "eye is required"), ambient(scope):
+                await images.camera_frame("camera", eye="left")
 
     async def test_snapshot_returns_both_eyes_and_the_later_stamp(self):
         msg = ModuleType("sensor_msgs.msg")
@@ -90,29 +91,15 @@ class StereoFrames(unittest.IsolatedAsyncioTestCase):
             Path(sample[key]).unlink()
 
 
-class StereoLocate(unittest.IsolatedAsyncioTestCase):
-    def scope(self):
-        scope = Scope(left_image=Stream([image(1, "camera/left")]), right_image=Stream([image(2, "camera/right")]))
+class StereoGeometry(unittest.IsolatedAsyncioTestCase):
+    async def test_each_eye_unprojects_with_its_own_calibration(self):
+        scope = Scope()
         scope.catalog["camera.geometry"] = {}
-        return scope
-
-    async def test_locate_uses_the_selected_eye_stream(self):
-        scope = self.scope()
-        with patch.object(perception, "profile", lambda _: STEREO), patch.object(images, "profile", lambda _: STEREO), ambient(scope):
-            located = await perception.locate_object_3d("camera", "model", "mug", depth=2, eye="right")
-        Path(located["file"]).unlink()
-        self.assertEqual(located["frame"], "camera/right")
+        with patch.object(images, "profile", lambda _: STEREO), ambient(scope):
+            geometry = await images.camera_geometry("camera")
+            await geometry.unproject([[1, 1]], "right")
         unproject = next(fields for reference, fields in scope.requests if reference == "camera.unproject")
         self.assertEqual((unproject["stream"], unproject["calibration_id"]), ("right", "right"))
-        self.assertEqual(located["point"][2], 2)
-
-    async def test_eye_must_match_the_camera(self):
-        with patch.object(perception, "profile", lambda _: STEREO):
-            with self.assertRaisesRegex(ValueError, "eye is required"), ambient(self.scope()):
-                await perception.locate_object_3d("camera", "model", "mug", depth=2)
-        with patch.object(perception, "profile", lambda _: {"type": "rgb", "layout": "mono", "color": {}}):
-            with self.assertRaisesRegex(ValueError, "eye is required"), ambient(self.scope()):
-                await perception.locate_object_3d("camera", "model", "mug", depth=2, eye="left")
 
 
 if __name__ == "__main__":

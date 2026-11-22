@@ -118,8 +118,7 @@ The library is one Python package, `kinex.lib`, with several roots: the
 workspace's `.kinex/lib`, its ancestors', the global configuration's and the
 builtin modules shipped with core. A module in a nearer root replaces one of the
 same name farther away. Builtin modules cover frames (`frames`), cameras
-(`images`), kinematics (`kinematics`), trajectory planning (`motion`) and object
-localization (`perception`).
+(`images`), kinematics (`kinematics`) and trajectory planning (`motion`).
 
 Save code that several programs share as a module under `.kinex/lib`, at any
 depth: a docstring saying what the module contains, then functions with typed
@@ -129,7 +128,7 @@ signatures and docstrings, `async` when they use `io`.
 # .kinex/lib/tabletop.py
 """Tabletop manipulation for this cell. Poses are in arm/base."""
 from kinex import io
-from kinex.lib import frames, perception
+from kinex.lib import frames, images
 
 async def grasp(object: str, arm: str = "arm") -> dict:
     """Close on the detected object, retrying once, and return the measured width."""

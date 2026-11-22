@@ -348,7 +348,7 @@ A stereo camera uses `left_image` and `right_image` with `left` and `right` geom
 streams; `lib.images.stereo_frame(camera)` reads both, and `camera_frame` takes `eye`.
 `lib.images.camera_frame(camera)` subscribes and returns
 the next image and, for rgbd, the depth with the same stamp; the same
-`kinex.common.camera.frame` backs device snapshots and `lib.perception.locate_object_3d`. A live
+`kinex.common.camera.frame` backs device snapshots. A live
 camera streams; a simulator publishes a current frame to each new subscriber and
 repeats it while paused, so a paused world can be read without advancing it.
 Images stay as ROS payloads in Python. `lib.images.image_array` converts them for
