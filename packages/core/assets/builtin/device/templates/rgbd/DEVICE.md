@@ -23,7 +23,7 @@ it must also provide depth registered to that corrected grid or declare native
 depth with its own geometry; never mix raw depth pixels with rectified color.
 
 A reader subscribes to `image` and `depth` and pairs the frames with equal stamps;
-snapshots archive both and perception tools measure from them. Publish both from
+snapshots archive both and programs measure from them. Publish both from
 one acquisition with the same stamp; a simulator publishes a current pair to each
 new subscriber and repeats it while paused, as for rgb.
 

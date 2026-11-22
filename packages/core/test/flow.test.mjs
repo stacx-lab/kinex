@@ -39,10 +39,10 @@ async def pick_place(object: str, place: list, retries: int = 2) -> dict:
     guard = asyncio.create_task(watch(30.0))
     try:
         for attempt in range(retries + 1):
-            found = await lib.perception.locate_object_3d("head_camera", "detector", object)
+            found = await lib.frames.lookup_transform("world", object)
             if found is None:
                 continue
-            above = [found[0], found[1], found[2] + 0.1, 1, 0, 0, 0]
+            above = [*found.translation[:2], found.translation[2] + 0.1, 1, 0, 0, 0]
             await asyncio.gather(move(above), io.publish("gripper.target", {"data": 1.0}))
             held = await grasp.close(found)
             if held:
@@ -192,7 +192,7 @@ test('a program charts as device operations, calls, computation and the control 
     { spawn: 'guard', body: ['call watch'] },
     { try: [
       { loop: 'for attempt in range(retries + 1)', body: [
-        'call perception.locate_object_3d',
+        'call frames.lookup_transform',
         { if: [['found is None', ['continue']]], else: [] },
         'compute above',
         { parallel: 'all', branches: [[null, ['call move']], [null, ['publish gripper.target']]] },
@@ -212,7 +212,7 @@ test('a program charts as device operations, calls, computation and the control 
   // A call opens the callee's own chart, across modules and into the builtin library.
   const call = (fn, label) => lines(fn.body).find(step => step.kind === 'call' && step.label === label)
   assert.equal(flow.functions[call(entry, 'tasks.grasp.close').target].path, 'tasks.grasp.close')
-  assert.equal(flow.functions[call(entry, 'perception.locate_object_3d').target].file, path.join(builtin, 'perception.py'))
+  assert.equal(flow.functions[call(entry, 'frames.lookup_transform').target].file, path.join(builtin, 'frames.py'))
   assert.deepEqual(shape(named(flow, 'tasks.tabletop.watch').body), [
     { scope: 'subscribed to arm.wrench', timeout: false, body: [
       { loop: 'for sample in each message of arm.wrench', body: ['next arm.wrench', { if: [['abs(sample.force.z) > limit', ["raise RuntimeError('contact')"]]], else: [] }], else: [] },

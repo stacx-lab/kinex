@@ -20,8 +20,8 @@ See [camera geometry](geometry.md) for services, adapters and calibration owners
 Raw images remain unchanged for model consumers. Publish `rgb8`; a node adapting a
 `mono8` source (for example an infrared stereo pair) replicates it to three channels.
 
-A reader subscribes to `image` and takes the next frame; snapshots and perception
-tools read it this way. A live camera streams continuously. A simulator, whose world
+A reader subscribes to `image` and takes the next frame; snapshots and programs
+read it this way. A live camera streams continuously. A simulator, whose world
 may be paused, publishes a current frame to each new subscriber (for example on the
 publisher's matched event) and declares `reliable` QoS. DDS can deliver that frame
 before the reader has discovered the publisher, which drops it, so while subscribed
@@ -36,7 +36,7 @@ it into the device directory and map each image operation to the driver's topic 
 ### Stereo
 
 A stereo camera whose SDK publishes depth registered to one eye is an `rgbd` device
-with that eye as `color`; perception then measures depth directly. A raw pair is one
+with that eye as `color`; programs then read depth directly. A raw pair is one
 `rgb` device with `layout: stereo`. Declare `left` and `right` geometry instead of
 `color`, publish `left_image` and `right_image` instead of `image`, and declare
 `frames.left` and `frames.right` as the optical frames, setting each `header.frame_id`
@@ -55,7 +55,7 @@ calibrated otherwise.
 
 - `image` (recommended): output topic `sensor_msgs/msg/Image`, `rgb8` at the
   profile resolution, `best_effort` with depth 1 for a streaming driver. Snapshots,
-  perception tools and recording subscribe to it.
+  programs and recording subscribe to it.
 
 ### Profile
 

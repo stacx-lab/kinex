@@ -1,4 +1,4 @@
-"""Camera images convert ROS payloads, pair frames from topics and locate registered 16UC1 depth."""
+"""Camera images convert ROS payloads and pair frames from topics."""
 
 import asyncio
 import os
@@ -9,11 +9,6 @@ import numpy as np
 from PIL import Image
 
 from kinex.common.camera import array, frame, save
-from kinex.lib.perception import _locate
-
-def locate(*args, **kwargs):
-    return asyncio.run(_locate(*args, **kwargs))
-
 
 def message(encoding, values, bigendian=False, pad=0):
     values = np.asarray(values)
@@ -40,21 +35,6 @@ class CameraImages(unittest.TestCase):
                 np.testing.assert_array_equal(np.asarray(image), depth)
         finally:
             os.unlink(path)
-
-    def test_locate_uses_valid_registered_depth_in_the_region(self):
-        stream = {"width": 3, "height": 3, "projection": {"fx": 1, "fy": 1, "cx": 1, "cy": 1, "skew": 0},
-                  "distortion": {"model": "none"}}
-        profile = {"color": stream, "depth": {**stream, "registration": "color", "quantity": "z",
-                                              "scale_m_per_unit": .001, "invalid_value": 0, "reliable_range_m": None,
-                                              "valid_range_m": {"min": .001, "max": 65.535}}}
-        depth = np.full((3, 3), 2000, dtype=np.uint16)
-        depth[0, 0] = 0
-        result = locate(profile, np.ones((3, 3), dtype=bool), depth_image=message("16UC1", depth))
-        self.assertEqual(result["depth_samples"], 8)
-        self.assertEqual(result["pixel"].tolist(), [1, 1])
-        np.testing.assert_allclose(result["point"], [0, 0, 2])
-        with self.assertRaisesRegex(ValueError, "16UC1"):
-            locate(profile, np.ones((3, 3), dtype=bool), depth_image=message("mono8", depth.astype(np.uint8)))
 
 
 def stamped(seconds):

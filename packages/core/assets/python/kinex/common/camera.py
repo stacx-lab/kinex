@@ -24,10 +24,6 @@ def rays(stream, u, v):
     return np.stack((x, y, np.ones_like(x)), axis=-1)
 
 
-def ray(stream, u, v):
-    return rays(stream, u, v).tolist()
-
-
 def project(stream, point):
     p = _pinhole(stream)
     point = np.asarray(point, dtype=float)

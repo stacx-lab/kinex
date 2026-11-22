@@ -20,7 +20,7 @@ A useful analogy is a coding-agent harness:
 | Layer | Coding-agent analogy | Kinex example |
 | --- | --- | --- |
 | Devices | System resources such as disks and GPUs. OS and driver interfaces provide basic operations such as storage reads/writes or GPU computation. | Cameras, actuators and model services expose operations through device nodes. |
-| Tools | `bash` executes commands; `grep` searches text. These tools turn resource access into useful operations. | `exec` runs Python with device access; the library's `perception.locate_object_3d` combines camera and model outputs to estimate a position. |
+| Tools | `bash` executes commands; `grep` searches text. These tools turn resource access into useful operations. | `exec` runs Python with device access; a program can combine a camera image, a detector's boxes and depth to estimate a position. |
 | Skills | A debugging procedure guides the agent to reproduce a failure, inspect code, make a fix and run tests using available tools. | A calibration procedure guides sampling, computation and verification. |
 
 In both cases, resources provide capabilities, tools execute operations, and

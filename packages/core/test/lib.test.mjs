@@ -116,7 +116,7 @@ test('the lib tool navigates any structure one level at a time, as Python import
   assert.equal(root.node.kind, 'module')
   assert.match(root.node.doc, /^The Kinex function library/)
   const modules = Object.fromEntries(root.node.modules.map(item => [item.name, item]))
-  assert.deepEqual(Object.keys(modules), ['frames', 'images', 'kinematics', 'motion', 'perception', 'scene', 'skills', 'tabletop'])
+  assert.deepEqual(Object.keys(modules), ['frames', 'images', 'kinematics', 'motion', 'scene', 'skills', 'tabletop'])
   assert.deepEqual(modules.motion, { name: 'motion', origin: 'workspace', summary: 'Workspace motion.' })
   assert.deepEqual(modules.tabletop, { name: 'tabletop', origin: 'workspace', summary: 'Tabletop tasks for this cell.' })
   assert.deepEqual(modules.skills, { name: 'skills', origin: null, summary: '' })
@@ -189,7 +189,7 @@ test('every builtin lib module and function documents itself', async t => {
   const f = await fixture(t)
   const root = await f.node()
   assert.deepEqual(root.problems, [])
-  assert.deepEqual(root.node.modules.map(item => item.name), ['frames', 'images', 'kinematics', 'motion', 'perception'])
+  assert.deepEqual(root.node.modules.map(item => item.name), ['frames', 'images', 'kinematics', 'motion'])
   for (const item of root.node.modules) {
     assert.equal(item.origin, 'builtin')
     const { node, problems } = await f.node(item.name)
