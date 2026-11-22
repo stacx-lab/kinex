@@ -1,7 +1,7 @@
 import path from "node:path"
 import { z } from "zod"
 import { define, type Def } from "@kinex/core"
-import { startTool, tools as jobTools, type Tool } from "@kinex/jobs/tools"
+import { startTool, tools as jobTools, type Tool } from "./jobs/tools.ts"
 import { candidateDir } from "./distill.ts"
 import { check } from "./library.ts"
 import { saveTasks } from "./run.ts"
@@ -15,7 +15,7 @@ export const toolNames: readonly string[] = ["improve_tasks", "improve_select", 
 
 const output = (title: string, text: string) => ({ title, output: text })
 
-// A tool of @kinex/jobs as Kinex runs its own: the arguments checked against its schema, the result in Kinex's form.
+// A tool of jobs/tools.ts as Kinex runs its own: the arguments checked against its schema, the result in Kinex's form.
 function adopt<Args>(tool: Tool<Args>): Def {
   return define(tool.name, {
     description: tool.description,

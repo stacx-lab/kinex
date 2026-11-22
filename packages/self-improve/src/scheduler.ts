@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import type { Turn } from "@kinex/core"
 import { createScope, inScope, withSignal } from "@kinex/core/scope"
-import { createJobs, type Jobs } from "@kinex/jobs"
+import { createJobs, type Jobs } from "./jobs/index.ts"
 import { distillTurns, finishDistillation, prepareDistillation, scheduled as ordered, type Distillation } from "./distill.ts"
 import { finishJob, openJob, type Result } from "./job.ts"
 import { sessionFile, trialsDir } from "./layout.ts"

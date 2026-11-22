@@ -118,7 +118,7 @@ share no file.
 A run belongs to the Kinex process that schedules it, because the main session
 leaves its workspace for every distillation; one run is scheduled at a time. Each
 pass of the scheduler decides its next step from the run's folder alone. Trials
-and helpers are [jobs](../packages/jobs/README.md): starting returns at once, a
+and helpers are [jobs](../packages/self-improve/README.md#jobs): starting returns at once, a
 lane runs up to its limit, and one wait collects them; cancelling a wait never
 cancels the work. `/self-improve stop` and quitting end a run's work: workers and
 helpers are stopped, and simulators the process launched are closed. A job left

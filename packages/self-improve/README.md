@@ -62,10 +62,10 @@ prompts with the edits this design forces (one episode per trial, waves, folder
 names, the check and sub-agents as tools, task skills instead of task briefs,
 code as `kinex.lib` modules instead of a skill's body).
 
-Trials and helpers are jobs of [@kinex/jobs](../jobs/README.md): starting one
-returns at once, a lane runs up to its limit and queues the rest, and one wait
-collects them. The scheduler calls it from code; a distiller reaches it through
-`improve_delegate` and `improve_wait`.
+Trials and helpers are [jobs](#jobs): starting one returns at once, a lane runs
+up to its limit and queues the rest, and one wait collects them. The scheduler
+calls them from code; a distiller reaches them through `improve_delegate` and
+`improve_wait`.
 
 ## Files
 
@@ -159,8 +159,71 @@ command a `turn` in its context, which runs a prompt as a turn of the session in
 front of the user, in a session of its own when the turn names a folder; without
 one the command refuses to schedule.
 
+## Jobs
+
+`src/jobs` starts long work without blocking, queues it in lanes and collects it
+with one wait. It knows no agent host and imports only Node, so any tool author
+can use it.
+
+- **Starting returns at once.** The caller gets a card with the job's id; the work
+  runs outside its turn.
+- **A job is a function.** A sub-agent is one kind of function, an API call another.
+- **A lane is a limit and a queue.** Jobs of any kind share a lane; starting more
+  than its limit waits in line.
+- **The record holds the result.** The caller receives a card: one line and where
+  the record is.
+- **The caller collects with one wait.** It blocks until all or any have ended, and
+  never polls.
+- **Every job has an owner.** Whoever created the jobs lists them and stops them.
+
+From code:
+
+```ts
+import { createJobs, line } from "@kinex/self-improve/jobs/index"
+
+const jobs = createJobs({ limits: { trials: 4 } })
+
+jobs.start({ id: "t003", lane: "trials", record: "trials/t003/record",
+             run: signal => runTrial(input, signal) })    // returns at once
+const cards = await jobs.wait()                             // every job not yet ended
+console.log(cards.map(line).join("\n"))                     // t003 done · success, 41 steps · record: trials/t003/record
+
+jobs.list()        // queued, running, ended: one card each
+jobs.stop("t003")  // aborts its signal; jobs.stop() stops them all
+```
+
+`run` resolves to `{ status?, summary? }` or nothing. A job that ends normally is
+`done` unless it names another status, one that throws is `error` with the message
+as its summary, and one that was stopped is `stopped`. `wait(ids, { mode, timeoutS,
+signal })` returns the cards as they are when all (or, with `mode: "any"`, one) of
+the jobs have ended or the time is up; the signal ends the wait, never the jobs.
+`onEnd(card)` is called once for every job that ends, for a host that tells its
+caller of an end instead of being asked.
+
+For a model:
+
+```ts
+import { startTool, tools } from "@kinex/self-improve/jobs/tools"
+
+const run = startTool(jobs, {
+  name: "sim_run", description: "Start one simulation.", lane: "sims",
+  parameters: { type: "object", properties: { task: { type: "string" } }, required: ["task"] },
+  job: args => ({ id: nextId(), record: recordOf(args.task), run: signal => simulate(args.task, signal) }),
+})
+const { wait, status, stop } = tools(jobs, { prefix: "sim" })   // sim_wait, sim_status, sim_stop
+```
+
+A tool is a plain definition: `name`, `description`, the JSON Schema of its
+arguments as `parameters`, and `execute(args, signal)`, which resolves to
+`{ title, text, isError? }`. A host registers it in its own way and validates the
+arguments against the schema. `startTool` turns one kind of work into a tool that
+returns an id at once; the wait tool returns one line per job when it has ended.
+`src/tools.ts` adopts `improve_delegate` and `improve_wait` from these as Kinex
+tools.
+
 ## Development
 
+`architecture.test.mjs` keeps `src/jobs` free of every import but Node's.
 `npm run test:self-improve` runs the package tests; at the repository root
 `test/self-improve.test.mjs` drives two rounds through the real CLI with a
 scripted model and a stand-in rosbridge, and `test/self-improve-tui.test.mjs`
