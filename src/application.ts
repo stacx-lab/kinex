@@ -3,14 +3,14 @@ import { selfImproveContribution, selfImproveToolNames } from "@kinex/self-impro
 import path from "node:path"
 import {
   createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices,
-  ModelRuntime, SessionManager, resolveCliModel, type AgentSessionRuntime, type CreateAgentSessionOptions,
+  ModelRuntime, SessionManager, resolveCliModel, type CreateAgentSessionOptions,
 } from "@earendil-works/pi-coding-agent"
 import { paths, sessionDirectory, settings } from "./settings.ts"
 import { prepareAuthPath } from "./auth.ts"
 import { resolveSession } from "./sessions.ts"
 import { RoboticsOwner } from "./integration/owner.ts"
 import { createSubagents } from "./integration/subagent.ts"
-import { kinexExtension, type MainSession } from "./integration/extension.ts"
+import { kinexExtension } from "./integration/extension.ts"
 import { createCompactionControl } from "./integration/compaction.ts"
 import { defaultExtensionPaths } from "./integration/default-extensions.ts"
 import type { Mode } from "./integration/interaction.ts"
@@ -42,46 +42,6 @@ export interface ApplicationOptions {
   composition?: ApplicationComposition
 }
 
-/**
- * The session in front of the user, as work that outlives one session reaches it.
- * A turn with a folder runs in a session of its own there, an empty file giving a
- * fresh one, the way opening a session of another workspace does: the workspace's
- * runtime and context are that folder's. The user's own session returns after.
- */
-function mainSession(current: () => AgentSessionRuntime | undefined): MainSession {
-  const runtime = () => {
-    const host = current()
-    if (!host) throw new Error("Session is not initialized")
-    return host
-  }
-  const run = async (prompt: string, signal?: AbortSignal) => {
-    const { session } = runtime()
-    const abort = () => { void session.abort() }
-    signal?.throwIfAborted()
-    signal?.addEventListener("abort", abort, { once: true })
-    try {
-      await session.prompt(prompt, { expandPromptTemplates: false })
-      await session.waitForIdle()
-    } finally { signal?.removeEventListener("abort", abort) }
-    signal?.throwIfAborted()
-    const last = session.messages.findLast(message => message.role === "assistant")
-    if (last?.role === "assistant" && (last.stopReason === "error" || last.stopReason === "aborted")) throw new Error(last.errorMessage ?? `The turn was ${last.stopReason}`)
-  }
-  return {
-    async turn(turn, signal) {
-      await runtime().session.waitForIdle()
-      if (!turn.session || !turn.directory) return run(turn.prompt, signal)
-      const home = { file: runtime().session.sessionFile, cwd: runtime().cwd }
-      if (!home.file) throw new Error("The session is not kept in a file, so it could not be returned to")
-      try { await runtime().switchSession(turn.session, { cwdOverride: turn.directory, withSession: () => run(turn.prompt, signal) }) }
-      finally { await runtime().switchSession(home.file, { cwdOverride: home.cwd }) }
-    },
-    post(text) {
-      void runtime().session.sendCustomMessage({ customType: "kinex", content: text, display: true }, { triggerTurn: false })
-    },
-  }
-}
-
 export async function createApplication(options: ApplicationOptions) {
   const cwd = path.resolve(options.cwd)
   const storage = paths()
@@ -103,12 +63,10 @@ export async function createApplication(options: ApplicationOptions) {
     directory: () => owner.runtime?.directory ?? cwd, sessionModel: () => owner.model,
   })
   const sessionDir = sessionDirectory(cwd)
-  const main = mainSession(() => host)
   const manager = sessionPath ? SessionManager.open(sessionPath, sessionDir)
     : options.continue ? SessionManager.continueRecent(cwd, sessionDir) : SessionManager.create(cwd, sessionDir)
-  let host: AgentSessionRuntime | undefined
   try {
-    host = await createAgentSessionRuntime(async ({ cwd: directory, sessionManager, sessionStartEvent }) => {
+    const host = await createAgentSessionRuntime(async ({ cwd: directory, sessionManager, sessionStartEvent }) => {
       const core = await owner.enter(directory)
       const capabilities = composeContributions(contributions(core))
       const settingsManager = settings(directory)
@@ -123,7 +81,7 @@ export async function createApplication(options: ApplicationOptions) {
           systemPrompt: "", appendSystemPrompt: [],
           extensionFactories: [{ name: "kinex", factory: kinexExtension(owner, core, capabilities, options.report ?? (() => {}), {
             prompt: prompt => submitWorkflow(prompt), settle: () => settle(), compaction,
-          }, main), hidden: true }],
+          }), hidden: true }],
         },
       })
       const errors = services.resourceLoader.getExtensions().errors
@@ -140,14 +98,13 @@ export async function createApplication(options: ApplicationOptions) {
       settle = async () => { await result.session.abort(); await settingsManager.flush() }
       return { ...result, services, diagnostics: services.diagnostics }
     }, { cwd: manager.getCwd(), agentDir: storage.agent, sessionManager: manager })
-    const runtime = host
     let disposed: Promise<void> | undefined
     return {
-      host: runtime, owner, main,
+      host, owner,
       dispose(): Promise<void> {
         return disposed ??= (async () => {
-          try { await runtime.session.abort(); await runtime.dispose() }
-          finally { await owner.dispose(); await runtime.services.settingsManager.flush() }
+          try { await host.session.abort(); await host.dispose() }
+          finally { await owner.dispose(); await host.services.settingsManager.flush() }
         })()
       },
     }

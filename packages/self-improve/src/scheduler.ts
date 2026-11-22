@@ -1,58 +1,33 @@
 import { createHash } from "node:crypto"
-import type { Turn } from "@kinex/core"
-import { createScope, currentScope, inScope, withSignal } from "@kinex/core/scope"
-import { createJobs, type Jobs } from "./jobs/index.ts"
-import { distillTurns, finishDistillation, prepareDistillation, scheduled as ordered, type Distillation } from "./distill.ts"
-import { finishJob, openJob, type Result } from "./job.ts"
-import { sessionFile, trialsDir } from "./layout.ts"
+import path from "node:path"
+import { DISTILL_AGENT, TRIAL_AGENT } from "./agents.ts"
+import { openDistillation, scheduled as ordered } from "./distill.ts"
+import { jobAt, openJob, standing, type Job } from "./job.ts"
+import { claimFile, distillationsDir, entries, readJson, trialsDir, wavesDir, writeJson } from "./layout.ts"
 import { newestVersion } from "./library.ts"
+import { running } from "./lock.ts"
 import { renderStatus, scan, settled, solvedTasks, stepLimits, type Status, type TrialInput } from "./records.ts"
-import { HELPERS, RERUNS, saveTasks, type Run } from "./run.ts"
-import { listTasks, matching, type Task } from "./sim.ts"
-import { runTrial } from "./trial.ts"
-import SELECT from "./select.txt"
+import { RERUNS, type Run } from "./run.ts"
+import type { Task } from "./sim.ts"
 
-// The scheduler is code: one loop that reads a run's folder, starts a wave of
-// trials for the open tasks still unsolved and the next batch of new ones, and
-// gives the main session a turn to distill each wave into the next library
-// version. A run belongs to the Kinex process, not to a session or a workspace,
-// because the main session leaves its workspace for every distillation. One run
-// is scheduled at a time.
+// The scheduler is code: one function that reads a run's folder and says what
+// is to be done now. It starts nothing itself. The session that planned the
+// run asks it through improve_next and starts the trials and the distillation
+// it names as background sub-agents; when one ends the session is told, and
+// asks again. A run belongs to the Kinex process, and one is scheduled at a time.
 
-/** What the scheduler asks of the session in front of the user. */
-export interface Host { turn(turn: Turn, signal?: AbortSignal): Promise<void> }
-
-// What the main session is doing for the run right now, which decides the tools it has.
-export type Phase = { kind: "select"; catalog: readonly Task[] } | { kind: "distill"; distillation: Distillation; helpers: Jobs }
+/** What this Kinex schedules: a run, or the plan of one while `run` is absent. */
 export interface Scheduled {
-  run: Run
-  /** The trials of the wave in progress. */
-  jobs: Jobs
-  phase?: Phase
-  /** Ends the run's work at once; what finished stays on disk and /self-improve resume continues from it. */
-  stop(): void
-  /** What to tell the user when the run has ended. */
-  ended: Promise<string>
+  /** What the user asked for. */
+  request: string
+  run?: Run
+  /** Whether the user has approved that the run goes on with nobody to approve its steps. */
+  approved?: boolean
 }
 
 let scheduled: Scheduled | undefined
 export const current = () => scheduled
-/** Whether a job of the run is alive in this process: one without a result that is not is abandoned. */
-export const running = (root: string) => (id: string) => scheduled?.run.root === root &&
-  ((scheduled.phase?.kind === "distill" && scheduled.phase.distillation.job.id === id) || (scheduled.jobs.get(id)?.state ?? "ended") !== "ended")
-
-const message = (error: unknown) => error instanceof Error ? error.message : String(error)
-
-/** The tasks a request names outright, by id or pattern; undefined when a part of it is neither, which only a model can read. */
-export function named(request: string, catalog: readonly Task[]): string[] | undefined {
-  const ids = new Set<string>()
-  for (const part of request.split(/\s+/).filter(Boolean)) {
-    const found = catalog.filter(task => matching(part).test(task.id))
-    if (!found.length) return undefined
-    for (const task of found) ids.add(task.id)
-  }
-  return ids.size ? [...ids] : undefined
-}
+export const schedule = (next: Scheduled | undefined) => { scheduled = next }
 
 /** The ids as a run's tasks: every one in the catalog, all on one robot. */
 export function checked(ids: readonly string[], catalog: readonly Task[]): string[] {
@@ -62,22 +37,6 @@ export function checked(ids: readonly string[], catalog: readonly Task[]): strin
   const used = [...new Set(ids.map(id => robots.get(id)))]
   if (used.length !== 1) throw new Error(used.length ? `The tasks use different robots (${used.join(", ")}); a run practises on one` : "A run needs at least one task")
   return [...new Set(ids)].sort()
-}
-
-// The request is converted once. Ids and patterns are matched here; anything else
-// is free text, which the main session reads in one short turn and answers with improve_select.
-async function tasksOf(state: Scheduled, host: Host, catalog: readonly Task[], signal: AbortSignal): Promise<string[]> {
-  const { run } = state
-  const direct = run.config.tasks ?? named(run.config.selection, catalog)
-  if (direct) {
-    if (!run.config.tasks) await saveTasks(run, checked(direct, catalog))
-    return checked(direct, catalog)
-  }
-  state.phase = { kind: "select", catalog }
-  try { await host.turn({ prompt: SELECT.trim().replaceAll("$REQUEST", () => run.config.selection) }, signal) }
-  finally { state.phase = undefined }
-  if (!run.config.tasks) throw new Error("no tasks were selected for the request")
-  return run.config.tasks
 }
 
 // The order tasks open in when a distiller has not said: by a hash of the id, so
@@ -98,125 +57,142 @@ export function waveTasks(tasks: readonly string[], opened: ReadonlySet<string>,
   return [...tasks.filter(task => opened.has(task) && !solved.has(task)), ...order.slice(0, size)]
 }
 
-// One trial for each task with the newest library. A trial that ends with status
-// error did not run, which is a setup problem and not a task failure: its task is
-// started again, up to RERUNS times, and a task that still has not run sits this
-// wave out while the others go on (rsi's infraRetries). A wave none of whose
-// trials ran is the setup's failure, and ends the run.
-async function wave(state: Scheduled, tasks: readonly string[], robots: ReadonlyMap<string, string>, limits: ReturnType<typeof stepLimits>, signal: AbortSignal): Promise<void> {
-  const { run, jobs } = state
-  const attempt = async (wanted: readonly string[]) => {
-    const library = await newestVersion(run.root)
-    const ids: string[] = []
-    for (const task of wanted) {
-      const limit = limits.get(task)
-      const input: TrialInput = { task, robot: robots.get(task) ?? "", library, ...(run.config.seed === undefined ? {} : { seed: run.config.seed }), timeoutS: run.config.trialTimeoutS, ...(limit ? { limit } : {}) }
-      const job = await openJob(trialsDir(run.root), "t", input)
-      // A trial that fails still leaves a result, so it counts as finished.
-      const trial = (stop: AbortSignal): Promise<Result> => runTrial(run, job, input, stop).catch((error: unknown) => finishJob(job, { status: "error", error: message(error) }))
-      jobs.start({ id: job.id, lane: "trials", record: job.record, run: async stop => ({ status: (await trial(stop)).status }) })
-      ids.push(job.id)
-    }
-    await jobs.wait(ids, { signal })
-    return (await scan(run.root)).trials.filter(trial => ids.includes(trial.id) && trial.status === "error")
-  }
-  let failed = await attempt(tasks)
-  let ran = failed.length < tasks.length
-  for (let rerun = 0; failed.length && rerun < RERUNS; rerun++) {
-    const again = await attempt(failed.map(trial => trial.task))
-    ran ||= again.length < failed.length
-    failed = again
-  }
-  if (!ran) throw new Error(`no trial of the wave ran: ${failed.map(trial => `${trial.id} (${trial.task}): ${trial.error}`).join("; ")}`)
+/** A wave as it was opened: its tasks and library stay what they were, whatever is published after it. */
+export interface Wave { wave: number; library: string; tasks: string[] }
+const waveFile = (root: string, wave: number) => path.join(wavesDir(root), `w${String(wave).padStart(3, "0")}.json`)
+async function waves(root: string): Promise<Wave[]> {
+  const found = await Promise.all((await entries(wavesDir(root))).filter(name => name.endsWith(".json")).map(name => readJson<Wave>(path.join(wavesDir(root), name))))
+  return found.filter(wave => wave !== undefined).sort((a, b) => a.wave - b.wave)
 }
 
-// One distillation: turns of the main session in the distillation's own folder
-// and session, the first to distill and any after it to repair what the check
-// found. Its sub-agents are jobs of these turns and end with them. Only a turn
-// that ended normally can publish.
-async function distill(state: Scheduled, host: Host, status: Status, signal: AbortSignal): Promise<Result> {
-  const { run } = state
-  const distillation = await prepareDistillation(run, status)
-  const helpers = createJobs({ limits: { helpers: run.config.helpers ?? HELPERS } })
-  const started = Date.now()
-  const turn = (prompt: string, deadline: number) => {
-    const over = AbortSignal.timeout(Math.max(0, deadline - Date.now()))
-    return host.turn({ prompt, directory: distillation.job.workspace, session: sessionFile(distillation.job.record) }, AbortSignal.any([signal, over]))
-      .then(() => ({ status: "done" as const }), (error: unknown) => over.aborted ? { status: "timeout" as const } : { status: "error" as const, error: message(error) })
+const unfinished = (root: string, status: Status) => [
+  ...status.trials.filter(trial => !trial.status).map(trial => path.join(trialsDir(root), trial.id)),
+  ...status.distillations.filter(distillation => !distillation.status).map(distillation => path.join(distillationsDir(root), distillation.id))]
+
+/** The jobs without a result: those that wait to be started and those that are running. Any other job without one is abandoned. */
+export async function live(root: string, status: Status): Promise<{ waiting: Set<string>; running: Set<string> }> {
+  const found = { waiting: new Set<string>(), running: new Set<string>() }
+  for (const directory of unfinished(root, status)) {
+    const where = await standing(directory)
+    if (where !== "abandoned") found[where].add(path.basename(directory))
   }
-  state.phase = { kind: "distill", distillation, helpers }
-  const exit = await distillTurns(distillation, turn).finally(() => { helpers.stop(); state.phase = undefined })
-  signal.throwIfAborted()
-  return finishDistillation(run, distillation, { ...exit, wallS: Math.round((Date.now() - started) / 1000) })
+  return found
 }
 
-// Every pass decides the next step from the run's folder alone, so a run that
-// was stopped continues where it is. Judged trials that no settled distillation
-// was given are distilled; otherwise the next wave runs. A distillation whose
-// turn did not end normally settles nothing, so the same trials are distilled
-// again, and one that could not publish leaves the run on the version it has.
-async function schedule(state: Scheduled, host: Host, signal: AbortSignal): Promise<string> {
-  const { run } = state
-  const catalog = await listTasks(run.config.rosbridge)
-  const tasks = await tasksOf(state, host, catalog, signal)
-  const robots = new Map(catalog.map(task => [task.id, task.robot]))
+/**
+ * Where a wave stands. A task of it is to be started when it has no trial in the
+ * wave yet, or when its last one did not run: a trial that ended with status
+ * error, or was abandoned, is a setup problem and not a task failure, so its task
+ * is started again, up to RERUNS times, and a task that still has not run sits
+ * the wave out while the others go on (rsi's infraRetries).
+ */
+export function waveState(wave: Wave, status: Status, live: { waiting: ReadonlySet<string>; running: ReadonlySet<string> }) {
+  const own = status.trials.filter(trial => trial.wave === wave.wave)
+  const judged = (trial: Status["trials"][number]) => trial.status !== undefined && trial.status !== "error"
+  const pending = wave.tasks.filter(task => {
+    const tried = own.filter(trial => trial.task === task)
+    const last = tried.at(-1)
+    if (!last) return true
+    return !live.waiting.has(last.id) && !live.running.has(last.id) && !judged(last) && tried.length <= RERUNS
+  })
+  const ids = (set: ReadonlySet<string>) => own.filter(trial => set.has(trial.id)).map(trial => trial.id)
+  return { pending, waiting: ids(live.waiting), running: ids(live.running), ran: own.some(judged), failed: own.filter(trial => trial.status === "error") }
+}
+
+export type Step =
+  /** Trials to start now, also those opened earlier that no process has claimed; `left` more of the wave follow as these end. */
+  | { kind: "trials"; wave: number; start: Job[]; running: string[]; left: number }
+  | { kind: "distill"; job: Job }
+  /** Nothing to start until one of these ends. */
+  | { kind: "wait"; running: string[] }
+  | { kind: "end"; reason: string; failed?: boolean }
+
+/**
+ * The next step, decided from the run's folder alone, so a run that was stopped
+ * continues where it is. A wave in progress goes on, `parallel` trials at a
+ * time. Judged trials that no settled distillation was given are distilled;
+ * otherwise the next wave opens. A distillation whose session did not end
+ * normally settles nothing, so the same trials are distilled again, and one
+ * that could not publish leaves the run on the version it has.
+ */
+export async function next(run: Run): Promise<Step> {
+  const tasks = run.config.tasks ?? []
   for (;;) {
-    signal.throwIfAborted()
     const status = await scan(run.root)
+    const jobs = await live(run.root, status)
+    const distilling = status.distillations.filter(distillation => jobs.running.has(distillation.id)).map(distillation => distillation.id)
+    if (distilling.length) return { kind: "wait", running: distilling }
+    // A job that was opened and never claimed is named again: starting it twice does it once.
+    const unstarted = status.distillations.find(distillation => jobs.waiting.has(distillation.id))
+    if (unstarted) return { kind: "distill", job: jobAt(path.join(distillationsDir(run.root), unstarted.id)) }
+    const wave = (await waves(run.root)).at(-1)
+    if (wave) {
+      const { pending, waiting, running, ran, failed } = waveState(wave, status, jobs)
+      const start = pending.slice(0, Math.max(0, run.config.parallel - running.length - waiting.length))
+      if (start.length || waiting.length) {
+        const limits = stepLimits(status)
+        const named: Job[] = waiting.map(id => jobAt(path.join(trialsDir(run.root), id)))
+        for (const task of start) {
+          const limit = limits.get(task)
+          const input: TrialInput = { wave: wave.wave, task, robot: run.config.robot ?? "", library: wave.library,
+            ...(run.config.seed === undefined ? {} : { seed: run.config.seed }), timeoutS: run.config.trialTimeoutS, ...(limit ? { limit } : {}) }
+          named.push(await openJob(trialsDir(run.root), "t", input))
+        }
+        return { kind: "trials", wave: wave.wave, start: named, running, left: pending.length - start.length }
+      }
+      if (running.length) return { kind: "wait", running }
+      // A wave none of whose trials ran is the setup's failure, and ends the run.
+      if (!ran) return { kind: "end", failed: true, reason: `no trial of the wave ran: ${failed.map(trial => `${trial.id} (${trial.task}): ${trial.error}`).join("; ") || "its trials were abandoned"}` }
+    }
     const solved = solvedTasks(status)
-    if (tasks.every(task => solved.has(task))) return "every task is solved"
+    if (tasks.every(task => solved.has(task))) return { kind: "end", reason: "every task is solved" }
     const rounds = settled(status.distillations)
-    if (rounds.length >= run.config.rounds) return "its rounds are done"
+    if (rounds.length >= run.config.rounds) return { kind: "end", reason: "its rounds are done" }
     const given = (distillations: typeof rounds) => new Set(distillations.flatMap(distillation => distillation.trials))
     const distilled = given(rounds)
     // A trial that did not run is not evidence: it waits for no distillation.
-    if (status.trials.some(trial => trial.status && trial.status !== "error" && !distilled.has(trial.id))) { await distill(state, host, status, signal); continue }
+    if (status.trials.some(trial => trial.status && trial.status !== "error" && !distilled.has(trial.id))) return { kind: "distill", job: await openDistillation(run, status) }
     const opened = new Set(status.trials.map(trial => trial.task))
     // A round that neither solved a task nor published leaves the same tasks the same library: only tasks not opened yet would be new.
     const last = rounds.at(-1)
     const before = given(rounds.slice(0, -1))
     if (last && !last.version && tasks.every(task => opened.has(task)) && !status.trials.some(trial => trial.success && last.trials.includes(trial.id) && !before.has(trial.id)))
-      return "the last round neither solved a task nor published a library version"
-    await wave(state, waveTasks(tasks, opened, solved, run.config.batches, await ordered(run.root)), robots, stepLimits(status), signal)
+      return { kind: "end", reason: "the last round neither solved a task nor published a library version" }
+    const opening: Wave = { wave: (wave?.wave ?? 0) + 1, library: await newestVersion(run.root), tasks: waveTasks(tasks, opened, solved, run.config.batches, await ordered(run.root)) }
+    if (!opening.tasks.length) return { kind: "end", reason: "no task is left to try" }
+    await writeJson(waveFile(run.root, opening.wave), opening)
   }
 }
 
-const report = async (run: Run, how: string, next: string) =>
-  `The self-improve run ${run.root} ${how}.\n\n${renderStatus(run.root, await scan(run.root), () => false)}\n\n${next}`
+const call = (agent: string, job: Job) => `subagent({ agent: "${agent}", task: "${job.id}" })`
 
-// Quitting ends the run with the process: the children of its trials are stopped when it exits.
-const exit = { watched: false }
+/** A step as the session reads it: what to start, and what to do when it has ended. */
+export async function describe(run: Run, step: Step): Promise<string> {
+  const after = "When you are told that one has ended, call improve_next again; where no such notice comes, call bg_wait first. Do not attempt the tasks yourself, and start nothing improve_next did not name."
+  if (step.kind === "trials") return [
+    `Wave ${step.wave}: ${step.start.length === 1 ? "start this trial now, as a background sub-agent" : `start these ${step.start.length} trials now, each as a background sub-agent with a call of its own`}, unless you started it a moment ago:`,
+    ...step.start.map(job => call(TRIAL_AGENT, job)),
+    `${step.running.length ? `Still running: ${step.running.join(", ")}. ` : ""}${step.left ? `${step.left} more of this wave start as these end. ` : ""}${after}`,
+  ].join("\n")
+  if (step.kind === "distill") return [
+    "The wave is done. Start its distillation now, as a background sub-agent, unless you started it a moment ago:", call(DISTILL_AGENT, step.job),
+    `It turns the trial records into the next library version. ${after}`,
+  ].join("\n")
+  if (step.kind === "wait") return `Nothing to start: ${step.running.join(", ")} ${step.running.length === 1 ? "is" : "are"} still running. ${after}`
+  const how = step.failed ? `stopped on an error: ${step.reason}` : `has ended: ${step.reason}`
+  const then = step.failed ? "/self-improve resume continues it." : "Install a library version into a workspace with /self-improve install <version>."
+  return `The self-improve run ${run.root} ${how}.\n\n${renderStatus(run.root, await scan(run.root), () => false)}\n\n${then}\nTell the user how the run ended.`
+}
 
-/** Starts scheduling a run in this process and returns at once. */
-export function start(run: Run, host: Host): Scheduled {
-  if (scheduled) throw new Error(`The self-improve run ${scheduled.run.root} is already scheduled in this Kinex; /self-improve stop ends it`)
-  const abort = new AbortController()
-  // The run's own scope: its children are not those of the workspace a session happens to be in.
-  // It keeps the kinex.lib roots this Kinex was composed with, which a library must not shadow.
-  const scope = createScope({ builtinLibRoots: currentScope().builtinLibRoots })
-  scope.signal = abort.signal
-  const state: Scheduled = {
-    run, jobs: createJobs({ limits: { trials: run.config.parallel } }), ended: Promise.resolve(""),
-    stop() {
-      abort.abort(new Error("The self-improve run was stopped"))
-      state.jobs.stop()
-      if (state.phase?.kind === "distill") state.phase.helpers.stop()
-    },
+/** Ends the run's work at once: its jobs' processes are told to stop, and what finished stays on disk. Returns the jobs stopped. */
+export async function stop(run: Run): Promise<string[]> {
+  const status = await scan(run.root)
+  const stopped: string[] = []
+  for (const directory of unfinished(run.root, status)) {
+    const claimed = await readJson<{ pid?: number }>(claimFile(directory)).catch(() => undefined)
+    if (typeof claimed?.pid !== "number" || !running(claimed.pid)) continue
+    process.kill(claimed.pid, "SIGTERM")
+    stopped.push(path.basename(directory))
   }
-  state.ended = inScope(scope, () => withSignal(abort.signal, () => schedule(state, host, abort.signal))).then(
-    reason => report(run, `has ended: ${reason}`, "Install a library version into a workspace with /self-improve install <version>."),
-    (error: unknown) => abort.signal.aborted
-      ? `The self-improve run ${run.root} was stopped: its running trials were ended and count as abandoned. /self-improve resume continues it from what is finished.`
-      : report(run, `stopped on an error: ${message(error)}`, "/self-improve resume continues it."),
-  ).catch((error: unknown) => `The self-improve run ${run.root} ended, and its state could not be read: ${message(error)}`).finally(() => {
-    state.stop()
-    scope.closed = true
-    if (scheduled === state) scheduled = undefined
-  })
-  scheduled = state
-  if (!exit.watched) {
-    exit.watched = true
-    process.once("exit", () => scheduled?.stop())
-  }
-  return state
+  return stopped
 }

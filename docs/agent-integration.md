@@ -37,15 +37,12 @@ calls without rolling back completed work. Pure coding batches remain parallel.
 Standalone labels each user command result it adds to the conversation with the
 command that produced it.
 
-A command may ask its host for more than an answer. `turn` runs a prompt as a turn
-of the session in front of the user and returns when it has ended; given a folder
-and a session file, the turn runs in a session of its own there, with that
-folder's runtime and context, and the user's session returns after. `unattended`
-says whether the session may work without approvals: standalone answers yes in
-`auto` and `yolo`, and from `ask` offers the user to switch to `auto`. A command's
-output may name `background` work that outlives it: standalone posts its end to
-the session then in front of the user, and a headless run waits for it before it
-exits. [Self-improvement](self-improve.md#roles) schedules its distillations this way.
+A tool asks for the permission `unattended` before work that goes on with nobody
+to approve its steps. Standalone shows the user its description and asks once,
+also in `auto` mode; from `ask` the approval moves the session to `auto`. `yolo`
+does not ask, and without a user only a session that already works without
+approvals may go on. [Self-improvement](self-improve.md#roles) has its plan
+approved this way.
 
 `exec` requests `python_tool` approval once per invocation; its device reads and
 commands share that approval, and Python cannot change device lifecycle or control

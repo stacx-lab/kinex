@@ -121,14 +121,15 @@ With a simulator prepared, `/self-improve` lets Kinex attempt a set of tasks,
 study its own attempts and distill them into a library of skills and code:
 
 ```text
-/self-improve robocasa/add-ice-cubes robocasa/adjust-heat --rounds 2
+/self-improve the RoboCasa tasks about doors, two rounds
 /self-improve status
 /self-improve install L2
 ```
 
-Each task runs as a trial judged by the simulator; the session then takes a turn,
-in a folder of its own, to distill the trial records into the next library
-version, and later trials run with it. Start Kinex with `--auto` for a run.
+Kinex plans the run and starts it once you approve. Each task runs as a trial
+judged by the simulator; a distillation then turns the trial records into the
+next library version, and later trials run with it. Trials and distillations are
+background sub-agents, so the conversation stays yours while they work.
 `install` copies a version into the current workspace's `.kinex/`. See
 [self-improve](packages/self-improve/README.md) for the files and limits.
 
@@ -166,8 +167,10 @@ See [onboarding and calibration](https://stacx-lab.github.io/kinex/docs/onboardi
 
 Kinex is built on [Pi](https://pi.dev) and runs [Pi packages](https://pi.dev/packages):
 extensions, skills, prompt templates and themes.
-[pi-web-search](https://www.npmjs.com/package/pi-web-search) and
-[pi-btw](https://www.npmjs.com/package/pi-btw) are bundled.
+[pi-web-search](https://www.npmjs.com/package/pi-web-search),
+[pi-btw](https://www.npmjs.com/package/pi-btw) and
+[pi-subagents](https://www.npmjs.com/package/pi-subagents), for sub-agents and
+background work, are bundled.
 
 ```sh
 kinex install npm:pi-web-search         # From npm, Git or a local folder; -l for this project only

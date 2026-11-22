@@ -1,7 +1,8 @@
-import { mkdir, readFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { currentScope } from "@kinex/core/scope"
-import { entries, inputFile, parseLine, recordDir, reserve, resultFile, sessionFile, workspaceDir, writeJson } from "./layout.ts"
+import { claimFile, inputFile, parseLine, readJson, recordDir, reserve, resultFile, workspaceDir, writeJson } from "./layout.ts"
+import { running } from "./lock.ts"
 
 // A trial or a distillation: one folder with an input, a workspace and a record.
 export interface Job { id: string; directory: string; workspace: string; record: string }
@@ -18,11 +19,34 @@ export async function openJob(directory: string, prefix: string, input: unknown)
   return job
 }
 
-// Tokens and cost as Kinex recorded them in the job's session file and in those of its helpers.
+// A job is opened by the Kinex that schedules the run and done by a process of its
+// own, which a sub-agent call starts: that process claims the job by creating its
+// claim, so one job is never done twice.
+export async function claim(job: Job): Promise<boolean> {
+  return writeFile(claimFile(job.directory), JSON.stringify({ pid: process.pid }) + "\n", { flag: "wx" }).then(() => true, (error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") return false
+    throw error
+  })
+}
+
+/**
+ * Where a job without a result stands: `waiting` for a process to claim it,
+ * `running` in the live process that did, or `abandoned` by one that ended
+ * without leaving a result.
+ */
+export async function standing(directory: string): Promise<"waiting" | "running" | "abandoned"> {
+  const claimed = await readJson<{ pid?: number }>(claimFile(directory)).catch(() => undefined)
+  if (!claimed) return "waiting"
+  return typeof claimed.pid === "number" && running(claimed.pid) ? "running" : "abandoned"
+}
+
+// Tokens and cost as Kinex recorded them in the job's session file and in those of the sub-agents its session started.
 export async function usage(record: string) {
   const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 }
-  const helpers = path.join(record, "helpers")
-  const sessions = [record, ...(await entries(helpers)).map(name => path.join(helpers, name))].map(sessionFile)
+  // pi-subagents keeps a sub-agent's session below its parent's (session/<run>/), and a copy of its
+  // transcript beside it; learned/ holds what a worker kept, which is not a session whatever its name.
+  const sessions = (await readdir(record, { recursive: true }).catch(() => []))
+    .filter(file => path.basename(file) === "session.jsonl" && file.split(path.sep)[0] !== "learned").map(file => path.join(record, file))
   const lines = (await Promise.all(sessions.map(file => readFile(file, "utf8").catch(() => "")))).flatMap(text => text.split("\n"))
   for (const line of lines) {
     if (!line.includes('"usage"')) continue
