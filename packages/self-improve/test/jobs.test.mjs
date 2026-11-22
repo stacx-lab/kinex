@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createJobs, line } from '@kinex/jobs'
-import { startTool, tools } from '@kinex/jobs/tools'
+import { createJobs, line } from '../dist/jobs/index.js'
+import { startTool, tools } from '../dist/jobs/tools.js'
 
 const gate = () => Promise.withResolvers()
 const tick = () => new Promise(resolve => setImmediate(resolve))

@@ -14,16 +14,15 @@ Design history and progress belong in git.
 - `packages/setup` owns onboarding and calibration procedures/assets, including
   calibration skills and evidence. Setup borrows core operational
   runtime resources through package exports.
-- `packages/jobs` owns work that outlives the call that started it: jobs, lanes,
-  one wait, and the same as plain tool definitions. It imports only Node and
-  knows no agent host, Kinex included, so it can leave this repository as it is.
 - `packages/self-improve` owns `/self-improve`: the scheduler in code, trials on
   simulated tasks, distillation as turns of the main session, library versions,
   and installing one. It reaches simulators only through the rosbridge command,
   core only through package exports and the session only through the command
-  context. It and jobs ship inside the standalone archive, so their dependencies
-  are peers that core or standalone provide; a release stays at core, setup and
-  standalone.
+  context. Its `src/jobs` owns work that outlives the call that started it: jobs,
+  lanes, one wait, and the same as plain tool definitions. That folder imports
+  only Node and knows no agent host, Kinex included. The package ships inside the
+  standalone archive, so its dependencies are peers that core or standalone
+  provide; a release stays at core, setup and standalone.
 - `src` composes standalone with published Pi SDKs; `src/integration` owns its
   product policy. Do not fork/reimplement providers, coding tools, loops or TUI.
 - Plugins for Pi, Claude Code and Codex live in the separate `../kinex-plugins`

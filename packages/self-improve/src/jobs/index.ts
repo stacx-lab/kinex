@@ -2,7 +2,9 @@
 // simulator run, a sub-agent, an API call. Starting returns at once, a lane lets a
 // limited number run and queues the rest, and the caller collects with one wait.
 // What it receives is a card: one line that says how the job ended and where its
-// record is. Nothing here knows what a job does or which host runs it.
+// record is. Nothing here knows what a job does or which host runs it: this folder
+// imports only Node. A wave's trials and a distiller's sub-agents run on it alike;
+// ../job.ts is the folder a trial or a distillation keeps on disk.
 
 /** What a job says of itself when it ends; the full result belongs in its record. */
 export interface Report { status?: string; summary?: string }
