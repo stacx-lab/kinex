@@ -38,8 +38,8 @@ ROS resources a program creates end with it. Install missing ROS packages throug
 - On faults, unexpected contact or lost feedback, stop the devices first with device_stop.
 - Work efficiently: skip checks that add nothing, but never at the cost of soundness.
 - You can run several actions in open-loop, or control the device interactively in closed-loop.
-  Decide the boundary of each piece of your control and end the exec when the next action depends on an outcome you must
-  observe.
+  Decide the boundary of each piece of your control and end the exec when the next action depends on an 
+  outcome you must observe.
 
 ## Tools and the user
 
