@@ -7,8 +7,9 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
 //   <data>/self-improve/<run>/
 //     config.json
 //     libraries/L<n>/{manifest.json, payload/{skills,tools,lib,programs,brief.md}, memory/}
-//     trials/t<nnn>/{input.json, workspace/, record/}
-//     distillations/d<nnn>/{input.json, workspace/, record/}
+//     waves/w<nnn>.json
+//     trials/t<nnn>/{input.json, claim.json, workspace/, record/}
+//     distillations/d<nnn>/{input.json, claim.json, workspace/, record/}
 
 export const runsDir = () => path.join(
   process.env.KINEX_DATA_DIR ?? path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "kinex"), "self-improve")
@@ -19,9 +20,11 @@ export const librariesDir = (root: string) => path.join(root, "libraries")
 export const versionDir = (root: string, version: string) => path.join(librariesDir(root), version)
 export const trialsDir = (root: string) => path.join(root, "trials")
 export const distillationsDir = (root: string) => path.join(root, "distillations")
+export const wavesDir = (root: string) => path.join(root, "waves")
 
 // Every job folder has the same entries, whichever kind it is.
 export const inputFile = (job: string) => path.join(job, "input.json")
+export const claimFile = (job: string) => path.join(job, "claim.json")
 export const workspaceDir = (job: string) => path.join(job, "workspace")
 export const recordDir = (job: string) => path.join(job, "record")
 export const resultFile = (job: string) => path.join(recordDir(job), "result.json")

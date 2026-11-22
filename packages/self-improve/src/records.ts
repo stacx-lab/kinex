@@ -7,6 +7,8 @@ import { RERUNS, RETRIES, type Config } from "./run.ts"
 import { writeTranscript } from "./transcript.ts"
 
 export interface TrialInput {
+  /** The wave the trial belongs to; waves count from 1. */
+  wave: number
   task: string; robot: string; library: string; seed?: number; timeoutS: number
   /** Where the simulator ended an earlier trial of the task at its step limit, which the worker is then told. */
   limit?: { steps: number; worldS?: number }

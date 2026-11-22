@@ -3,18 +3,18 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Assets } from "@kinex/core/installation/assets"
 import { finishJob, openJob, type Job, type Result } from "./job.ts"
-import { distillationsDir, parseLine, promptFile, readJson, sessionFile, trialsDir, versionDir, workspaceDir } from "./layout.ts"
+import { distillationsDir, parseLine, readJson, trialsDir, versionDir, workspaceDir } from "./layout.ts"
 import { check, newestVersion, publish } from "./library.ts"
 import { collect, type DistillInput, type Status } from "./records.ts"
-import { REPAIRS, REPAIR_S, type Run } from "./run.ts"
-import type { SessionExit } from "./session.ts"
+import { HELPERS, REPAIRS, REPAIR_S, type Run } from "./run.ts"
+import { runSession, type SessionExit } from "./session.ts"
 import FRAME from "./distill-frame.txt"
 import REPAIR from "./distill-repair.txt"
 import RULES from "./distill-rules.txt"
 import SCHEDULE from "./distill-schedule.txt"
 import REFERENCE from "./reference.txt"
 
-// A distillation is one turn of the main session in a folder of its own: trial
+// A distillation is a session of its own in a folder of its own: trial
 // records and the base library in, a checked candidate out. The frame and the
 // rules are rsi's distill-lean prompts, edited only where this package differs
 // from rsi: one episode per trial, trials in waves, the folder names, the check
@@ -47,10 +47,14 @@ async function rigOf(root: string, trials: readonly string[]): Promise<string | 
 
 export interface Distillation { job: Job; input: DistillInput; prompt: string; deadline: number }
 
-/** The folder a distiller works in and the prompt it is given: every finished trial's record, the reference, and the newest library as its candidate. */
-export async function prepareDistillation(run: Run, status: Status): Promise<Distillation> {
+/** Opens the distillation of every finished trial, from the newest library. */
+export async function openDistillation(run: Run, status: Status): Promise<Job> {
   const input: DistillInput = { base: await newestVersion(run.root), trials: status.trials.filter(trial => trial.status).map(trial => trial.id), fresh: status.fresh, timeoutS: run.config.distillTimeoutS }
-  const job = await openJob(distillationsDir(run.root), "d", input)
+  return openJob(distillationsDir(run.root), "d", input)
+}
+
+/** The folder a distiller works in and the prompt it is given: every finished trial's record, the reference, and the newest library as its candidate. */
+export async function prepareDistillation(run: Run, job: Job, input: DistillInput): Promise<Distillation> {
   const trials = await collect(run.root, run.config, input, path.join(job.workspace, "records"))
   await reference(path.join(job.workspace, "reference"), await rigOf(run.root, input.trials))
   await mkdir(path.join(job.workspace, "notes"))
@@ -63,20 +67,17 @@ export async function prepareDistillation(run: Run, status: Status): Promise<Dis
   const fill: Record<string, string> = {
     WORKER_MODEL: "Kinex, the agent and model you are", WORKER_TIMEOUT: String(run.config.trialTimeoutS), SESSION: job.id,
     DEADLINE: new Date(deadline).toISOString(), HOURS: (input.timeoutS / 3600).toFixed(1),
-    TASKS: [...goals].sort().map(([task, goal]) => `- ${task}: ${goal}`).join("\n"),
+    TASKS: [...goals].sort().map(([task, goal]) => `- ${task}: ${goal}`).join("\n"), HELPERS: String(run.config.helpers ?? HELPERS),
     SCHEDULE: unopened.length ? SCHEDULE.trim() : "",
   }
   const prompt = `${FRAME}\n${RULES}`.replaceAll(/\[\[(\w+)\]\]/g, (_, name: string) => fill[name] ?? "").replaceAll(/\n{3,}/g, "\n\n")
-  await writeFile(promptFile(job.record), prompt)
-  // The session a distiller works in is kept in this file: an empty one opens as a fresh session.
-  await writeFile(sessionFile(job.record), "")
   return { job, input, prompt, deadline }
 }
 
 type Exit = Pick<SessionExit, "status"> & { error?: string }
 
 /**
- * The distiller's turn and, while its candidate fails the check, up to REPAIRS
+ * The distiller's session and, while its candidate fails the check, up to REPAIRS
  * short turns of the same session that are shown what the check found: a library
  * with a fault is mended by the session that wrote it, not dropped for the
  * version before (rsi's gate repair). Returns how the last turn ended.
@@ -106,8 +107,24 @@ export async function scheduled(root: string): Promise<string[]> {
   return Array.isArray(next) ? next.filter(task => typeof task === "string") : []
 }
 
-/** Candidate to version, when the distiller's turn ended normally and the check passes; an unfinished turn may leave a half-written library. */
+/** Candidate to version, when the distiller's session ended normally and the check passes; an unfinished one may leave a half-written library. */
 export async function finishDistillation(run: Run, { job, input }: Distillation, session: Pick<SessionExit, "status" | "wallS"> & { error?: string; repairs?: number }): Promise<Result> {
   const outcome = session.status === "done" ? await publish(run.root, candidateDir(job.workspace), { parent: input.base, source: job.id }) : {}
   return finishJob(job, { ...session, ...outcome })
+}
+
+// One distillation: a headless distiller in the distillation's own folder, then
+// while the check finds problems a repair turn of the same session. The
+// distiller's sub-agents are its own. Only a session that ended normally can publish.
+export async function runDistillation(run: Run, job: Job, input: DistillInput, signal: AbortSignal): Promise<Result> {
+  const distillation = await prepareDistillation(run, job, input)
+  const started = Date.now()
+  let turns = 0
+  const turn = async (prompt: string, deadline: number): Promise<Exit> => {
+    const exit = await runSession("distiller", job.workspace, job.record, prompt, deadline, { signal, resume: turns++ > 0 })
+    return exit.status === "error" ? { status: "error", error: `the distiller exited ${exit.exitCode}; see output.log` } : { status: exit.status }
+  }
+  const exit = await distillTurns(distillation, turn)
+  signal.throwIfAborted()
+  return finishDistillation(run, distillation, { ...exit, wallS: Math.round((Date.now() - started) / 1000) })
 }

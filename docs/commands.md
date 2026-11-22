@@ -106,16 +106,16 @@ rate or leave it out when it is not needed. See
 
 ### Self-improvement
 
-| Command                                             | Purpose                                                              |
-| --------------------------------------------------- | -------------------------------------------------------------------- |
-| `/self-improve <tasks> [--rounds N] [--parallel N]` | Practise simulated tasks and distill a library of skills and code. |
-| `/self-improve status [run]`                        | Show trials, distillations and tasks solved per library version.     |
-| `/self-improve install <version> [run]`             | Copy a published library version into this workspace.                |
-| `/self-improve resume [run]`                        | Continue a run from what is on disk.                                 |
-| `/self-improve stop`                                | End the run scheduled in this Kinex and its running jobs.            |
+| Command                                 | Purpose                                                                      |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| `/self-improve <what to practise>`      | Plan a run of simulated tasks with the session; it starts once you approve.  |
+| `/self-improve status [run]`            | Show trials, distillations and tasks solved per library version.             |
+| `/self-improve install <version> [run]` | Copy a published library version into this workspace.                        |
+| `/self-improve resume [run]`            | Schedule a run again from what is on disk.                                   |
+| `/self-improve stop`                    | End a run's running trials and distillations.                                |
 
-A run needs `auto` or `yolo` mode: its distillations are turns of this session
-with nobody to approve them.
+Approving a plan moves Kinex from `ask` to `auto` mode: trials and distillations
+run as background sub-agents with nobody to approve their steps.
 
 ## Shell commands
 

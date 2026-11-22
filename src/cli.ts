@@ -43,7 +43,7 @@ RPC, @file attachments and advanced Pi tool/resource flags are not supported.
 
 TUI: /load /unload /ping /stop /devices /record
      /onboarding /register /calibrate /mode /model /login /new /compact
-     /self-improve <tasks> | status | install <version> | resume | stop
+     /self-improve <what to practise> | status | install <version> | resume | stop
 Pi's /reload refreshes agent resources. Python with uv, or Pixi for ROS workspaces,
 remains an external dependency.
 `

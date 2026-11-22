@@ -13,7 +13,7 @@ repository root.
 | --- | --- |
 | `packages/core` | Device management, ROS communication and supervision, schemas, runtime Python, `custom_interfaces`, operational tools, setup-device and device guides with reference nodes. No setup, agent or UI dependency. |
 | `packages/setup` | Onboarding and calibration workflows, tools, skills and evidence. Device preparation, including ROS, uses core's setup-device. Imports core through package exports. |
-| `packages/self-improve` | `/self-improve`: a scheduler in code, trials on simulated tasks, distillation as turns of the main session, library versions and installation. Reaches simulators only through the rosbridge command, core through package exports and the session through the command context. Its `src/jobs` runs the trials and sub-agents: jobs, lanes and one wait, from code or as plain tool definitions, importing only Node and knowing no agent host. |
+| `packages/self-improve` | `/self-improve`: a run planned with the user, a scheduler in code, trials and distillations as background sub-agents, library versions and installation. Reaches simulators only through the rosbridge command, core through package exports and background work through the bundled pi-subagents extension. |
 | `src`, `src/integration` | Standalone CLI, storage, product policy, Kinex tool rendering and bundled Pi extensions. Published Pi SDKs supply providers, coding tools, agent loops and TUI. |
 | `../kinex-plugins` | Plugins for Pi, Claude Code and Codex using a shared MCP adapter and explicit packed core/setup snapshots. |
 

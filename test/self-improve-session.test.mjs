@@ -3,45 +3,90 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { isolate, workspace } from './helpers.mjs'
 
 const isolation = await isolate()
 after(isolation.cleanup)
-const { createKinexRuntime } = await import('@kinex/core')
+// A stand-in for rosbridge, and no sandbox: these tests start no worker.
+process.env.KINEX_ROSBRIDGE = fileURLToPath(new URL('./fixtures/rosbridge.mjs', import.meta.url))
+process.env.FAKE_ROSBRIDGE_STATE = isolation.root
+process.env.KINEX_SELF_IMPROVE_SANDBOX = 'off'
+const { createKinexRuntime, PermissionDeniedError } = await import('@kinex/core')
 const { selfImproveContribution } = await import('@kinex/self-improve')
-const { checked, named, current } = await import('@kinex/self-improve/scheduler')
+const { checked, current } = await import('@kinex/self-improve/scheduler')
 
 const catalog = [{ id: 'sim/open-door', robot: 'sim/arm' }, { id: 'sim/press-button', robot: 'sim/arm' }, { id: 'lab/stack', robot: 'lab/hand' }]
 const command = { sessionID: 'session', confirm: async () => false }
 
-test('ids and patterns name a run\'s tasks without a model; anything else is free text', () => {
-  assert.deepEqual(named('sim/press-button sim/open-door', catalog), ['sim/press-button', 'sim/open-door'])
-  assert.deepEqual(named('sim/*', catalog), ['sim/open-door', 'sim/press-button'])
-  assert.deepEqual(named('sim/* sim/open-door', catalog), ['sim/open-door', 'sim/press-button'], 'a task named twice is one task')
-  assert.equal(named('two sim tasks about doors', catalog), undefined)
-  assert.equal(named('sim/open-door and one more', catalog), undefined, 'one part that is neither makes the whole request free text')
+test('a run\'s tasks are ids of the catalog, all on one robot', () => {
   assert.deepEqual(checked(['sim/press-button', 'sim/open-door', 'sim/open-door'], catalog), ['sim/open-door', 'sim/press-button'])
   assert.throws(() => checked(['sim/open-door', 'sim/missing'], catalog), /Unknown tasks: sim\/missing/)
   assert.throws(() => checked(['sim/open-door', 'lab/stack'], catalog), /different robots \(sim\/arm, lab\/hand\)/)
   assert.throws(() => checked([], catalog), /at least one task/)
 })
 
-test('a session that was given no turn has none of the tools, and a run needs a host that can give one', async t => {
+test('a session has the tools only while it plans or schedules a run, and a run exists once the user approved its plan', async t => {
   const directory = await workspace(t)
   const runtime = createKinexRuntime({ directory })
   t.after(() => runtime.dispose())
   const session = selfImproveContribution(runtime)
-  assert.deepEqual((await session.tools.list()).tools, [])
-  assert.throws(() => session.tools.call('improve_check', {}, { sessionID: 'session', callID: 'call', abort: new AbortController().signal }), /unknown self-improve tool/)
+  const names = async () => (await session.tools.list()).tools.map(tool => tool.name)
+  const asked = []
+  const call = (name, input, approve = true) => session.tools.call(name, input, { sessionID: 'session', callID: 'call', abort: new AbortController().signal, questions: async () => ({}),
+    ask: async request => { asked.push(request); if (!approve) throw new PermissionDeniedError(request.permission) } })
+  assert.deepEqual(await names(), [])
+  assert.throws(() => call('improve_next', {}), /unknown self-improve tool/)
   const [improve] = session.commands
-  await assert.rejects(improve.execute('sim/open-door', command), /cannot give the session a turn/)
-  await assert.rejects(improve.execute('sim/open-door', { ...command, turn: async () => {}, unattended: async () => false }), /switch with \/mode auto, or start Kinex with --auto/)
   await assert.rejects(improve.execute('', command), /Usage: \/self-improve/)
   await assert.rejects(improve.execute('stop now', command), /Usage: \/self-improve/)
   assert.deepEqual(await improve.execute('stop', command), { kind: 'output', text: 'No self-improve run is scheduled in this Kinex.' })
-  assert.equal(current(), undefined, 'a refused run schedules nothing')
+
+  // The command hands the request to the session, which plans it with the user.
+  const planning = await improve.execute('the sim tasks, two rounds', command)
+  assert.equal(planning.kind, 'workflow')
+  assert.match(planning.prompt, /^The user asks for a self-improve run: the sim tasks, two rounds\n\n[^]*improve_tasks[^]*improve_plan[^]*improve_next/)
+  assert.deepEqual(await names(), ['improve_tasks', 'improve_plan'])
+  assert.match((await call('improve_tasks', { pattern: 'sim/*' })).output, /^sim\/open-door \(robot sim\/arm\)\nsim\/press-button \(robot sim\/arm\)$/)
+
+  // Nothing exists before the user approves: a plan that is declined leaves the session planning.
+  await assert.rejects(call('improve_plan', { tasks: ['sim/open-door'] }, false), PermissionDeniedError)
+  assert.equal(current().run, undefined)
+  const [request] = asked
+  assert.equal(request.permission, 'unattended')
+  assert.match(request.description, /^Self-improve plan: 1 task of rosbridge's catalog on robot sim\/arm: sim\/open-door\nRounds: 1\./)
+  assert.match(request.description, /A trial starts with `[^`]* launch <task> --execution-mode stepped --early-stop`[^\n]*one worker sub-agent without a sandbox[^\n]*It ends with `[^`]* stop`, and `[^`]* judge` decides the outcome/)
+  assert.match(request.description, /\nTrials and distillations run in the background with nobody to approve their steps\.$/)
+  const unknown = await call('improve_plan', { tasks: ['sim/missing'] })
+  assert.deepEqual([unknown.isError, /Unknown tasks: sim\/missing/.test(unknown.output)], [true, true])
+
+  const approved = await call('improve_plan', { tasks: ['sim/press-button', 'sim/open-door'], rounds: 2, parallel: 2, batches: [1] })
+  const { run } = current()
+  assert.deepEqual({ ...run.config, libRoots: undefined }, { selection: 'the sim tasks, two rounds', tasks: ['sim/open-door', 'sim/press-button'], robot: 'sim/arm', rounds: 2, parallel: 2, batches: [1],
+    sandbox: false, libRoots: undefined, helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, rosbridge: process.env.KINEX_ROSBRIDGE })
+  assert.match(approved.output, new RegExp(`^The self-improve run ${run.root} is scheduled\\.\\n\\nWave 1: start this trial now, as a background sub-agent, unless you started it a moment ago:\\nsubagent\\(\\{ agent: "self-improve-trial", task: "t001" \\}\\)\\n`))
+  assert.deepEqual(await names(), ['improve_next'])
+  // The commands that do the run's jobs are named where pi-subagents reads its agents.
+  const agent = await readFile(path.join(process.env.KINEX_CONFIG_DIR, 'agent/agents/self-improve-trial.md'), 'utf8')
+  assert.match(agent, /^---\nname: self-improve-trial\n[^]*runner:\n  type: external-cli\n  command: "[^"]+"\n  args: \["[^"]*main\.js","trial","[^"]+"/)
+  assert.ok(agent.includes(JSON.stringify(run.root)), 'for this run')
+  assert.match(await readFile(path.join(process.env.KINEX_CONFIG_DIR, 'agent/agents/self-improve-distill.md'), 'utf8'), /"distill"/)
+  await assert.rejects(improve.execute('another run', command), /is already scheduled in this Kinex; \/self-improve stop ends it/)
+
+  // Stopping ends the scheduling here; resuming schedules the run again and asks the user once more.
+  assert.match((await improve.execute('stop', command)).text, new RegExp(`^Stopped the self-improve run ${run.root}\\. /self-improve resume continues it`))
+  assert.deepEqual([current(), await names()], [undefined, []])
+  const resumed = await improve.execute('resume', command)
+  assert.deepEqual([resumed.kind, current().run.root, await names()], ['workflow', run.root, ['improve_next']])
+  assert.match(resumed.prompt, /is scheduled in this Kinex again\. Call improve_next/)
+  asked.length = 0
+  await assert.rejects(call('improve_next', {}, false), PermissionDeniedError)
+  assert.match((await call('improve_next', {})).output, /subagent\(\{ agent: "self-improve-trial", task: "t001" \}\)/)
+  assert.match(asked.at(-1).description, /^Continue the self-improve run /)
+  await call('improve_next', {})
+  assert.equal(asked.length, 2, 'the user is asked once')
+  await improve.execute('stop', command)
 })
 
 test('an installed brief is a context section of each session, never an instruction', async t => {
