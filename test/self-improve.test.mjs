@@ -63,7 +63,8 @@ function script(request) {
   if (text.includes('You turn the records of earlier trials')) return [
     call('write', { path: 'library/payload/skills/press/SKILL.md', content: SKILL }),
     call('write', { path: 'library/payload/brief.md', content: 'BRIEF_MARKER load the press skill first.\n' }),
-    call('subagent', { agent: 'delegate', task: 'HELPER_PROMPT read records/ and write notes/door.md' }),
+    // Its sub-agents start together, as its frame says: a workflow written in the reply that starts it.
+    { ...call('subagent', { workflow: true, globalConcurrencyLimit: 10, async: true }), text: 'I read the records in parallel.\n\n```js workflow\nreturn runs.all([{ key: "door", agent: "delegate", task: "HELPER_PROMPT read records/ and write notes/door.md" }, { key: "button", agent: "delegate", task: "HELPER_PROMPT read records/ and write notes/button.md" }])\n```' },
     call('bg_wait'),
     call('improve_check'),
     { text: 'The library is ready.' },
@@ -168,7 +169,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     assert.match(transcript, /The library is ready/)
     const distiller = fake.requests.filter(request => JSON.stringify(request.messages).includes('You turn the records of earlier trials'))
     assert.ok(distiller.every(request => !said(request).includes(PLANNING)), 'it starts from an empty conversation')
-    assert.match(prompt, /- Start sub-agents with the subagent tool: agent `delegate`[^\n]*at most eight a call and 10 at a time \(`concurrency`\)[^\n]*bg_wait returns when they have ended\./)
+    assert.match(prompt, /- Start sub-agents with the subagent tool: agent `delegate`[^\n]*`workflow: true`, `globalConcurrencyLimit: 10` and `async: true`, so that at most 10 run at a time\.[^\n]*bg_wait returns when they have ended\./)
     // Its sub-agents are its own: a session of pi-subagents that works in its folder and is told nothing else.
     const helper = fake.requests.find(request => said(request).includes('HELPER_PROMPT') && !said(request).includes('You turn the records'))
     assert.ok(helper, 'the sub-agent ran')

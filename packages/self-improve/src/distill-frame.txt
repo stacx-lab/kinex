@@ -10,7 +10,7 @@ How the system works:
 - library/memory/ is your memory: it never ships, and the next session starts from the whole of library/ as you leave it. notes/ is scratch for this session only.
 - reference/ and records/ are read-only. reference/INDEX.md lists what reference/ holds. The gate that decides whether a library may ship is the tool improve_check.
 - This session ([[SESSION]]) ends at [[DEADLINE]] (about [[HOURS]] h from now).
-- Start sub-agents with the subagent tool: agent `delegate` and a task you write, which is all a sub-agent knows; several in one call as `tasks`, at most eight a call and [[HELPERS]] at a time (`concurrency`). They work in this folder and run in the background; bg_wait returns when they have ended.
+- Start sub-agents with the subagent tool: agent `delegate` and a task you write, which is all a sub-agent knows. Start several together as a workflow: write `return runs.all([{ key: "door", agent: "delegate", task: "..." }, ...])` in a fenced block tagged `js workflow` and, in the same reply, call the subagent tool with `workflow: true`, `globalConcurrencyLimit: [[HELPERS]]` and `async: true`, so that at most [[HELPERS]] run at a time. They work in this folder and run in the background; bg_wait returns when they have ended.
 
 Tasks (id, task):
 [[TASKS]]
