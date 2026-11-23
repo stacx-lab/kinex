@@ -35,7 +35,7 @@ export async function fakeProvider(t, root) {
     const send = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason }] })}\n\n`)
     if (step.tool || step.tools) {
       const calls = step.tools ?? [{ name: step.tool, args: step.args }]
-      send({ role: 'assistant', tool_calls: calls.map((call, index) => ({ index, id: `call_${requests.length}_${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } })) })
+      send({ role: 'assistant', ...(step.text ? { content: step.text } : {}), tool_calls: calls.map((call, index) => ({ index, id: `call_${requests.length}_${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } })) })
       send({}, 'tool_calls')
     } else { send({ role: 'assistant', content: step.text ?? 'FAKE_REPLY_OK' }); send({}, 'stop') }
     res.write(`data: ${JSON.stringify({ ...base, choices: [], usage: { prompt_tokens: step.inputTokens ?? 1000, completion_tokens: 20, total_tokens: (step.inputTokens ?? 1000) + 20, prompt_tokens_details: { cached_tokens: 800 } } })}\n\ndata: [DONE]\n\n`)
