@@ -53,7 +53,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
       const run = await openRun(second)
       await writeAgents(run)
       schedule({ request: run.config.selection, run })
-      return { kind: "workflow", prompt: `The self-improve run ${run.root} (${run.config.selection}) is scheduled in this Kinex again. Call improve_next and do what it says: it names the sub-agents to start. Do not attempt the tasks yourself.` }
+      return { kind: "workflow", prompt: `The self-improve run ${run.root} (${run.config.selection}) is scheduled in this Kinex again. Call improve_next and do what it says: it names the sub-agents to start with the subagent tool. Where you do not have that tool yet, call subagents_enable once first. Do not attempt the tasks yourself.` }
     }
     if (!tokens.length) throw new Error(USAGE)
     // The session plans the run with the user; improve_plan makes it once the user has approved.
