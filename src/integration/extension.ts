@@ -100,20 +100,6 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         await status(ctx)
       },
     })
-    let subagentModels: string[] = []
-    pi.registerCommand("subagent", {
-      description: "Choose the model program subagents use [<provider/model> [thinking] | session]",
-      getArgumentCompletions: prefix => prefix.includes(" ") ? null
-        : ["session", ...subagentModels].filter(value => value.startsWith(prefix)).map(value => ({ value, label: value })),
-      handler: async (args, ctx) => {
-        try {
-          if (!owner.subagents) throw new Error("Subagents are not available in this session")
-          const text = await owner.subagents.configure(args)
-          if (ctx.hasUI) ctx.ui.notify(text, "info")
-          else report(text)
-        } catch (error) { fault(ctx, error) }
-      },
-    })
     pi.registerTool({
       name: "question", label: "Question", description: "Ask the user for missing facts or choices.", ...toolRenderers("question"),
       executionMode: "sequential",
@@ -140,7 +126,6 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       for (const activation of await runtime.devices.warmLoaded()) void activation.ready.catch(error => notify(ctx, `${activation.device.name}: ${String(error)}`, "error"))
       if (!active) return
       await bridge.refreshActive()
-      subagentModels = await owner.subagents?.models() ?? []
       await status(ctx)
     })
     pi.on("session_shutdown", async event => {

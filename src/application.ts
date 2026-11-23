@@ -59,7 +59,7 @@ export async function createApplication(options: ApplicationOptions) {
     modelsStorePath: path.join(storage.state, "models-cache.json"), allowModelNetwork: false,
   })
   owner.subagents = createSubagents({
-    modelRuntime, agentDir: storage.agent, file: path.join(storage.config, "subagent.json"),
+    modelRuntime, agentDir: storage.agent,
     directory: () => owner.runtime?.directory ?? cwd, sessionModel: () => owner.model,
   })
   const sessionDir = sessionDirectory(cwd)
