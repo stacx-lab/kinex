@@ -43,8 +43,11 @@ function session(request) {
     return has('improve_tasks') ? { tool: 'improve_tasks', args: { pattern: 'sim/press-button' } } : { text: 'KINEX_TUI_READY' }
   }
   if (/^sim\/[^\n]* \(robot /.test(text)) return { tool: 'improve_plan', args: { tasks: ['sim/press-button'] } }
-  const starts = [...text.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)]
-  if (starts.length) return { tools: starts.map(([, agent, task]) => ({ name: 'subagent', args: { agent, task } })) }
+  // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.
+  const waves = [...text.matchAll(/subagent\(\{ workflow: ("[^"]+"), args: \{ run: ("[^"]+"), library: ("[^"]+"), tasks: (\[[^\]]*\]) \}, globalConcurrencyLimit: (\d+), async: true \}\)/g)]
+    .map(([, workflow, run, library, tasks, limit]) => ({ workflow: JSON.parse(workflow), args: { run: JSON.parse(run), library: JSON.parse(library), tasks: JSON.parse(tasks) }, globalConcurrencyLimit: Number(limit), async: true }))
+  const starts = [...waves, ...[...text.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)].map(([, agent, task]) => ({ agent, task }))]
+  if (starts.length) return { tools: starts.map(args => ({ name: 'subagent', args })) }
   return { text: /has ended|stopped on an error/.test(text) ? 'RUN_OVER' : 'TRIALS_STARTED' }
 }
 

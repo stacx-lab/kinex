@@ -7,6 +7,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
 //   <data>/self-improve/<run>/
 //     config.json
 //     kinex.json                      the Kinex that schedules the run now: its children are that Kinex
+//     wave.js                         the workflow that starts a wave's trials as sub-agents
 //     libraries/L<n>/{manifest.json, payload/{skills,tools,lib,programs,brief.md}, memory/}
 //     waves/w<nnn>.json
 //     trials/t<nnn>/{input.json, claim.json, workspace/, record/}
@@ -18,6 +19,9 @@ export const runsDir = () => path.join(
 export const pythonDir = () => path.join(runsDir(), ".python")
 export const configFile = (root: string) => path.join(root, "config.json")
 export const kinexFile = (root: string) => path.join(root, "kinex.json")
+export const waveScript = (root: string) => path.join(root, "wave.js")
+// Jobs are processes of their own: each asks the scheduler for its job while it alone holds this.
+export const lockDir = (root: string) => path.join(root, ".lock")
 export const librariesDir = (root: string) => path.join(root, "libraries")
 export const versionDir = (root: string, version: string) => path.join(librariesDir(root), version)
 export const trialsDir = (root: string) => path.join(root, "trials")

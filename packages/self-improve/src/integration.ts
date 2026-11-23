@@ -27,7 +27,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
       const run = await openRun(second)
       const status = await scan(run.root)
       const jobs = await live(run.root, status)
-      return { kind: "output", text: renderStatus(run.root, status, id => jobs.waiting.has(id) || jobs.running.has(id)) }
+      return { kind: "output", text: renderStatus(run.root, status, id => jobs.has(id)) }
     }
     if (first === "install") {
       if (!second) throw new Error(USAGE)
@@ -53,7 +53,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
       const run = await openRun(second)
       await writeAgents(run)
       schedule({ request: run.config.selection, run })
-      return { kind: "workflow", prompt: `The self-improve run ${run.root} (${run.config.selection}) is scheduled in this Kinex again. Call improve_next and do what it says: it names the sub-agents to start with the subagent tool. Do not attempt the tasks yourself.` }
+      return { kind: "workflow", prompt: `The self-improve run ${run.root} (${run.config.selection}) is scheduled in this Kinex again. Call improve_next and do what it says: it gives the calls of the subagent tool that start the next sub-agents. Do not attempt the tasks yourself.` }
     }
     if (!tokens.length) throw new Error(USAGE)
     // The session plans the run with the user; improve_plan makes it once the user has approved.

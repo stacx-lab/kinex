@@ -46,10 +46,13 @@ function scheduler(plan) {
       return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*' }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
     }
     if (/^sim\/[^\n]* \(robot /.test(text)) return call('improve_plan', plan)
-    const starts = [...text.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)]
-    if (starts.length) return has('subagent') ? { tools: starts.map(([, agent, task]) => ({ name: 'subagent', args: { agent, task } })) } : { text: 'NO_SUBAGENT_TOOL' }
+    // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.
+    const waves = [...text.matchAll(/subagent\(\{ workflow: ("[^"]+"), args: \{ run: ("[^"]+"), library: ("[^"]+"), tasks: (\[[^\]]*\]) \}, globalConcurrencyLimit: (\d+), async: true \}\)/g)]
+      .map(([, workflow, run, library, tasks, limit]) => ({ workflow: JSON.parse(workflow), args: { run: JSON.parse(run), library: JSON.parse(library), tasks: JSON.parse(tasks) }, globalConcurrencyLimit: Number(limit), async: true }))
+    const starts = [...waves, ...[...text.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)].map(([, agent, task]) => ({ agent, task }))]
+    if (starts.length) return has('subagent') ? { tools: starts.map(args => ({ name: 'subagent', args })) } : { text: 'NO_SUBAGENT_TOOL' }
     if (/has ended|stopped on an error/.test(text)) return { text: 'RUN_OVER' }
-    if (/No (trial|distillation) waits/.test(text)) return call('improve_next')
+    if (/Not started: /.test(text)) return call('improve_next')
     return { text: 'WAITING' }
   }
 }
@@ -116,12 +119,13 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     const messages = scheduling.at(-1).messages
     const results = messages.filter(message => message.role === 'tool').map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content))
     assert.match(results[0], /^sim\/open-door \(robot sim\/arm\)\nsim\/press-button \(robot sim\/arm\)$/)
-    assert.match(results[1], new RegExp(`is scheduled\\.\\n\\nWave 1: start this trial now, as a background sub-agent, unless you started it a moment ago:\\nsubagent\\(\\{ agent: "self-improve-trial", task: "${name}/t001" \\}\\)\\n1 more of this wave start as these end\\.`))
+    assert.ok(results[1].includes(`is scheduled.\n\nWave 1: 2 tasks to try, 1 at a time, each a trial in a background sub-agent. Start them with this call, unless you did a moment ago:\nsubagent({ workflow: ${JSON.stringify(path.join(root, 'wave.js'))}, args: { run: "${name}", library: "L0", tasks: ["sim/open-door","sim/press-button"] }, globalConcurrencyLimit: 1, async: true })\nlibrary is the version the workers are given: L0 is the newest. Nothing else in the call is yours to change.`))
     // What a sub-agent leaves is told to the session that started it: the verdict, and where the record is.
     assert.match(told, new RegExp(`pi_subagents_notice[^]*t001, sim/open-door, L0, failure, stopped, 40 steps[^]*Its record: ${path.join(root, 'trials/t001/record')} \\(summary\\.md first\\)`))
-    assert.ok(told.includes(`The wave is done. Start its distillation now, as a background sub-agent, unless you started it a moment ago:\\nsubagent({ agent: \\"self-improve-distill\\", task: \\"${name}/d001\\" })`))
+    assert.ok(told.includes(`The wave is done. Start its distillation now, as a background sub-agent, unless you did a moment ago:\\nsubagent({ agent: \\"self-improve-distill\\", task: \\"run=${name}\\" })`))
     assert.match(told, /d001, base L0, 2 trials \(2 new\), published L1/)
-    assert.match(told, new RegExp(`Wave 2: start this trial now[^]*task: \\\\"${name}/t003\\\\"`))
+    // The next wave's call gives the new version, and says that another may be given.
+    assert.ok(told.includes(`library: \\"L1\\", tasks: [\\"sim/open-door\\",\\"sim/press-button\\"] }, globalConcurrencyLimit: 1, async: true })\\nlibrary is the version the workers are given: L1 is the newest, and it may be another of L0, L1.`))
   })
 
   await t.test('a trial is one judged episode with its own record', async () => {

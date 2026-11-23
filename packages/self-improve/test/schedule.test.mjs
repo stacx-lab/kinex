@@ -5,9 +5,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { settled, stepLimits } from '../dist/records.js'
-import { describe, next, stop, waveTasks } from '../dist/scheduler.js'
+import { Refused, admit, describe, next, stop, waveTasks } from '../dist/scheduler.js'
 import { claimFile, configFile, resultFile } from '../dist/layout.js'
-import { jobAt, jobName, namedJobs } from '../dist/job.js'
 import { instruction } from '../dist/sim.js'
 import { distillTurns, scheduled } from '../dist/distill.js'
 import { createLibrary, publish } from '../dist/library.js'
@@ -118,7 +117,8 @@ test('the order of new tasks is read from the distillation that made the newest 
   }
 })
 
-// A run's folder as improve_plan leaves it, and a job as its process leaves it: claimed, then finished.
+// A run's folder as improve_plan leaves it. A job is opened by the process that does it, here this one, so it
+// counts as running until it is finished: a result, and a claim whose process is gone.
 async function scheduledRun(t, config) {
   const root = await directory(t)
   const full = { selection: 'the tasks', robot: 'arm', rounds: 2, parallel: 2, trialTimeoutS: 60, distillTimeoutS: 60, rosbridge: 'rosbridge', ...config }
@@ -132,82 +132,86 @@ const finish = async (job, result) => {
 }
 const judged = success => ({ status: 'done', success, steps: 40 })
 
-test('the next step is read from the run\'s folder: a wave some trials at a time, then its distillation, then the next wave', async t => {
+test('the next step is read from the run\'s folder and a job is opened when its sub-agent asks: a wave some trials at a time, then its distillation, then the next wave', async t => {
   const run = await scheduledRun(t, { tasks: ['a', 'b', 'c'] })
   const first = await next(run)
-  assert.deepEqual([first.kind, first.wave, first.start.map(job => job.id), first.left], ['trials', 1, ['t001', 't002'], 1], 'as many as run at a time')
-  assert.match(await describe(run, first), /Wave 1: start these 2 trials now[^\n]*\nsubagent\(\{ agent: "self-improve-trial", task: "[^"/]+\/t001" \}\)\nsubagent\(\{ agent: "self-improve-trial", task: "[^"/]+\/t002" \}\)\n1 more of this wave start as these end\./)
-  // A trial that was named and never started is named again: no process claimed it.
-  const again = await next(run)
-  assert.deepEqual([again.start.map(job => job.id), again.left], [['t001', 't002'], 1])
-  // One is running and one has ended: the slot it left goes to the task that waited.
-  await put(claimFile(first.start[0].directory), JSON.stringify({ pid: process.pid }))
-  await finish(first.start[1], judged(false))
-  const third = await next(run)
-  assert.deepEqual([third.start.map(job => job.id), third.running, third.left], [['t003'], ['t001'], 0])
-  await put(claimFile(third.start[0].directory), JSON.stringify({ pid: process.pid }))
+  // Tasks open in a fixed order that is not the alphabet's.
+  const [x, y, z] = first.tasks
+  assert.deepEqual([first.kind, first.wave, first.library, [x, y, z].sort(), first.running], ['trials', 1, 'L0', ['a', 'b', 'c'], []])
+  assert.deepEqual(await next(run), first, 'asking opens nothing')
+  // The wave starts as one call, which the session makes: its tasks, the library their workers get, and how many run at a time.
+  assert.ok((await describe(run, first)).startsWith(`Wave 1: 3 tasks to try, 2 at a time, each a trial in a background sub-agent. Start them with this call, unless you did a moment ago:
+subagent({ workflow: ${JSON.stringify(path.join(run.root, 'wave.js'))}, args: { run: "${path.basename(run.root)}", library: "L0", tasks: ${JSON.stringify(first.tasks)} }, globalConcurrencyLimit: 2, async: true })
+library is the version the workers are given: L0 is the newest. Nothing else in the call is yours to change.`))
+
+  // Each trial asks to be admitted. As many run as the plan allows, whatever was started: a third waits for one to end.
+  const one = await admit(run, { task: x })
+  const two = await admit(run, { task: y })
+  assert.deepEqual([one.id, two.id], ['t001', 't002'])
+  await assert.rejects(admit(run, { task: z }, AbortSignal.timeout(100)), { name: 'TimeoutError' })
+  // What the scheduler does not have to do is refused: a task that is being tried, one of no wave, a version that does not exist, a distillation before its wave is done.
+  await assert.rejects(admit(run, { task: x }), { message: `${x} is not to be tried now: wave 1 has ${z} to try` })
+  await assert.rejects(admit(run, { task: 'other' }), Refused)
+  await assert.rejects(admit(run, { task: z, library: 'L7' }), /No library version L7; the run has L0/)
+  await assert.rejects(admit(run, 'distill'), /No distillation is to be started: wave 1 has/)
+  await finish(two, judged(false))
+  const three = await admit(run, { task: z })
+  assert.equal(three.id, 't003')
   assert.deepEqual(await next(run), { kind: 'wait', running: ['t001', 't003'] })
   assert.match(await describe(run, await next(run)), /^Nothing to start: t001, t003 are still running\./)
-  await finish(first.start[0], judged(true))
-  await finish(third.start[0], judged(false))
+  await finish(one, judged(true))
+  await finish(three, judged(false))
 
-  // The wave is distilled before another opens, and no trial is named meanwhile.
-  const distill = await next(run)
-  assert.deepEqual([distill.kind, distill.job.id], ['distill', 'd001'])
-  assert.deepEqual((await next(run)).job.id, 'd001', 'named again until a process claims it')
-  await put(claimFile(distill.job.directory), JSON.stringify({ pid: process.pid }))
+  // The wave is distilled before another opens, and no trial is admitted meanwhile.
+  assert.deepEqual(await next(run), { kind: 'distill' })
+  assert.match(await describe(run, { kind: 'distill' }), new RegExp(`\nsubagent\\(\\{ agent: "self-improve-distill", task: "run=${path.basename(run.root)}" \\}\\)\n`))
+  await assert.rejects(admit(run, { task: y }), /is not to be tried now: the wave is to be distilled/)
+  const distill = await admit(run, 'distill')
+  assert.equal(distill.id, 'd001')
   assert.deepEqual(await next(run), { kind: 'wait', running: ['d001'] })
+  await assert.rejects(admit(run, 'distill'), /No distillation is to be started: d001 is still running/)
   // A distillation whose session did not end normally settled nothing: the same trials are distilled again.
-  await finish(distill.job, { status: 'timeout' })
-  const retried = await next(run)
-  assert.deepEqual([retried.kind, retried.job.id], ['distill', 'd002'])
-  await finish(retried.job, { status: 'done', version: 'L1' })
+  await finish(distill, { status: 'timeout' })
+  const retried = await admit(run, 'distill')
+  assert.equal(retried.id, 'd002')
+  await finish(retried, { status: 'done', version: 'L1' })
   await publish(run.root, path.join(run.root, 'libraries/L0'), { parent: 'L0', source: 'd002' })
 
-  // The next wave gives every task still unsolved a trial with the newest version.
+  // The next wave gives every task still unsolved a trial with the newest version, unless the session gives another.
   const second = await next(run)
-  const inputs = await Promise.all(second.start.map(async job => JSON.parse(await readFile(path.join(job.directory, 'input.json'), 'utf8'))))
-  // Tasks open in a fixed order that is not the alphabet's, so the solved one is whichever t001 was given.
-  const solved = JSON.parse(await readFile(path.join(first.start[0].directory, 'input.json'), 'utf8')).task
-  assert.deepEqual([second.wave, inputs.map(input => [input.wave, input.library]), inputs.map(input => input.task).sort()],
-    [2, [[2, 'L1'], [2, 'L1']], ['a', 'b', 'c'].filter(task => task !== solved)])
-  for (const job of second.start) await finish(job, judged(true))
+  assert.deepEqual([second.wave, second.library, [...second.tasks].sort()], [2, 'L1', [y, z].sort()])
+  assert.match(await describe(run, second), /library is the version the workers are given: L1 is the newest, and it may be another of L0, L1\./)
+  const jobs = [await admit(run, { task: y, library: 'L0' }), await admit(run, { task: z })]
+  const inputs = await Promise.all(jobs.map(async job => JSON.parse(await readFile(path.join(job.directory, 'input.json'), 'utf8'))))
+  assert.deepEqual(inputs.map(input => [input.wave, input.task, input.library]), [[2, y, 'L0'], [2, z, 'L1']])
+  for (const job of jobs) await finish(job, judged(true))
   const end = await next(run)
   assert.deepEqual(end, { kind: 'end', reason: 'every task is solved' })
   assert.match(await describe(run, end), /has ended: every task is solved\.\n\nRun: [^]*Tasks: 3\/3 solved[^]*\/self-improve install <version>/)
 })
 
-test('a trial that did not run is started again twice, and a wave none of whose trials ran ends the run', async t => {
+test('a trial that did not run is tried again twice, and a wave none of whose trials ran ends the run', async t => {
   const run = await scheduledRun(t, { tasks: ['a'], parallel: 1 })
   for (const id of ['t001', 't002', 't003']) {
-    const step = await next(run)
-    assert.deepEqual(step.start.map(job => job.id), [id])
+    assert.deepEqual((await next(run)).tasks, ['a'])
+    const job = await admit(run, { task: 'a' })
+    assert.equal(job.id, id)
     // An error is a result, and a process that ended without one abandoned its trial: neither says anything of the task.
-    if (id === 't002') await put(claimFile(step.start[0].directory), JSON.stringify({ pid: 2 ** 22 + 1 }))
-    else await finish(step.start[0], { status: 'error', error: 'rosbridge launch: no simulator could start' })
+    if (id === 't002') await put(claimFile(job.directory), JSON.stringify({ pid: 2 ** 22 + 1 }))
+    else await finish(job, { status: 'error', error: 'rosbridge launch: no simulator could start' })
   }
   const end = await next(run)
   assert.deepEqual([end.kind, end.failed], ['end', true])
   assert.match(end.reason, /^no trial of the wave ran: t001 \(a\): rosbridge launch: no simulator could start; t003 \(a\)/)
   assert.match(await describe(run, end), /stopped on an error: no trial of the wave ran[^]*\/self-improve resume continues it\./)
+  await assert.rejects(admit(run, { task: 'a' }), /a is not to be tried now: the run has ended: no trial of the wave ran/)
 })
 
 test('a run ends when its rounds are done, and stopping tells the processes of its jobs', async t => {
   const run = await scheduledRun(t, { tasks: ['a'], rounds: 1, parallel: 1 })
-  const { start: [trial] } = await next(run)
-  await finish(trial, judged(false))
-  const { job } = await next(run)
-  await finish(job, { status: 'done', problems: ['payload/brief.md: too long'] })
+  await finish(await admit(run, { task: 'a' }), judged(false))
+  await finish(await admit(run, 'distill'), { status: 'done', problems: ['payload/brief.md: too long'] })
   assert.deepEqual(await next(run), { kind: 'end', reason: 'its rounds are done' }, 'a library that could not be published is still a round')
   // Only a job whose process is alive is stopped; here none is.
   assert.deepEqual(await stop(run), [])
-})
-
-test('a job is named by its run and its id, and found again in what its sub-agent is given', () => {
-  const name = jobName(jobAt('/data/self-improve/20261123-101500/trials/t012'))
-  assert.equal(name, '20261123-101500/t012')
-  assert.deepEqual(namedJobs(`Runs one trial of a self-improve run.\n\nTask: "${name}"`, 't'), [{ run: '20261123-101500', id: 't012' }])
-  // A trial's command takes no distillation, and a longer word is not an id.
-  assert.deepEqual(namedJobs('20261123-101500/d001 and some/trials/t001x', 't'), [])
-  assert.deepEqual(namedJobs('20261123-101500/d001', 'd'), [{ run: '20261123-101500', id: 'd001' }])
 })

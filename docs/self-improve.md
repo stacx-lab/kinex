@@ -11,8 +11,8 @@ run's files and its settings; this page keeps the contracts.
 
 | Role | Runs in | Package tools |
 | --- | --- | --- |
-| Scheduler | Code that decides the next step from the run's folder | none |
-| Session | The user's session: it plans the run and starts what the scheduler names | `improve_tasks`, `improve_plan`; then `improve_next` |
+| Scheduler | Code that decides the next step from the run's folder and admits the jobs that do it | none |
+| Session | The user's session: it plans the run and starts the sub-agents of each step | `improve_tasks`, `improve_plan`; then `improve_next` |
 | Worker | A headless child Kinex in a trial workspace with one library version installed; starts with `/load all`; sandboxed | none |
 | Distiller | A headless child Kinex in the distillation's folder, in a session of its own | `improve_check` |
 
@@ -22,12 +22,18 @@ run's files and its settings; this page keeps the contracts.
   description; the host shows it, and from `ask` mode the approval moves the
   session to `auto`. `yolo` does not ask, and without a user only a session that
   already works without approvals goes on.
-- The scheduler is code and starts nothing. `improve_next` returns its decision:
-  the trials or the distillation to start, each named as a call of
+- The scheduler is code and starts nothing. `improve_next` returns its decision
+  and opens no job: the wave's tasks to try or the distillation, as a call of
   [pi-subagents](https://www.npmjs.com/package/pi-subagents)' `subagent` tool.
-  The session starts them in the background and is told when one has ended, with
-  the trial's verdict and the path of its record; then it asks again. Which
-  tasks run, with which library and how often is never the model's choice.
+  A wave's trials start together as one workflow, as many at a time as the plan
+  allows; the session is told once, when all have ended, with each trial's
+  verdict and the path of its record, and asks again.
+- The session starts the sub-agents, and what it may choose is in the call's
+  arguments: today the library version a wave's workers are given, the newest
+  unless it gives another published one. Every sub-agent asks the scheduler to
+  be admitted before it does anything, so which tasks are tried, how often and
+  how many at a time holds whatever the session started: a task that is not to
+  be tried now is refused, and a trial beyond the plan's number waits.
   Standalone keeps pi-subagents [closed](agent-integration.md) until the plan is
   approved, so a session has its tools from then on and no other session has
   them. A distiller's Kinex is started with it open.
@@ -121,11 +127,15 @@ reserved by creating them; a job is finished when its atomically written
 `record/result.json` exists, and status is read by scanning folders. Running jobs
 share no file.
 
-A job is done by a process of its own, which a background sub-agent runs: it
-claims the job the scheduler opened, so a job started twice is done once and one
-never started is named again. The call names the job by its run and its id
-(`<run>/t003`), so the two agent files that name the command are the same for
-every run, and Kinex processes that schedule different runs share them. The run's
+A job is done by a process of its own, which a background sub-agent runs. The
+call says the run, and for a trial the task and the library version
+(`run=<run> task=<task> library=L1`), so the two agent files that name the
+command are the same for every run, and Kinex processes that schedule different
+runs share them. The process asks the scheduler for its job while it alone holds
+the run's lock, and opens the job's folder itself, claimed with its process id:
+a job is never opened twice, and one whose process is gone without a result is
+abandoned. What passes between a job and everything else is files in the run's
+folder; a sub-agent's own words are one line and the path of its record. The run's
 `kinex.json` keeps which Kinex schedules it now: its children are that Kinex on
 that model. A job ends itself an hour after its run's limit for it. Jobs take turns, through a lock in the runs'
 folder, at what must not happen twice at once: building the shared Python
