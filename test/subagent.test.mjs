@@ -16,15 +16,15 @@ from pathlib import Path
 from kinex import args, finish, subagent
 
 
-async def main(image, model=None):
-    reply = await subagent("Is the mug upright? Answer yes or no.", show={"wrist": Path(image), "tolerance_deg": 5}, model=model)
+async def main(image, model=None, thinking=None):
+    reply = await subagent("Is the mug upright? Answer yes or no.", show={"wrist": Path(image), "tolerance_deg": 5}, model=model, thinking=thinking)
     finish({"upright": reply.strip() == "yes"})
 
 
 asyncio.run(main(**args()))
 `
 
-test('a program asks a subagent that runs as its own Pi session on the model /subagent chose', { timeout: 60000 }, async t => {
+test('a program asks a subagent that runs as its own Pi session, on the session\'s model or the one the call names', { timeout: 60000 }, async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
   const models = path.join(isolation.root, 'config/agent/models.json')
@@ -52,8 +52,7 @@ test('a program asks a subagent that runs as its own Pi session on the model /su
     return { ...value, request: fake.requests[0] }
   }
 
-  // Until a model is chosen, the subagent uses the session's model.
-  assert.equal(await command('/subagent'), "Subagents use the session's model, thinking off.")
+  // A call that names no model uses the session's.
   const first = await judge('yes')
   assert.deepEqual(first.result, { upright: true })
   assert.match(first.output, /^subagent fake\/test \(\d+\.\d s\): yes\n$/)
@@ -71,14 +70,11 @@ test('a program asks a subagent that runs as its own Pi session on the model /su
   assert.equal(images.length, 1)
   assert.match(images[0], /^data:image\/png;base64,iVBORw0KGgo/)
 
-  // /subagent chooses the model for every later call; a call may still name its own.
-  assert.equal(await command('/subagent fake/small'), 'Subagents use fake/small, thinking off.')
-  assert.deepEqual(JSON.parse(await readFile(path.join(isolation.root, 'config/subagent.json'), 'utf8')), { model: 'fake/small', thinking: 'off' })
-  const second = await judge('no')
+  // A call may name its own model, and how hard it thinks.
+  const second = await judge('no', ' model=fake/small')
   assert.deepEqual([second.result, second.request.model], [{ upright: false }, 'small'])
   assert.match(second.output, /^subagent fake\/small /)
-  assert.equal((await judge('yes', ' model=fake/test')).request.model, 'test')
-  assert.equal(await command('/subagent'), 'Subagents use fake/small, thinking off.')
+  assert.match(JSON.parse(await command('/exec .kinex/programs/judge.py image=frame.png thinking=extreme')).error, /Unknown thinking level extreme/)
 
   // What the program cannot be given is an answer it can handle, not a crash of the host.
   fake.requests.length = 0
@@ -87,17 +83,10 @@ test('a program asks a subagent that runs as its own Pi session on the model /su
   assert.match(JSON.parse(await command('/exec .kinex/programs/judge.py image=frame.png model=nowhere/none')).error, /nowhere/)
   assert.equal(fake.requests.length, 0)
 
-  for (const invalid of ['/subagent nowhere/none', '/subagent fake/small extreme', '/subagent session low', '/subagent fake/small low extra'])
-    await assert.rejects(command(invalid), /nowhere|Unknown thinking level extreme|Usage: \/subagent/, invalid)
-  assert.equal(await command('/subagent fake/small low'), 'Subagents use fake/small, thinking low.')
-  assert.equal(await command('/subagent session'), "Subagents use the session's model, thinking off.")
-  assert.equal((await judge('yes')).request.model, 'test')
-
   // The shell runs the same program with no main agent in the loop: only the subagent calls a model.
-  await command('/subagent fake/small')
   fake.requests.length = 0
   fake.steps.push({ text: 'no' })
-  const pending = promisify(execFile)(process.execPath, [fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url)), 'run', '/exec .kinex/programs/judge.py image=frame.png'],
+  const pending = promisify(execFile)(process.execPath, [fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url)), 'run', '/exec .kinex/programs/judge.py image=frame.png model=fake/small'],
     { cwd, env: process.env, timeout: 40000 })
   pending.child.stdin.end()
   const run = await pending

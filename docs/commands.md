@@ -41,7 +41,6 @@ reconnect the whole collection. `/reload` refreshes agent resources only.
 | `/exec <file.py> [name=value ...]`                   | Run a saved program without the model.                                   |
 | `/lib [module[.function]]`                           | Browse the function library: modules, a module's functions, a signature. |
 | `/visualize <file.py[:function]\|module.function> [output.html]` | Draw the flow chart of a program or function as a page to open in a browser. |
-| `/subagent [<provider/model> [thinking]]`            | Show or choose the model that subagents in programs use.                 |
 
 `/exec` runs a program file, by convention one under `.kinex/programs`, and passes
 `name=value` pairs as the arguments the program reads with `args()`; a value is
@@ -64,11 +63,6 @@ default under `.kinex/flow/`. `/visualize path/to/program.py` charts a whole pro
 function. Each device operation, wait and call is a node; clicking a call opens that
 function's own chart in place, and clicking any node shows its source lines. See
 [flow charts](tools-and-skills.md#flow-charts).
-
-`/subagent` shows the model that [subagents in programs](tools-and-skills.md#subagents-in-programs)
-use. `/subagent <provider/model> [thinking]` chooses it for every later call, with
-thinking `off` unless given, and `/subagent session` returns to the session's model.
-The choice persists across sessions and workspaces.
 
 ### Recording and session export
 
