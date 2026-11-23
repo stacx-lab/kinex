@@ -44,6 +44,14 @@ does not ask, and without a user only a session that already works without
 approvals may go on. [Self-improvement](self-improve.md#roles) has its plan
 approved this way.
 
+Standalone bundles pi-subagents closed: the extension loads, but its tools,
+commands and shortcuts are held back, and its skills and prompt templates are not
+loaded, so neither the model nor the user sees anything of it. Granting
+`unattended` opens it for the rest of the process, and the tools are there for
+the model's next request. A process pi-subagents started as a sub-agent, and one
+started with `KINEX_SUBAGENTS=on`, has it open from the start. A user who
+installs `npm:pi-subagents` gets their own copy instead, always open.
+
 `exec` requests `python_tool` approval once per invocation; its device reads and
 commands share that approval, and Python cannot change device lifecycle or control
 recording. Library functions run inside that invocation and add no approval of

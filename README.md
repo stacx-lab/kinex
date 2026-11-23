@@ -170,7 +170,10 @@ extensions, skills, prompt templates and themes.
 [pi-web-search](https://www.npmjs.com/package/pi-web-search),
 [pi-btw](https://www.npmjs.com/package/pi-btw) and
 [pi-subagents](https://www.npmjs.com/package/pi-subagents), for sub-agents and
-background work, are bundled.
+background work, are bundled. pi-subagents stays closed, with none of its tools
+or commands in a session, until you approve a `/self-improve` plan;
+`KINEX_SUBAGENTS=on kinex` starts with it open, and installing
+`npm:pi-subagents` yourself keeps it open.
 
 ```sh
 kinex install npm:pi-web-search         # From npm, Git or a local folder; -l for this project only
