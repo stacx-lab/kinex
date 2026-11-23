@@ -265,7 +265,7 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
     ][step]
     if (text.includes('Work only in this directory')) return { text: 'I am done.' }
     // How rosbridge is run comes from the plan: its command with the environment it needs, more launch options and a seed.
-    if (text.includes(PLANNING)) return scheduler({ tasks, rounds: 2, batches: [1], rosbridge: `FAKE_ROSBRIDGE_STATE=${state} ${rosbridge}`, launch: ['--split', 'target', '--config', 'kitchen'], seed: 7 })(request)
+    if (text.includes(PLANNING)) return scheduler({ tasks, rounds: 2, batches: [1], rosbridge: `FAKE_ROSBRIDGE_STATE=${state} ${rosbridge}`, launch: ['--split', 'target', '--config', 'kitchen', '--record', '{record}/video'], seed: 7 })(request)
     return { text: 'UNEXPECTED_SESSION' }
   }
   const state = path.join(isolation.root, 'rosbridge-batches')
@@ -288,10 +288,11 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
   const json = async file => JSON.parse(await readFile(path.join(root, file), 'utf8'))
   const read = file => readFile(path.join(root, file), 'utf8')
   const config = await json('config.json')
-  assert.deepEqual([config.batches, config.rosbridge, config.launch, config.seed], [[1], `FAKE_ROSBRIDGE_STATE=${state} ${rosbridge}`, ['--split', 'target', '--config', 'kitchen'], 7])
+  assert.deepEqual([config.batches, config.rosbridge, config.launch, config.seed], [[1], `FAKE_ROSBRIDGE_STATE=${state} ${rosbridge}`, ['--split', 'target', '--config', 'kitchen', '--record', '{record}/video'], 7])
   // Every trial is launched as the method says and as the plan added, and its workspace is set up for the same seed and configuration.
   const made = (await readFile(path.join(state, 'calls.log'), 'utf8')).split('\n')
-  assert.ok(made.includes(`launch ${first} --execution-mode stepped --early-stop --detach --seed 7 --split target --config kitchen --json`))
+  // What trials must not share is given each trial's own record folder.
+  for (const id of ['t001', 't002']) assert.ok(made.includes(`launch ${first} --execution-mode stepped --early-stop --detach --seed 7 --split target --config kitchen --record ${path.join(root, 'trials', id, 'record/video')} --json`))
   assert.ok(made.some(line => line.startsWith(`setup ${first} --seed 7 --config kitchen --directory ${path.join(root, 'trials/t002/workspace')} --domain-id `)))
   assert.deepEqual([await json('waves/w001.json'), await json('waves/w002.json')], [{ wave: 1, library: 'L0', tasks: [first] }, { wave: 2, library: 'L1', tasks: [first, second] }])
 

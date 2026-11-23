@@ -63,7 +63,7 @@ const limitNote = (limit: TrialInput["limit"]) => limit
 /** One trial: a fresh episode of one task, a fresh worker with one library version, the simulator's verdict. */
 export async function runTrial(run: Run, job: Job, input: TrialInput, signal: AbortSignal): Promise<Result> {
   const sandbox = await sandboxOf(run.config.sandbox, run.config.image)
-  const sim = await openSim(run.config.rosbridge, { ...input, launch: run.config.launch }, job.workspace)
+  const sim = await openSim(run.config.rosbridge, { ...input, launch: run.config.launch, record: job.record }, job.workspace)
   const session = await (async () => {
     await install(versionDir(run.root, input.library), job.workspace)
     await sharePython(job.workspace)

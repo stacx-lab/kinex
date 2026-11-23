@@ -190,8 +190,9 @@ distillations/d001/
   request and the user approves the lines with the plan: the command, with the
   environment it needs first as `NAME=value` words
   (`CUDA_VISIBLE_DEVICES=1 /sim/rosbridge/.venv/bin/rosbridge`, no quoting), more
-  options for every `rosbridge launch` (`--split target`, `--record DIR`) and a
-  seed. A `--config` given to launch is given to `setup` too. The execution mode,
+  options for every `rosbridge launch` (`--split target`) and a seed. The options
+  are the same for every trial; `{record}` in one is the trial's own record
+  folder, for what trials must not share (`--record {record}/video`). A `--config` given to launch is given to `setup` too. The execution mode,
   the early stop and the ROS domain are the method's and are refused. A request
   that says nothing runs `rosbridge` on `PATH`, or the command `KINEX_ROSBRIDGE`
   names. The run keeps them in `config.json` as `rosbridge`, `launch` and `seed`.

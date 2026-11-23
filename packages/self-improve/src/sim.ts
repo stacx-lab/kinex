@@ -107,10 +107,11 @@ export async function instruction(log: unknown, task: string): Promise<Instructi
 const parse = (text: string): unknown => { try { return JSON.parse(text) } catch { return undefined } }
 
 /** Launches one stepped episode on a ROS domain of its own and exports that episode's workspace onto that domain. */
-export async function openSim(command: string, input: { task: string; seed?: number; launch?: readonly string[] }, workspace: string): Promise<Sim> {
+export async function openSim(command: string, input: { task: string; seed?: number; launch?: readonly string[]; record?: string }, workspace: string): Promise<Sim> {
   // setup exports the workspace a launch of the same task and seed serves; without a seed both take the task's default.
   const seed = input.seed === undefined ? [] : ["--seed", String(input.seed)]
-  const options = launchOptions(input.launch)
+  // The options are the same for every trial of the run; {record} in one is the trial's own record folder.
+  const options = launchOptions(input.launch).map(option => input.record ? option.replaceAll("{record}", input.record) : option)
   const record = await rosbridge(command, ["launch", input.task, "--execution-mode", "stepped", "--early-stop", "--detach", ...seed, ...options])
   const run = String(record.id)
   stopAtExit(run, command)
