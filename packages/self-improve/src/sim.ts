@@ -14,9 +14,39 @@ export interface Sim { run: string; instruction: Instruction; close(): Promise<V
 
 const exec = promisify(execFile)
 
+/**
+ * The command that runs rosbridge, as a plan gives it: words without quoting, the environment
+ * it needs first as NAME=value, then the program and what comes before rosbridge's own command.
+ *   CUDA_VISIBLE_DEVICES=1 /sim/rosbridge/.venv/bin/rosbridge
+ */
+export function commandLine(command: string): { file: string; first: string[]; env: Record<string, string> } {
+  const words = command.trim().split(/\s+/).filter(Boolean)
+  const set = words.findIndex(word => !/^[A-Za-z_]\w*=/.test(word))
+  const [file = "rosbridge", ...first] = set < 0 ? [] : words.slice(set)
+  return { file, first, env: Object.fromEntries(words.slice(0, set < 0 ? words.length : set).map(word => [word.slice(0, word.indexOf("=")), word.slice(word.indexOf("=") + 1)])) }
+}
+
+// What every trial's launch is given by the method, and the seed, which the plan has a name for: a plan's own launch options may not set them.
+const FIXED = ["--execution-mode", "--early-stop", "--detach", "--domain-id", "--json", "--seed"]
+// Options of launch that setup takes too: the workspace it exports is the one that launch serves.
+const SHARED = ["--config"]
+const named = (option: string, names: readonly string[]) => names.find(name => option === name || option.startsWith(`${name}=`))
+
+/** A plan's launch options, refused where one is the method's to give. */
+export function launchOptions(options: readonly string[] = []): string[] {
+  const fixed = options.map(option => named(option, FIXED)).find(Boolean)
+  if (fixed) throw new Error(`${fixed} is not a launch option of a plan: every trial is stepped, ends where the simulator's check does and has a ROS domain of its own, and the seed is the plan's seed`)
+  return [...options]
+}
+
+// The shared options among the launch options, each with its value.
+function shared(options: readonly string[]): string[] {
+  return options.flatMap((option, index) => !named(option, SHARED) ? [] : option.includes("=") ? [option] : [option, ...options.slice(index + 1, index + 2)])
+}
+
 async function rosbridge(command: string, args: string[]): Promise<Record<string, unknown>> {
-  const [file = "rosbridge", ...first] = command.trim().split(/\s+/)
-  const { stdout, failure } = await exec(file, [...first, ...args, "--json"], { maxBuffer: 64 * 1024 * 1024 })
+  const { file, first, env } = commandLine(command)
+  const { stdout, failure } = await exec(file, [...first, ...args, "--json"], { maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...env } })
     .then(result => ({ stdout: result.stdout, failure: undefined }),
       (error: Error & { stdout?: string; stderr?: string }) => ({ stdout: error.stdout ?? "", failure: error }))
   const line = stdout.trim().split("\n").at(-1) ?? ""
@@ -47,8 +77,8 @@ function stopAtExit(run: string, command: string) {
   exit.watched = true
   process.once("exit", () => {
     for (const [id, stop] of open) {
-      const [file = "rosbridge", ...first] = stop.trim().split(/\s+/)
-      spawn(file, [...first, "stop", id], { detached: true, stdio: "ignore" }).unref()
+      const { file, first, env } = commandLine(stop)
+      spawn(file, [...first, "stop", id], { detached: true, stdio: "ignore", env: { ...process.env, ...env } }).unref()
     }
   })
 }
@@ -77,10 +107,11 @@ export async function instruction(log: unknown, task: string): Promise<Instructi
 const parse = (text: string): unknown => { try { return JSON.parse(text) } catch { return undefined } }
 
 /** Launches one stepped episode on a ROS domain of its own and exports that episode's workspace onto that domain. */
-export async function openSim(command: string, input: { task: string; seed?: number }, workspace: string): Promise<Sim> {
+export async function openSim(command: string, input: { task: string; seed?: number; launch?: readonly string[] }, workspace: string): Promise<Sim> {
   // setup exports the workspace a launch of the same task and seed serves; without a seed both take the task's default.
   const seed = input.seed === undefined ? [] : ["--seed", String(input.seed)]
-  const record = await rosbridge(command, ["launch", input.task, "--execution-mode", "stepped", "--early-stop", "--detach", ...seed])
+  const options = launchOptions(input.launch)
+  const record = await rosbridge(command, ["launch", input.task, "--execution-mode", "stepped", "--early-stop", "--detach", ...seed, ...options])
   const run = String(record.id)
   stopAtExit(run, command)
   const close = async (): Promise<Verdict> => {
@@ -92,7 +123,7 @@ export async function openSim(command: string, input: { task: string; seed?: num
     return { success: outcome.success === true, steps: outcome.step, worldS: outcome.time_s, reason: outcome.reason, cause: outcome.cause, seed: outcome.seed }
   }
   try {
-    await rosbridge(command, ["setup", input.task, ...seed, "--directory", workspace, "--domain-id", String(record.domain_id)])
+    await rosbridge(command, ["setup", input.task, ...seed, ...shared(options), "--directory", workspace, "--domain-id", String(record.domain_id)])
     return { run, instruction: await instruction(record.log, input.task), close }
   } catch (error) {
     await close().catch(() => {})

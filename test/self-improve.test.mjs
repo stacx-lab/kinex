@@ -37,13 +37,14 @@ const RESUMED = 'is scheduled in this Kinex again'
 
 // The session that schedules a run, scripted: it plans, has the plan approved, and from then on
 // does what improve_next says, starting the sub-agents it names and asking again when one has ended.
-function scheduler(plan) {
+// Where the plan says how rosbridge is run, the session names the command once, when it looks for the tasks.
+function scheduler({ rosbridge: command, ...plan }) {
   return request => {
     const text = last(request)
     const has = name => offers(request, name)
     if (request.messages.at(-1).role !== 'tool') {
       if (text.includes('pi_subagents_notice')) return has('improve_next') ? call('improve_next') : { text: 'RUN_OVER' }
-      return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*' }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
+      return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*', ...(command ? { rosbridge: command } : {}) }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
     }
     if (/^sim\/[^\n]* \(robot /.test(text)) return call('improve_plan', plan)
     // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.
@@ -263,14 +264,16 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
       { text: 'The library is ready.' },
     ][step]
     if (text.includes('Work only in this directory')) return { text: 'I am done.' }
-    if (text.includes(PLANNING)) return scheduler({ tasks, rounds: 2, batches: [1] })(request)
+    // How rosbridge is run comes from the plan: its command with the environment it needs, more launch options and a seed.
+    if (text.includes(PLANNING)) return scheduler({ tasks, rounds: 2, batches: [1], rosbridge: `FAKE_ROSBRIDGE_STATE=${state} ${rosbridge}`, launch: ['--split', 'target', '--config', 'kitchen'], seed: 7 })(request)
     return { text: 'UNEXPECTED_SESSION' }
   }
   const state = path.join(isolation.root, 'rosbridge-batches')
   await mkdir(state)
   await writeFile(path.join(state, 'fail-launch'), '')
   await writeFile(path.join(state, 'limit'), '')
-  const env = { ...process.env, KINEX_ROSBRIDGE: rosbridge, FAKE_ROSBRIDGE_STATE: state }
+  // Nothing of rosbridge is in this Kinex's environment.
+  const { KINEX_ROSBRIDGE: _command, FAKE_ROSBRIDGE_STATE: _state, ...env } = process.env
   const invoke = (cwd, ...args) => {
     const pending = exec(process.execPath, [entry, 'run', '--auto', ...args], { cwd, env, timeout: 280000 })
     pending.child.stdin.end()
@@ -284,7 +287,12 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
   const root = path.join(runs, (await readdir(runs)).filter(entry => !entry.startsWith('.')).at(-1))
   const json = async file => JSON.parse(await readFile(path.join(root, file), 'utf8'))
   const read = file => readFile(path.join(root, file), 'utf8')
-  assert.deepEqual((await json('config.json')).batches, [1])
+  const config = await json('config.json')
+  assert.deepEqual([config.batches, config.rosbridge, config.launch, config.seed], [[1], `FAKE_ROSBRIDGE_STATE=${state} ${rosbridge}`, ['--split', 'target', '--config', 'kitchen'], 7])
+  // Every trial is launched as the method says and as the plan added, and its workspace is set up for the same seed and configuration.
+  const made = (await readFile(path.join(state, 'calls.log'), 'utf8')).split('\n')
+  assert.ok(made.includes(`launch ${first} --execution-mode stepped --early-stop --detach --seed 7 --split target --config kitchen --json`))
+  assert.ok(made.some(line => line.startsWith(`setup ${first} --seed 7 --config kitchen --directory ${path.join(root, 'trials/t002/workspace')} --domain-id `)))
   assert.deepEqual([await json('waves/w001.json'), await json('waves/w002.json')], [{ wave: 1, library: 'L0', tasks: [first] }, { wave: 2, library: 'L1', tasks: [first, second] }])
 
   await t.test('the first wave opens one task, and its trial that did not run is started again', async () => {

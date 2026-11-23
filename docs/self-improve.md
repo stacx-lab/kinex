@@ -16,8 +16,10 @@ run's files and its settings; this page keeps the contracts.
 | Worker | A headless child Kinex in a trial workspace with one library version installed; starts with `/load all`; sandboxed | none |
 | Distiller | A headless child Kinex in the distillation's folder, in a session of its own | `improve_check` |
 
-- `/self-improve <request>` is a workflow: the session reads the request, finds
-  the tasks and proposes a plan. Nothing exists until the user approves it.
+- `/self-improve <request>` is a workflow: the session reads the request, settles
+  how rosbridge is run for it (its command and environment, more options for
+  `launch`, a seed), finds the tasks and proposes a plan. Nothing exists until the
+  user approves it, with the lines a trial is started, ended and judged with.
   `improve_plan` asks for the permission `unattended` with the plan as its
   description; the host shows it, and from `ask` mode the approval moves the
   session to `auto`. `yolo` does not ask, and without a user only a session that
@@ -46,8 +48,9 @@ run's files and its settings; this page keeps the contracts.
 
 ## Trials and verdicts
 
-A trial is one stepped episode of one task: `rosbridge launch` on a ROS domain of
-its own, `rosbridge setup` of the same task and seed into the trial workspace, the
+A trial is one stepped episode of one task: `rosbridge launch` with the plan's
+options, stepped, ending where the simulator's check does and on a ROS domain of
+its own, which no plan can change, `rosbridge setup` of the same task and seed into the trial workspace, the
 library installed, one worker, then `rosbridge stop` and `rosbridge judge`. The
 simulator's verdict decides; the worker's report never counts. A worker that
 exits non-zero after the simulation advanced is still judged; one that fails

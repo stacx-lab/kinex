@@ -56,8 +56,15 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   const [request] = asked
   assert.equal(request.permission, 'unattended')
   assert.match(request.description, /^Self-improve plan: 1 task of rosbridge's catalog on robot sim\/arm: sim\/open-door\nRounds: 1\./)
-  assert.match(request.description, /A trial starts with `[^`]* launch <task> --execution-mode stepped --early-stop`[^\n]*one worker sub-agent without a sandbox[^\n]*It ends with `[^`]* stop`, and `[^`]* judge` decides the outcome/)
+  assert.match(request.description, /A trial starts with `[^`]* launch <task> --execution-mode stepped --early-stop --detach`[^\n]*one worker sub-agent without a sandbox[^\n]*It ends with `[^`]* stop`, and `[^`]* judge` decides the outcome/)
   assert.match(request.description, /\nTrials and distillations run in the background with nobody to approve their steps\.$/)
+  // How rosbridge is run is the plan's: its command with the environment it needs, more launch options and a seed. The user is shown the lines.
+  const simulator = `SIM_GPU=1 ${process.env.KINEX_ROSBRIDGE}`
+  await assert.rejects(call('improve_plan', { tasks: ['sim/open-door'], rosbridge: simulator, launch: ['--split', 'target'], seed: 7 }, false), PermissionDeniedError)
+  assert.ok(asked.at(-1).description.includes(`A trial starts with \`${simulator} launch <task> --execution-mode stepped --early-stop --detach --seed 7 --split target\` on a ROS domain of its own and \`${simulator} setup <task>\``))
+  // What makes a trial a trial is not the plan's to change.
+  const fixed = await call('improve_plan', { tasks: ['sim/open-door'], launch: ['--execution-mode=realtime'] })
+  assert.deepEqual([fixed.isError, /--execution-mode is not a launch option of a plan/.test(fixed.output)], [true, true])
   const unknown = await call('improve_plan', { tasks: ['sim/missing'] })
   assert.deepEqual([unknown.isError, /Unknown tasks: sim\/missing/.test(unknown.output)], [true, true])
 

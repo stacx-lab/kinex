@@ -7,7 +7,7 @@ import path from 'node:path'
 import { settled, stepLimits } from '../dist/records.js'
 import { Refused, admit, describe, next, stop, waveTasks } from '../dist/scheduler.js'
 import { claimFile, configFile, resultFile } from '../dist/layout.js'
-import { instruction } from '../dist/sim.js'
+import { commandLine, instruction, launchOptions } from '../dist/sim.js'
 import { distillTurns, scheduled } from '../dist/distill.js'
 import { createLibrary, publish } from '../dist/library.js'
 
@@ -214,4 +214,15 @@ test('a run ends when its rounds are done, and stopping tells the processes of i
   assert.deepEqual(await next(run), { kind: 'end', reason: 'its rounds are done' }, 'a library that could not be published is still a round')
   // Only a job whose process is alive is stopped; here none is.
   assert.deepEqual(await stop(run), [])
+})
+
+test('a plan says how rosbridge is run: the command with its environment, and launch options that leave the method alone', () => {
+  assert.deepEqual(commandLine('rosbridge'), { file: 'rosbridge', first: [], env: {} })
+  assert.deepEqual(commandLine('CUDA_VISIBLE_DEVICES=1 MUJOCO_GL=egl uv run --project /sim rosbridge'),
+    { file: 'uv', first: ['run', '--project', '/sim', 'rosbridge'], env: { CUDA_VISIBLE_DEVICES: '1', MUJOCO_GL: 'egl' } })
+  assert.deepEqual(launchOptions(['--split', 'target', '--record=/tmp/videos']), ['--split', 'target', '--record=/tmp/videos'])
+  assert.deepEqual(launchOptions(), [])
+  for (const fixed of ['--execution-mode', '--early-stop', '--detach', '--domain-id', '--seed', '--json'])
+    assert.throws(() => launchOptions(['--split', 'target', fixed]), new RegExp(`^Error: ${fixed} is not a launch option of a plan`))
+  assert.throws(() => launchOptions(['--execution-mode=realtime']), /--execution-mode is not a launch option of a plan/)
 })
