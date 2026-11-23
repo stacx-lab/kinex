@@ -204,8 +204,10 @@ for (const profile of [
     assert.equal(requests.length, 6)
     assert.match(JSON.stringify(messages(requests[2]).at(-1)), /LATE_V1/)
     assert.match(JSON.stringify(messages(requests[5]).at(-1)), /LATE_V2/)
-    const tool = (request, name) => request.tools.find(tool => (tool.function?.name ?? tool.name) === name)
-    if (profile.compat) assert.deepEqual(requests[1].tools.slice(0, requests[0].tools.length), requests[0].tools)
+    // Pi declares tools in `tools`, or with additional_tools as input items that later ones extend.
+    const declared = request => request.tools ?? request.input.filter(item => item.type === 'additional_tools').flatMap(item => item.tools)
+    const tool = (request, name) => declared(request).findLast(tool => (tool.function?.name ?? tool.name) === name)
+    if (profile.compat) assert.deepEqual(declared(requests[1]).slice(0, declared(requests[0]).length), declared(requests[0]))
     for (const index of [1, 2]) {
       const prefix = messages(requests[index - 1])
       assert.deepEqual(messages(requests[index]).slice(0, prefix.length), prefix)

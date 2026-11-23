@@ -153,7 +153,7 @@ test('SDK-default extension child sessions share Kinex OAuth credentials and aut
             assert.equal((await session.modelRuntime.getAuth(model)).auth.apiKey, 'test-access')
             assert.equal((await ctx.modelRegistry.getApiKeyAndHeaders(model)).apiKey, 'test-access')
             const auth = AuthStorage.create()
-            const release = await lock(join(getAgentDir(), 'auth.json'), { realpath: false })
+            const release = await lock(join(getAgentDir(), 'auth.json'))
             let finished = false
             const update = auth.modify('openai-codex', current => ({ ...current, access: 'updated-test-access' })).then(() => { finished = true })
             try {

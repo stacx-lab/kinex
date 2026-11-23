@@ -156,12 +156,12 @@ test('resume output adapter changes only the exact current-session hint', async 
   await writeFile(file, '{}')
   let id = 'first'
   const manager = { getSessionId: () => id, getSessionFile: () => file, isPersisted: () => true }
-  const hint = value => `\x1b[2mTo resume this session:\x1b[22m pi --session-dir '/with spaces' --session ${value}\n`
+  const hint = value => `\x1b[2mTo resume this session:\x1b[22m\npi --session-dir '/with spaces' --session ${value}\n`
   const changed = rewriteResumeHint(hint(id), manager)
   assert.match(changed, /kinex --session/)
   assert.doesNotMatch(changed, /--session-dir/)
-  assert.equal((await exec('bash', ['-c', `kinex() { printf '%s' "$2"; }; ${changed.replace(/\x1b\[[0-9;]*m/g, '').split(': ')[1]}`])).stdout, file)
-  for (const text of ['pi --session first', 'model mentioned pi', 'To resume this session: pi --session other\n', `reply\n${hint(id)}`, hint(id) + 'more']) {
+  assert.equal((await exec('bash', ['-c', `kinex() { printf '%s' "$2"; }; ${changed.replace(/\x1b\[[0-9;]*m/g, '').split('\n')[1]}`])).stdout, file)
+  for (const text of ['pi --session first', 'model mentioned pi', 'To resume this session:\npi --session other\n', 'To resume this session: pi --session first\n', `reply\n${hint(id)}`, hint(id) + 'more']) {
     assert.equal(rewriteResumeHint(text, manager), text)
   }
   const output = [], original = process.stdout.write
