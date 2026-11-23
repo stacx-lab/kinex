@@ -5,7 +5,7 @@ import { writeAgents } from "./agents.ts"
 import { candidateDir } from "./distill.ts"
 import { check } from "./library.ts"
 import { currentRole } from "./roles.ts"
-import { REPAIRS, createRun, rosbridgeCommand, type Config, type Run } from "./run.ts"
+import { REPAIRS, createRun, newConfig, rosbridgeCommand, type Config, type Run } from "./run.ts"
 import { sandboxName, sandboxSetting } from "./sandbox.ts"
 import { checked, current, describe, next, schedule } from "./scheduler.ts"
 import { listTasks, matching } from "./sim.ts"
@@ -62,10 +62,11 @@ const planTool = define("improve_plan", {
     const catalog = await listTasks(rosbridgeCommand())
     const tasks = checked(args.tasks, catalog)
     const robot = catalog.find(task => task.id === tasks[0])?.robot ?? ""
-    const settings = { tasks, robot, rounds: args.rounds, parallel: args.parallel, ...(args.batches?.length ? { batches: args.batches } : {}) }
+    const config = newConfig(planned.request, { tasks, robot, rounds: args.rounds, parallel: args.parallel, ...(args.batches?.length ? { batches: args.batches } : {}),
+      sandbox: sandboxSetting(), ...(currentScope().builtinLibRoots?.length ? { libRoots: [...currentScope().builtinLibRoots ?? []] } : {}) })
     const sandbox = await sandboxName()
-    await ctx.ask({ permission: UNATTENDED, description: planText({ ...settings, rosbridge: rosbridgeCommand(), trialTimeoutS: 3600, distillTimeoutS: 7200 }, sandbox ? `in a ${sandbox} sandbox` : "without a sandbox") })
-    const run = await createRun(planned.request, { ...settings, sandbox: sandboxSetting(), ...(currentScope().builtinLibRoots?.length ? { libRoots: [...currentScope().builtinLibRoots ?? []] } : {}) })
+    await ctx.ask({ permission: UNATTENDED, description: planText(config, sandbox ? `in a ${sandbox} sandbox` : "without a sandbox") })
+    const run = await createRun(config)
     await writeAgents(run)
     schedule({ request: planned.request, run, approved: true })
     return output("Plan approved", `The self-improve run ${run.root} is scheduled.\n\n${await step(run)}`)

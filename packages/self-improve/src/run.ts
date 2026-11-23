@@ -49,12 +49,15 @@ export const REPAIR_S = 1800
 /** The command that runs rosbridge for a new run. */
 export const rosbridgeCommand = () => process.env.KINEX_ROSBRIDGE ?? "rosbridge"
 
-export async function createRun(selection: string, options: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "sandbox">): Promise<Run> {
+/** A new run's settings: the plan and the limits a run starts with. The user approves these, and the run is made from them. */
+export function newConfig(selection: string, plan: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "sandbox">): Config {
+  return { selection, ...plan, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, rosbridge: rosbridgeCommand() }
+}
+
+export async function createRun(config: Config): Promise<Run> {
   const stamp = new Date().toISOString().replaceAll(/[-:]|\.\d+Z/g, "").replace("T", "-")
   const root = path.join(runsDir(), stamp)
   await mkdir(root, { recursive: true })
-  const config: Config = { selection, ...options, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S,
-    rosbridge: rosbridgeCommand() }
   await writeJson(configFile(root), config)
   await createLibrary(root)
   return { root, config }
