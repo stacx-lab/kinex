@@ -64,7 +64,7 @@ const planTool = define("improve_plan", {
     parallel: z.number().int().positive().default(1).describe("trials at a time"),
     batches: z.array(z.number().int().positive()).optional().describe("sizes of the first batches of tasks to open, one batch a wave; the rest open together after them"),
     rosbridge: z.string().optional().describe(`${ROSBRIDGE}; absent, the one improve_tasks was given`),
-    launch: z.array(z.string()).optional().describe("more options for every `rosbridge launch` of the run, each word an item, e.g. [\"--split\", \"target\"]. The execution mode, the early stop and the ROS domain are not yours to give"),
+    launch: z.array(z.string()).optional().describe("more options for every `rosbridge launch` of the run, each word an item, e.g. [\"--split\", \"target\"]. {record} in an option is each trial's own record folder, for what must not be shared, e.g. [\"--record\", \"{record}/video\"]. The execution mode, the early stop and the ROS domain are not yours to give"),
     seed: z.number().int().optional().describe("the seed every trial of a task starts from; absent, the simulator's default state for the task"),
   }),
   execute: async (args, ctx) => {
