@@ -27,6 +27,11 @@ const SKILL = '---\nname: press\ndescription: How to press and open things\n---\
 const call = (name, args = {}) => ({ tool: name, args })
 const said = request => JSON.stringify(request.messages)
 const last = request => { const message = request.messages.at(-1); return typeof message.content === 'string' ? message.content : JSON.stringify(message.content) }
+// The tools a request offers: those it lists, and those a model that takes tools mid-conversation was given since.
+const offered = request => [...request.tools ?? [], ...request.messages.flatMap(message => message.tools ?? [])].map(tool => tool.function.name)
+const offers = (request, name) => offered(request).includes(name)
+const improving = request => offered(request).filter(name => name.startsWith('improve_')).sort()
+const called = (request, name) => request.messages.some(message => message.tool_calls?.some(made => made.function.name === name))
 const PLANNING = 'The user asks for a self-improve run'
 const RESUMED = 'is scheduled in this Kinex again'
 
@@ -35,14 +40,17 @@ const RESUMED = 'is scheduled in this Kinex again'
 function scheduler(plan) {
   return request => {
     const text = last(request)
-    const has = name => request.tools.some(tool => tool.function.name === name)
+    const has = name => offers(request, name)
     if (request.messages.at(-1).role !== 'tool') {
       if (text.includes('pi_subagents_notice')) return has('improve_next') ? call('improve_next') : { text: 'RUN_OVER' }
       return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*' }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
     }
     if (/^sim\/[^\n]* \(robot /.test(text)) return call('improve_plan', plan)
-    const starts = [...text.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)]
-    if (starts.length) return { tools: starts.map(([, agent, task]) => ({ name: 'subagent', args: { agent, task } })) }
+    // Where pi-subagents offers only its loader at first, the tool is enabled before the first start.
+    const enabled = request.messages.findLastIndex(message => message.tool_calls?.[0]?.function.name === 'subagents_enable')
+    const named = enabled > 0 && !request.messages.slice(enabled).some(message => message.tool_calls?.[0]?.function.name === 'subagent') ? request.messages[enabled - 1].content : text
+    const starts = [...named.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)]
+    if (starts.length) return has('subagent') ? { tools: starts.map(([, agent, task]) => ({ name: 'subagent', args: { agent, task } })) } : call('subagents_enable')
     if (/has ended|stopped on an error/.test(text)) return { text: 'RUN_OVER' }
     if (/No (trial|distillation) waits/.test(text)) return call('improve_next')
     return { text: 'WAITING' }
@@ -55,14 +63,16 @@ function scheduler(plan) {
 function script(request) {
   const text = said(request)
   const step = request.messages.filter(message => message.role === 'tool').length
+  const cold = !offers(request, 'subagent') || called(request, 'subagents_enable')
   if (text.includes('You turn the records of earlier trials')) return [
     call('write', { path: 'library/payload/skills/press/SKILL.md', content: SKILL }),
     call('write', { path: 'library/payload/brief.md', content: 'BRIEF_MARKER load the press skill first.\n' }),
+    ...(cold ? [call('subagents_enable')] : []),
     call('subagent', { agent: 'delegate', task: 'HELPER_PROMPT read records/ and write notes/door.md' }),
     call('bg_wait'),
     call('improve_check'),
     { text: 'The library is ready.' },
-  ][Math.min(step, 5)]
+  ][Math.min(step, cold ? 6 : 5)]
   if (text.includes('HELPER_PROMPT')) return { text: 'notes written' }
   if (text.includes('Work only in this directory')) return [
     call('write', { path: '.kinex/lib/press.py', content: '# Presses a button.\ndef press(): ...\n' }),
@@ -75,6 +85,12 @@ function script(request) {
 test('/self-improve plans the run, runs its trials and distillation as background sub-agents and reruns with the library', { timeout: 300000 }, async t => {
   const fake = await fakeProvider(t, isolation.root)
   fake.respond = script
+  // A model that can be given a tool mid-conversation, as the current ones can: pi-subagents
+  // then offers only its loader, and a session enables the subagent tool before it starts one.
+  const models = path.join(isolation.root, 'config/agent/models.json')
+  const catalog = JSON.parse(await readFile(models, 'utf8'))
+  catalog.providers.fake.models[0].compat = { supportsMidConvoSystemMessages: true, supportsMidConvoToolAdditions: true }
+  await writeFile(models, JSON.stringify(catalog))
   const state = path.join(isolation.root, 'rosbridge')
   await mkdir(state)
   const env = { ...process.env, KINEX_ROSBRIDGE: rosbridge, FAKE_ROSBRIDGE_STATE: state }
@@ -157,7 +173,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     assert.match(transcript, /The library is ready/)
     const distiller = fake.requests.filter(request => JSON.stringify(request.messages).includes('You turn the records of earlier trials'))
     assert.ok(distiller.every(request => !said(request).includes(PLANNING)), 'it starts from an empty conversation')
-    assert.match(prompt, /- Start sub-agents with the subagent tool: agent `delegate`[^\n]*at most eight a call and 10 at a time \(`concurrency`\)[^\n]*bg_wait returns when they have ended\./)
+    assert.match(prompt, /- Start sub-agents with the subagent tool, after subagents_enable where you do not have it yet: agent `delegate`[^\n]*at most eight a call and 10 at a time \(`concurrency`\)[^\n]*bg_wait returns when they have ended\./)
     // Its sub-agents are its own: a session of pi-subagents that works in its folder and is told nothing else.
     const helper = fake.requests.find(request => said(request).includes('HELPER_PROMPT') && !said(request).includes('You turn the records'))
     assert.ok(helper, 'the sub-agent ran')
@@ -179,20 +195,19 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     assert.deepEqual(worker.map(request => JSON.stringify(request.messages).includes('BRIEF_MARKER')), [false, false, false, false, true, true, true, true])
     const system = request => JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
     assert.ok(worker.every(request => !system(request).includes('BRIEF_MARKER')), 'the brief stays out of the stable prompt')
-    assert.ok(worker.every(request => !request.tools.some(tool => tool.function.name.startsWith('improve_'))))
+    assert.ok(worker.every(request => !improving(request).length))
   })
 
   await t.test('each session sees only the tools of its role', async () => {
-    const names = marker => fake.requests.find(request => JSON.stringify(request.messages).includes(marker))
-      .tools.map(tool => tool.function.name).filter(tool => tool.startsWith('improve_')).sort()
+    const names = marker => improving(fake.requests.find(request => JSON.stringify(request.messages).includes(marker)))
     assert.deepEqual(names(PLANNING), ['improve_plan', 'improve_tasks'])
     assert.deepEqual(scheduling.at(-1).tools.map(tool => tool.function.name).filter(tool => tool.startsWith('improve_')), [], 'when the run has ended the session has none')
     assert.deepEqual(names('You turn the records of earlier trials'), ['improve_check'])
     const helper = fake.requests.find(request => said(request).includes('HELPER_PROMPT') && !said(request).includes('You turn the records'))
-    assert.deepEqual(helper.tools.map(tool => tool.function.name).filter(tool => tool.startsWith('improve_')), [], 'a sub-agent has none')
+    assert.deepEqual(improving(helper), [], 'a sub-agent has none')
     // A worker does its task itself.
     const worker = fake.requests.find(request => said(request).includes('Work only in this directory'))
-    assert.ok(!worker.tools.some(tool => tool.function.name.startsWith('improve_')))
+    assert.deepEqual(improving(worker), [])
   })
 
   await t.test('status and install need no model', async () => {

@@ -28,6 +28,9 @@ run's files and its settings; this page keeps the contracts.
   The session starts them in the background and is told when one has ended, with
   the trial's verdict and the path of its record; then it asks again. Which
   tasks run, with which library and how often is never the model's choice.
+  Where pi-subagents offers a session only its loader at first, as it does on a
+  model that can be given a tool mid-conversation, the session is told to call
+  `subagents_enable` before its first start; a distiller is told the same.
 - The session has the package's tools only while it plans or schedules a run. A
   worker has none and starts no sub-agents. A distiller has the gate and starts
   sub-agents of its own with pi-subagents. `/self-improve` is refused inside a child.
