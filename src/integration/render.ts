@@ -52,7 +52,7 @@ const brief = (value: unknown): unknown => value === undefined ? undefined : JSO
 
 // Collapsed rows keep a bounded number of visual lines, like Pi's own tool rows.
 function preview(text: string, theme: Theme, maxLines: number, keep: "start" | "end"): Component {
-  let cached: { width: number, lines: string[] } | undefined
+  let cached: { width: number, lines: readonly string[] } | undefined
   return {
     invalidate: () => { cached = undefined },
     render(width) {

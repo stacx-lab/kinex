@@ -1,7 +1,7 @@
 Third-party notices for Kinex
 
-Pi v1.2.0
-https://github.com/earendil-works/pi/tree/v1.2.0
+Pi v1.6.0
+https://github.com/earendil-works/pi/tree/v1.6.0
 
 Kinex uses @earendil-works/pi-ai,
 @earendil-works/pi-coding-agent and @earendil-works/pi-tui.

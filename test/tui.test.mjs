@@ -168,7 +168,7 @@ test('exit hint reopens the same session from another directory with quoted stor
   const first = await exec('python3', [pty, process.execPath, entry, '--model', 'fake/test', 'remember HINT_HISTORY'], {
     cwd, env, timeout: 25000, maxBuffer: 8 * 1024 * 1024,
   })
-  const hint = stripTerminalSequences(first.stdout).match(/To resume this session: (kinex [^\r\n]+)/)?.[1]
+  const hint = stripTerminalSequences(first.stdout).match(/To resume this session:\s+(kinex [^\r\n]+)/)?.[1]
   assert.ok(hint, first.stdout + first.stderr)
   assert.doesNotMatch(hint, /--session-dir/)
   // Execute the exact shell-quoted command, resolving kinex to this checkout's launcher.
@@ -195,7 +195,7 @@ test('resume picker selects the existing session and sends the positional prompt
       TUI_TEST_KEYS: JSON.stringify([[0.15, '\r'], ['PICKER_RESUMED', '/quit\r']]) },
   })
   assert.match(stripTerminalSequences(stdout), /Resume Session/)
-  assert.match(stripTerminalSequences(stdout), /To resume this session: kinex --session/)
+  assert.match(stripTerminalSequences(stdout), /To resume this session:\s+kinex --session/)
   assert.equal(stderr, '')
   assert.equal(fake.requests.length, 2)
   assert.match(JSON.stringify(fake.requests[1].messages), /PICKER_HISTORY/)
@@ -233,5 +233,5 @@ test('exit hint follows a session switched inside the TUI', { timeout: 30000 }, 
     env: { ...process.env, TERM: 'xterm-256color', TUI_TEST_TRIGGER: 'SWITCH_READY',
       TUI_TEST_KEYS: JSON.stringify([[0.1, '/resume\r'], ['Resume Session', 'SWITCH_TARGET_HISTORY'], [0.2, '\r'], [0.5, '/quit\r']]) },
   })
-  assert.ok(stripTerminalSequences(stdout).includes(`To resume this session: kinex --session '${file}'`))
+  assert.ok(stripTerminalSequences(stdout).replace(/\s+/g, ' ').includes(`To resume this session: kinex --session '${file}'`))
 })

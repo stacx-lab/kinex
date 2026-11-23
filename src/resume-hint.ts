@@ -7,10 +7,10 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
 }
 
-/** Match only the complete hint Pi 1.1.0 emits, never text inside a rendered reply. */
+/** Match only the complete hint Pi emits, its command on a line of its own, never text inside a rendered reply. */
 export function rewriteResumeHint(chunk: string, manager: SessionManager): string {
   const text = stripTerminalSequences(chunk)
-  if (!/^To resume this session: pi (?:--session-dir .+ )?--session [\w-]+\n$/.test(text)) return chunk
+  if (!/^To resume this session:\npi (?:--session-dir .+ )?--session [\w-]+\n$/.test(text)) return chunk
   if (!text.endsWith(`--session ${manager.getSessionId()}\n`)) return chunk
   const file = manager.getSessionFile()
   if (!manager.isPersisted() || !file || !existsSync(file)) return chunk

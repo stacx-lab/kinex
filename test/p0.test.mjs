@@ -47,8 +47,10 @@ for (const denied of [
     for (const file of ['core-started', 'should-not-exist']) await assert.rejects(stat(path.join(cwd, file)), { code: 'ENOENT' })
     assert.equal((await app.owner.runtime.devices.list())[0].loaded, false)
     const results = app.host.session.agent.state.messages.filter(message => message.role === 'toolResult')
-    assert.equal(results.length, 2)
+    assert.equal(results.length, 4)
     assert.match(JSON.stringify(results[1].content), /[Pp]ermission/)
+    // Pi answers the calls it never started as aborted.
+    for (const skipped of results.slice(2)) assert.match(JSON.stringify(skipped.content), /aborted/)
     fake.steps.push({ text: 'RECOVERED' })
     if (denied.name === 'device') {
       const session = app.host.session.sessionFile
