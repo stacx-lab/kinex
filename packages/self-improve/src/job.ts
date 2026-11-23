@@ -11,6 +11,13 @@ export type Result = Record<string, unknown> & { status: "done" | "timeout" | "e
 export const jobAt = (directory: string): Job =>
   ({ id: path.basename(directory), directory, workspace: workspaceDir(directory), record: recordDir(directory) })
 
+// A job as a sub-agent call names it, by its run and its id: the command that does a job is
+// the same for every run, and is told which job on its standard input.
+export const jobName = (job: Job) => `${path.basename(path.dirname(path.dirname(job.directory)))}/${job.id}`
+/** The jobs of the given kind that a text names, as run and id: a trial's ids begin with t, a distillation's with d. */
+export const namedJobs = (text: string, prefix: "t" | "d") =>
+  [...text.matchAll(new RegExp(`([^\\s/"'\`]+)/(${prefix}\\d+)(?!\\w)`, "g"))].map(([, run = "", id = ""]) => ({ run, id }))
+
 export async function openJob(directory: string, prefix: string, input: unknown): Promise<Job> {
   const job = jobAt(path.join(directory, await reserve(directory, prefix)))
   await writeJson(inputFile(job.directory), input)

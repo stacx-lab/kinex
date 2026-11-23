@@ -6,6 +6,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
 // discovery merges each ancestor's .kinex, and the data directory has none.
 //   <data>/self-improve/<run>/
 //     config.json
+//     kinex.json                      the Kinex that schedules the run now: its children are that Kinex
 //     libraries/L<n>/{manifest.json, payload/{skills,tools,lib,programs,brief.md}, memory/}
 //     waves/w<nnn>.json
 //     trials/t<nnn>/{input.json, claim.json, workspace/, record/}
@@ -16,6 +17,7 @@ export const runsDir = () => path.join(
 // Trial workspaces share one Kinex Python environment; the dot keeps it out of the run names.
 export const pythonDir = () => path.join(runsDir(), ".python")
 export const configFile = (root: string) => path.join(root, "config.json")
+export const kinexFile = (root: string) => path.join(root, "kinex.json")
 export const librariesDir = (root: string) => path.join(root, "libraries")
 export const versionDir = (root: string, version: string) => path.join(librariesDir(root), version)
 export const trialsDir = (root: string) => path.join(root, "trials")
