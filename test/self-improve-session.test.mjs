@@ -75,6 +75,8 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   await assert.rejects(improve.execute('another run', command), /is already scheduled in this Kinex; \/self-improve stop ends it/)
 
   // Stopping ends the scheduling here; resuming schedules the run again and asks the user once more.
+  // The command completes to its subcommands and to the versions the newest run has to install.
+  assert.deepEqual(await improve.choices(), ['status', 'stop', 'resume', 'install L0'])
   assert.match((await improve.execute('stop', command)).text, new RegExp(`^Stopped the self-improve run ${run.root}\\. /self-improve resume continues it`))
   assert.deepEqual([current(), await names()], [undefined, []])
   const resumed = await improve.execute('resume', command)
