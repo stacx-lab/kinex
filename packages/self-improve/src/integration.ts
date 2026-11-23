@@ -60,6 +60,12 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
     schedule({ request: args.trim() })
     return { kind: "workflow", prompt: PLAN.trim().replaceAll("$REQUEST", () => args.trim()) }
   }
+  // What completes after the command: its subcommands, and the newest run's versions to install.
+  async function choices(): Promise<string[]> {
+    if (currentRole()) return []
+    const run = await openRun().catch(() => undefined)
+    return ["status", "stop", "resume", ...(run ? (await versions(run.root)).map(version => `install ${version}`) : [])]
+  }
   return {
     id: "self-improve",
     tools: {
@@ -84,6 +90,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
     commands: [{
       name: "self-improve", description: "Practise simulated tasks and distill a library of skills and code",
       arguments: "<what to practise> | status | install <version> | resume | stop", kind: "workflow",
+      choices,
       execute: (args, context) => runtime.operation(() => execute(args, context), context.signal),
     }],
   }
