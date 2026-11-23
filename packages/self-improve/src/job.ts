@@ -11,40 +11,22 @@ export type Result = Record<string, unknown> & { status: "done" | "timeout" | "e
 export const jobAt = (directory: string): Job =>
   ({ id: path.basename(directory), directory, workspace: workspaceDir(directory), record: recordDir(directory) })
 
-// A job as a sub-agent call names it, by its run and its id: the command that does a job is
-// the same for every run, and is told which job on its standard input.
-export const jobName = (job: Job) => `${path.basename(path.dirname(path.dirname(job.directory)))}/${job.id}`
-/** The jobs of the given kind that a text names, as run and id: a trial's ids begin with t, a distillation's with d. */
-export const namedJobs = (text: string, prefix: "t" | "d") =>
-  [...text.matchAll(new RegExp(`([^\\s/"'\`]+)/(${prefix}\\d+)(?!\\w)`, "g"))].map(([, run = "", id = ""]) => ({ run, id }))
-
+// A job is opened by the process that does it, a sub-agent the session started, once the
+// scheduler has admitted it (scheduler.ts): the folder is reserved and claimed with that
+// process's id, so a job whose process is gone without a result is known to be abandoned.
 export async function openJob(directory: string, prefix: string, input: unknown): Promise<Job> {
   const job = jobAt(path.join(directory, await reserve(directory, prefix)))
+  await writeFile(claimFile(job.directory), JSON.stringify({ pid: process.pid }) + "\n")
   await writeJson(inputFile(job.directory), input)
   await mkdir(job.workspace)
   await mkdir(job.record)
   return job
 }
 
-// A job is opened by the Kinex that schedules the run and done by a process of its
-// own, which a sub-agent call starts: that process claims the job by creating its
-// claim, so one job is never done twice.
-export async function claim(job: Job): Promise<boolean> {
-  return writeFile(claimFile(job.directory), JSON.stringify({ pid: process.pid }) + "\n", { flag: "wx" }).then(() => true, (error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST") return false
-    throw error
-  })
-}
-
-/**
- * Where a job without a result stands: `waiting` for a process to claim it,
- * `running` in the live process that did, or `abandoned` by one that ended
- * without leaving a result.
- */
-export async function standing(directory: string): Promise<"waiting" | "running" | "abandoned"> {
+/** Whether a job without a result is still being done: its process is alive. Otherwise it is abandoned. */
+export async function alive(directory: string): Promise<boolean> {
   const claimed = await readJson<{ pid?: number }>(claimFile(directory)).catch(() => undefined)
-  if (!claimed) return "waiting"
-  return typeof claimed.pid === "number" && running(claimed.pid) ? "running" : "abandoned"
+  return typeof claimed?.pid === "number" && running(claimed.pid)
 }
 
 // Tokens and cost as Kinex recorded them in the job's session file and in those of the sub-agents its session started.

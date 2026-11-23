@@ -31,21 +31,22 @@ names.
    it also moves Kinex to `auto`, because trials and distillations go on with
    nobody to approve their steps. `yolo` does not ask. Without a user (`kinex run`)
    a session in `auto` or `yolo` goes on and one in `ask` makes no run.
-3. **Run.** `improve_next` reads the run's folder and names the background
-   sub-agents to start: the trials of the wave, as many as run at a time, or the
-   wave's distillation. Each is a sub-agent of pi-subagents, so the conversation
-   stays the user's while they work. When one ends the session is told how, with
-   the trial's verdict and where its record is, and calls `improve_next` again.
+3. **Run.** `improve_next` reads the run's folder and gives the call that starts
+   the next background sub-agents: the wave's trials together, as many at a time
+   as the plan allows, or the wave's distillation. Each is a sub-agent of
+   pi-subagents, so the conversation stays the user's while they work. When they
+   have ended the session is told how, with each trial's verdict and where its
+   record is, and calls `improve_next` again.
 
 | Role | Is | Package tools |
 | --- | --- | --- |
-| Scheduler | Code, `src/scheduler.ts`: one function that decides the next step from the run's folder | none: it is not a model |
-| Session | The user's session, which plans the run and starts what the scheduler names | `improve_tasks` and `improve_plan` while it plans, `improve_next` while a run is scheduled |
+| Scheduler | Code, `src/scheduler.ts`: it decides the next step from the run's folder and admits the jobs that do it | none: it is not a model |
+| Session | The user's session, which plans the run and starts the sub-agents of each step | `improve_tasks` and `improve_plan` while it plans, `improve_next` while a run is scheduled |
 | Worker | A headless child Kinex, one per trial, in a fresh rig workspace with one library version installed, sandboxed | none |
 | Distiller | A headless child Kinex, one per distillation, in a session and a folder of its own | `improve_check` |
 
 A wave gives every open task still unsolved one trial with the newest version;
-`improve_next` hands its trials out as many at a time as the plan allows. With
+they run as many at a time as the plan allows. With
 batches, tasks open a batch a wave, in the order the last distiller asked for
 (`schedule.json`). The wave is distilled before the next one opens. The run ends
 when every task is solved, the rounds are done, or a round neither solved a task
@@ -70,24 +71,37 @@ code as `kinex.lib` modules instead of a skill's body).
 
 ## Jobs
 
-A trial and a distillation are each one job: a folder the scheduler opens, and
-a process of its own that does it. `improve_next` names the job, and the session
-starts it with `subagent({ agent: "self-improve-trial", task: "<run>/t003" })`.
-pi-subagents runs the agent's command in the background, shows it, stops it on
-request and tells the session when it has ended.
+A trial and a distillation are each one job: a process of its own, which opens
+the job's folder once the scheduler has admitted it. `improve_next` gives the
+call and the session makes it:
+
+```js
+// a wave: one workflow, a trial sub-agent for each task
+subagent({ workflow: "<run folder>/wave.js", args: { run: "<run>", library: "L1", tasks: ["sim/a", "sim/b"] }, globalConcurrencyLimit: 2, async: true })
+// its distillation
+subagent({ agent: "self-improve-distill", task: "run=<run>" })
+```
+
+pi-subagents runs each command in the background, shows it, stops it on request
+and tells the session when the call's sub-agents have ended.
+
+- The call's arguments are what the session may choose: `library` is the version
+  the wave's workers are given, the newest unless the session gives another
+  published one. The tasks, how often one is tried and how many run at a time are
+  the scheduler's: a trial sub-agent is told `run=<run> task=<task> library=<version>`
+  and asks to be admitted, so a task that is not to be tried now is refused and a
+  trial beyond the plan's number waits for one to end.
 
 - The two agents are files in Kinex's agent folder (`agents/self-improve-trial.md`,
   `agents/self-improve-distill.md`). Each names this package's command,
-  `dist/main.js`, and nothing of a run: the call's task names the job by its run
-  and its id, so Kinex processes that schedule different runs share the files.
-  The files stay after a run.
+  `dist/main.js`, and nothing of a run: the call says the run, so Kinex processes
+  that schedule different runs share the files. The files stay after a run.
 - The run's `kinex.json` keeps the Kinex and the model flags of the session that
   schedules it; the command starts workers and distillers as that Kinex.
 - The command ends its job an hour after the run's limit for it (`trialTimeoutS`,
   or `distillTimeoutS` and its repair turns), as it does when it is stopped.
-- The command claims a job the scheduler opened (`claim.json`), so a job that is
-  started twice is done once, and one that was named and never started is named
-  again by the next `improve_next`.
+- The command opens its job while it alone holds the run's lock and claims it
+  with its process id (`claim.json`), so a task started twice is tried once.
 - What it prints is what the session is told: the trial's line as `status` shows
   it and the path of its record.
 - A job is a process of its own, so it goes on when the Kinex that started it
@@ -101,6 +115,7 @@ every workspace so that no workspace's `.kinex` leaks into a trial.
 ```text
 config.json                 the request, tasks, rounds, parallel, batches, limits, the rosbridge command
 kinex.json                  the Kinex and model flags of the session that schedules the run now
+wave.js                     the pi-subagents workflow that starts a wave's trials
 waves/w001.json             a wave as it was opened: its library version and tasks
 libraries/L0, L1, ...       published versions; never edited, the newest is current
   manifest.json             version, parent, the distillation it came from
@@ -121,8 +136,7 @@ distillations/d001/
 ```
 
 - A job is finished when its `record/result.json` exists. One without a result is
-  waiting to be started, running in the process that claimed it, or abandoned by a
-  process that is gone. State is read by scanning these folders; no file is shared
+  running in the process that claimed it, or abandoned by a process that is gone. State is read by scanning these folders; no file is shared
   between running jobs.
 - `payload/` uses Kinex's folder names, so installing is a copy into
   `.kinex/skills`, `.kinex/tools`, `.kinex/lib` and `.kinex/programs`; a `lib/`
@@ -137,7 +151,7 @@ distillations/d001/
 
 ## Limits
 
-- One run is scheduled in a Kinex at a time: the agent files name its folder.
+- One run is scheduled in a Kinex at a time.
   `/self-improve stop` ends its jobs: workers and distillers are stopped and their
   simulators closed. Quitting Kinex does not: the jobs in flight finish and leave
   their results, and `resume` schedules the run again. A job left without a result
