@@ -30,9 +30,7 @@ run's files and its settings; this page keeps the contracts.
   tasks run, with which library and how often is never the model's choice.
   Standalone keeps pi-subagents [closed](agent-integration.md) until the plan is
   approved, so a session has its tools from then on and no other session has
-  them. A distiller's Kinex is started with it open, and is told to call
-  `subagents_enable` first where pi-subagents offers only that loader, as it
-  does on a model that can be given a tool mid-conversation.
+  them. A distiller's Kinex is started with it open.
 - The session has the package's tools only while it plans or schedules a run. A
   worker has none and starts no sub-agents. A distiller has the gate and starts
   sub-agents of its own with pi-subagents. `/self-improve` is refused inside a child.

@@ -48,7 +48,9 @@ Standalone bundles pi-subagents closed: the extension loads, but its tools,
 commands and shortcuts are held back, and its skills and prompt templates are not
 loaded, so neither the model nor the user sees anything of it. Granting
 `unattended` opens it for the rest of the process, and the tools are there for
-the model's next request. A process pi-subagents started as a sub-agent, and one
+the model's next request. Its `subagents_enable` loader is never registered: the
+gate already keeps the tools away until they are wanted, and without the loader
+pi-subagents leaves `subagent` active. A process pi-subagents started as a sub-agent, and one
 started with `KINEX_SUBAGENTS=on`, has it open from the start. A user who
 installs `npm:pi-subagents` gets their own copy instead, always open.
 
