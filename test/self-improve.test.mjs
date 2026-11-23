@@ -115,12 +115,12 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     const messages = scheduling.at(-1).messages
     const results = messages.filter(message => message.role === 'tool').map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content))
     assert.match(results[0], /^sim\/open-door \(robot sim\/arm\)\nsim\/press-button \(robot sim\/arm\)$/)
-    assert.match(results[1], /is scheduled\.\n\nWave 1: start this trial now, as a background sub-agent, unless you started it a moment ago:\nsubagent\(\{ agent: "self-improve-trial", task: "t001" \}\)\n1 more of this wave start as these end\./)
+    assert.match(results[1], new RegExp(`is scheduled\\.\\n\\nWave 1: start this trial now, as a background sub-agent, unless you started it a moment ago:\\nsubagent\\(\\{ agent: "self-improve-trial", task: "${name}/t001" \\}\\)\\n1 more of this wave start as these end\\.`))
     // What a sub-agent leaves is told to the session that started it: the verdict, and where the record is.
     assert.match(told, new RegExp(`pi_subagents_notice[^]*t001, sim/open-door, L0, failure, stopped, 40 steps[^]*Its record: ${path.join(root, 'trials/t001/record')} \\(summary\\.md first\\)`))
-    assert.match(told, /The wave is done\. Start its distillation now, as a background sub-agent, unless you started it a moment ago:\\nsubagent\(\{ agent: \\"self-improve-distill\\", task: \\"d001\\" \}\)/)
+    assert.ok(told.includes(`The wave is done. Start its distillation now, as a background sub-agent, unless you started it a moment ago:\\nsubagent({ agent: \\"self-improve-distill\\", task: \\"${name}/d001\\" })`))
     assert.match(told, /d001, base L0, 2 trials \(2 new\), published L1/)
-    assert.match(told, /Wave 2: start this trial now[^]*task: \\"t003\\"/)
+    assert.match(told, new RegExp(`Wave 2: start this trial now[^]*task: \\\\"${name}/t003\\\\"`))
   })
 
   await t.test('a trial is one judged episode with its own record', async () => {

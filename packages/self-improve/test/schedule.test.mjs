@@ -7,6 +7,7 @@ import path from 'node:path'
 import { settled, stepLimits } from '../dist/records.js'
 import { describe, next, stop, waveTasks } from '../dist/scheduler.js'
 import { claimFile, configFile, resultFile } from '../dist/layout.js'
+import { jobAt, jobName, namedJobs } from '../dist/job.js'
 import { instruction } from '../dist/sim.js'
 import { distillTurns, scheduled } from '../dist/distill.js'
 import { createLibrary, publish } from '../dist/library.js'
@@ -135,7 +136,7 @@ test('the next step is read from the run\'s folder: a wave some trials at a time
   const run = await scheduledRun(t, { tasks: ['a', 'b', 'c'] })
   const first = await next(run)
   assert.deepEqual([first.kind, first.wave, first.start.map(job => job.id), first.left], ['trials', 1, ['t001', 't002'], 1], 'as many as run at a time')
-  assert.match(await describe(run, first), /Wave 1: start these 2 trials now[^\n]*\nsubagent\(\{ agent: "self-improve-trial", task: "t001" \}\)\nsubagent\(\{ agent: "self-improve-trial", task: "t002" \}\)\n1 more of this wave start as these end\./)
+  assert.match(await describe(run, first), /Wave 1: start these 2 trials now[^\n]*\nsubagent\(\{ agent: "self-improve-trial", task: "[^"/]+\/t001" \}\)\nsubagent\(\{ agent: "self-improve-trial", task: "[^"/]+\/t002" \}\)\n1 more of this wave start as these end\./)
   // A trial that was named and never started is named again: no process claimed it.
   const again = await next(run)
   assert.deepEqual([again.start.map(job => job.id), again.left], [['t001', 't002'], 1])
@@ -200,4 +201,13 @@ test('a run ends when its rounds are done, and stopping tells the processes of i
   assert.deepEqual(await next(run), { kind: 'end', reason: 'its rounds are done' }, 'a library that could not be published is still a round')
   // Only a job whose process is alive is stopped; here none is.
   assert.deepEqual(await stop(run), [])
+})
+
+test('a job is named by its run and its id, and found again in what its sub-agent is given', () => {
+  const name = jobName(jobAt('/data/self-improve/20261123-101500/trials/t012'))
+  assert.equal(name, '20261123-101500/t012')
+  assert.deepEqual(namedJobs(`Runs one trial of a self-improve run.\n\nTask: "${name}"`, 't'), [{ run: '20261123-101500', id: 't012' }])
+  // A trial's command takes no distillation, and a longer word is not an id.
+  assert.deepEqual(namedJobs('20261123-101500/d001 and some/trials/t001x', 't'), [])
+  assert.deepEqual(namedJobs('20261123-101500/d001', 'd'), [{ run: '20261123-101500', id: 'd001' }])
 })

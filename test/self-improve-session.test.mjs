@@ -65,18 +65,20 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   const { run } = current()
   assert.deepEqual({ ...run.config, libRoots: undefined }, { selection: 'the sim tasks, two rounds', tasks: ['sim/open-door', 'sim/press-button'], robot: 'sim/arm', rounds: 2, parallel: 2, batches: [1],
     sandbox: false, libRoots: undefined, helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, rosbridge: process.env.KINEX_ROSBRIDGE })
-  assert.match(approved.output, new RegExp(`^The self-improve run ${run.root} is scheduled\\.\\n\\nWave 1: start this trial now, as a background sub-agent, unless you started it a moment ago:\\nsubagent\\(\\{ agent: "self-improve-trial", task: "t001" \\}\\)\\n`))
+  assert.match(approved.output, new RegExp(`^The self-improve run ${run.root} is scheduled\\.\\n\\nWave 1: start this trial now, as a background sub-agent, unless you started it a moment ago:\\nsubagent\\(\\{ agent: "self-improve-trial", task: "${path.basename(run.root)}/t001" \\}\\)\\n`))
   assert.deepEqual(await names(), ['improve_next'])
   // The commands that do the run's jobs are named where pi-subagents reads its agents.
   const agent = await readFile(path.join(process.env.KINEX_CONFIG_DIR, 'agent/agents/self-improve-trial.md'), 'utf8')
-  assert.match(agent, /^---\nname: self-improve-trial\n[^]*runner:\n  type: external-cli\n  command: "[^"]+"\n  args: \["[^"]*main\.js","trial","[^"]+"/)
-  assert.ok(agent.includes(JSON.stringify(run.root)), 'for this run')
+  assert.match(agent, /^---\nname: self-improve-trial\n[^]*runner:\n  type: external-cli\n  command: "[^"]+"\n  args: \["[^"]*main\.js","trial"\]\n/)
+  // They say nothing of the run, so two Kinex that schedule different runs share them; the run keeps which Kinex its children are.
+  assert.ok(!agent.includes(path.basename(run.root)))
+  assert.deepEqual(JSON.parse(await readFile(path.join(run.root, 'kinex.json'), 'utf8')), { entry: process.argv[1], flags: [] })
   assert.match(await readFile(path.join(process.env.KINEX_CONFIG_DIR, 'agent/agents/self-improve-distill.md'), 'utf8'), /"distill"/)
   await assert.rejects(improve.execute('another run', command), /is already scheduled in this Kinex; \/self-improve stop ends it/)
-
-  // Stopping ends the scheduling here; resuming schedules the run again and asks the user once more.
   // The command completes to its subcommands and to the versions the newest run has to install.
   assert.deepEqual(await improve.choices(), ['status', 'stop', 'resume', 'install L0'])
+
+  // Stopping ends the scheduling here; resuming schedules the run again and asks the user once more.
   assert.match((await improve.execute('stop', command)).text, new RegExp(`^Stopped the self-improve run ${run.root}\\. /self-improve resume continues it`))
   assert.deepEqual([current(), await names()], [undefined, []])
   const resumed = await improve.execute('resume', command)
@@ -84,7 +86,7 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   assert.match(resumed.prompt, /is scheduled in this Kinex again\. Call improve_next/)
   asked.length = 0
   await assert.rejects(call('improve_next', {}, false), PermissionDeniedError)
-  assert.match((await call('improve_next', {})).output, /subagent\(\{ agent: "self-improve-trial", task: "t001" \}\)/)
+  assert.ok((await call('improve_next', {})).output.includes(`subagent({ agent: "self-improve-trial", task: "${path.basename(run.root)}/t001" })`))
   assert.match(asked.at(-1).description, /^Continue the self-improve run /)
   await call('improve_next', {})
   assert.equal(asked.length, 2, 'the user is asked once')

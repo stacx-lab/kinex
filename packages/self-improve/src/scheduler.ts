@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import path from "node:path"
 import { DISTILL_AGENT, TRIAL_AGENT } from "./agents.ts"
 import { openDistillation, scheduled as ordered } from "./distill.ts"
-import { jobAt, openJob, standing, type Job } from "./job.ts"
+import { jobAt, jobName, openJob, standing, type Job } from "./job.ts"
 import { claimFile, distillationsDir, entries, readJson, trialsDir, wavesDir, writeJson } from "./layout.ts"
 import { newestVersion } from "./library.ts"
 import { running } from "./lock.ts"
@@ -164,7 +164,7 @@ export async function next(run: Run): Promise<Step> {
   }
 }
 
-const call = (agent: string, job: Job) => `subagent({ agent: "${agent}", task: "${job.id}" })`
+const call = (agent: string, job: Job) => `subagent({ agent: "${agent}", task: "${jobName(job)}" })`
 
 /** A step as the session reads it: what to start, and what to do when it has ended. */
 export async function describe(run: Run, step: Step): Promise<string> {

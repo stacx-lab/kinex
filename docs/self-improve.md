@@ -123,7 +123,11 @@ share no file.
 
 A job is done by a process of its own, which a background sub-agent runs: it
 claims the job the scheduler opened, so a job started twice is done once and one
-never started is named again. Jobs take turns, through a lock in the runs'
+never started is named again. The call names the job by its run and its id
+(`<run>/t003`), so the two agent files that name the command are the same for
+every run, and Kinex processes that schedule different runs share them. The run's
+`kinex.json` keeps which Kinex schedules it now: its children are that Kinex on
+that model. A job ends itself an hour after its run's limit for it. Jobs take turns, through a lock in the runs'
 folder, at what must not happen twice at once: building the shared Python
 environment and starting a worker. Because a job is its own process it outlives
 the Kinex that started it; `/self-improve stop` ends a run's jobs, their workers

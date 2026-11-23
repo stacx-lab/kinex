@@ -72,14 +72,19 @@ code as `kinex.lib` modules instead of a skill's body).
 
 A trial and a distillation are each one job: a folder the scheduler opens, and
 a process of its own that does it. `improve_next` names the job, and the session
-starts it with `subagent({ agent: "self-improve-trial", task: "t003" })`.
+starts it with `subagent({ agent: "self-improve-trial", task: "<run>/t003" })`.
 pi-subagents runs the agent's command in the background, shows it, stops it on
 request and tells the session when it has ended.
 
 - The two agents are files in Kinex's agent folder (`agents/self-improve-trial.md`,
-  `agents/self-improve-distill.md`), written for the run that is scheduled. Each
-  names this package's command, `dist/main.js`, with the run's folder and the
-  Kinex and model flags of the session that scheduled it.
+  `agents/self-improve-distill.md`). Each names this package's command,
+  `dist/main.js`, and nothing of a run: the call's task names the job by its run
+  and its id, so Kinex processes that schedule different runs share the files.
+  The files stay after a run.
+- The run's `kinex.json` keeps the Kinex and the model flags of the session that
+  schedules it; the command starts workers and distillers as that Kinex.
+- The command ends its job an hour after the run's limit for it (`trialTimeoutS`,
+  or `distillTimeoutS` and its repair turns), as it does when it is stopped.
 - The command claims a job the scheduler opened (`claim.json`), so a job that is
   started twice is done once, and one that was named and never started is named
   again by the next `improve_next`.
@@ -95,6 +100,7 @@ every workspace so that no workspace's `.kinex` leaks into a trial.
 
 ```text
 config.json                 the request, tasks, rounds, parallel, batches, limits, the rosbridge command
+kinex.json                  the Kinex and model flags of the session that schedules the run now
 waves/w001.json             a wave as it was opened: its library version and tasks
 libraries/L0, L1, ...       published versions; never edited, the newest is current
   manifest.json             version, parent, the distillation it came from
