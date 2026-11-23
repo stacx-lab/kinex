@@ -188,7 +188,9 @@ Pass `selfImproveToolNames` as reserved tool names. The package asks three
 things of its host, and standalone Kinex gives them:
 
 - The pi-subagents extension, whose `subagent` tool starts a job in the
-  background and whose notice tells the session when it has ended.
+  background and whose notice tells the session when it has ended. Standalone
+  keeps it closed until `unattended` is granted, and open from the start in a
+  process started with `KINEX_SUBAGENTS=on`, as a distiller's is.
 - The permission `unattended`, which `improve_plan` asks for: the host shows the
   user the description and lets the session work without approvals once they
   agree.

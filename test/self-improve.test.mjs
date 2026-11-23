@@ -208,6 +208,14 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     // A worker does its task itself.
     const worker = fake.requests.find(request => said(request).includes('Work only in this directory'))
     assert.deepEqual(improving(worker), [])
+    // pi-subagents is closed until the plan is approved: the session that plans has nothing of it, the one
+    // that schedules has the subagent tool without asking for it, a worker never has it, and a distiller,
+    // which starts sub-agents of its own, has it from the start, here as the loader it enables.
+    const delegating = request => offered(request).filter(name => name === 'subagent' || name === 'subagents_enable').sort()
+    assert.deepEqual(delegating(scheduling[0]), [])
+    assert.ok(offers(scheduling.at(-1), 'subagent') && !called(scheduling.at(-1), 'subagents_enable'))
+    assert.deepEqual(delegating(fake.requests.findLast(request => said(request).includes('Work only in this directory'))), [])
+    assert.deepEqual(delegating(fake.requests.find(request => said(request).includes('You turn the records of earlier trials'))), ['subagents_enable'])
   })
 
   await t.test('status and install need no model', async () => {

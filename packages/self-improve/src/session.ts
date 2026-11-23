@@ -24,8 +24,9 @@ function command(role: Role, cwd: string, record: string, prompt: string, sandbo
   const visible = (entry: string) => !(existsSync(path.join(entry, "rosbridge")) && existsSync(path.join(entry, "activate")))
   const argv = [process.execPath, kinex.entry, "run", "--yolo", ...modelFlags(), "--session", sessionFile(record), "--", ...first[role], prompt]
   const env = { ...inherited, [ROLE_VARIABLE]: role,
-    // A worker does its task itself: it starts no sub-agents.
-    ...(role === "worker" ? { PI_SUBAGENT_MAX_DEPTH: "0" } : {}),
+    // A worker does its task itself: it starts no sub-agents. A distiller starts its own, so its
+    // Kinex opens pi-subagents from the start.
+    ...(role === "worker" ? { PI_SUBAGENT_MAX_DEPTH: "0" } : { KINEX_SUBAGENTS: "on" }),
     PATH: (process.env.PATH ?? "").split(path.delimiter).filter(visible).join(path.delimiter) }
   // A container is named so that it can be removed when the command that started it was killed.
   const container = sandbox === "docker" ? `kinex-self-improve-${process.pid}-${path.basename(path.dirname(record))}-${Date.now()}` : undefined

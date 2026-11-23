@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
 import path from "node:path"
-import type { SettingsManager } from "@earendil-works/pi-coding-agent"
+import type { ExtensionFactory, SettingsManager } from "@earendil-works/pi-coding-agent"
 
 const require = createRequire(import.meta.url)
 
@@ -17,13 +17,44 @@ export function bundledExtensions(): { name: string; path: string }[] {
   return ["pi-web-search", "pi-btw", "pi-subagents"].map(name => ({ name, path: packageDirectory(name) }))
 }
 
+/** The bundled extension that stays closed until its gate opens; the others load as Pi packages. */
+export const GATED = "pi-subagents"
+
 /** Bundled extensions load unless the user's settings already configure that npm package. */
-export function defaultExtensionPaths(settings: SettingsManager): string[] {
+export function defaultExtensions(settings: SettingsManager): { name: string; path: string }[] {
   const configured = [
     ...settings.getGlobalSettings().packages ?? [],
     ...settings.getProjectSettings().packages ?? [],
   ].map(pkg => typeof pkg === "string" ? pkg : pkg.source)
-  return bundledExtensions()
-    .filter(({ name }) => !configured.some(source => source === `npm:${name}` || source.startsWith(`npm:${name}@`)))
-    .map(extension => extension.path)
+  return bundledExtensions().filter(({ name }) => !configured.some(source => source === `npm:${name}` || source.startsWith(`npm:${name}@`)))
+}
+
+/**
+ * Keeps an extension closed: it loads and follows the session, but the tools, commands
+ * and shortcuts it registers reach the session only once the gate is open, so until
+ * then neither the model nor the user sees anything of it. Open stays open.
+ */
+export function createGate(open = false) {
+  let held: (() => void)[] = []
+  return {
+    extension(load: () => Promise<ExtensionFactory>): ExtensionFactory {
+      return async pi => {
+        // What an earlier session held back was for that session.
+        held = []
+        const factory = await load()
+        await factory(new Proxy(pi, {
+          get(target, key) {
+            const value: unknown = Reflect.get(target, key)
+            if (typeof value !== "function") return value
+            if (key !== "registerTool" && key !== "registerCommand" && key !== "registerShortcut") return value.bind(target)
+            return (...args: unknown[]) => { if (open) value.apply(target, args); else held.push(() => { value.apply(target, args) }) }
+          },
+        }))
+      }
+    },
+    open() {
+      open = true
+      for (const register of held.splice(0)) register()
+    },
+  }
 }

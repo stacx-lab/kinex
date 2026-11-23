@@ -11,6 +11,8 @@ export class Interaction {
   private lifetime = new AbortController()
   private queue: Promise<unknown> = Promise.resolve()
   private grants = new Set<string>()
+  /** Runs each time work that goes on without approvals is granted. */
+  onUnattended: () => void = () => {}
   constructor(public mode: Mode) {}
 
   reset() {
@@ -41,7 +43,11 @@ export class Interaction {
   readonly host: NonNullable<RuntimeOptions["host"]> = {
     ask: async request => {
       const { ctx, signal } = this.current()
-      if (request.permission === UNATTENDED) return this.unattended(ctx, signal, request.description)
+      if (request.permission === UNATTENDED) {
+        await this.unattended(ctx, signal, request.description)
+        this.onUnattended()
+        return
+      }
       const key = `${ctx.sessionManager.getSessionId()}:${request.permission}`
       if (this.mode !== "ask" || this.grants.has(key)) return
       const action = kinexPermissionAction(request.permission, await loadPermissionRules(ctx.cwd), setupPermissionDefaults)
