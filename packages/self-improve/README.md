@@ -11,6 +11,8 @@ namespaces or Docker.
 
 ```text
 /self-improve ten RoboCasa tasks about doors, three rounds    plan a run with the session, approve it, and it starts
+/self-improve with the rosbridge in ~/sim on GPU 1, the target split of RoboCasa, two rounds
+                                                              how the simulator is run is part of the request
 /self-improve robocasa/* six rounds, batches of 10, 20, 40    the request is read by the session, whatever its form
 /self-improve status [run]                                    no model: jobs, solved tasks per version
 /self-improve install L2 [run]                                no model: copy L2 into this workspace
@@ -184,8 +186,15 @@ distillations/d001/
 - `config.json` can be edited while no job of the run is running: `seed`, `trialTimeoutS` (3600),
   `distillTimeoutS` (7200), `startGapS` (10), `rounds`, `parallel`, `batches`, `helpers` (10,
   how many of a distiller's sub-agents run at once), `sandbox`, `image`.
-  `KINEX_ROSBRIDGE` names the rosbridge command when a run is created (default
-  `rosbridge` on `PATH`).
+- How rosbridge is run is part of the plan. The session works it out of the
+  request and the user approves the lines with the plan: the command, with the
+  environment it needs first as `NAME=value` words
+  (`CUDA_VISIBLE_DEVICES=1 /sim/rosbridge/.venv/bin/rosbridge`, no quoting), more
+  options for every `rosbridge launch` (`--split target`, `--record DIR`) and a
+  seed. A `--config` given to launch is given to `setup` too. The execution mode,
+  the early stop and the ROS domain are the method's and are refused. A request
+  that says nothing runs `rosbridge` on `PATH`, or the command `KINEX_ROSBRIDGE`
+  names. The run keeps them in `config.json` as `rosbridge`, `launch` and `seed`.
 - Workers run in a sandbox (`"sandbox": true`): bubblewrap where it can run, else
   a Docker container (`"image"`, default `ubuntu:24.04`, with the host's system
   folders bound over it). `"sandbox": "bwrap"` or `"docker"` names one. A plan is

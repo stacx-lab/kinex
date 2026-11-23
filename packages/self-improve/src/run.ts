@@ -23,8 +23,10 @@ export interface Config {
   distillTimeoutS: number
   /** Seconds between two worker starts; absent in a run made before the gap existed. */
   startGapS?: number
-  /** The command that runs rosbridge. */
+  /** The command that runs rosbridge: words, with the environment it needs first as NAME=value. */
   rosbridge: string
+  /** More options for every `rosbridge launch` of the run, such as a split or a recording. */
+  launch?: string[]
   /** Whether workers run in a sandbox: `true` takes bubblewrap where it can run and Docker where it cannot, a name takes that one. */
   sandbox?: boolean | Sandbox
   /** The image a Docker sandbox starts from; the host's system folders are bound over it. */
@@ -46,12 +48,12 @@ export const RETRIES = 2
 export const REPAIRS = 2
 export const REPAIR_S = 1800
 
-/** The command that runs rosbridge for a new run. */
+/** The command that runs rosbridge where a plan names none. */
 export const rosbridgeCommand = () => process.env.KINEX_ROSBRIDGE ?? "rosbridge"
 
 /** A new run's settings: the plan and the limits a run starts with. The user approves these, and the run is made from them. */
-export function newConfig(selection: string, plan: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "sandbox">): Config {
-  return { selection, ...plan, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, rosbridge: rosbridgeCommand() }
+export function newConfig(selection: string, plan: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "sandbox" | "seed" | "launch"> & { rosbridge?: string }): Config {
+  return { selection, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, ...plan, rosbridge: plan.rosbridge ?? rosbridgeCommand() }
 }
 
 export async function createRun(config: Config): Promise<Run> {
