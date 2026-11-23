@@ -49,6 +49,7 @@ test('direct commands need no model and preserve the robotics workspace', async 
   app.owner.interaction.onUnattended()
   const [opened, slash] = subagents()
   assert.deepEqual(opened.filter(name => name === 'subagent' || name === 'bg_wait'), ['bg_wait', 'subagent'])
+  assert.ok(!opened.includes('subagents_enable'), 'its loader is never registered')
   assert.ok(slash.includes('subagents-fleet'))
   assert.deepEqual(app.host.session.extensionRunner.getCommandDiagnostics(), [])
   for (const command of ['/load sensor', '/devices', '/ping sensor', '/stop sensor', '/unload sensor']) await app.host.session.prompt(command)

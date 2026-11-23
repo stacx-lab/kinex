@@ -19,6 +19,12 @@ export function bundledExtensions(): { name: string; path: string }[] {
 
 /** The bundled extension that stays closed until its gate opens; the others load as Pi packages. */
 export const GATED = "pi-subagents"
+/**
+ * The loader pi-subagents keeps `subagent` behind on a model that can be given a tool
+ * mid-conversation. The gate already keeps its tools out until they are wanted, so the
+ * loader is never registered, and pi-subagents then leaves `subagent` active.
+ */
+export const LOADER = "subagents_enable"
 
 /** Bundled extensions load unless the user's settings already configure that npm package. */
 export function defaultExtensions(settings: SettingsManager): { name: string; path: string }[] {
@@ -32,9 +38,10 @@ export function defaultExtensions(settings: SettingsManager): { name: string; pa
 /**
  * Keeps an extension closed: it loads and follows the session, but the tools, commands
  * and shortcuts it registers reach the session only once the gate is open, so until
- * then neither the model nor the user sees anything of it. Open stays open.
+ * then neither the model nor the user sees anything of it. Open stays open. A tool named
+ * in `never` is not registered at all.
  */
-export function createGate(open = false) {
+export function createGate(open = false, never: readonly string[] = []) {
   let held: (() => void)[] = []
   return {
     extension(load: () => Promise<ExtensionFactory>): ExtensionFactory {
@@ -47,7 +54,12 @@ export function createGate(open = false) {
             const value: unknown = Reflect.get(target, key)
             if (typeof value !== "function") return value
             if (key !== "registerTool" && key !== "registerCommand" && key !== "registerShortcut") return value.bind(target)
-            return (...args: unknown[]) => { if (open) value.apply(target, args); else held.push(() => { value.apply(target, args) }) }
+            return (...args: unknown[]) => {
+              const [tool] = args
+              if (key === "registerTool" && tool && typeof tool === "object" && "name" in tool && never.some(name => name === tool.name)) return
+              if (open) value.apply(target, args)
+              else held.push(() => { value.apply(target, args) })
+            }
           },
         }))
       }

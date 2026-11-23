@@ -46,11 +46,8 @@ function scheduler(plan) {
       return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*' }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
     }
     if (/^sim\/[^\n]* \(robot /.test(text)) return call('improve_plan', plan)
-    // Where pi-subagents offers only its loader at first, the tool is enabled before the first start.
-    const enabled = request.messages.findLastIndex(message => message.tool_calls?.[0]?.function.name === 'subagents_enable')
-    const named = enabled > 0 && !request.messages.slice(enabled).some(message => message.tool_calls?.[0]?.function.name === 'subagent') ? request.messages[enabled - 1].content : text
-    const starts = [...named.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)]
-    if (starts.length) return has('subagent') ? { tools: starts.map(([, agent, task]) => ({ name: 'subagent', args: { agent, task } })) } : call('subagents_enable')
+    const starts = [...text.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)]
+    if (starts.length) return has('subagent') ? { tools: starts.map(([, agent, task]) => ({ name: 'subagent', args: { agent, task } })) } : { text: 'NO_SUBAGENT_TOOL' }
     if (/has ended|stopped on an error/.test(text)) return { text: 'RUN_OVER' }
     if (/No (trial|distillation) waits/.test(text)) return call('improve_next')
     return { text: 'WAITING' }
@@ -63,16 +60,14 @@ function scheduler(plan) {
 function script(request) {
   const text = said(request)
   const step = request.messages.filter(message => message.role === 'tool').length
-  const cold = !offers(request, 'subagent') || called(request, 'subagents_enable')
   if (text.includes('You turn the records of earlier trials')) return [
     call('write', { path: 'library/payload/skills/press/SKILL.md', content: SKILL }),
     call('write', { path: 'library/payload/brief.md', content: 'BRIEF_MARKER load the press skill first.\n' }),
-    ...(cold ? [call('subagents_enable')] : []),
     call('subagent', { agent: 'delegate', task: 'HELPER_PROMPT read records/ and write notes/door.md' }),
     call('bg_wait'),
     call('improve_check'),
     { text: 'The library is ready.' },
-  ][Math.min(step, cold ? 6 : 5)]
+  ][Math.min(step, 5)]
   if (text.includes('HELPER_PROMPT')) return { text: 'notes written' }
   if (text.includes('Work only in this directory')) return [
     call('write', { path: '.kinex/lib/press.py', content: '# Presses a button.\ndef press(): ...\n' }),
@@ -173,7 +168,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     assert.match(transcript, /The library is ready/)
     const distiller = fake.requests.filter(request => JSON.stringify(request.messages).includes('You turn the records of earlier trials'))
     assert.ok(distiller.every(request => !said(request).includes(PLANNING)), 'it starts from an empty conversation')
-    assert.match(prompt, /- Start sub-agents with the subagent tool, after subagents_enable where you do not have it yet: agent `delegate`[^\n]*at most eight a call and 10 at a time \(`concurrency`\)[^\n]*bg_wait returns when they have ended\./)
+    assert.match(prompt, /- Start sub-agents with the subagent tool: agent `delegate`[^\n]*at most eight a call and 10 at a time \(`concurrency`\)[^\n]*bg_wait returns when they have ended\./)
     // Its sub-agents are its own: a session of pi-subagents that works in its folder and is told nothing else.
     const helper = fake.requests.find(request => said(request).includes('HELPER_PROMPT') && !said(request).includes('You turn the records'))
     assert.ok(helper, 'the sub-agent ran')
@@ -210,12 +205,14 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     assert.deepEqual(improving(worker), [])
     // pi-subagents is closed until the plan is approved: the session that plans has nothing of it, the one
     // that schedules has the subagent tool without asking for it, a worker never has it, and a distiller,
-    // which starts sub-agents of its own, has it from the start, here as the loader it enables.
+    // which starts sub-agents of its own, has it from the start. The model here can be given a tool
+    // mid-conversation, where pi-subagents would offer only its loader: Kinex never registers that.
     const delegating = request => offered(request).filter(name => name === 'subagent' || name === 'subagents_enable').sort()
     assert.deepEqual(delegating(scheduling[0]), [])
-    assert.ok(offers(scheduling.at(-1), 'subagent') && !called(scheduling.at(-1), 'subagents_enable'))
+    assert.deepEqual(delegating(scheduling.at(-1)), ['subagent'])
     assert.deepEqual(delegating(fake.requests.findLast(request => said(request).includes('Work only in this directory'))), [])
-    assert.deepEqual(delegating(fake.requests.find(request => said(request).includes('You turn the records of earlier trials'))), ['subagents_enable'])
+    assert.deepEqual(delegating(fake.requests.find(request => said(request).includes('You turn the records of earlier trials'))), ['subagent'])
+    assert.ok(fake.requests.every(request => !called(request, 'subagents_enable')))
   })
 
   await t.test('status and install need no model', async () => {
