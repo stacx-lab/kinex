@@ -32,6 +32,7 @@ ROS resources a program creates end with it. Install missing ROS packages throug
 ## Principles
 
 - Before acting, read the devices and their profiles. Plan from what you have and what they declare.
+- Do not assume missing facts about the world. Use the information you have to find the solution.
 - Avoid unintended collisions with objects and your body along the motion, not only at its endpoints.
 - A sent command is not guaranteed to be successful, e.g., arms can lag or stop short and grasp may miss.
   Verify the outcome through feedback or your measurements.
