@@ -1,8 +1,6 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-night.svg">
-    <img src="assets/banner-day.svg" alt="Kinex: a robotics harness for coding agents." width="100%">
-  </picture>
+  <img src="assets/banner-day.svg#gh-light-mode-only" alt="Kinex: a robotics harness for coding agents." width="100%">
+  <img src="assets/banner-night.svg#gh-dark-mode-only" alt="Kinex: a robotics harness for coding agents." width="100%">
 </p>
 
 <p align="center">
@@ -42,10 +40,8 @@ Kinex connects a coding agent to robots through three layers:
 - **Skills:** procedures that guide tasks such as device setup and calibration.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/architecture-night.svg">
-    <img src="assets/architecture-day.svg" alt="Kinex architecture: the agent loads skills, runs graph programs through exec and calls devices directly; graph programs also operate devices, whose nodes exchange commands and feedback with hardware, simulators and model services." width="100%">
-  </picture>
+  <img src="assets/architecture-day.svg#gh-light-mode-only" alt="Kinex architecture: the agent loads skills, runs graph programs through exec and calls devices directly; graph programs also operate devices, whose nodes exchange commands and feedback with hardware, simulators and model services." width="100%">
+  <img src="assets/architecture-night.svg#gh-dark-mode-only" alt="Kinex architecture: the agent loads skills, runs graph programs through exec and calls devices directly; graph programs also operate devices, whose nodes exchange commands and feedback with hardware, simulators and model services." width="100%">
 </p>
 
 The agent loads skills as needed, then calls devices directly or runs Python
