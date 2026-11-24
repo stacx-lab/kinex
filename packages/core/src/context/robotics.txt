@@ -37,10 +37,10 @@ ROS resources a program creates end with it. Install missing ROS packages throug
 - A sent command is not guaranteed to be successful, e.g., arms can lag or stop short and grasp may miss.
   Verify the outcome through feedback or your measurements.
 - On faults, unexpected contact or lost feedback, stop the devices first with device_stop.
-- Work efficiently: skip checks that add nothing, but never at the cost of soundness.
-- You can run several actions in open-loop, or control the device interactively in closed-loop.
-  Decide the boundary of each piece of your control and end the exec when the next action depends on an 
-  outcome you must observe.
+- You should control the device interactively in closed-loop, i.e., observe, act, and then observe again
+  to get the feedback. You can run several actions in open-loop as well if you are confident. Decide the
+  boundary of each piece of your control wisely, end the exec when next action depends on an critical outcome
+  you must observe. 
 
 ## Tools and the user
 
