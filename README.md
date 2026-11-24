@@ -115,7 +115,7 @@ kinex-sim launch libero/libero-spatial-01 --execution-mode stepped --domain-id 8
 Then open Kinex in the exported directory and give it the task.
 See [using kinex-sim with Kinex](https://github.com/stacx-lab/kinex-sim/blob/main/docs/kinex.md).
 
-### Practise tasks and keep what was learned
+#### Practise tasks and keep what was learned
 
 With a simulator prepared, `/self-improve` lets Kinex attempt a set of tasks,
 study its own attempts and distill them into a library of skills and code:
