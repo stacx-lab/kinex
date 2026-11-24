@@ -14,6 +14,7 @@ import itertools
 import json
 import os
 import queue
+import select
 import sys
 import threading
 import traceback
@@ -32,6 +33,7 @@ _out = None
 _in = None
 _buffer = b""
 _request = None
+_link = None  # the resident runtime the program has joined, if the host named one
 
 
 def _lines():
@@ -53,6 +55,12 @@ if os.environ.get("KINEX_TOOL_DIALOG") == "1":
     _out = os.fdopen(os.dup(sys.stdout.fileno()), "w")
     _in = os.dup(sys.stdin.fileno())
     sys.stdout = sys.stderr
+    # The process may start ahead of its request: it joins the runtime while it waits.
+    if "KINEX_RUNTIME" in os.environ:
+        from kinex.host.runtime import join
+        _link = join(os.environ.pop("KINEX_RUNTIME"))
+        if _link is not None and _link in select.select([_in, _link], [], [])[0]:
+            sys.exit()  # the runtime ended before a request came
     # Consume startup before any call reads the dialog.
     line = next(_lines(), None)
     if not line:

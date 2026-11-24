@@ -284,6 +284,16 @@ forwards its messages. A node serves `stop` after its command subscriptions:
 `publish` discovers the device's `stop` first, so a command reaches the device
 rather than only another subscriber such as a recorder.
 
+Kinex keeps one resident ROS client per workspace (`kinex.host.runtime`): the node, the
+service and action clients and the publishers of every ready device, discovered once. An
+exec program joins it over a local socket instead of entering the ROS graph itself, so
+its first read or command waits for no discovery, and its process starts ahead of its
+request, while the model thinks. The program is still a fresh process: its scope, with
+its streams, goals and commanded devices, lives in the runtime and ends as the program
+does, and a program that dies has its devices stopped there. The runtime is replaced
+when the ready operations change; until one is ready, and for `io.serve` and
+`io.transforms`, a program uses a ROS client of its own.
+
 One host approval covers a Python invocation and composed operations. Python
 cannot load/unload devices. Explicit stop remains approval-free; model recording
 is opt-in. This API is not a sandbox for arbitrary Python.

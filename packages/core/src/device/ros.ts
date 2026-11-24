@@ -1,6 +1,7 @@
 import { overlayCommand } from "../python/ros-environment.ts"
 import path from "node:path"
-import { readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { z } from "zod"
 import { scoped } from "../scope.ts"
@@ -9,6 +10,7 @@ import { spawnProcess } from "../util/process.ts"
 import { shortID } from "../util/id.ts"
 import { NamedError } from "../util/error.ts"
 import { readLine } from "../util/lines.ts"
+import { create } from "../util/log.ts"
 import { pythonLaunch } from "../python/launch.ts"
 import { ProfileStore } from "./profile/store.ts"
 import { serveProcess, terminate, type ServeProcess } from "./serve-process.ts"
@@ -25,6 +27,9 @@ interface Host extends ServeProcess {
 const hosts = scoped(() => new Map<string, Host>())
 const frameHosts = scoped(() => new Map<string, Host & { endpoint: string }>())
 const transitions = scoped(() => new Map<string, Promise<void>>())
+// The resident ROS client of each workspace, which exec programs join (kinex.host.runtime).
+const runtimes = scoped(() => new Map<string, ServeProcess & { definition: string; socket: string; ready: boolean }>())
+const log = create("ros")
 
 function resolvedOperations(device: Device) {
   const endpoint = (value: string) => value.startsWith("/") ? value : path.posix.join("/", device.runtime?.namespace ?? "", value)
@@ -219,7 +224,48 @@ export async function rosCatalog(cwd: string) {
     catalog: Object.fromEntries(ready.flatMap(device => Object.entries(resolvedOperations(device)).map(([name, op]) => [`${device.name}.${name}`, op]))) }
 }
 
+async function endRuntime(workspace: string) {
+  const host = runtimes().get(workspace)
+  if (!host) return
+  runtimes().delete(workspace)
+  await terminate(host, true).finally(() => rm(path.dirname(host.socket), { recursive: true, force: true }))
+}
+
+/** The socket of the resident runtime serving this catalog; undefined while there is none to join, and a
+ *  program then uses ROS itself. One that is missing or serves another catalog is replaced: in the
+ *  background, unless the caller waits for it. */
+export async function rosRuntime(cwd: string, ros: Awaited<ReturnType<typeof rosCatalog>>, wait = false) {
+  const workspace = await ProfileStore.workspaceDir(cwd)
+  const definition = JSON.stringify([ros.domain_id, ros.catalog])
+  const serving = () => {
+    const host = runtimes().get(workspace)
+    return host?.ready && host.proc.exitCode === null && host.definition === definition ? host.socket : undefined
+  }
+  if (serving()) return serving()
+  const started = serialize(transitions(), `${workspace}:runtime`, async () => {
+    if (serving()) return
+    await endRuntime(workspace)
+    if (!Object.keys(ros.catalog).length) return
+    const launch = await pythonLaunch(cwd, "node")
+    const socket = path.join(await mkdtemp(path.join(tmpdir(), "kinex-")), "runtime")
+    const host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.host.runtime"], {
+      cwd, env: launch.env, group: true,
+    })), definition, socket, ready: false }
+    runtimes().set(workspace, host)
+    host.proc.stdin.write(JSON.stringify({ domain_id: ros.domain_id, catalog: ros.catalog, socket }) + "\n")
+    await host.proc.stdin.flush()
+    if (await readLine(host.source, Date.now() + 30_000) === undefined) throw new Error(host.stderr.tail)
+    host.ready = true
+  }).catch(async error => {
+    log.warn(`no resident runtime: ${String(error)}`)
+    await endRuntime(workspace)
+  })
+  if (wait) await started
+  return serving()
+}
+
 export async function closeRos() {
+  await Promise.allSettled([...runtimes().keys()].map(endRuntime))
   const results = await Promise.allSettled([...hosts().values()].map(async host => {
     try { if (host.ready) await request(host, "unload", {}) }
     finally { await terminate(host, true) }

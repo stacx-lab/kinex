@@ -95,14 +95,19 @@ def message_value(cls, value):
     return message
 
 
+def queue(spec, depth=None):
+    """How many messages a subscription keeps: depth, or the operation's own."""
+    size = depth if depth is not None else spec.get("qos", {}).get("depth", 1)
+    if not isinstance(size, int) or isinstance(size, bool) or not 1 <= size <= 1024:
+        raise ValueError("subscription depth must be in [1, 1024]")
+    return size
+
+
 def qos(spec, depth=None):
     from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
     fields = spec.get("qos", {})
-    size = depth if depth is not None else fields.get("depth", 1)
-    if not isinstance(size, int) or isinstance(size, bool) or not 1 <= size <= 1024:
-        raise ValueError("subscription depth must be in [1, 1024]")
     return QoSProfile(
-        depth=size,
+        depth=queue(spec, depth),
         reliability=(ReliabilityPolicy.BEST_EFFORT if fields.get("reliability") == "best_effort"
                      else ReliabilityPolicy.RELIABLE),
         durability=(DurabilityPolicy.TRANSIENT_LOCAL if fields.get("durability") == "transient_local"
@@ -111,9 +116,8 @@ def qos(spec, depth=None):
 
 class Subscription:
     def __init__(self, io, spec, depth):
-        from rosidl_runtime_py.utilities import get_message
         self.io, self.spec = io, spec
-        self.buffer = deque(maxlen=qos(spec, depth).depth)
+        self.buffer = deque(maxlen=queue(spec, depth))
         self.event = asyncio.Event()
         self.last = None
         self.closed = False
@@ -123,8 +127,7 @@ class Subscription:
         self.inbox = deque(maxlen=self.buffer.maxlen)
         self.lock = threading.Lock()
         self.scheduled = False
-        self.handle = io.node.create_subscription(
-            get_message(spec["type"]), spec["endpoint"], self._receive, qos(spec, depth))
+        self.handle = io._listen(self, depth)
 
     def _receive(self, message):
         with self.lock:
@@ -192,7 +195,7 @@ class Subscription:
         self.buffer.clear()
         self.last = None
         self.event.set()
-        self.io.node.destroy_subscription(self.handle)
+        self.io._unlisten(self.handle)
         if self in self.io.subscriptions:
             self.io.subscriptions.remove(self)
 
@@ -226,6 +229,8 @@ class Goal:
 
 
 class Communication:
+    goal = Goal  # what act returns
+
     def __init__(self, catalog=None, *, domain_id=None):
         from kinex import _request
         startup = (_request or {}).get("ros", {})
@@ -257,6 +262,13 @@ class Communication:
         if self.supervised and not self.catalog:
             raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host before using io.",
                            code="devices_not_ready")
+        self.loop = asyncio.get_running_loop()
+        self._acquire()
+        self.opened = True
+        return self
+
+    def _acquire(self):
+        """The scope's own ROS client: a node, spun on a thread of its own."""
         try:
             import rclpy
             import tf2_ros  # Validate the Kinex ROS client environment before acquiring resources.
@@ -265,7 +277,6 @@ class Communication:
                            code="ros_environment_unavailable") from error
         from rclpy.context import Context
         from rclpy.executors import SingleThreadedExecutor
-        self.loop = asyncio.get_running_loop()
         self.context = Context()
         clocks = [op for op in self.catalog.values() if op["type"] == "rosgraph_msgs/msg/Clock" and op["direction"] == "output"]
         arguments = []
@@ -290,8 +301,6 @@ class Communication:
         self.executor.add_node(self.node)
         self.thread = threading.Thread(target=self._spin, daemon=True)
         self.thread.start()
-        self.opened = True
-        return self
 
     async def __aenter__(self):
         self.open()
@@ -364,6 +373,15 @@ class Communication:
         if direction and spec["direction"] != direction:
             raise TypeError(f"{reference} is not a device {direction}")
         return spec
+
+    def _listen(self, stream, depth):
+        """Receive a stream's topic: its handle, which _unlisten releases."""
+        from rosidl_runtime_py.utilities import get_message
+        return self.node.create_subscription(get_message(stream.spec["type"]), stream.spec["endpoint"],
+                                             stream._receive, qos(stream.spec, depth))
+
+    def _unlisten(self, handle):
+        self.node.destroy_subscription(handle)
 
     def subscribe(self, operation, *, depth=None):
         stream = Subscription(self, self.operation(operation, "topic", "output"), depth)
@@ -446,7 +464,7 @@ class Communication:
         rejected goal raises. The goal then runs as world time passes: this never waits for it."""
         spec = self.operation(operation, "action", "input")
         await self._enroll(operation)
-        sent, timeout_s = Goal(self), spec.get("timeout_s", 10)
+        sent, timeout_s = self.goal(self), spec.get("timeout_s", 10)
         async with asyncio.timeout(timeout_s):
             client = await self._action(spec)
             sent.handle = await self._future(client.send_goal_async(
@@ -605,16 +623,20 @@ class Communication:
             await asyncio.gather(*(asyncio.wrap_future(handler) for handler in handlers), return_exceptions=True)
             for stream in tuple(self.subscriptions):
                 stream.close()
-            if self.tf is not None:
-                self.tf_listener.unregister()
-            for client in self.actions.values():
-                client.destroy()
-            await asyncio.to_thread(self.executor.shutdown, timeout_sec=2)
-            for node in self.extra_nodes:
-                node.destroy_node()
-            self.node.destroy_node()
-            self.context.try_shutdown()
-            await asyncio.to_thread(self.thread.join, 2)
+            await self._release()
+
+    async def _release(self):
+        """Give up what _acquire made."""
+        if self.tf is not None:
+            self.tf_listener.unregister()
+        for client in self.actions.values():
+            client.destroy()
+        await asyncio.to_thread(self.executor.shutdown, timeout_sec=2)
+        for node in self.extra_nodes:
+            node.destroy_node()
+        self.node.destroy_node()
+        self.context.try_shutdown()
+        await asyncio.to_thread(self.thread.join, 2)
 
     async def __aexit__(self, kind, error, traceback):
         try:

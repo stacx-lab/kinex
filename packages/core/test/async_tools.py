@@ -305,7 +305,7 @@ class Dialog(unittest.IsolatedAsyncioTestCase):
         from kinex.communication import Subscription
 
         def stream():
-            io = NS(node=NS(destroy_subscription=Mock()), subscriptions=[])
+            io = NS(_unlisten=Mock(), subscriptions=[])
             value = Subscription.__new__(Subscription)
             value.io, value.handle, value.closed = io, object(), False
             value.lock, value.inbox, value.buffer = threading.Lock(), deque(), deque()
@@ -320,7 +320,7 @@ class Dialog(unittest.IsolatedAsyncioTestCase):
             self.assertIs(entered, second)
         for value in (first, second):
             self.assertTrue(value.closed)
-            value.io.node.destroy_subscription.assert_called_once_with(value.handle)
+            value.io._unlisten.assert_called_once_with(value.handle)
             self.assertEqual(value.io.subscriptions, [])
 
     def test_plain_converts_messages_poses_arrays_records_and_non_finite_numbers(self):

@@ -15,6 +15,7 @@ import { observeDevices, type DeviceEvent } from "./device/observe.ts"
 import { Recorder, type RecorderHost, type RecordingEvent, type StartInput, type SnapInput, type StopInput, type ExecutionEvent } from "./record/recorder.ts"
 import { listSkills, loadSkill } from "./skill/index.ts"
 import { loadTools, toModelSchema } from "./tool/registry.ts"
+import { prewarmExec } from "./tool/python-runner.ts"
 import { execute, type Context, type Def } from "./tool/tool.ts"
 import { PermissionDeniedError, QuestionDeclinedError } from "./tool/errors.ts"
 
@@ -127,6 +128,8 @@ export function createKinexRuntime(options: RuntimeOptions) {
       }))),
       warmLoaded: () => run(() => state.warm ??= operation(async () => {
         const values = await warmLoadedDevices(directory, abort.signal)
+        // Once the devices are ready, so is the first program's process.
+        void Promise.allSettled(values.map(value => value.ready)).then(() => prewarmExec(directory, abort.signal)).catch(() => {})
         return Promise.all(values.map(value => activation(Promise.resolve(value))))
       })),
       list: () => operation(() => ProfileStore.listDevices(directory)),

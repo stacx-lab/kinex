@@ -7,8 +7,9 @@ import os
 import sys
 from types import ModuleType
 
-from kinex import _emit, _request
+from kinex import _emit, _link, _request
 from kinex.communication import Communication, ambient
+from kinex.host.runtime import Attached
 
 SOURCE = "<exec>"
 
@@ -33,7 +34,7 @@ def program():
 def run():
     """Run the program and release its scope; the payload finish left, or None without one."""
     payload = failure = None
-    with ambient(Communication()) as scope:
+    with ambient(Attached(_link) if _link else Communication()) as scope:
         try:
             program()
         except SystemExit as exit:

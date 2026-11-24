@@ -21,3 +21,6 @@ class OperationError(RPCError):
             "operation": operation, "type": interface,
             "response": message_to_ordereddict(response),
         })
+
+    def __reduce__(self):
+        return type(self), (self.operation, self.interface, self.response)

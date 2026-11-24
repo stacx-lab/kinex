@@ -1,6 +1,7 @@
-import { rosCatalog, rosReady } from "../device/ros.ts"
+import { rosCatalog, rosReady, rosRuntime } from "../device/ros.ts"
 import { enrollDevice, registerInvocation, releaseInvocation } from "../device/stop.ts"
-import { serveProcess, terminate } from "../device/serve-process.ts"
+import { serveProcess, terminate, type ServeProcess } from "../device/serve-process.ts"
+import { currentScope, scoped } from "../scope.ts"
 import { spawnProcess } from "../util/process.ts"
 import { abortable } from "../util/abort.ts"
 import { z } from "zod"
@@ -39,6 +40,38 @@ export interface ExecInput {
   timeout_s: number
 }
 interface Returned { result: unknown; files: string[] }
+// A program's process, which may start ahead of its request: by then it has imported Kinex and joined the
+// workspace's resident runtime. key is what it was started from, and sink where its output goes.
+interface Started extends ServeProcess { key: string; sink: { output?: (text: string) => void } }
+const spares = scoped(() => new Map<string, Started>())
+
+async function launch(cwd: string, signal?: AbortSignal, wait = false) {
+  const ros = await rosCatalog(cwd)
+  const runtime = await pythonLaunch(cwd, "exec", undefined, signal)
+  const socket = await rosRuntime(cwd, ros, wait)
+  const env = { ...runtime.env, ...(socket ? { KINEX_RUNTIME: socket } : {}) }
+  const key = JSON.stringify([runtime.command, env])
+  return { ros, runtime, socket, key, start(): Started {
+    const sink: Started["sink"] = {}
+    const proc = spawnProcess([...runtime.command, "-u", "-m", "kinex.host.run"], {
+      cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe", env, group: true,
+    })
+    // A script may leave children holding output pipes open after it exits.
+    void proc.exit.then(() => proc.kill("SIGKILL")).catch(() => {})
+    return { ...serveProcess(proc, text => sink.output?.(text)), key, sink }
+  } }
+}
+
+/** Start the process of the workspace's next program, unless one that still fits is waiting. It lives as
+ *  long as the runtime it joins, so a workspace without one keeps none. */
+export async function prewarmExec(cwd: string, signal?: AbortSignal) {
+  if (currentScope().closed) return
+  const { socket, key, start } = await launch(cwd, signal, true)
+  const spare = spares().get(cwd)
+  if (!socket || spare?.key === key && spare.proc.exitCode === null) return
+  if (spare) void terminate(spare)
+  spares().set(cwd, start())
+}
 
 async function dispatch(cwd: string, request: Request, ctx: InvocationContext): Promise<Record<string, unknown>> {
   const call = request["call"]
@@ -135,26 +168,21 @@ async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Pr
   const signal = AbortSignal.any([ctx.abort, AbortSignal.timeout(Math.ceil(input.timeout_s * 1000))])
   const scoped = { ...ctx, abort: signal }
   signal.throwIfAborted()
-  const ros = await rosCatalog(cwd)
-  const runtime = await pythonLaunch(cwd, "exec", undefined, signal)
+  const { ros, runtime, key, start } = await launch(cwd, signal)
   signal.throwIfAborted()
   const request = JSON.stringify({
     args: input.args, source: input.python, file: input.file && path.resolve(cwd, input.file), argv: input.argv, ros,
   }) + "\n"
-  const proc = spawnProcess([...runtime.command, "-u", "-m", "kinex.host.run"], {
-    cwd,
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-    env: runtime.env,
-    group: true,
-  })
-  // A script may leave children holding output pipes open after it exits.
-  void proc.exit.then(() => proc.kill("SIGKILL")).catch(() => {})
+  const spare = spares().get(cwd)
+  spares().delete(cwd)
+  const fits = spare?.key === key && spare.proc.exitCode === null
+  if (spare && !fits) void terminate(spare)
+  const served = fits ? spare! : start()
+  served.sink.output = ctx.output
+  const proc = served.proc
   const onAbort = () => proc.kill()
   signal.addEventListener("abort", onAbort, { once: true })
   if (signal.aborted) onAbort()
-  const served = serveProcess(proc, ctx.output)
   const source = served.source
   const deadline = Date.now() + input.timeout_s * 1000
 
@@ -218,6 +246,7 @@ async function dialog(cwd: string, input: ExecInput, ctx: InvocationContext): Pr
       await served.drained
     } finally {
       signal.removeEventListener("abort", onAbort)
+      void prewarmExec(cwd).catch(() => {})
     }
   }).then(result => {
     signal.throwIfAborted()
