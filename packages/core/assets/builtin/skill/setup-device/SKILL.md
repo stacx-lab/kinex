@@ -25,7 +25,7 @@ Do not create
 instance DEVICE.md usage sections.
 
 Define each operation with transport, direction, endpoint, native ROS type and
-bounded QoS; do not introduce ROS actions. Services are inputs. Use the type guide's names for recommended operations
+bounded QoS; declare an action only where the device's controller already serves one. Services and actions are inputs. Use the type guide's names for recommended operations
 and name others after the actual node. `load`, `unload` and
 `status` are reserved host verbs. Commands use standard message types; anything
 that moves, and a world with `wait`, declares a `std_srvs/srv/Trigger` `stop`,

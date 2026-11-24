@@ -36,7 +36,7 @@ def describe(operation):
         raise ValueError(f"unknown operation {operation}; available: {', '.join(catalog)}")
     spec = catalog[name]
     try:
-        from rosidl_runtime_py.utilities import get_message, get_service
+        from rosidl_runtime_py.utilities import get_action, get_message, get_service
         definitions = {}
 
         def fields(cls):
@@ -52,6 +52,9 @@ def describe(operation):
         if spec["transport"] == "service":
             cls = get_service(spec["type"])
             payload = {"request": fields(cls.Request), "response": fields(cls.Response)}
+        elif spec["transport"] == "action":
+            cls = get_action(spec["type"])
+            payload = {"goal": fields(cls.Goal), "result": fields(cls.Result), "feedback": fields(cls.Feedback)}
         else:
             payload = {"message": fields(get_message(spec["type"]))}
         return {**spec, **payload, "definitions": definitions}

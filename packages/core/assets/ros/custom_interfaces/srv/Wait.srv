@@ -1,6 +1,12 @@
+# The wait ends once duration_s has passed and every goal has finished.
 float64 duration_s
+# Action goals to wait for. With a positive goal_timeout_s, those still executing that long into the wait are cancelled.
+unique_identifier_msgs/UUID[] goals
+float64 goal_timeout_s
 ---
 bool success
 string message
 float64 time_s
 float64 waited_s
+# Whether each of goals had finished when the wait ended, in their order.
+bool[] finished

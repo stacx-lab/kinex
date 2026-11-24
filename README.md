@@ -89,7 +89,7 @@ for in-session commands.
 
 ## Use Kinex with Simulators
 
-Kinex devices are typed ROS topics and services.
+Kinex devices are typed ROS topics, services and actions.
 [rosbridge](https://github.com/stacx-lab/rosbridge) runs ABC, LIBERO, RoboTwin,
 RoboDojo and RoboCasa as ROS graphs that speak the Kinex device contract, and
 exports a Kinex workspace for each of its robots. The exported profiles carry
