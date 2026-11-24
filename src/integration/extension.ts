@@ -27,6 +27,13 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     let unsubscribe: (() => void) | undefined
     let active = false
     let statusGeneration = 0
+    // Pi rejects a session's ctx and pi once it is replaced or reloaded, while the runtime
+    // outlives it. Work that can outlive its handler takes this first and asks before each later use.
+    let sessionGeneration = 0
+    const sessionLive = () => {
+      const generation = sessionGeneration
+      return () => generation === sessionGeneration
+    }
     const time = sessionTime(milliseconds => pi.appendEntry(sessionTimeEntry, { milliseconds }))
     const indicator = footerIndicator(() => formatElapsed(time.milliseconds))
     const notify = (ctx: ExtensionContext, message: string, level: "info" | "warning" | "error") => {
@@ -60,13 +67,16 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     }
     const execute = async (name: string, args: string, ctx: ExtensionContext) => {
       const command = { name, args: args.trim() }
-      const progress = commandProgress(ctx, name, command.args)
+      const live = sessionLive()
+      const progress = commandProgress(ctx, name, command.args, live)
       const started = performance.now()
       try {
         const found = capabilities.commands.find(item => item.name === name)
         if (!found) throw new Error(`Unknown command: ${name}`)
         const result = await executeCommand(found, args, ctx, progress.signal)
         progress.end()
+        // The session that ran the command is gone: nobody reads its outcome or its row.
+        if (!live()) return
         if (result.kind === "workflow") await session.prompt(result.prompt)
         else {
           post(command, result.text, {
@@ -78,10 +88,11 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         }
       } catch (error) {
         progress.end()
+        if (!live()) return
         // The user's own cancellation is an outcome the model should know about, not a fault.
         if (progress.cancelled()) return post(command, "Cancelled by the user", { isError: true, durationMs: performance.now() - started })
         fault(ctx, error)
-      } finally { await status(ctx) }
+      } finally { if (live()) await status(ctx) }
     }
     await registerCommands(pi, capabilities.commands, execute)
     pi.registerCommand("mode", {
@@ -120,6 +131,7 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       },
     })
     pi.on("session_start", async (_event, ctx) => {
+      const live = sessionLive()
       active = true
       owner.bind(ctx)
       time.restore(ctx.sessionManager.getEntries())
@@ -130,7 +142,10 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         if (event.type === "recording.warning") notify(ctx, event.message, "warning")
       })
       await indicator.bind(runtime, ctx)
-      for (const activation of await runtime.devices.warmLoaded()) void activation.ready.catch(error => notify(ctx, `${activation.device.name}: ${String(error)}`, "error"))
+      if (!live()) return
+      // Warm-up belongs to the runtime, so it can outlive this session and fail in a later one.
+      for (const activation of await runtime.devices.warmLoaded())
+        void activation.ready.catch(error => { if (live()) notify(ctx, `${activation.device.name}: ${String(error)}`, "error") })
       await bridge.refreshActive()
       subagentModels = await owner.subagents?.models() ?? []
       await status(ctx)
@@ -138,10 +153,11 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     pi.on("session_shutdown", async event => {
       active = false
       statusGeneration++
+      sessionGeneration++
+      unsubscribe?.()
       time.stop()
       indicator.clear()
       session.compaction.end()
-      unsubscribe?.()
       await session.settle()
       if (event.reason === "quit") await owner.dispose()
       else await owner.leaveSession()

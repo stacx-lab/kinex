@@ -20,15 +20,16 @@ export async function executeCommand(command: ContributionCommand, args: string,
 
 /**
  * A user command while it runs: its pending row above the editor, and Escape to cancel it.
- * During an agent run Escape already ends the run, and the command with it.
+ * During an agent run Escape already ends the run, and the command with it. A command can
+ * outlive its session in the shared runtime, so the row asks `live` before it uses the ctx.
  */
-export function commandProgress(ctx: ExtensionContext, name: string, args: string) {
+export function commandProgress(ctx: ExtensionContext, name: string, args: string, live: () => boolean) {
   const cancel = new AbortController()
   const signal = ctx.signal ? AbortSignal.any([ctx.signal, cancel.signal]) : cancel.signal
   if (!ctx.hasUI) return { signal, cancelled: () => false, end() {} }
   const started = Date.now()
   // A command that answers at once would only flash its row.
-  const shown = setTimeout(() => ctx.ui.setWidget("kinex-command", (tui, theme) => {
+  const shown = setTimeout(() => { if (live()) ctx.ui.setWidget("kinex-command", (tui, theme) => {
     const hint = ctx.signal ? "" : " · esc to cancel"
     const label = () => `${Math.floor((Date.now() - started) / 1000)} s${hint}`
     const loader = new Loader(tui, text => theme.fg("accent", text), text => theme.fg("muted", text), label())
@@ -37,7 +38,7 @@ export function commandProgress(ctx: ExtensionContext, name: string, args: strin
     return Object.assign(commandRow({ name, args }, theme, { expanded: false, outputPad: 1, status: loader }), {
       dispose() { clearInterval(tick); loader.stop() },
     })
-  }), 150)
+  }) }, 150)
   const release = ctx.signal ? undefined : ctx.ui.onTerminalInput(data => {
     if (!matchesKey(data, "escape")) return undefined
     cancel.abort(new Error("Cancelled by the user"))
@@ -46,7 +47,7 @@ export function commandProgress(ctx: ExtensionContext, name: string, args: strin
   return {
     signal,
     cancelled: () => cancel.signal.aborted,
-    end() { clearTimeout(shown); release?.(); ctx.ui.setWidget("kinex-command", undefined) },
+    end() { clearTimeout(shown); release?.(); if (live()) ctx.ui.setWidget("kinex-command", undefined) },
   }
 }
 
