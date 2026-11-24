@@ -20,6 +20,10 @@ test("ROS operation declarations validate protocol direction, types and bounded 
   assert.throws(() => RosRuntime.parse({ interpreter: "/python", publish_frames: false }))
   assert.throws(() => Operation.parse({ ...output, transport: "service", type: "std_srvs/srv/Trigger" }))
   assert.ok(Operation.parse({ ...output, transport: "service", direction: "input", type: "std_srvs/srv/Trigger" }))
+  const action = { ...output, transport: "action", direction: "input", type: "control_msgs/action/FollowJointTrajectory" }
+  assert.ok(Operation.parse(action))
+  assert.throws(() => Operation.parse({ ...action, direction: "output" }), /actions are device inputs/)
+  assert.throws(() => Operation.parse({ ...action, type: "std_srvs/srv/Trigger" }), /require an action type/)
 })
 
 test("stops are Trigger services, and world waits require one", () => {

@@ -1,6 +1,6 @@
 # Device contracts
 
-Devices bind named ROS topic/service operations to hardware, simulators or model
+Devices bind named ROS topic/service/action operations to hardware, simulators or model
 services. Core owns lifecycle, protocol execution and recording; setup owns
 onboarding and calibration. See [communication](communication.md) for the wire
 contract and Python API.
@@ -26,7 +26,7 @@ strings are allowed; absent descriptions are invalid. Do not invent unknown fact
 
 `runtime` declares domain, namespace, optional SDK interpreter/overlays, owned
 node factories, the snapshot `observation` and readiness timeout. `operations`
-declares topic/service transport, direction, endpoint, ROS type, QoS and timeout.
+declares topic/service/action transport, direction, endpoint, ROS type, QoS and timeout.
 Physical facts (`model`, `limits`, `color`, `frames`, etc.) are top-level fields
 with typed validation. One device-level `source`, `method` and `calibrated_at`
 record covers calibration. `loaded` is lifecycle intent; status reports live
@@ -116,9 +116,13 @@ services.
 
 Commands are standard ROS messages; a node validates each before replacing the
 active command and logs rejections. Sending is distinct from measured arrival.
+An action is a command with an end: its goal is accepted, runs as world time passes and
+finishes with a result, such as a `control_msgs/action/FollowJointTrajectory` whose
+goal a joint device reaches at its own pace. A device executes one goal at a time; a
+newer goal or command, a stop or a cancel ends it.
 Anything that moves declares a `stop`, which must be a `std_srvs/srv/Trigger`
 service; validation requires one for joint, gripper, suction and locomotion
-devices with command topics and for worlds with `wait`. Abort, timeout and failure
+devices with command topics or actions and for worlds with `wait`. Abort, timeout and failure
 stop the devices an invocation commanded; successful completion need not stop
 motion, and scripts call a device's `stop` explicitly when it should. Host stop is
 available without approval and cancels invocations commanding the device.
@@ -143,7 +147,12 @@ device unload; disposal finalizes recordings. Model recording is opt-in.
 Every workspace requires one world device per ROS domain. Its required `time`
 clock is the world time of device nodes, tf2 lookup and recording; `wait` is
 recommended with the `stop` that cancels it, and `reset` only for simulators.
-Waits are sequential. Physical workspaces keep real-world time with the template
+Waits are sequential. A wait may name `goals`, executing action goals: it then ends
+once `duration_s` has passed and all have finished, goals still executing
+`goal_timeout_s` into it being cancelled, and `finished` says which had. A
+world that does not observe goals, as the template node, waits `duration_s` and
+reports none finished; Kinex then awaits them itself, as time passes by itself there.
+Physical workspaces keep real-world time with the template
 node; a simulator, such as one run by
 [rosbridge](https://github.com/stacx-lab/rosbridge), relays its own. Bounds and
 surfaces are informational facts. Document pacing, epoch resets and terminal

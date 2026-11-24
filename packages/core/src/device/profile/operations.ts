@@ -1,10 +1,10 @@
 import { z } from "zod"
 
 const endpoint = z.string().regex(/^\/?[A-Za-z_]\w*(?:\/[A-Za-z_]\w*)*$/, "ROS endpoint must have valid name tokens")
-const type = z.string().regex(/^[A-Za-z]\w*\/(msg|srv)\/[A-Za-z]\w*$/)
+const type = z.string().regex(/^[A-Za-z]\w*\/(msg|srv|action)\/[A-Za-z]\w*$/)
 export const Operation = z.strictObject({
   description: z.string().describe("Operation-specific inputs, outputs, units, frames, timing and behavior; may be empty"),
-  transport: z.enum(["topic", "service"]),
+  transport: z.enum(["topic", "service", "action"]),
   direction: z.enum(["input", "output"]),
   endpoint,
   type,
@@ -17,6 +17,8 @@ export const Operation = z.strictObject({
 }).superRefine((op, ctx) => {
   if (op.transport === "service" && (op.direction !== "input" || !op.type.includes("/srv/")))
     ctx.addIssue({ code: "custom", message: "services are device inputs and require a srv type" })
+  if (op.transport === "action" && (op.direction !== "input" || !op.type.includes("/action/")))
+    ctx.addIssue({ code: "custom", message: "actions are device inputs and require an action type" })
   if (op.transport === "topic" && !op.type.includes("/msg/"))
     ctx.addIssue({ code: "custom", message: "topics require a msg type" })
 })

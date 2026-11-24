@@ -36,7 +36,7 @@ recording.
 
 The example shows runtime fields; a complete profile also includes top-level
 physical facts, explicit frames and calibration metadata. Direction is from the
-device's perspective. A service is an input. A topic can be an input or output.
+device's perspective. A service or an action is an input. A topic can be an input or output.
 `qos` defaults to depth 1, `reliable` and `volatile`; `timeout_s` (default 10)
 bounds a request, a publish's subscriber discovery and a snapshot read. Operations
 describe the public communication interface; implementation details such as relay
@@ -155,6 +155,24 @@ numbers to `null`; images are attached only through its `file`. Subscriptions ex
 are bounded. Receipt-age checks detect transport staleness; observation timestamps
 belong to world time.
 
+`await io.act(operation, goal)` sends an action its goal, a message or field mapping,
+and returns the `Goal` once the device accepts it; a rejected goal raises. It never
+waits for the goal: a goal advances no world time. `goal.status` is `executing`, then
+`succeeded`, `canceled` or `aborted`; `goal.feedback` is the latest the device sent,
+`goal.result` the action's result once it has finished, `goal.done` whether it has, and
+`await goal.cancel()` asks the device to end it. A world wait takes `goals` to wait
+for, and when it returns the results of those it reports finished have arrived:
+
+```python
+left = await io.act("left_arm.move", {"multi_dof_trajectory": {"joint_names": ["flange"], "points": [{"transforms": [left_pose]}]}})
+right = await io.act("right_arm.move", {"multi_dof_trajectory": {"joint_names": ["flange"], "points": [{"transforms": [right_pose]}]}})
+await io.request("world.wait", goals=[left, right], goal_timeout_s=2.0)  # until both finish; cancelled after 2 s
+print(left.status, left.result.error_string)
+```
+
+`await goal.wait()` returns the result when the goal has finished; in a stepped world
+only a world wait advances it there, so use it where time passes by itself.
+
 `io.serve({endpoint, type}, handler)` hosts a temporary async service. Its endpoint
 must be under `io.namespace + "/"`. Handlers and communication resources
 are removed when the scope closes. Persistent services belong to device nodes.
@@ -216,6 +234,15 @@ observation barrier. Waits are sequential: the world rejects a wait while anothe
 is pending, and `stop` cancels the pending one. Realtime waits observe progress;
 stepped waits authorize world advancement. A periodic loop must skip missed
 deadlines, and must not assume an expired wait produces a fresh observation.
+
+A wait has two things to wait for, and ends once both are over: `duration_s` of
+world time, and `goals`, a list of `Goal`s, to finish. With a positive
+`goal_timeout_s`, goals still executing that long into the wait are cancelled. Give
+either or both: a wait without goals lasts `duration_s`, whatever goals do, and one
+with goals alone lasts until they finish. Its reply's `finished` says of each goal
+whether it had. A world where time passes by itself need not observe goals: when its
+reply reports none, `io.request` awaits the goals itself after the world's wait and
+cancels those still executing at their timeout.
 
 A wait reply carries `time_s` and that wait's `waited_s`. A world may end a wait
 early, unsuccessfully, when a device refuses a command or stops a motion it cannot
@@ -358,7 +385,8 @@ to a model device. Pass an image to `finish(file=...)` to attach it for the mode
 ## Native validation
 
 `custom_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
-services; commands and observations use standard ROS messages. The ROS
+services; commands and observations use standard ROS messages, and actions standard
+ROS actions such as those of `control_msgs`, which Kinex Python installs. The ROS
 providers build it from `packages/core/assets/ros`; build that directory in any
 other ROS environment that calls these services.
 [rosbridge](https://github.com/stacx-lab/rosbridge) serves `Wait` and `Json`

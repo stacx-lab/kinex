@@ -22,6 +22,8 @@ _active = contextvars.ContextVar("kinex_communication", default=None)
 # Free-form operations carry JSON objects; their descriptions define the fields.
 JSON = "custom_interfaces/srv/Json"
 WAIT = "custom_interfaces/srv/Wait"
+# How a goal finished, by its action_msgs/msg/GoalStatus.
+STATUS = {4: "succeeded", 5: "canceled", 6: "aborted"}
 
 
 def duration(seconds):
@@ -195,6 +197,34 @@ class Subscription:
             self.io.subscriptions.remove(self)
 
 
+class Goal:
+    """An action goal its device is executing. status is executing, then succeeded, canceled or aborted;
+    feedback is the latest the device sent, and result the action's result once the goal has finished. A world
+    wait takes goals to wait for: sending one advances no world time."""
+
+    def __init__(self, io):
+        self.io, self.feedback, self.result, self.status = io, None, None, "executing"
+
+    def _feedback(self, message):
+        self.feedback = message.feedback
+
+    def _finished(self, reply):
+        if not reply.cancelled() and reply.exception() is None:
+            self.status, self.result = STATUS[reply.result().status], reply.result().result
+
+    @property
+    def done(self):
+        return self.result is not None
+
+    async def wait(self):
+        """The result once the goal has finished. Only a world wait advances a stepped world to it."""
+        await asyncio.shield(self.reply)
+        return self.result
+
+    async def cancel(self):
+        await self.io._future(self.handle.cancel_goal_async(), 10)
+
+
 class Communication:
     def __init__(self, catalog=None, *, domain_id=None):
         from kinex import _request
@@ -207,6 +237,7 @@ class Communication:
         self.subscriptions = []
         self.publishers = {}
         self.clients = {}
+        self.actions = {}
         self.enrolled = set()
         self.enroll_lock = asyncio.Lock()
         self.pending = set()
@@ -399,10 +430,56 @@ class Communication:
             raise OperationError(operation or spec["endpoint"], spec["type"], result)
         return result
 
+    async def _action(self, spec):
+        """The action's client, once its server is discovered."""
+        from rclpy.action import ActionClient
+        from rosidl_runtime_py.utilities import get_action
+        key = (spec["endpoint"], spec["type"])
+        if key not in self.actions:
+            self.actions[key] = ActionClient(self.node, get_action(spec["type"]), spec["endpoint"])
+        while not self.actions[key].server_is_ready():
+            await asyncio.sleep(.01)  # Transport discovery, never world scheduling.
+        return self.actions[key]
+
+    async def act(self, operation, goal):
+        """Send an action its goal, a message or field mapping; the Goal once the device accepts it. A
+        rejected goal raises. The goal then runs as world time passes: this never waits for it."""
+        spec = self.operation(operation, "action", "input")
+        await self._enroll(operation)
+        sent, timeout_s = Goal(self), spec.get("timeout_s", 10)
+        async with asyncio.timeout(timeout_s):
+            client = await self._action(spec)
+            sent.handle = await self._future(client.send_goal_async(
+                message_value(client._action_type.Goal, goal), feedback_callback=sent._feedback), timeout_s)
+            if not sent.handle.accepted:
+                raise RPCError(f"{operation} rejected the goal", code="operation_rejected",
+                               details={"operation": operation, "type": spec["type"]})
+            sent.reply = asyncio.ensure_future(self._future(sent.handle.get_result_async(), None))
+            sent.reply.add_done_callback(sent._finished)
+        return sent
+
     async def request(self, operation, *, timeout_s=None, **fields):
         spec = self.operation(operation, "service", "input")
         await self._enroll(operation)
         try:
+            if spec["type"] == WAIT and fields.get("goals"):
+                goals, patience = fields["goals"], fields.get("goal_timeout_s")
+                fields = {**fields, "goals": [{"uuid": goal.handle.goal_id.uuid} for goal in goals]}
+                result = await self._request(spec, fields, timeout_s, operation=operation)
+                if len(result.finished) < len(goals):
+                    # A world that does not observe goals, where time passes by itself, has only waited
+                    # duration_s: await the goals here, cancelling those still executing at their timeout.
+                    started, waits = self.loop.time(), [asyncio.ensure_future(goal.wait()) for goal in goals]
+                    await asyncio.wait(waits, timeout=max(0., patience - result.waited_s) if patience else None)
+                    for goal in goals:
+                        if not goal.done:
+                            await goal.cancel()
+                    result.finished = [True] * len(goals)
+                    result.waited_s += self.loop.time() - started
+                    result.time_s += self.loop.time() - started
+                # The results of the goals the wait saw finish have arrived when it returns.
+                await asyncio.gather(*(goal.wait() for goal, finished in zip(goals, result.finished) if finished))
+                return result
             if spec["type"] != JSON:
                 return await self._request(spec, fields, timeout_s, operation=operation)
             result = await self._request(spec, {"request": json.dumps(fields, allow_nan=False)}, timeout_s, operation=operation)
@@ -530,6 +607,8 @@ class Communication:
                 stream.close()
             if self.tf is not None:
                 self.tf_listener.unregister()
+            for client in self.actions.values():
+                client.destroy()
             await asyncio.to_thread(self.executor.shutdown, timeout_sec=2)
             for node in self.extra_nodes:
                 node.destroy_node()

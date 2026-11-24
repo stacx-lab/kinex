@@ -85,6 +85,8 @@ class DeviceHost:
                         clients.append(client)
                         while not client.service_is_ready():
                             await asyncio.sleep(.02)
+                    elif op["transport"] == "action":
+                        await self.io._action(op)
                     elif op["direction"] == "output":
                         endpoint = op["endpoint"]
                         while not self.io.node.count_publishers(endpoint):
