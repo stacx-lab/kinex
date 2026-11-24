@@ -39,7 +39,7 @@ or computational service. A device can start several owned nodes or expose a
 subset of endpoints from an existing shared node. Core owns only the nodes
 declared in that device's runtime; external nodes retain their own lifecycle.
 Every workspace has a world device, which owns time. Hardware and simulators
-share these contracts; [rosbridge](https://github.com/stacx-lab/rosbridge) runs
+share these contracts; [kinex-sim](https://github.com/stacx-lab/kinex-sim) runs
 simulators as Kinex ROS graphs and exports their workspaces.
 
 Examples include:

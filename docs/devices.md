@@ -154,7 +154,7 @@ world that does not observe goals, as the template node, waits `duration_s` and
 reports none finished; Kinex then awaits them itself, as time passes by itself there.
 Physical workspaces keep real-world time with the template
 node; a simulator, such as one run by
-[rosbridge](https://github.com/stacx-lab/rosbridge), relays its own. Bounds and
+[kinex-sim](https://github.com/stacx-lab/kinex-sim), relays its own. Bounds and
 surfaces are informational facts. Document pacing, epoch resets and terminal
 episode behavior on each relevant operation. Workflow loops use world time rather
 than a simulator-specific timer.
@@ -168,7 +168,7 @@ native counts to seconds, and consumption may include initialization; Kinex repo
 the budget as supplied, without inferring it from the clock, enforcing it or
 changing control behavior.
 
-The name is shared but the scope differs. rosbridge's `world` is a ROS node that
+The name is shared but the scope differs. kinex-sim's `world` is a ROS node that
 runs the whole simulated environment and hosts every device's endpoints. Kinex's
 world device covers only its time operations (`/clock`, `world/wait`,
 `world/stop`); arms, grippers and cameras on the same node are separate Kinex

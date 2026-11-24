@@ -28,10 +28,10 @@ onboarding and calibration procedures. New integrations declare explicit
 [ROS communication](communication.md). Registration uses core's `setup-device`,
 preferring compatible installed packages and binaries before source builds.
 
-Simulator workspaces come from [rosbridge](https://github.com/stacx-lab/rosbridge):
-`rosbridge setup <robot> --directory DIR --domain-id N` exports unloaded profiles
+Simulator workspaces come from [kinex-sim](https://github.com/stacx-lab/kinex-sim):
+`kinex-sim setup <robot> --directory DIR --domain-id N` exports unloaded profiles
 that borrow the simulator's endpoints and carry their calibration. Load them after
-`rosbridge launch <task> --execution-mode stepped|realtime --domain-id N` starts
+`kinex-sim launch <task> --execution-mode stepped|realtime --domain-id N` starts
 the graph on the same domain.
 
 Device nodes and optional local sources live in `.kinex/devices/<name>/`; code
