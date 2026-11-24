@@ -17,11 +17,11 @@ export interface SessionExit {
 // runs the same command inside the sandbox.
 function command(role: Role, cwd: string, record: string, prompt: string, sandbox: Sandbox | undefined, image: string | undefined) {
   if (!kinex.entry) throw new Error("Cannot locate the running Kinex entry point")
-  const { ROSBRIDGE_PROJECT: _project, VIRTUAL_ENV: _venv, ...inherited } = process.env
+  const { KINEX_SIM_PROJECT: _project, VIRTUAL_ENV: _venv, ...inherited } = process.env
   // A child is a session of its own, not a sub-agent of the one that scheduled its job.
   for (const name of Object.keys(inherited)) if (name.startsWith("PI_SUBAGENT")) delete inherited[name]
-  // rosbridge is put on PATH by activating its environment; a child never needs it.
-  const visible = (entry: string) => !(existsSync(path.join(entry, "rosbridge")) && existsSync(path.join(entry, "activate")))
+  // kinex-sim is put on PATH by activating its environment; a child never needs it.
+  const visible = (entry: string) => !(existsSync(path.join(entry, "kinex-sim")) && existsSync(path.join(entry, "activate")))
   const argv = [process.execPath, kinex.entry, "run", "--yolo", ...modelFlags(), "--session", sessionFile(record), "--", ...first[role], prompt]
   const env = { ...inherited, [ROLE_VARIABLE]: role,
     // A worker does its task itself: it starts no sub-agents. A distiller starts its own, so its

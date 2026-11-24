@@ -23,9 +23,9 @@ export interface Config {
   distillTimeoutS: number
   /** Seconds between two worker starts; absent in a run made before the gap existed. */
   startGapS?: number
-  /** The command that runs rosbridge: words, with the environment it needs first as NAME=value. */
-  rosbridge: string
-  /** More options for every `rosbridge launch` of the run, such as a split or a recording. */
+  /** The command that runs kinex-sim: words, with the environment it needs first as NAME=value. */
+  command: string
+  /** More options for every `kinex-sim launch` of the run, such as a split or a recording. */
   launch?: string[]
   /** Whether workers run in a sandbox: `true` takes bubblewrap where it can run and Docker where it cannot, a name takes that one. */
   sandbox?: boolean | Sandbox
@@ -48,12 +48,12 @@ export const RETRIES = 2
 export const REPAIRS = 2
 export const REPAIR_S = 1800
 
-/** The command that runs rosbridge where a plan names none. */
-export const rosbridgeCommand = () => process.env.KINEX_ROSBRIDGE ?? "rosbridge"
+/** The command that runs kinex-sim where a plan names none. */
+export const simCommand = () => process.env.KINEX_SIM ?? "kinex-sim"
 
 /** A new run's settings: the plan and the limits a run starts with. The user approves these, and the run is made from them. */
-export function newConfig(selection: string, plan: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "sandbox" | "seed" | "launch"> & { rosbridge?: string }): Config {
-  return { selection, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, ...plan, rosbridge: plan.rosbridge ?? rosbridgeCommand() }
+export function newConfig(selection: string, plan: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "sandbox" | "seed" | "launch"> & { command?: string }): Config {
+  return { selection, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, ...plan, command: plan.command ?? simCommand() }
 }
 
 export async function createRun(config: Config): Promise<Run> {

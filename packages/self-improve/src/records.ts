@@ -29,7 +29,7 @@ export interface TrialView extends TrialInput {
   cause?: string
   instruction?: string
   /** Where the instruction came from; `task name` when the simulator gave none. */
-  instructionSource?: "file" | "log" | "task name"
+  instructionSource?: "simulator" | "task name"
   wallS?: number
   error?: string
   /** What went wrong outside the task in a trial that was still judged. */
@@ -86,7 +86,7 @@ export function settled(distillations: readonly DistillationView[]): Distillatio
   })
 }
 
-/** Per task, where the simulator ended its latest such trial at its own step limit: rosbridge reports the limit nowhere else. */
+/** Per task, where the simulator ended its latest such trial at its own step limit: kinex-sim reports the limit nowhere else. */
 export function stepLimits(status: Status): Map<string, NonNullable<TrialInput["limit"]>> {
   return new Map(status.trials.filter(trial => trial.reason === "timeout" && trial.steps)
     .map(trial => [trial.task, { steps: trial.steps!, ...(trial.worldS === undefined ? {} : { worldS: trial.worldS }) }]))

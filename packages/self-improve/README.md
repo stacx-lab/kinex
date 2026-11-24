@@ -3,7 +3,7 @@
 Lets Kinex practise simulated robot tasks, learn from its own attempts and keep
 what it learned as ordinary Kinex skills, `kinex.lib` modules and programs. Requires Node >=22.19, an
 aligned `@kinex/core` version, a prepared
-[rosbridge](https://github.com/stacx-lab/rosbridge), as for any simulated work,
+[kinex-sim](https://github.com/stacx-lab/kinex-sim), as for any simulated work,
 the [pi-subagents](https://www.npmjs.com/package/pi-subagents) extension, which
 standalone Kinex bundles, and to sandbox workers either
 [bubblewrap](https://github.com/containers/bubblewrap) with unprivileged user
@@ -11,7 +11,7 @@ namespaces or Docker.
 
 ```text
 /self-improve ten RoboCasa tasks about doors, three rounds    plan a run with the session, approve it, and it starts
-/self-improve with the rosbridge in ~/sim on GPU 1, the target split of RoboCasa, two rounds
+/self-improve with the kinex-sim in ~/sim on GPU 1, the target split of RoboCasa, two rounds
                                                               how the simulator is run is part of the request
 /self-improve robocasa/* six rounds, batches of 10, 20, 40    the request is read by the session, whatever its form
 /self-improve status [run]                                    no model: jobs, solved tasks per version
@@ -25,7 +25,7 @@ the request to the session, which plans the run and has the user approve the
 plan; after that code decides every step and the session only starts what it
 names.
 
-1. **Plan.** The session finds the tasks in rosbridge's catalog with
+1. **Plan.** The session finds the tasks in kinex-sim's catalog with
    `improve_tasks` and proposes them with `improve_plan`: tasks, rounds, trials at
    a time and batches.
 2. **Approval.** `improve_plan` shows the user the plan with how a trial is
@@ -58,10 +58,10 @@ again up to twice and its task then sits the wave out; a candidate that fails th
 check gets up to two repair turns of the same distiller session; a distillation
 whose session did not end normally is run again up to twice.
 
-A **trial** is one episode of one task: `rosbridge launch` (stepped, ending where the
-simulator's evaluator ends an episode, `--early-stop`), `rosbridge setup` of the same task and seed into the trial workspace
-on the launched ROS domain, the library installed, one worker, then `rosbridge stop`
-and `rosbridge judge`. The simulator's verdict decides; the worker's report never
+A **trial** is one episode of one task: `kinex-sim launch` (stepped, ending where the
+simulator's evaluator ends an episode, `--early-stop`), `kinex-sim setup` of the same task and seed into the trial workspace
+on the launched ROS domain, the library installed, one worker, then `kinex-sim stop`
+and `kinex-sim judge`. The simulator's verdict decides; the worker's report never
 counts. A **distillation** gives the distiller every finished trial's record and the
 newest library, and publishes its candidate as the next version when its session
 ended normally and `improve_check` finds the candidate loadable, its Python
@@ -115,7 +115,7 @@ A run keeps everything under `<Kinex data directory>/self-improve/<run>/`, outsi
 every workspace so that no workspace's `.kinex` leaks into a trial.
 
 ```text
-config.json                 the request, tasks, rounds, parallel, batches, limits, the rosbridge command
+config.json                 the request, tasks, rounds, parallel, batches, limits, the kinex-sim command
 kinex.json                  the Kinex and model flags of the session that schedules the run now
 wave.js                     the pi-subagents workflow that starts a wave's trials
 waves/w001.json             a wave as it was opened: its library version and tasks
@@ -173,11 +173,11 @@ distillations/d001/
 - Trial workspaces link one shared Kinex Python environment,
   `<data>/self-improve/.python`, which trials prepare one at a time before any
   worker uses it; workers only read it.
-- rosbridge does not publish a task's instruction: it is read from the run's
-  folder (a `PROMPT.json`, else the simulator's line in the run log), and a
-  simulator that gives none leaves the worker the task's name, which `status`
-  reports. rosbridge does not report an episode's step limit either, nor take
-  one: a worker is told the number only after an earlier trial of its task was
+- A worker's instruction is the launched episode's task description, from
+  `kinex-sim describe --domain-id N`: the instruction upstream's evaluator gives
+  its policy, then any further text the simulator states. A simulator that gives
+  none leaves the worker the task's name, which `status` reports. kinex-sim's
+  commands do not report an episode's step limit, nor take one: a worker is told the number only after an earlier trial of its task was
   ended at it. Its task list
   does not report splits, so `improve_tasks` selects by simulator, pattern and count.
 - Trials run as many at a time as the plan says, but their workers start `startGapS`
@@ -186,16 +186,16 @@ distillations/d001/
 - `config.json` can be edited while no job of the run is running: `seed`, `trialTimeoutS` (3600),
   `distillTimeoutS` (7200), `startGapS` (10), `rounds`, `parallel`, `batches`, `helpers` (10,
   how many of a distiller's sub-agents run at once), `sandbox`, `image`.
-- How rosbridge is run is part of the plan. The session works it out of the
+- How kinex-sim is run is part of the plan. The session works it out of the
   request and the user approves the lines with the plan: the command, with the
   environment it needs first as `NAME=value` words
-  (`CUDA_VISIBLE_DEVICES=1 /sim/rosbridge/.venv/bin/rosbridge`, no quoting), more
-  options for every `rosbridge launch` (`--split target`) and a seed. The options
+  (`CUDA_VISIBLE_DEVICES=1 /sim/kinex-sim/.venv/bin/kinex-sim`, no quoting), more
+  options for every `kinex-sim launch` (`--split target`) and a seed. The options
   are the same for every trial; `{record}` in one is the trial's own record
   folder, for what trials must not share (`--record {record}/video`). A `--config` given to launch is given to `setup` too. The execution mode,
   the early stop and the ROS domain are the method's and are refused. A request
-  that says nothing runs `rosbridge` on `PATH`, or the command `KINEX_ROSBRIDGE`
-  names. The run keeps them in `config.json` as `rosbridge`, `launch` and `seed`.
+  that says nothing runs `kinex-sim` on `PATH`, or the command `KINEX_SIM`
+  names. The run keeps them in `config.json` as `command`, `launch` and `seed`.
 - Workers run in a sandbox (`"sandbox": true`): bubblewrap where it can run, else
   a Docker container (`"image"`, default `ubuntu:24.04`, with the host's system
   folders bound over it). `"sandbox": "bwrap"` or `"docker"` names one. A plan is
@@ -231,5 +231,5 @@ things of its host, and standalone Kinex gives them:
 
 `npm run test:self-improve` runs the package tests; at the repository root
 `test/self-improve.test.mjs` drives runs through the real CLI with a
-scripted model and a stand-in rosbridge, and `test/self-improve-tui.test.mjs`
+scripted model and a stand-in kinex-sim, and `test/self-improve-tui.test.mjs`
 drives the approval, a run and a stop in a real terminal.

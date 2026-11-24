@@ -23,8 +23,8 @@ import type { Task } from "./sim.ts"
 export interface Scheduled {
   /** What the user asked for. */
   request: string
-  /** The command that runs rosbridge, once the session has named it while it plans. */
-  rosbridge?: string
+  /** The command that runs kinex-sim, once the session has named it while it plans. */
+  command?: string
   run?: Run
   /** Whether the user has approved that the run goes on with nobody to approve its steps. */
   approved?: boolean

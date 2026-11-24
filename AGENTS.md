@@ -16,7 +16,7 @@ Design history and progress belong in git.
   runtime resources through package exports.
 - `packages/self-improve` owns `/self-improve`: planning a run with the user, the
   scheduler in code, trials and distillations as background sub-agents, library
-  versions, and installing one. It reaches simulators only through the rosbridge
+  versions, and installing one. It reaches simulators only through the kinex-sim
   command, core only through package exports and background work only through the
   bundled pi-subagents extension. It ships inside the standalone archive, so its
   dependencies are peers that core or standalone provide; a release stays at

@@ -36,7 +36,7 @@ export async function reference(directory: string, rig: string | undefined) {
   await writeFile(path.join(directory, "INDEX.md"), REFERENCE)
 }
 
-// The Kinex folder rosbridge exported into a trial's workspace. Every trial of a run uses one robot, so the newest stands for all.
+// The Kinex folder kinex-sim exported into a trial's workspace. Every trial of a run uses one robot, so the newest stands for all.
 async function rigOf(root: string, trials: readonly string[]): Promise<string | undefined> {
   for (const trial of trials.toReversed()) {
     const kinex = path.join(workspaceDir(path.join(trialsDir(root), trial)), ".kinex")

@@ -217,7 +217,7 @@ test('what a worker kept is copied apart from the library it was shipped, and re
   assert.match(learned, /## The library as shipped\n- unchanged: \.kinex\/lib\/rig\.py \(extracted unchanged from the skill rig-code\), \.kinex\/skills\/kept, \.kinex\/skills\/rig-code\n- library files the sub-agent removed: \.kinex\/skills\/gone\/SKILL\.md\n$/)
 
   const records = path.join(root, 'records')
-  await collect(root, { selection: 'x', rounds: 1, parallel: 1, trialTimeoutS: 60, distillTimeoutS: 60, rosbridge: 'rosbridge' }, { base: 'L1', trials: [job.id], fresh: [job.id], timeoutS: 60 }, records)
+  await collect(root, { selection: 'x', rounds: 1, parallel: 1, trialTimeoutS: 60, distillTimeoutS: 60, command: 'kinex-sim' }, { base: 'L1', trials: [job.id], fresh: [job.id], timeoutS: 60 }, records)
   assert.deepEqual((await readdir(path.join(records, job.id))).sort(), ['history.json', 'history.md', 'learned', 'learned.md', 'result.json', 'summary.md'])
   assert.equal(await readFile(path.join(records, job.id, 'learned/.kinex/lib/grasp.py'), 'utf8'), '# Grasp helpers.\ndef pick(): ...\n')
 })
