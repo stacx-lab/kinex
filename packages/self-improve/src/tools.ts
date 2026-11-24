@@ -5,7 +5,7 @@ import { writeAgents } from "./agents.ts"
 import { candidateDir } from "./distill.ts"
 import { check } from "./library.ts"
 import { currentRole } from "./roles.ts"
-import { REPAIRS, createRun, newConfig, rosbridgeCommand, type Config, type Run } from "./run.ts"
+import { REPAIRS, createRun, newConfig, simCommand, type Config, type Run } from "./run.ts"
 import { sandboxName, sandboxSetting } from "./sandbox.ts"
 import { checked, current, describe, next, schedule } from "./scheduler.ts"
 import { launchOptions, listTasks, matching } from "./sim.ts"
@@ -20,27 +20,27 @@ const UNATTENDED = "unattended"
 const output = (title: string, text: string) => ({ title, output: text })
 
 /** What the user approves: the tasks, the commands a trial is started, ended and judged with, and what a round is. */
-export function planText(config: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "rosbridge" | "launch" | "seed" | "trialTimeoutS" | "distillTimeoutS">, sandbox: string): string {
+export function planText(config: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "command" | "launch" | "seed" | "trialTimeoutS" | "distillTimeoutS">, sandbox: string): string {
   const tasks = config.tasks ?? []
   const seed = config.seed === undefined ? "" : ` --seed ${config.seed}`
   const launch = launchOptions(config.launch)
   const also = launch.length ? ` ${launch.join(" ")}` : ""
   return [
-    `Self-improve plan: ${tasks.length} ${tasks.length === 1 ? "task" : "tasks"} of rosbridge's catalog on robot ${config.robot}: ${tasks.join(", ")}`,
+    `Self-improve plan: ${tasks.length} ${tasks.length === 1 ? "task" : "tasks"} of kinex-sim's catalog on robot ${config.robot}: ${tasks.join(", ")}`,
     `Rounds: ${config.rounds}. A round is a wave of trials, one for each task still unsolved, ${config.parallel} at a time, then one distillation.${config.batches?.length ? ` Tasks open in batches of ${config.batches.join(", ")}, then the rest, one batch a wave.` : ""}`,
-    `A trial starts with \`${config.rosbridge} launch <task> --execution-mode stepped --early-stop --detach${seed}${also}\` on a ROS domain of its own and \`${config.rosbridge} setup <task>\` into a fresh workspace, where one worker sub-agent ${sandbox} attempts the task with the newest library for at most ${config.trialTimeoutS} s. It ends with \`${config.rosbridge} stop\`, and \`${config.rosbridge} judge\` decides the outcome: the simulator's verdict, never the worker's report.`,
+    `A trial starts with \`${config.command} launch <task> --execution-mode stepped --early-stop --detach${seed}${also}\` on a ROS domain of its own and \`${config.command} setup <task>\` into a fresh workspace, where one worker sub-agent ${sandbox} attempts the task with the newest library for at most ${config.trialTimeoutS} s. It ends with \`${config.command} stop\`, and \`${config.command} judge\` decides the outcome: the simulator's verdict, never the worker's report.`,
     `A distillation is a sub-agent in a folder of its own that turns every trial record into the next library version in at most ${config.distillTimeoutS} s; a version is published only when improve_check finds nothing${REPAIRS ? `, after up to ${REPAIRS} repair turns` : ""}.`,
     "Trials and distillations run in the background with nobody to approve their steps.",
   ].join("\n")
 }
 
-// How rosbridge is run is the session's to work out from what the user said, and the user's to approve with the plan.
-const ROSBRIDGE = "the command that runs rosbridge where it is not `rosbridge` on PATH: words without quoting, the environment it needs first as NAME=value, e.g. CUDA_VISIBLE_DEVICES=1 /sim/rosbridge/.venv/bin/rosbridge"
+// How kinex-sim is run is the session's to work out from what the user said, and the user's to approve with the plan.
+const COMMAND = "the command that runs kinex-sim where it is not `kinex-sim` on PATH: words without quoting, the environment it needs first as NAME=value, e.g. CUDA_VISIBLE_DEVICES=1 /sim/kinex-sim/.venv/bin/kinex-sim"
 
 const tasksTool = define("improve_tasks", {
-  description: "Tasks in rosbridge's catalog that match the pattern, split and count: id and robot. improve_plan takes ids.",
+  description: "Tasks in kinex-sim's catalog that match the pattern, split and count: id and robot. improve_plan takes ids.",
   parameters: z.strictObject({
-    rosbridge: z.string().optional().describe(ROSBRIDGE),
+    command: z.string().optional().describe(COMMAND),
     simulator: z.string().optional().describe("limit to one simulator, e.g. robocasa"),
     pattern: z.string().optional().describe("matched against the whole task id; * matches any characters, e.g. libero/libero-spatial-*"),
     split: z.string().optional().describe("a split the catalog marks, e.g. target"),
@@ -48,36 +48,36 @@ const tasksTool = define("improve_tasks", {
   }),
   execute: async args => {
     const planned = current()
-    if (planned && args.rosbridge) planned.rosbridge = args.rosbridge
-    const listed = await listTasks(args.rosbridge ?? planned?.rosbridge ?? rosbridgeCommand(), args.simulator)
-    if (args.split && !listed.some(task => task.split)) throw new Error("rosbridge does not report task splits; select by pattern or by ids")
+    if (planned && args.command) planned.command = args.command
+    const listed = await listTasks(args.command ?? planned?.command ?? simCommand(), args.simulator)
+    if (args.split && !listed.some(task => task.split)) throw new Error("kinex-sim does not report task splits; select by pattern or by ids")
     const matched = listed.filter(task => (!args.pattern || matching(args.pattern).test(task.id)) && (!args.split || task.split === args.split)).slice(0, args.count)
     return output(`${matched.length} tasks`, matched.map(task => `${task.id} (robot ${task.robot})`).join("\n") || "No task matches.")
   },
 })
 
 const planTool = define("improve_plan", {
-  description: "Propose the self-improve run: its tasks, how rosbridge is run for them, rounds and trials at a time. The user is shown the plan with the commands a trial is started, ended and judged with, and approves it; then the run exists and the result gives the call that starts its first sub-agents. Call it once you have told the user the plan.",
+  description: "Propose the self-improve run: its tasks, how kinex-sim is run for them, rounds and trials at a time. The user is shown the plan with the commands a trial is started, ended and judged with, and approves it; then the run exists and the result gives the call that starts its first sub-agents. Call it once you have told the user the plan.",
   parameters: z.strictObject({
     tasks: z.array(z.string()).min(1).describe("task ids from improve_tasks, all on one robot"),
     rounds: z.number().int().positive().default(1).describe("how many waves of trials are distilled"),
     parallel: z.number().int().positive().default(1).describe("trials at a time"),
     batches: z.array(z.number().int().positive()).optional().describe("sizes of the first batches of tasks to open, one batch a wave; the rest open together after them"),
-    rosbridge: z.string().optional().describe(`${ROSBRIDGE}; absent, the one improve_tasks was given`),
-    launch: z.array(z.string()).optional().describe("more options for every `rosbridge launch` of the run, each word an item, e.g. [\"--split\", \"target\"]. {record} in an option is each trial's own record folder, for what must not be shared, e.g. [\"--record\", \"{record}/video\"]. The execution mode, the early stop and the ROS domain are not yours to give"),
+    command: z.string().optional().describe(`${COMMAND}; absent, the one improve_tasks was given`),
+    launch: z.array(z.string()).optional().describe("more options for every `kinex-sim launch` of the run, each word an item, e.g. [\"--split\", \"target\"]. {record} in an option is each trial's own record folder, for what must not be shared, e.g. [\"--record\", \"{record}/video\"]. The execution mode, the early stop and the ROS domain are not yours to give"),
     seed: z.number().int().optional().describe("the seed every trial of a task starts from; absent, the simulator's default state for the task"),
   }),
   execute: async (args, ctx) => {
     const planned = current()
     if (!planned) throw new Error("No self-improve run is being planned; the user starts one with /self-improve")
     if (planned.run) throw new Error(`The self-improve run ${planned.run.root} is already scheduled in this Kinex; /self-improve stop ends it`)
-    const rosbridge = args.rosbridge ?? planned.rosbridge ?? rosbridgeCommand()
+    const command = args.command ?? planned.command ?? simCommand()
     const launch = launchOptions(args.launch)
-    const catalog = await listTasks(rosbridge)
+    const catalog = await listTasks(command)
     const tasks = checked(args.tasks, catalog)
     const robot = catalog.find(task => task.id === tasks[0])?.robot ?? ""
     const config = newConfig(planned.request, { tasks, robot, rounds: args.rounds, parallel: args.parallel, ...(args.batches?.length ? { batches: args.batches } : {}),
-      rosbridge, ...(launch.length ? { launch } : {}), ...(args.seed === undefined ? {} : { seed: args.seed }),
+      command, ...(launch.length ? { launch } : {}), ...(args.seed === undefined ? {} : { seed: args.seed }),
       sandbox: sandboxSetting(), ...(currentScope().builtinLibRoots?.length ? { libRoots: [...currentScope().builtinLibRoots ?? []] } : {}) })
     const sandbox = await sandboxName()
     await ctx.ask({ permission: UNATTENDED, description: planText(config, sandbox ? `in a ${sandbox} sandbox` : "without a sandbox") })

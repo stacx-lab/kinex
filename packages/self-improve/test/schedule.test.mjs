@@ -56,25 +56,15 @@ test('the step limit of a task is known from a trial the simulator ended at it',
   assert.deepEqual([...limits], [['door', { steps: 450, worldS: 22.5 }], ['oven', { steps: 310, worldS: 15.5 }]])
 })
 
-test('an instruction is read from where the simulator left it, and says where it came from', async t => {
-  const root = await directory(t)
-  const log = path.join(root, 'graph.log')
-  // rosbridge 3702e6e, RoboCasa: fields between the tag and the colon are the simulator's own.
-  await put(log, '[INFO] [launch]: All log files can be found below\n[sim_node-1] [robocasa] OpenCabinet seed 101, split target, layout 4, style 4: Open the cabinet doors.\n[sim_node-1] later: noise\n')
-  assert.deepEqual(await instruction(log, 'robocasa/open-cabinet'), { text: 'Open the cabinet doors.', source: 'log' })
-  await put(log, '[robocasa] OpenCabinet seed 101: Open the cabinet doors.\n')
-  assert.deepEqual(await instruction(log, 'robocasa/open-cabinet'), { text: 'Open the cabinet doors.', source: 'log' })
-  await put(log, '[sim_node-1] [bidex] place_milk seed 3 (eval seed 5, episode 0): Pick up the milk: put it into the tray.\n')
-  assert.deepEqual(await instruction(log, 'bidex/place-milk'), { text: 'Pick up the milk: put it into the tray.', source: 'log' })
-  // A simulator that says nothing, or whose line is another's: the task's name, and that it is one.
-  assert.deepEqual(await instruction(log, 'libero/pick_up-the-bowl'), { text: 'pick up the bowl', source: 'task name' })
-  assert.deepEqual(await instruction(undefined, 'libero/pick_up-the-bowl'), { text: 'pick up the bowl', source: 'task name' })
-  // A prompt file in the run's folder comes before the log.
-  await put(path.join(root, 'handson/PROMPT.json'), JSON.stringify({ prompt: ' Place the ball in the bowl. ', canonical_prompt: 'hidden' }))
-  await put(log, '[handson] t24 seed 1: something else\n')
-  assert.deepEqual(await instruction(log, 'handson/t24-place-ball-in-bowl'), { text: 'Place the ball in the bowl.', source: 'file' })
-  await put(path.join(root, 'handson/PROMPT.json'), 'not json')
-  assert.deepEqual(await instruction(log, 'handson/t24-place-ball-in-bowl'), { text: 'something else', source: 'log' })
+test('an instruction is the task description kinex-sim states, and says where it came from', () => {
+  // kinex-sim describe --domain-id N --json: the task, the seed, the instruction and what else the simulator states.
+  assert.deepEqual(instruction({ task: 'OpenCabinet', seed: 101, instruction: ' Open the cabinet doors. ' }, 'robocasa/open-cabinet'),
+    { text: 'Open the cabinet doors.', source: 'simulator' })
+  assert.deepEqual(instruction({ task: 'align_blocks', seed: 3, instruction: 'Align the blocks.', detailed_instruction: 'Put the red block left of the blue one.\nKeep both on the mat.' }, 'robodojo/align-blocks'),
+    { text: 'Align the blocks.\n\nDetailed instruction:\nPut the red block left of the blue one.\nKeep both on the mat.', source: 'simulator' })
+  // A simulator that states none, or a run that could not be described: the task's name, and that it is one.
+  assert.deepEqual(instruction({ task: 'pick_up-the-bowl', seed: 0 }, 'libero/pick_up-the-bowl'), { text: 'pick up the bowl', source: 'task name' })
+  assert.deepEqual(instruction(undefined, 'libero/pick_up-the-bowl'), { text: 'pick up the bowl', source: 'task name' })
 })
 
 test('a candidate that fails the check gets repair turns that are shown what it found', async t => {
@@ -121,7 +111,7 @@ test('the order of new tasks is read from the distillation that made the newest 
 // counts as running until it is finished: a result, and a claim whose process is gone.
 async function scheduledRun(t, config) {
   const root = await directory(t)
-  const full = { selection: 'the tasks', robot: 'arm', rounds: 2, parallel: 2, trialTimeoutS: 60, distillTimeoutS: 60, rosbridge: 'rosbridge', ...config }
+  const full = { selection: 'the tasks', robot: 'arm', rounds: 2, parallel: 2, trialTimeoutS: 60, distillTimeoutS: 60, command: 'kinex-sim', ...config }
   await put(configFile(root), JSON.stringify(full))
   await createLibrary(root)
   return { root, config: full }
@@ -198,11 +188,11 @@ test('a trial that did not run is tried again twice, and a wave none of whose tr
     assert.equal(job.id, id)
     // An error is a result, and a process that ended without one abandoned its trial: neither says anything of the task.
     if (id === 't002') await put(claimFile(job.directory), JSON.stringify({ pid: 2 ** 22 + 1 }))
-    else await finish(job, { status: 'error', error: 'rosbridge launch: no simulator could start' })
+    else await finish(job, { status: 'error', error: 'kinex-sim launch: no simulator could start' })
   }
   const end = await next(run)
   assert.deepEqual([end.kind, end.failed], ['end', true])
-  assert.match(end.reason, /^no trial of the wave ran: t001 \(a\): rosbridge launch: no simulator could start; t003 \(a\)/)
+  assert.match(end.reason, /^no trial of the wave ran: t001 \(a\): kinex-sim launch: no simulator could start; t003 \(a\)/)
   assert.match(await describe(run, end), /stopped on an error: no trial of the wave ran[^]*\/self-improve resume continues it\./)
   await assert.rejects(admit(run, { task: 'a' }), /a is not to be tried now: the run has ended: no trial of the wave ran/)
 })
@@ -216,10 +206,10 @@ test('a run ends when its rounds are done, and stopping tells the processes of i
   assert.deepEqual(await stop(run), [])
 })
 
-test('a plan says how rosbridge is run: the command with its environment, and launch options that leave the method alone', () => {
-  assert.deepEqual(commandLine('rosbridge'), { file: 'rosbridge', first: [], env: {} })
-  assert.deepEqual(commandLine('CUDA_VISIBLE_DEVICES=1 MUJOCO_GL=egl uv run --project /sim rosbridge'),
-    { file: 'uv', first: ['run', '--project', '/sim', 'rosbridge'], env: { CUDA_VISIBLE_DEVICES: '1', MUJOCO_GL: 'egl' } })
+test('a plan says how kinex-sim is run: the command with its environment, and launch options that leave the method alone', () => {
+  assert.deepEqual(commandLine('kinex-sim'), { file: 'kinex-sim', first: [], env: {} })
+  assert.deepEqual(commandLine('CUDA_VISIBLE_DEVICES=1 MUJOCO_GL=egl uv run --project /sim kinex-sim'),
+    { file: 'uv', first: ['run', '--project', '/sim', 'kinex-sim'], env: { CUDA_VISIBLE_DEVICES: '1', MUJOCO_GL: 'egl' } })
   assert.deepEqual(launchOptions(['--split', 'target', '--record=/tmp/videos']), ['--split', 'target', '--record=/tmp/videos'])
   assert.deepEqual(launchOptions(), [])
   for (const fixed of ['--execution-mode', '--early-stop', '--detach', '--domain-id', '--seed', '--json'])

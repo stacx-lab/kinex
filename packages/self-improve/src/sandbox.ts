@@ -12,7 +12,7 @@ import { pythonDir, runsDir } from "./layout.ts"
 // that cannot run a Docker container's. It sees only what is bound here: the
 // system, Node, Kinex, the shared Python environment, its configuration and
 // credentials, its workspace and its transcript. Everything else on the host
-// has no name inside: rosbridge's command, files and processes, other trials,
+// has no name inside: kinex-sim's command, files and processes, other trials,
 // the run's libraries and the verdicts. It shares the host's network, which DDS
 // to its simulator and the model's API need.
 export type Sandbox = "bwrap" | "docker"

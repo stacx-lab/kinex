@@ -13,7 +13,7 @@ const isolation = await isolate()
 after(isolation.cleanup)
 const entry = fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url))
 const pty = fileURLToPath(new URL('./fixtures/tui_pty.py', import.meta.url))
-const rosbridge = fileURLToPath(new URL('./fixtures/rosbridge.mjs', import.meta.url))
+const kinexSim = fileURLToPath(new URL('./fixtures/kinex-sim.mjs', import.meta.url))
 process.env.PI_SUBAGENTS_TEMP_ROOT = path.join(isolation.root, 'subagents')
 const { sandboxOf } = await import('@kinex/self-improve/sandbox')
 if (!await sandboxOf(true).then(() => true, () => false)) process.env.KINEX_SELF_IMPROVE_SANDBOX = 'off'
@@ -25,7 +25,7 @@ async function terminal(t, name, mode, keys, timeout) {
   await mkdir(state)
   const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, ...mode, '--model', 'fake/test', 'TUI smoke'], {
     cwd: await workspace(t), timeout: (timeout + 10) * 1000, maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, TERM: 'xterm-256color', KINEX_ROSBRIDGE: rosbridge, FAKE_ROSBRIDGE_STATE: state,
+    env: { ...process.env, TERM: 'xterm-256color', KINEX_SIM: kinexSim, FAKE_KINEX_SIM_STATE: state,
       TUI_TEST_TIMEOUT: String(timeout), TUI_TEST_TRIGGER: 'KINEX_TUI_READY', TUI_TEST_KEYS: JSON.stringify(keys) },
   })
   assert.doesNotMatch(stdout + stderr, /TypeError|ReferenceError|Extension error|MODULE_NOT_FOUND|stale after session replacement/)
@@ -61,11 +61,11 @@ test('in the terminal the user approves the plan, which moves Kinex to auto mode
     return session(request)
   }
   // Started in ask mode. Keys wait for single words: a phrase may be broken across two lines of the terminal.
-  const { text } = await terminal(t, 'rosbridge-tui', [], [
+  const { text } = await terminal(t, 'kinex-sim-tui', [], [
     [0.2, '/self-improve the press task\r'], ['Approve', '\r'], ['RUN_OVER', 'hello again\r'], ['HOME_AGAIN_OK', '/quit\r'],
   ], 170)
   assert.match(text, /Approve and switch Kinex to auto mode\?/)
-  assert.match(text, /Self-improve plan: 1 task of rosbridge's catalog on robot sim\/arm: sim\/press-button/)
+  assert.match(text, /Self-improve plan: 1 task of kinex-sim's catalog on robot sim\/arm: sim\/press-button/)
   assert.match(text, /devices · auto/, 'the session works without approvals from then on')
   assert.match(text, /TRIALS_STARTED/, 'the turn that started the trial ended')
   const home = fake.requests.at(-1)
@@ -79,7 +79,7 @@ test('in the terminal the user approves the plan, which moves Kinex to auto mode
 test('in the terminal /self-improve stop ends a run and its trials', { timeout: 120000 }, async t => {
   const fake = await fakeProvider(t, isolation.root)
   fake.respond = request => said(request).includes('Work only in this directory') ? { wait: new Promise(() => {}) } : session(request)
-  const { text, state } = await terminal(t, 'rosbridge-tui-stop', ['--auto'], [
+  const { text, state } = await terminal(t, 'kinex-sim-tui-stop', ['--auto'], [
     [0.2, '/self-improve the press task\r'], ['Approve', '\r'], ['TRIALS_STARTED', '/self-improve another run\r'],
     // The stopped trial closes its simulator before it is gone, so the last status waits a moment.
     [8, '/self-improve status\r'], ['running', '/self-improve stop\r'], [6, '/self-improve status\r'], ['abandoned', '/quit\r'],

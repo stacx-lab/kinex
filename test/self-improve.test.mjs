@@ -20,8 +20,8 @@ const { sandboxOf } = await import('@kinex/self-improve/sandbox')
 const sandbox = await sandboxOf(true).then(() => true, () => false)
 if (!sandbox) process.env.KINEX_SELF_IMPROVE_SANDBOX = 'off'
 
-// A stand-in for rosbridge: two tasks on one robot, and an episode that succeeds once the workspace has the `press` skill.
-const rosbridge = fileURLToPath(new URL('./fixtures/rosbridge.mjs', import.meta.url))
+// A stand-in for kinex-sim: two tasks on one robot, and an episode that succeeds once the workspace has the `press` skill.
+const kinexSim = fileURLToPath(new URL('./fixtures/kinex-sim.mjs', import.meta.url))
 
 const SKILL = '---\nname: press\ndescription: How to press and open things\n---\nPush until it clicks.\n'
 const call = (name, args = {}) => ({ tool: name, args })
@@ -37,14 +37,14 @@ const RESUMED = 'is scheduled in this Kinex again'
 
 // The session that schedules a run, scripted: it plans, has the plan approved, and from then on
 // does what improve_next says, starting the sub-agents it names and asking again when one has ended.
-// Where the plan says how rosbridge is run, the session names the command once, when it looks for the tasks.
-function scheduler({ rosbridge: command, ...plan }) {
+// Where the plan says how kinex-sim is run, the session names the command once, when it looks for the tasks.
+function scheduler({ command, ...plan }) {
   return request => {
     const text = last(request)
     const has = name => offers(request, name)
     if (request.messages.at(-1).role !== 'tool') {
       if (text.includes('pi_subagents_notice')) return has('improve_next') ? call('improve_next') : { text: 'RUN_OVER' }
-      return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*', ...(command ? { rosbridge: command } : {}) }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
+      return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*', ...(command ? { command } : {}) }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
     }
     if (/^sim\/[^\n]* \(robot /.test(text)) return call('improve_plan', plan)
     // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.
@@ -91,9 +91,9 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
   const catalog = JSON.parse(await readFile(models, 'utf8'))
   catalog.providers.fake.models[0].compat = { supportsMidConvoSystemMessages: true, supportsMidConvoToolAdditions: true }
   await writeFile(models, JSON.stringify(catalog))
-  const state = path.join(isolation.root, 'rosbridge')
+  const state = path.join(isolation.root, 'kinex-sim')
   await mkdir(state)
-  const env = { ...process.env, KINEX_ROSBRIDGE: rosbridge, FAKE_ROSBRIDGE_STATE: state }
+  const env = { ...process.env, KINEX_SIM: kinexSim, FAKE_KINEX_SIM_STATE: state }
   const invoke = (cwd, ...args) => {
     const pending = exec(process.execPath, [entry, 'run', '--auto', ...args], { cwd, env, timeout: 280000 })
     pending.child.stdin.end()
@@ -113,7 +113,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
   const json = async file => JSON.parse(await readFile(path.join(root, file), 'utf8'))
   const config = await json('config.json')
   assert.deepEqual({ ...config, libRoots: config.libRoots.map(root => path.basename(path.dirname(path.dirname(root)))) }, { selection: 'the sim tasks, two rounds', tasks: ['sim/open-door', 'sim/press-button'],
-    robot: 'sim/arm', rounds: 2, parallel: 1, sandbox, libRoots: ['setup'], helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, rosbridge })
+    robot: 'sim/arm', rounds: 2, parallel: 1, sandbox, libRoots: ['setup'], helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, command: kinexSim })
   assert.deepEqual(await json('waves/w001.json'), { wave: 1, library: 'L0', tasks: ['sim/open-door', 'sim/press-button'] })
 
   await t.test('the plan is approved before anything exists, and each step names the sub-agents to start', async () => {
@@ -138,7 +138,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     const prompt = await readFile(path.join(root, 'trials/t001/record/prompt.md'), 'utf8')
     assert.match(prompt, /^open the door\n\nWork only in this directory/)
     assert.match(prompt, /\n\nThe simulation is stepped: [^\n]*The simulator ends the episode as soon as its check finds the task done[^\n]*the check has not passed, whatever the cameras show\. It may also end the episode at a step limit of its own[^\n]*nothing can be done after\.\n\nSaved resources/)
-    assert.equal(result.instructionSource, 'log')
+    assert.equal(result.instructionSource, 'simulator')
     assert.match(prompt, /\n\nSaved resources: maintain reusable functions in `\.kinex\/lib\/` modules[^\n]*`from kinex\.lib\.grasp import \.\.\.`, not `import grasp`[^\n]*`\.kinex\/programs\/`/)
     assert.match(await readFile(path.join(root, 'trials/t001/record/session.jsonl'), 'utf8'), /For the library/)
     assert.match(await readFile(path.join(root, 'trials/t001/record/output.log'), 'utf8'), /I am done/)
@@ -147,6 +147,8 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     const calls = (await readFile(path.join(state, 'calls.log'), 'utf8')).split('\n')
     assert.ok(calls.includes('launch sim/open-door --execution-mode stepped --early-stop --detach --json'))
     assert.ok(calls.includes(`setup sim/open-door --directory ${path.join(root, 'trials/t001/workspace')} --domain-id 1 --json`))
+    // The worker's instruction is the launched episode's task description.
+    assert.ok(calls.includes('describe --domain-id 1 --json'))
     assert.ok(calls.indexOf('stop run1 --json') < calls.indexOf('judge run1 --json'))
   })
 
@@ -264,16 +266,16 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
       { text: 'The library is ready.' },
     ][step]
     if (text.includes('Work only in this directory')) return { text: 'I am done.' }
-    // How rosbridge is run comes from the plan: its command with the environment it needs, more launch options and a seed.
-    if (text.includes(PLANNING)) return scheduler({ tasks, rounds: 2, batches: [1], rosbridge: `FAKE_ROSBRIDGE_STATE=${state} ${rosbridge}`, launch: ['--split', 'target', '--config', 'kitchen', '--record', '{record}/video'], seed: 7 })(request)
+    // How kinex-sim is run comes from the plan: its command with the environment it needs, more launch options and a seed.
+    if (text.includes(PLANNING)) return scheduler({ tasks, rounds: 2, batches: [1], command: `FAKE_KINEX_SIM_STATE=${state} ${kinexSim}`, launch: ['--split', 'target', '--config', 'kitchen', '--record', '{record}/video'], seed: 7 })(request)
     return { text: 'UNEXPECTED_SESSION' }
   }
-  const state = path.join(isolation.root, 'rosbridge-batches')
+  const state = path.join(isolation.root, 'kinex-sim-batches')
   await mkdir(state)
   await writeFile(path.join(state, 'fail-launch'), '')
   await writeFile(path.join(state, 'limit'), '')
-  // Nothing of rosbridge is in this Kinex's environment.
-  const { KINEX_ROSBRIDGE: _command, FAKE_ROSBRIDGE_STATE: _state, ...env } = process.env
+  // Nothing of kinex-sim is in this Kinex's environment.
+  const { KINEX_SIM: _command, FAKE_KINEX_SIM_STATE: _state, ...env } = process.env
   const invoke = (cwd, ...args) => {
     const pending = exec(process.execPath, [entry, 'run', '--auto', ...args], { cwd, env, timeout: 280000 })
     pending.child.stdin.end()
@@ -288,7 +290,7 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
   const json = async file => JSON.parse(await readFile(path.join(root, file), 'utf8'))
   const read = file => readFile(path.join(root, file), 'utf8')
   const config = await json('config.json')
-  assert.deepEqual([config.batches, config.rosbridge, config.launch, config.seed], [[1], `FAKE_ROSBRIDGE_STATE=${state} ${rosbridge}`, ['--split', 'target', '--config', 'kitchen', '--record', '{record}/video'], 7])
+  assert.deepEqual([config.batches, config.command, config.launch, config.seed], [[1], `FAKE_KINEX_SIM_STATE=${state} ${kinexSim}`, ['--split', 'target', '--config', 'kitchen', '--record', '{record}/video'], 7])
   // Every trial is launched as the method says and as the plan added, and its workspace is set up for the same seed and configuration.
   const made = (await readFile(path.join(state, 'calls.log'), 'utf8')).split('\n')
   // What trials must not share is given each trial's own record folder.
@@ -299,10 +301,10 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
   await t.test('the first wave opens one task, and its trial that did not run is started again', async () => {
     assert.deepEqual([await json('trials/t001/input.json'), await json('trials/t002/input.json')].map(input => input.task), [first, first])
     assert.deepEqual({ status: (await json('trials/t001/record/result.json')).status, error: (await json('trials/t001/record/result.json')).error },
-      { status: 'error', error: 'rosbridge launch: no simulator could start' })
+      { status: 'error', error: 'kinex-sim launch: no simulator could start' })
     const ran = await json('trials/t002/record/result.json')
     assert.deepEqual({ status: ran.status, success: ran.success, reason: ran.reason, steps: ran.steps, worldS: ran.worldS }, { status: 'done', success: false, reason: 'timeout', steps: 40, worldS: 2 })
-    assert.match(stdout, new RegExp(`- t001, ${first}, L0, error, [^\\n]*rosbridge launch: no simulator could start\\n- t002, ${first}, L0, failure, timeout, 40 steps`))
+    assert.match(stdout, new RegExp(`- t001, ${first}, L0, error, [^\\n]*kinex-sim launch: no simulator could start\\n- t002, ${first}, L0, failure, timeout, 40 steps`))
   })
 
   await t.test('the distiller is asked to order the tasks not opened yet, and its failing library is repaired in the same session', async () => {
@@ -344,9 +346,9 @@ test('a run outlives the Kinex that scheduled it, /self-improve stop ends its jo
     if (text.includes(PLANNING) || text.includes(RESUMED)) return scheduler({ tasks: ['sim/press-button'] })(request)
     return { text: 'UNEXPECTED_SESSION' }
   }
-  const state = path.join(isolation.root, 'rosbridge-quit')
+  const state = path.join(isolation.root, 'kinex-sim-quit')
   await mkdir(state)
-  const env = { ...process.env, KINEX_ROSBRIDGE: rosbridge, FAKE_ROSBRIDGE_STATE: state }
+  const env = { ...process.env, KINEX_SIM: kinexSim, FAKE_KINEX_SIM_STATE: state }
   const cwd = await workspace(t)
   const invoke = (...args) => {
     const pending = exec(process.execPath, [entry, 'run', '--auto', ...args], { cwd, env, timeout: 200000 })
@@ -394,12 +396,12 @@ test('a run outlives the Kinex that scheduled it, /self-improve stop ends its jo
 test('without a user, a run starts only in a session that already works without approvals', { timeout: 120000 }, async t => {
   const fake = await fakeProvider(t, isolation.root)
   fake.respond = scheduler({ tasks: ['sim/press-button'] })
-  const state = path.join(isolation.root, 'rosbridge-ask')
+  const state = path.join(isolation.root, 'kinex-sim-ask')
   await mkdir(state)
   const runs = path.join(process.env.KINEX_DATA_DIR, 'self-improve')
   const before = (await readdir(runs).catch(() => [])).length
   // Headless in ask mode there is nobody to approve the plan, so the run is not made.
-  const refused = exec(process.execPath, [entry, 'run', '/self-improve the press task'], { cwd: await workspace(t), env: { ...process.env, KINEX_ROSBRIDGE: rosbridge, FAKE_ROSBRIDGE_STATE: state }, timeout: 60000 })
+  const refused = exec(process.execPath, [entry, 'run', '/self-improve the press task'], { cwd: await workspace(t), env: { ...process.env, KINEX_SIM: kinexSim, FAKE_KINEX_SIM_STATE: state }, timeout: 60000 })
   refused.child.stdin.end()
   await refused.catch(() => {})
   assert.ok(fake.requests.some(request => request.tools.some(tool => tool.function.name === 'improve_plan')), 'the session planned')

@@ -17,7 +17,7 @@ run's files and its settings; this page keeps the contracts.
 | Distiller | A headless child Kinex in the distillation's folder, in a session of its own | `improve_check` |
 
 - `/self-improve <request>` is a workflow: the session reads the request, settles
-  how rosbridge is run for it (its command and environment, more options for
+  how kinex-sim is run for it (its command and environment, more options for
   `launch`, a seed), finds the tasks and proposes a plan. Nothing exists until the
   user approves it, with the lines a trial is started, ended and judged with.
   `improve_plan` asks for the permission `unattended` with the plan as its
@@ -48,10 +48,10 @@ run's files and its settings; this page keeps the contracts.
 
 ## Trials and verdicts
 
-A trial is one stepped episode of one task: `rosbridge launch` with the plan's
+A trial is one stepped episode of one task: `kinex-sim launch` with the plan's
 options, stepped, ending where the simulator's check does and on a ROS domain of
-its own, which no plan can change, `rosbridge setup` of the same task and seed into the trial workspace, the
-library installed, one worker, then `rosbridge stop` and `rosbridge judge`. The
+its own, which no plan can change, `kinex-sim setup` of the same task and seed into the trial workspace, the
+library installed, one worker, then `kinex-sim stop` and `kinex-sim judge`. The
 simulator's verdict decides; the worker's report never counts. A worker that
 exits non-zero after the simulation advanced is still judged; one that fails
 before it advanced leaves a trial that did not run. Worker starts are spaced
@@ -88,14 +88,15 @@ What fails is tried again before the run goes on without it, with rsi's counts:
 
 After that the run goes on with the version it has.
 
-A worker is given its task's goal in the simulator's own words, read from the
-run's folder: a `PROMPT.json` there, else the line the simulator prints to the
-run log when the episode starts. A simulator that gives none leaves the task's
+A worker is given its task's goal in the simulator's own words: the launched
+episode's task description, which `kinex-sim describe` reads from the run's log,
+its instruction first and then any further text the simulator states. A
+simulator that gives none leaves the task's
 name, and `status`, `result.json` and the distiller's `TASKS.md` say so. The
 worker is told that the simulation is stepped, that the simulator ends the
 episode as soon as its check passes (Kinex launches it with `--early-stop`), so an
 episode still running is not yet done, and that it may also end the episode at a
-step limit of its own. rosbridge does not report that limit, so the
+step limit of its own. kinex-sim's commands do not report that limit, so the
 number is given only once an earlier trial of the task was ended at it.
 
 ## Libraries
@@ -156,18 +157,18 @@ its own process, IPC and mount namespaces and no capabilities. It can write only
 its workspace, its transcript and Kinex's agent folder (credentials refresh
 there; settings and the commands a run's jobs are started with stay read-only),
 and read only the system, Node, Kinex, the shared Python environment and Kinex's
-configuration. rosbridge's command, files and processes, other jobs, the run's
+configuration. kinex-sim's command, files and processes, other jobs, the run's
 libraries and every verdict have no name inside, so a worker can neither stop
-its simulator nor change its outcome: `rosbridge launch`, `setup`, `stop` and
+its simulator nor change its outcome: `kinex-sim launch`, `setup`, `stop` and
 `judge` all run outside, in the trial's own process. It shares the host's
 network, which DDS to its simulator and the model's API need, so other ROS
 domains and the internet stay reachable. Its `/dev/shm` is its own, so DDS
 reaches the simulator over UDP. A run planned with the sandbox off runs workers
 unsandboxed. A distiller is never sandboxed: it is kept to its folder by a clean
-workspace, an environment without rosbridge's activation and an instruction, and
+workspace, an environment without kinex-sim's activation and an instruction, and
 its context holds nothing of the workspace the run was planned in.
 
-The package reaches simulators only through the rosbridge command, core only
+The package reaches simulators only through the kinex-sim command, core only
 through package exports, and background work only through pi-subagents, which
 standalone bundles. Standalone composes the package by default and ships it
 inside its archive, so its dependencies are peers; see

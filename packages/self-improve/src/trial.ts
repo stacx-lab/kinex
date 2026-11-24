@@ -55,7 +55,7 @@ export function judged(session: SessionExit, verdict: Verdict): SessionExit & { 
     : { ...session, status: "done", note: `${exit}; see output.log` }
 }
 
-// rosbridge does not report an episode's step limit, so a worker is told the
+// kinex-sim does not report an episode's step limit, so a worker is told the
 // number only once an earlier trial of its task has been ended at it.
 const limitNote = (limit: TrialInput["limit"]) => limit
   ? ` An earlier trial of this task was ended at that limit after ${limit.steps} steps${limit.worldS === undefined ? "" : ` (${limit.worldS.toFixed(1)} s of world time)`}.` : ""
@@ -63,7 +63,7 @@ const limitNote = (limit: TrialInput["limit"]) => limit
 /** One trial: a fresh episode of one task, a fresh worker with one library version, the simulator's verdict. */
 export async function runTrial(run: Run, job: Job, input: TrialInput, signal: AbortSignal): Promise<Result> {
   const sandbox = await sandboxOf(run.config.sandbox, run.config.image)
-  const sim = await openSim(run.config.rosbridge, { ...input, launch: run.config.launch, record: job.record }, job.workspace)
+  const sim = await openSim(run.config.command, { ...input, launch: run.config.launch, record: job.record }, job.workspace)
   const session = await (async () => {
     await install(versionDir(run.root, input.library), job.workspace)
     await sharePython(job.workspace)
