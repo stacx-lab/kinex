@@ -393,10 +393,10 @@ other ROS environment that calls these services.
 from its own byte-identical copy of the package, so neither project needs the
 other's checkout to build.
 
-`kinex-sim setup <robot> --directory DIR --domain-id N` exports a workspace whose
-devices borrow the running graph's endpoints. Start the simulator with
-`kinex-sim launch <task> --execution-mode stepped|realtime --domain-id N`, then
-load the devices on the same ROS domain.
+`kinex-sim setup <task> --directory DIR --domain-id N` exports that task's
+workspace, whose devices borrow the running graph's endpoints. Start the task with
+`kinex-sim launch <task> --execution-mode stepped|realtime --domain-id N` on the
+same ROS domain, then open Kinex, which loads the exported devices when it starts.
 
 ## Recording
 

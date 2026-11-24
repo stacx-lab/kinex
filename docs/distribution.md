@@ -2,7 +2,7 @@
 
 ## Installation
 
-Follow [Getting Started](../README.md#getting-started). The installer requires
+Follow the [quick start](../README.md#quick-start). The installer requires
 Node >=22.19 and npm, offering to install them interactively when missing. It
 verifies matching release archives, installs under the Kinex data directory and
 creates `~/.local/bin/kinex`. PATH changes require confirmation.
@@ -37,7 +37,7 @@ use when an update changes its sources.
 its own identical copy of the package, so it builds without a Kinex checkout.
 
 `npm run check` covers core, setup, standalone, PTY behavior and packed consumers.
-See [development instructions](../README.md#contributing--development) for prerequisites.
+See [development instructions](../README.md#contributing) for prerequisites.
 [Native ROS checks](../packages/setup/test/container/README.md) run separately.
 
 [Design index](README.md)
