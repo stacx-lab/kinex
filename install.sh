@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Install Kinex from its stable GitHub release. Safe to run through curl | bash.
+# GH_TOKEN or GITHUB_TOKEN, when set, authenticates the GitHub API request that finds the release.
 set -euo pipefail
 
 fail() { printf 'Kinex: %s\n' "$*" >&2; exit 1; }
@@ -127,10 +128,18 @@ const bin = path.join(os.homedir(), '.local/bin/kinex');
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
 const owner = `kinex_install_root=${quote(prefix)}\n`;
 const launcher = `#!/bin/sh\n# Kinex managed launcher\n${owner}export PATH=${quote(nodeBin)}:"$PATH"\nexec node "$kinex_install_root/node_modules/kinex/bin/kinex.mjs" "$@"\n`;
-const download = (url, output) => execFileSync('curl', [
-  '-fsSL', '--connect-timeout', '15', '--max-time', '300',
-  '-H', 'User-Agent: kinex-installer', url, ...(output ? ['-o', output] : []),
-], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
+// A token raises GitHub's API rate limit. It reaches curl on standard input, so neither process listings nor failure reports show it.
+const tokenName = ['GH_TOKEN', 'GITHUB_TOKEN'].find(name => process.env[name]?.trim());
+const token = tokenName ? process.env[tokenName].trim().replaceAll('\\', '\\\\').replaceAll('"', '\\"') : '';
+const authorization = `header = "Authorization: Bearer ${token}"\n`;
+const download = (url, output) => {
+  const authenticated = token && url.startsWith('https://api.github.com/');
+  return execFileSync('curl', [
+    '-fsSL', '--connect-timeout', '15', '--max-time', '300',
+    '-H', 'User-Agent: kinex-installer', ...(authenticated ? ['--config', '-'] : []), url, ...(output ? ['-o', output] : []),
+  ], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, ...(authenticated ? { input: authorization } : {}),
+    stdio: [authenticated ? 'pipe' : 'ignore', 'pipe', 'inherit'] });
+};
 const versionParts = version => {
   if (typeof version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error('Invalid stable release version');
   const parts = version.split('.').map(Number);
@@ -153,7 +162,15 @@ try {
     const saved = existsSync(manifest) && JSON.parse(readFileSync(manifest, 'utf8'));
     if (!saved || saved.name !== 'kinex-installation' || saved.private !== true) throw new Error(`Refusing to use an unrelated directory: ${prefix}`);
   }
-  const release = JSON.parse(download('https://api.github.com/repos/stacx-lab/kinex/releases/latest'));
+  let release;
+  try { release = JSON.parse(download('https://api.github.com/repos/stacx-lab/kinex/releases/latest')); }
+  catch (error) {
+    // curl exits 22 for an HTTP error and has already reported the status on stderr.
+    if (error.status !== 22) throw error;
+    throw new Error(token
+      ? `GitHub refused the release query with ${tokenName}. Check the token, or unset it to install anonymously.`
+      : 'GitHub refused the anonymous release query, usually its API rate limit on a shared network. Retry with a token:\n  curl -fsSL https://raw.githubusercontent.com/stacx-lab/kinex/main/install.sh | GH_TOKEN=<token> bash');
+  }
   if (release.draft !== false || release.prerelease !== false || typeof release.tag_name !== 'string' || !release.tag_name.startsWith('v')) throw new Error('Expected a stable Kinex release');
   const version = release.tag_name.slice(1), target = versionParts(version);
   const installedFile = path.join(prefix, 'node_modules/kinex/package.json');

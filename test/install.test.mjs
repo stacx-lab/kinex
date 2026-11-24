@@ -32,11 +32,20 @@ async function fixture(t) {
     PATH: `${bin}:${path.dirname(process.execPath)}:/usr/bin:/bin`,
     npm_config_cache: path.join(root, 'npm-cache'), npm_config_userconfig: path.join(root, 'npmrc'),
     KINEX_TEST_ROOT: root }
+  for (const name of ['GH_TOKEN', 'GITHUB_TOKEN']) delete env[name]
   await executable(path.join(bin, 'curl'), `#!${process.execPath}
 import('node:fs').then(fs => {
   const args = process.argv.slice(2), root = process.env.KINEX_TEST_ROOT;
   const url = args.find(arg => arg.startsWith('https://'));
   fs.appendFileSync(root + '/downloads', url + '\\n');
+  fs.appendFileSync(root + '/curl-args', JSON.stringify(args) + '\\n');
+  const config = args.indexOf('--config');
+  if (config >= 0) fs.appendFileSync(root + '/curl-config', JSON.stringify({ url, input: fs.readFileSync(0, 'utf8') }) + '\\n');
+  if (url.endsWith('/releases/latest') && process.env.KINEX_TEST_API_STATUS) {
+    console.error('curl: (22) The requested URL returned error: ' + process.env.KINEX_TEST_API_STATUS);
+    process.exitCode = 22;
+    return;
+  }
   const name = url.endsWith('/releases/latest') ? 'release.json' : url.split('/').at(-1);
   const bytes = fs.readFileSync(root + '/' + name);
   const output = args.indexOf('-o');
@@ -229,6 +238,47 @@ test('npm failure preserves verified archives and reports a retry command', asyn
   })
   for (const name of names) await stat(path.join(f.data, 'releases/0.10.4', name))
   await assert.rejects(stat(path.join(f.home, '.local/bin/kinex')), { code: 'ENOENT' })
+})
+
+test('a GitHub token reaches only the GitHub API, on standard input rather than a command line', async t => {
+  const f = await fixture(t)
+  const names = await f.release()
+  // The archives still download anonymously; this one fails, so the run stops before npm.
+  await rm(path.join(f.root, names[1]))
+  await assert.rejects(f.run('main', { env: { ...f.env, GH_TOKEN: ' ghp_secret_example ' } }))
+  const configs = (await readFile(path.join(f.root, 'curl-config'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+  assert.deepEqual(configs, [{ url: 'https://api.github.com/repos/stacx-lab/kinex/releases/latest', input: 'header = "Authorization: Bearer ghp_secret_example"\n' }])
+  const commands = (await readFile(path.join(f.root, 'curl-args'), 'utf8')).trim().split('\n')
+  assert.ok(commands.length >= 4, 'metadata, checksums and archives were all requested')
+  assert.ok(commands.every(command => !command.includes('ghp_secret_example')))
+  assert.equal(commands.filter(command => command.includes('"--config"')).length, 1)
+  await assert.rejects(stat(f.data), { code: 'ENOENT' })
+})
+
+test('GITHUB_TOKEN is accepted, GH_TOKEN wins when both are set, and blank values are ignored', async t => {
+  const f = await fixture(t)
+  await writeFile(path.join(f.root, 'release.json'), '{}')
+  for (const tokens of [{ GITHUB_TOKEN: 'github_example' }, { GH_TOKEN: 'gh_example', GITHUB_TOKEN: 'github_example' }, { GH_TOKEN: '', GITHUB_TOKEN: '  ' }]) {
+    await assert.rejects(f.run('main', { env: { ...f.env, ...tokens } }), /Expected a stable Kinex release/)
+  }
+  const inputs = (await readFile(path.join(f.root, 'curl-config'), 'utf8')).trim().split('\n').map(line => JSON.parse(line).input)
+  assert.deepEqual(inputs, ['header = "Authorization: Bearer github_example"\n', 'header = "Authorization: Bearer gh_example"\n'])
+})
+
+test('a refused release query points at the token or the rate limit and never repeats the token', async t => {
+  const f = await fixture(t)
+  const refused = (status, tokens = {}) => f.run('main', { env: { ...f.env, ...tokens, KINEX_TEST_API_STATUS: status } })
+  await assert.rejects(refused('403'), error => {
+    assert.match(error.stderr, /GitHub refused the anonymous release query, usually its API rate limit/)
+    assert.match(error.stderr, /install\.sh \| GH_TOKEN=<token> bash/)
+    return true
+  })
+  await assert.rejects(refused('401', { GH_TOKEN: 'ghp_secret_example' }), error => {
+    assert.match(error.stderr, /GitHub refused the release query with GH_TOKEN\. Check the token, or unset it/)
+    assert.doesNotMatch(error.stderr, /ghp_secret_example/)
+    return true
+  })
+  await assert.rejects(stat(f.data), { code: 'ENOENT' })
 })
 
 test('PATH configuration honors refusal, supports supported shells and does not duplicate entries', async t => {

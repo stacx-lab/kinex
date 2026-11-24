@@ -7,6 +7,19 @@ Node >=22.19 and npm, offering to install them interactively when missing. It
 verifies matching release archives, installs under the Kinex data directory and
 creates `~/.local/bin/kinex`. PATH changes require confirmation.
 
+The installer asks the GitHub API for the latest stable release, which limits
+anonymous requests by IP address. When the installer reports that limit, pass a
+token through its environment; it is sent only to that request:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/stacx-lab/kinex/main/install.sh | GH_TOKEN=<token> bash
+```
+
+`GH_TOKEN` is read first and `GITHUB_TOKEN` when `GH_TOKEN` is unset; blank
+values are ignored. The assignment belongs before `bash`: placed before `curl`,
+it never reaches the installer. The token reaches `curl` on standard input, so
+it appears in neither process listings nor the installer's output.
+
 ## Updates
 
 | Command | Updates |
