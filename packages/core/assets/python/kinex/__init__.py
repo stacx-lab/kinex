@@ -143,7 +143,12 @@ async def _call(payload):
     """A host call that leaves the event loop free while the host works."""
     loop = asyncio.get_running_loop()
     answer = loop.create_future()
-    _send(payload, lambda response: loop.call_soon_threadsafe(lambda: answer.done() or answer.set_result(response)))
+    def deliver(response):
+        try:
+            loop.call_soon_threadsafe(lambda: answer.done() or answer.set_result(response))
+        except RuntimeError:
+            pass  # the program's loop has ended, and nothing awaits this answer
+    _send(payload, deliver)
     return _answer(await answer)
 
 
