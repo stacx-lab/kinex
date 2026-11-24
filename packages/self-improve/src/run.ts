@@ -3,6 +3,7 @@ import path from "node:path"
 import { configFile, entries, readJson, runsDir, writeJson } from "./layout.ts"
 import { createLibrary } from "./library.ts"
 import type { Sandbox } from "./sandbox.ts"
+import { KINEX_SIM } from "./sim.ts"
 
 export interface Config {
   /** The request as the user typed it. */
@@ -48,12 +49,9 @@ export const RETRIES = 2
 export const REPAIRS = 2
 export const REPAIR_S = 1800
 
-/** The command that runs kinex-sim where a plan names none. */
-export const simCommand = () => process.env.KINEX_SIM ?? "kinex-sim"
-
 /** A new run's settings: the plan and the limits a run starts with. The user approves these, and the run is made from them. */
 export function newConfig(selection: string, plan: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "sandbox" | "seed" | "launch"> & { command?: string }): Config {
-  return { selection, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, ...plan, command: plan.command ?? simCommand() }
+  return { selection, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, ...plan, command: plan.command ?? KINEX_SIM }
 }
 
 export async function createRun(config: Config): Promise<Run> {

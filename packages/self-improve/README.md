@@ -194,8 +194,7 @@ distillations/d001/
   are the same for every trial; `{record}` in one is the trial's own record
   folder, for what trials must not share (`--record {record}/video`). A `--config` given to launch is given to `setup` too. The execution mode,
   the early stop and the ROS domain are the method's and are refused. A request
-  that says nothing runs `kinex-sim` on `PATH`, or the command `KINEX_SIM`
-  names. The run keeps them in `config.json` as `command`, `launch` and `seed`.
+  that says nothing runs `kinex-sim` on `PATH`. The run keeps them in `config.json` as `command`, `launch` and `seed`.
 - Workers run in a sandbox (`"sandbox": true`): bubblewrap where it can run, else
   a Docker container (`"image"`, default `ubuntu:24.04`, with the host's system
   folders bound over it). `"sandbox": "bwrap"` or `"docker"` names one. A plan is

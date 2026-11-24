@@ -37,14 +37,14 @@ const RESUMED = 'is scheduled in this Kinex again'
 
 // The session that schedules a run, scripted: it plans, has the plan approved, and from then on
 // does what improve_next says, starting the sub-agents it names and asking again when one has ended.
-// Where the plan says how kinex-sim is run, the session names the command once, when it looks for the tasks.
-function scheduler({ command, ...plan }) {
+// How kinex-sim is run is the plan's: the session names the command once, when it looks for the tasks.
+function scheduler({ command = kinexSim, ...plan }) {
   return request => {
     const text = last(request)
     const has = name => offers(request, name)
     if (request.messages.at(-1).role !== 'tool') {
       if (text.includes('pi_subagents_notice')) return has('improve_next') ? call('improve_next') : { text: 'RUN_OVER' }
-      return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*', ...(command ? { command } : {}) }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
+      return has('improve_tasks') ? call('improve_tasks', { simulator: 'sim', pattern: 'sim/*', command }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
     }
     if (/^sim\/[^\n]* \(robot /.test(text)) return call('improve_plan', plan)
     // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.
@@ -93,7 +93,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
   await writeFile(models, JSON.stringify(catalog))
   const state = path.join(isolation.root, 'kinex-sim')
   await mkdir(state)
-  const env = { ...process.env, KINEX_SIM: kinexSim, FAKE_KINEX_SIM_STATE: state }
+  const env = { ...process.env, FAKE_KINEX_SIM_STATE: state }
   const invoke = (cwd, ...args) => {
     const pending = exec(process.execPath, [entry, 'run', '--auto', ...args], { cwd, env, timeout: 280000 })
     pending.child.stdin.end()
@@ -275,7 +275,7 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
   await writeFile(path.join(state, 'fail-launch'), '')
   await writeFile(path.join(state, 'limit'), '')
   // Nothing of kinex-sim is in this Kinex's environment.
-  const { KINEX_SIM: _command, FAKE_KINEX_SIM_STATE: _state, ...env } = process.env
+  const { FAKE_KINEX_SIM_STATE: _state, ...env } = process.env
   const invoke = (cwd, ...args) => {
     const pending = exec(process.execPath, [entry, 'run', '--auto', ...args], { cwd, env, timeout: 280000 })
     pending.child.stdin.end()
@@ -348,7 +348,7 @@ test('a run outlives the Kinex that scheduled it, /self-improve stop ends its jo
   }
   const state = path.join(isolation.root, 'kinex-sim-quit')
   await mkdir(state)
-  const env = { ...process.env, KINEX_SIM: kinexSim, FAKE_KINEX_SIM_STATE: state }
+  const env = { ...process.env, FAKE_KINEX_SIM_STATE: state }
   const cwd = await workspace(t)
   const invoke = (...args) => {
     const pending = exec(process.execPath, [entry, 'run', '--auto', ...args], { cwd, env, timeout: 200000 })
@@ -401,7 +401,7 @@ test('without a user, a run starts only in a session that already works without 
   const runs = path.join(process.env.KINEX_DATA_DIR, 'self-improve')
   const before = (await readdir(runs).catch(() => [])).length
   // Headless in ask mode there is nobody to approve the plan, so the run is not made.
-  const refused = exec(process.execPath, [entry, 'run', '/self-improve the press task'], { cwd: await workspace(t), env: { ...process.env, KINEX_SIM: kinexSim, FAKE_KINEX_SIM_STATE: state }, timeout: 60000 })
+  const refused = exec(process.execPath, [entry, 'run', '/self-improve the press task'], { cwd: await workspace(t), env: { ...process.env, FAKE_KINEX_SIM_STATE: state }, timeout: 60000 })
   refused.child.stdin.end()
   await refused.catch(() => {})
   assert.ok(fake.requests.some(request => request.tools.some(tool => tool.function.name === 'improve_plan')), 'the session planned')

@@ -5,10 +5,10 @@ import { writeAgents } from "./agents.ts"
 import { candidateDir } from "./distill.ts"
 import { check } from "./library.ts"
 import { currentRole } from "./roles.ts"
-import { REPAIRS, createRun, newConfig, simCommand, type Config, type Run } from "./run.ts"
+import { REPAIRS, createRun, newConfig, type Config, type Run } from "./run.ts"
 import { sandboxName, sandboxSetting } from "./sandbox.ts"
 import { checked, current, describe, next, schedule } from "./scheduler.ts"
-import { launchOptions, listTasks, matching } from "./sim.ts"
+import { KINEX_SIM, launchOptions, listTasks, matching } from "./sim.ts"
 
 // The session that schedules a run has this package's tools only while it does:
 // two to plan one, then one that says what to start next. A distiller has the gate.
@@ -49,7 +49,7 @@ const tasksTool = define("improve_tasks", {
   execute: async args => {
     const planned = current()
     if (planned && args.command) planned.command = args.command
-    const listed = await listTasks(args.command ?? planned?.command ?? simCommand(), args.simulator)
+    const listed = await listTasks(args.command ?? planned?.command ?? KINEX_SIM, args.simulator)
     if (args.split && !listed.some(task => task.split)) throw new Error("kinex-sim does not report task splits; select by pattern or by ids")
     const matched = listed.filter(task => (!args.pattern || matching(args.pattern).test(task.id)) && (!args.split || task.split === args.split)).slice(0, args.count)
     return output(`${matched.length} tasks`, matched.map(task => `${task.id} (robot ${task.robot})`).join("\n") || "No task matches.")
@@ -71,7 +71,7 @@ const planTool = define("improve_plan", {
     const planned = current()
     if (!planned) throw new Error("No self-improve run is being planned; the user starts one with /self-improve")
     if (planned.run) throw new Error(`The self-improve run ${planned.run.root} is already scheduled in this Kinex; /self-improve stop ends it`)
-    const command = args.command ?? planned.command ?? simCommand()
+    const command = args.command ?? planned.command ?? KINEX_SIM
     const launch = launchOptions(args.launch)
     const catalog = await listTasks(command)
     const tasks = checked(args.tasks, catalog)
