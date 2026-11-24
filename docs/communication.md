@@ -60,7 +60,7 @@ driver: they read vendor topics with sensor-data QoS and publish or serve the
 public endpoints. Their source routes are implementation details. Kinex remaps
 each device node's `/clock` to the world `time` topic; the world template's clock
 node disables global ROS arguments so it is never remapped into its own output.
-Workspaces exported by [rosbridge](https://github.com/stacx-lab/rosbridge) borrow
+Workspaces exported by [kinex-sim](https://github.com/stacx-lab/kinex-sim) borrow
 the simulator graph's endpoints and declare no nodes of their own.
 
 `load`, `unload` and `status` are host lifecycle operations, not declared ROS
@@ -108,7 +108,7 @@ distribution or interface sources changed; explicit preparation always runs, and
 rebuilds the interfaces from clean.
 ROS processes source only their own overlays; host shells remain unchanged.
 A simulator, such as
-one run by [rosbridge](https://github.com/stacx-lab/rosbridge), keeps its own
+one run by [kinex-sim](https://github.com/stacx-lab/kinex-sim), keeps its own
 Python and communicates with Kinex through ROS; simulator packages are not
 installed in Kinex Python. `exec` has no interpreter
 option.
@@ -389,13 +389,13 @@ services; commands and observations use standard ROS messages, and actions stand
 ROS actions such as those of `control_msgs`, which Kinex Python installs. The ROS
 providers build it from `packages/core/assets/ros`; build that directory in any
 other ROS environment that calls these services.
-[rosbridge](https://github.com/stacx-lab/rosbridge) serves `Wait` and `Json`
+[kinex-sim](https://github.com/stacx-lab/kinex-sim) serves `Wait` and `Json`
 from its own byte-identical copy of the package, so neither project needs the
 other's checkout to build.
 
-`rosbridge setup <robot> --directory DIR --domain-id N` exports a workspace whose
+`kinex-sim setup <robot> --directory DIR --domain-id N` exports a workspace whose
 devices borrow the running graph's endpoints. Start the simulator with
-`rosbridge launch <task> --execution-mode stepped|realtime --domain-id N`, then
+`kinex-sim launch <task> --execution-mode stepped|realtime --domain-id N`, then
 load the devices on the same ROS domain.
 
 ## Recording

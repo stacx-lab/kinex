@@ -90,16 +90,16 @@ for in-session commands.
 ## Use Kinex with Simulators
 
 Kinex devices are typed ROS topics, services and actions.
-[rosbridge](https://github.com/stacx-lab/rosbridge) runs ABC, LIBERO, RoboTwin,
+[kinex-sim](https://github.com/stacx-lab/kinex-sim) runs ABC, LIBERO, RoboTwin,
 RoboDojo and RoboCasa as ROS graphs that speak the Kinex device contract, and
 exports a Kinex workspace for each of its robots. The exported profiles carry
 their calibration, select the `ros-jazzy` Python provider and borrow the
-simulator's endpoints directly. rosbridge serves `custom_interfaces/srv/Wait` from
+simulator's endpoints directly. kinex-sim serves `custom_interfaces/srv/Wait` from
 its own identical copy of the package, so it builds without a Kinex checkout.
 
 ```sh
-rosbridge setup libero/libero-panda-tabletop --directory ../workspace_libero --domain-id 83
-rosbridge launch libero/libero-spatial-01 --execution-mode stepped --domain-id 83
+kinex-sim setup libero/libero-panda-tabletop --directory ../workspace_libero --domain-id 83
+kinex-sim launch libero/libero-spatial-01 --execution-mode stepped --domain-id 83
 ```
 
 Launch a task for the exported robot on the same ROS domain, then open Kinex in
