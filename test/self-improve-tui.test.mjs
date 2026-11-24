@@ -25,7 +25,7 @@ async function terminal(t, name, mode, keys, timeout) {
   await mkdir(state)
   const { stdout, stderr } = await exec('python3', [pty, process.execPath, entry, ...mode, '--model', 'fake/test', 'TUI smoke'], {
     cwd: await workspace(t), timeout: (timeout + 10) * 1000, maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, TERM: 'xterm-256color', KINEX_SIM: kinexSim, FAKE_KINEX_SIM_STATE: state,
+    env: { ...process.env, TERM: 'xterm-256color', FAKE_KINEX_SIM_STATE: state,
       TUI_TEST_TIMEOUT: String(timeout), TUI_TEST_TRIGGER: 'KINEX_TUI_READY', TUI_TEST_KEYS: JSON.stringify(keys) },
   })
   assert.doesNotMatch(stdout + stderr, /TypeError|ReferenceError|Extension error|MODULE_NOT_FOUND|stale after session replacement/)
@@ -40,7 +40,7 @@ function session(request) {
   if (request.messages.at(-1).role !== 'tool') {
     if (text.includes('hello again')) return { text: 'HOME_AGAIN_OK' }
     if (text.includes('pi_subagents_notice')) return has('improve_next') ? { tool: 'improve_next', args: {} } : { text: 'RUN_OVER' }
-    return has('improve_tasks') ? { tool: 'improve_tasks', args: { pattern: 'sim/press-button' } } : { text: 'KINEX_TUI_READY' }
+    return has('improve_tasks') ? { tool: 'improve_tasks', args: { pattern: 'sim/press-button', command: kinexSim } } : { text: 'KINEX_TUI_READY' }
   }
   if (/^sim\/[^\n]* \(robot /.test(text)) return { tool: 'improve_plan', args: { tasks: ['sim/press-button'] } }
   // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.

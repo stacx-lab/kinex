@@ -12,6 +12,9 @@ export interface Sim { run: string; instruction: Instruction; close(): Promise<V
 
 const exec = promisify(execFile)
 
+/** The command where a plan names none: kinex-sim on PATH. */
+export const KINEX_SIM = "kinex-sim"
+
 /**
  * The command that runs kinex-sim, as a plan gives it: words without quoting, the environment
  * it needs first as NAME=value, then the program and what comes before kinex-sim's own command.
@@ -20,7 +23,7 @@ const exec = promisify(execFile)
 export function commandLine(command: string): { file: string; first: string[]; env: Record<string, string> } {
   const words = command.trim().split(/\s+/).filter(Boolean)
   const set = words.findIndex(word => !/^[A-Za-z_]\w*=/.test(word))
-  const [file = "kinex-sim", ...first] = set < 0 ? [] : words.slice(set)
+  const [file = KINEX_SIM, ...first] = set < 0 ? [] : words.slice(set)
   return { file, first, env: Object.fromEntries(words.slice(0, set < 0 ? words.length : set).map(word => [word.slice(0, word.indexOf("=")), word.slice(word.indexOf("=") + 1)])) }
 }
 

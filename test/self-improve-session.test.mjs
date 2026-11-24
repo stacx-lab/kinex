@@ -10,7 +10,7 @@ import { isolate, workspace } from './helpers.mjs'
 const isolation = await isolate()
 after(isolation.cleanup)
 // A stand-in for kinex-sim, and no sandbox: these tests start no worker.
-process.env.KINEX_SIM = fileURLToPath(new URL('./fixtures/kinex-sim.mjs', import.meta.url))
+const kinexSim = fileURLToPath(new URL('./fixtures/kinex-sim.mjs', import.meta.url))
 process.env.FAKE_KINEX_SIM_STATE = isolation.root
 process.env.KINEX_SELF_IMPROVE_SANDBOX = 'off'
 const { createKinexRuntime, PermissionDeniedError } = await import('@kinex/core')
@@ -48,7 +48,7 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   assert.equal(planning.kind, 'workflow')
   assert.match(planning.prompt, /^The user asks for a self-improve run: the sim tasks, two rounds\n\n[^]*improve_tasks[^]*improve_plan[^]*improve_next/)
   assert.deepEqual(await names(), ['improve_tasks', 'improve_plan'])
-  assert.match((await call('improve_tasks', { pattern: 'sim/*' })).output, /^sim\/open-door \(robot sim\/arm\)\nsim\/press-button \(robot sim\/arm\)$/)
+  assert.match((await call('improve_tasks', { pattern: 'sim/*', command: kinexSim })).output, /^sim\/open-door \(robot sim\/arm\)\nsim\/press-button \(robot sim\/arm\)$/)
 
   // Nothing exists before the user approves: a plan that is declined leaves the session planning.
   await assert.rejects(call('improve_plan', { tasks: ['sim/open-door'] }, false), PermissionDeniedError)
@@ -59,7 +59,7 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   assert.match(request.description, /A trial starts with `[^`]* launch <task> --execution-mode stepped --early-stop --detach`[^\n]*one worker sub-agent without a sandbox[^\n]*It ends with `[^`]* stop`, and `[^`]* judge` decides the outcome/)
   assert.match(request.description, /\nTrials and distillations run in the background with nobody to approve their steps\.$/)
   // How kinex-sim is run is the plan's: its command with the environment it needs, more launch options and a seed. The user is shown the lines.
-  const simulator = `SIM_GPU=1 ${process.env.KINEX_SIM}`
+  const simulator = `SIM_GPU=1 ${kinexSim}`
   await assert.rejects(call('improve_plan', { tasks: ['sim/open-door'], command: simulator, launch: ['--split', 'target'], seed: 7 }, false), PermissionDeniedError)
   assert.ok(asked.at(-1).description.includes(`A trial starts with \`${simulator} launch <task> --execution-mode stepped --early-stop --detach --seed 7 --split target\` on a ROS domain of its own and \`${simulator} setup <task>\``))
   // What makes a trial a trial is not the plan's to change.
@@ -71,7 +71,7 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   const approved = await call('improve_plan', { tasks: ['sim/press-button', 'sim/open-door'], rounds: 2, parallel: 2, batches: [1] })
   const { run } = current()
   assert.deepEqual({ ...run.config, libRoots: undefined }, { selection: 'the sim tasks, two rounds', tasks: ['sim/open-door', 'sim/press-button'], robot: 'sim/arm', rounds: 2, parallel: 2, batches: [1],
-    sandbox: false, libRoots: undefined, helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, command: process.env.KINEX_SIM })
+    sandbox: false, libRoots: undefined, helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, command: kinexSim })
   assert.ok(approved.output.startsWith(`The self-improve run ${run.root} is scheduled.\n\nWave 1: 1 task to try, 2 at a time, each a trial in a background sub-agent. Start them with this call, unless you did a moment ago:\nsubagent({ workflow: ${JSON.stringify(path.join(run.root, 'wave.js'))}, args: { run: "${path.basename(run.root)}", library: "L0", tasks: [`))
   // The workflow that starts a wave is in the run's folder: one trial sub-agent for each task, told the run, the task and the library.
   assert.match(await readFile(path.join(run.root, 'wave.js'), 'utf8'), /runs\.all\(args\.tasks\.map\([^]*agent: "self-improve-trial",\n  task: "run=" \+ args\.run \+ " task=" \+ task \+ \(args\.library \? " library=" \+ args\.library : ""\)/)
