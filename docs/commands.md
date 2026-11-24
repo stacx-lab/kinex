@@ -1,7 +1,7 @@
 # Command reference
 
 Start `kinex` in your robot workspace. The common CLI follows the bundled Pi SDK.
-Run `kinex --help` or see [Getting Started](../README.md#getting-started).
+Run `kinex --help` or see [Getting Started](../README.md#quick-start).
 
 ## In-session commands
 
@@ -75,10 +75,10 @@ The choice persists across sessions and workspaces.
 Capture device observations with `/record` and preserve the conversation with
 Pi's `/export`. These examples use a RoboTwin workspace that
 [kinex-sim](https://github.com/stacx-lab/kinex-sim) exports with
-`kinex-sim setup robotwin/robotwin-aloha-agilex --directory DIR --domain-id N`.
-Start a task on the same domain with
+`kinex-sim setup <task> --directory DIR --domain-id N`.
+Start that task on the same domain with
 `kinex-sim launch <task> --execution-mode stepped|realtime --domain-id N`; see
-[simulators](../README.md#use-kinex-with-simulators).
+[simulators](../README.md#simulators).
 
 | Command                                   | Purpose                                                                 |
 | ----------------------------------------- | ----------------------------------------------------------------------- |

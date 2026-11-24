@@ -29,8 +29,9 @@ onboarding and calibration procedures. New integrations declare explicit
 preferring compatible installed packages and binaries before source builds.
 
 Simulator workspaces come from [kinex-sim](https://github.com/stacx-lab/kinex-sim):
-`kinex-sim setup <robot> --directory DIR --domain-id N` exports unloaded profiles
-that borrow the simulator's endpoints and carry their calibration. Load them after
+`kinex-sim setup <task> --directory DIR --domain-id N` exports that task's
+profiles, loaded, which borrow the simulator's endpoints and carry their
+calibration. Open Kinex after
 `kinex-sim launch <task> --execution-mode stepped|realtime --domain-id N` starts
 the graph on the same domain.
 

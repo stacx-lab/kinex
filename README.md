@@ -1,227 +1,204 @@
 <p align="center">
-  <img src="assets/kinex-logo-text-day.svg#gh-light-mode-only" alt="Kinex" height="100">
-  <img src="assets/kinex-logo-text-night.svg#gh-dark-mode-only" alt="Kinex" height="100">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-night.svg">
+    <img src="assets/banner-day.svg" alt="Kinex: a robotics harness for coding agents." width="100%">
+  </picture>
 </p>
 
 <p align="center">
-  <a href="https://github.com/stacx-lab/kinex/releases">
-    <img src="https://img.shields.io/github/v/release/stacx-lab/kinex?style=flat-square&amp;label=release&amp;color=2563eb" alt="Latest release" height="20">
-  </a>
-  <a href="https://github.com/stacx-lab/kinex/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/stacx-lab/kinex/ci.yml?branch=main&amp;style=flat-square&amp;label=CI" alt="CI status on main" height="20">
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="License: Apache 2.0" height="20">
-  </a>
-  <a href="#getting-started">
-    <img src="https://img.shields.io/badge/Node.js-%E2%89%A5%2022.19-339933?style=flat-square&amp;logo=node.js&amp;logoColor=white" alt="Node.js ≥22.19" height="20">
-  </a>
-  <a href="#getting-started">
-    <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-555555?style=flat-square" alt="Platforms: Linux and macOS" height="20">
-  </a>
+  <strong>Kinex</strong> is an open-source robotics harness for coding agents, built on the published Pi SDK.
 </p>
 
 <p align="center">
-  <a href="https://stacx-lab.github.io/kinex/docs/">Documentation</a> ·
-  <a href="#news">News</a> ·
-  <a href="#getting-started">Getting Started</a> ·
-  <a href="#use-kinex-with-simulators">Simulators</a> ·
-  <a href="#use-kinex-with-real-world-robots">Real-World Robots</a> ·
-  <a href="#disclaimer">Disclaimer</a> ·
-  <a href="#kinex-and-the-pi-ecosystem">Pi Ecosystem</a> ·
-  <a href="#using-kinex-with-other-harnesses">Other Harnesses</a>
+  <a href="https://github.com/stacx-lab/kinex/releases"><img src="https://img.shields.io/github/v/release/stacx-lab/kinex?style=for-the-badge&amp;label=release&amp;color=756EE4&amp;labelColor=272B34" alt="Latest release"></a>
+  <a href="https://stacx-lab.github.io/kinex/docs/"><img src="https://img.shields.io/badge/docs-read%20the%20guide-2B8AD6?style=for-the-badge&amp;labelColor=272B34" alt="Read the documentation"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-17A07A?style=for-the-badge&amp;labelColor=272B34" alt="License: Apache 2.0"></a>
+  <a href="#quick-start"><img src="https://img.shields.io/badge/node-%E2%89%A5%2022.19-D2851C?style=for-the-badge&amp;logo=nodedotjs&amp;logoColor=white&amp;labelColor=272B34" alt="Node.js ≥22.19"></a>
 </p>
-
-Kinex is a robotics harness for coding agents, built on the published Pi SDK.
-Its three layers—**devices**, the **control graph**, and **skills**—provide environment
-access, executable control programs, and task guidance.
-
-Read the [documentation website](https://stacx-lab.github.io/kinex/docs/) for
-setup guides, concepts and command references.
 
 <p align="center">
-  <img src="assets/architecture.svg" alt="Kinex architecture: agents load skills, run control-graph programs through exec and call devices, whose nodes connect to hardware, simulators and services." width="640">
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="#environments">Environments</a> ·
+  <a href="#ecosystem">Ecosystem</a> ·
+  <a href="#contributing">Contributing</a> ·
+  <a href="#license">License</a> ·
+  <a href="https://stacx-lab.github.io/kinex/docs/">Documentation</a>
 </p>
 
-## News
+## What's New
 
+- **2026.11.23**: Kinex v1.1.1 is released. The simulator project rosbridge is now
+  [kinex-sim](https://github.com/stacx-lab/kinex-sim).
 - **2026.11.04**: Kinex v1.1.0 is released! Devices now run as ROS 2 nodes, with ROS 2 Jazzy or Humble. See the [release notes](https://github.com/stacx-lab/kinex/releases/tag/v1.1.0).
 - **2026.10.15**: Kinex v1.0.0 is released! Visit the [project website](https://stacx-lab.github.io/kinex/).
 
-## Getting Started
+## How it works
 
-Install on Linux or macOS:
+Kinex connects a coding agent to robots through three layers:
+
+- **Devices:** typed ROS interfaces to arms, grippers, cameras and models.
+- **Graph:** Python programs the agent runs for perception and control.
+- **Skills:** procedures that guide tasks such as device setup and calibration.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/architecture-night.svg">
+    <img src="assets/architecture-day.svg" alt="Kinex architecture: the agent loads skills, runs graph programs through exec and calls devices directly; graph programs also operate devices, whose nodes exchange commands and feedback with hardware, simulators and model services." width="100%">
+  </picture>
+</p>
+
+The agent loads skills as needed, then calls devices directly or runs Python
+programs through `exec`, and reads back their results and images. Kinex works
+with [simulators](#simulators) and [real robots](#real-world-robots), on its own
+or [inside Pi, Claude Code and Codex](#other-harnesses). See the
+[architecture guide](https://stacx-lab.github.io/kinex/docs/architecture/) and the
+[documentation](https://stacx-lab.github.io/kinex/docs/).
+
+## Quick start
+
+**1. Install** on Linux or macOS. Kinex needs Node.js ≥22.19; the installer offers
+to install it.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/stacx-lab/kinex/main/install.sh | bash
 ```
 
-The installer reuses Node.js ≥22.19 and npm, or offers to install them if needed.
-Follow any PATH instructions it prints, then start Kinex in your project:
+**2. Start Kinex** in your project.
 
 ```sh
 cd /path/to/project
 kinex
 ```
 
-Use `/login` to connect a model provider and `/model` to choose a model.
-Python execution uses a workspace-owned Pixi/RoboStack ROS environment on Linux
-x86-64: Jazzy by default, Humble with `python.provider: "ros-humble"`, or plain uv
-with `"uv"`; install Pixi or uv before first use. Exec, the function library and recording share Kinex Python; device SDK
-interpreters are optional overrides for device nodes only.
-See [environment setup](docs/communication.md#kinex-python).
+**3. Connect a model** with `/login`, then choose one with `/model`.
 
-You can also run a single task, resume a session, or update from the shell:
+Running Python programs also needs [Pixi](https://pixi.sh) or uv: Kinex creates
+the workspace's Python environment on first use, with ROS 2 Jazzy by default on
+Linux x86-64. See [environment setup](docs/communication.md#kinex-python).
+
+From the shell:
 
 ```sh
 kinex "Inspect the workspace"          # Start with a prompt
-kinex run "/ping left_arm"             # Run once without a model
-kinex run "Describe the scene"         # Run a task and exit; -p also works
+kinex run "Describe the scene"         # Run a task and exit
 kinex --continue                       # Resume the latest project session
-kinex --resume                         # Choose a previous session
-kinex --model provider/model           # Start with a selected model
-kinex update                           # Update Kinex and its bundled Pi SDK
+kinex update                           # Update Kinex
 kinex --help                           # All commands and options
 ```
 
 See the [command reference](https://stacx-lab.github.io/kinex/docs/slash-commands/)
 for in-session commands.
 
-## Use Kinex with Simulators
+## Environments
 
-Kinex devices are typed ROS topics, services and actions.
-[kinex-sim](https://github.com/stacx-lab/kinex-sim) runs ABC, LIBERO, RoboTwin,
-RoboDojo and RoboCasa as ROS graphs that speak the Kinex device contract, and
-exports a Kinex workspace for each of its robots. The exported profiles carry
-their calibration, select the `ros-jazzy` Python provider and borrow the
-simulator's endpoints directly. kinex-sim serves `custom_interfaces/srv/Wait` from
-its own identical copy of the package, so it builds without a Kinex checkout.
+### Simulators
+
+[kinex-sim](https://github.com/stacx-lab/kinex-sim) runs public simulators and
+exports a Kinex workspace for each task.
+
+| Simulator | Robot | Tasks | Example task |
+| --- | --- | --- | --- |
+| [ABC](https://github.com/stacx-lab/kinex-sim/blob/main/docs/abc.md) | Two YAM arms | 33 | `abc/ball-tray-balancing` |
+| [LIBERO](https://github.com/stacx-lab/kinex-sim/blob/main/docs/libero.md) | Franka Panda | 130 | `libero/libero-spatial-01` |
+| [RoboTwin 2.0](https://github.com/stacx-lab/kinex-sim/blob/main/docs/robotwin.md) | ALOHA AgileX, two arms | 50 | `robotwin/beat-block-hammer-aloha-agilex` |
+| [RoboDojo](https://github.com/stacx-lab/kinex-sim/blob/main/docs/robodojo.md) | Two ARX X5 arms | 42 | `robodojo/align-blocks` |
+| [RoboCasa](https://github.com/stacx-lab/kinex-sim/blob/main/docs/robocasa.md) | Panda on an Omron mobile base | 365 | `robocasa/add-ice-cubes` |
+| [BEHAVIOR](https://github.com/stacx-lab/kinex-sim/blob/main/docs/behavior.md) | R1Pro mobile manipulator | 100 | `behavior/assembling-gift-baskets` |
+| [HandsOn](https://github.com/stacx-lab/kinex-sim/blob/main/docs/handson.md) | Two ROKAE AR5 arms with Wuji hands | 66 | `handson/t24-place-ball-in-bowl` |
+| [BiDex-100](https://github.com/stacx-lab/kinex-sim/blob/main/docs/bidex.md) | Two Franka FR3v2 arms or an Astribot S1, with Sharpa Wave hands | 106, each also out of domain | `bidex/make-espresso` |
+
+Pick a task, export its workspace and launch it on the same ROS domain:
 
 ```sh
-kinex-sim setup libero/libero-panda-tabletop --directory ../workspace_libero --domain-id 83
+kinex-sim tasks list --simulator libero
+kinex-sim setup libero/libero-spatial-01 --directory ../workspace_libero --domain-id 83
 kinex-sim launch libero/libero-spatial-01 --execution-mode stepped --domain-id 83
 ```
 
-Launch a task for the exported robot on the same ROS domain, then open Kinex in
-the exported directory, run `/load all` and give it the task. The launched world
-owns the execution mode. Its cameras publish native `image`, `camera_info` and,
-for RGB-D, `depth` topics and render a current frame for each new subscriber,
-repeating it while paused, so Kinex can read them while a stepped world is
-paused. See [ROS communication](docs/communication.md) for the operation and
-Python contracts.
+Then open Kinex in the exported directory and give it the task.
+See [using kinex-sim with Kinex](https://github.com/stacx-lab/kinex-sim/blob/main/docs/kinex.md).
 
-## Use Kinex with Real-World Robots
+### Real-world robots
 
-Open Kinex in your robot workspace and describe your hardware, how it connects,
-and the task you want to perform:
+Open Kinex in your robot workspace and describe your hardware, how it connects
+and the task:
 
 ```text
 /onboarding Set up my robot arm, gripper, and overhead camera to pick objects from the table.
 ```
 
-Onboarding helps connect devices and prepare the task's prerequisites, reusing
-existing profiles and calibration. Use `/devices` to inspect the workspace,
-`/load <device>` to connect an inactive device, and `/ping all` to check connections.
-If the task needs additional calibration, request its scope, for example
-`/calibrate camera-to-arm transform for picking`.
+Onboarding connects the devices and prepares what the task needs. Then give
+Kinex the task in plain language.
 
-Once ready, give Kinex the task in plain language. Use `/stop` to cancel the
-response, stop actuators within their declared scope and cancel scripts that
-commanded them, or `/unload <device>` to release a device. See
-[onboarding and calibration](https://stacx-lab.github.io/kinex/docs/onboarding/)
-for more detail.
+| Command | Use |
+| --- | --- |
+| `/devices` | Inspect the workspace |
+| `/load <device>` | Connect a device |
+| `/ping all` | Check connections |
+| `/calibrate <scope>` | Calibrate further, for example `/calibrate camera-to-arm transform for picking` |
+| `/stop` | Cancel the response and stop the actuators |
+| `/unload <device>` | Release a device |
 
-## Disclaimer
+See [onboarding and calibration](https://stacx-lab.github.io/kinex/docs/onboarding/).
 
-Kinex is provided "AS IS", without warranties, under the [Apache License 2.0](LICENSE).
-Users are responsible for safe operation. Always supervise real robots, keep a
-physical emergency stop within reach, and verify motion limits before running
-tasks. Software commands such as `/stop` do not replace a hardware emergency stop.
+> [!CAUTION]
+> You are responsible for safe operation. Always supervise real robots, keep a
+> physical emergency stop within reach, and verify motion limits before running
+> tasks. `/stop` does not replace a hardware emergency stop.
 
-## Kinex and the Pi Ecosystem
+## Ecosystem
 
-Kinex is built on [Pi](https://pi.dev) and supports Pi plugins: extensions,
-skills, prompt templates and themes. Install packages from npm, Git or a local
-folder using the same package format.
+### Pi packages
 
-Kinex includes [pi-web-search](https://www.npmjs.com/package/pi-web-search) for web
-search and [pi-btw](https://www.npmjs.com/package/pi-btw) for side conversations.
-You can also bring your own Pi skills, prompts and themes.
+Kinex is built on [Pi](https://pi.dev) and runs [Pi packages](https://pi.dev/packages):
+extensions, skills, prompt templates and themes.
+[pi-web-search](https://www.npmjs.com/package/pi-web-search) and
+[pi-btw](https://www.npmjs.com/package/pi-btw) are bundled.
 
 ```sh
-kinex install npm:pi-web-search         # Override the bundled version
-kinex install ./my-pi-package -l        # Add a package to this project
+kinex install npm:pi-web-search         # From npm, Git or a local folder; -l for this project only
 kinex list                             # Show installed and bundled packages
-kinex update --extensions              # Update packages, preserving version pins
-kinex remove npm:pi-web-search          # Restore the bundled fallback
+kinex update --extensions              # Update packages
+kinex remove npm:pi-web-search          # Remove a package
 ```
 
-Installs default to user scope; `-l` selects the project. Restart after changing
-packages. Browse [Pi packages](https://pi.dev/packages) or read the
-[package documentation](https://github.com/earendil-works/pi/blob/v1.6.0/packages/coding-agent/docs/packages.md).
+Restart Kinex after changing packages.
 
-## Using Kinex with Other Harnesses
+### Other harnesses
 
-Kinex plugins currently support **Pi, Claude Code and Codex**. They package Kinex's
-device tools, skills and robotics context through a shared MCP adapter, with Pi also
-providing direct lifecycle commands and UI integration. They are maintained in the separate
-[kinex-plugins repository](https://github.com/stacx-lab/kinex-plugins).
-OpenCode is not currently supported.
+Kinex also runs inside **Pi, Claude Code and Codex** through the plugins in
+[kinex-plugins](https://github.com/stacx-lab/kinex-plugins). Install the plugin
+for your harness, open your robot workspace and ask it to “Start Kinex.”
 
-Choose your harness there, follow its installation and configuration instructions,
-then open your robot workspace in that harness and explicitly request “Start
-Kinex.” Use “Show Kinex status” to inspect the runtime and “End Kinex” to release
-devices while keeping the host open. Pi also provides `/kinex-start`,
-`/kinex-status` and `/kinex-end` as direct commands.
-
-Plugins retain the host's coding workflow and use host-managed approvals by
-default; standalone Kinex is not required. Plugin releases and their bundled
-core/setup snapshots are updated independently.
-
-## Contributing & Development
+## Contributing
 
 Issues and pull requests are welcome. Read [AGENTS.md](AGENTS.md) for contribution
-rules, [architecture](https://stacx-lab.github.io/kinex/docs/architecture/#packages)
-for package boundaries, and [runtime documentation](https://stacx-lab.github.io/kinex/docs/runtime/)
-for workspace discovery and resource lifecycle.
-The [device](https://stacx-lab.github.io/kinex/docs/devices/) and
-[onboarding](https://stacx-lab.github.io/kinex/docs/onboarding/) guides cover
-device control, setup and calibration.
-
-For source development:
+rules. To develop from source, with Node ≥22.19, Python 3 and a POSIX host:
 
 ```sh
 git clone https://github.com/stacx-lab/kinex.git
 cd kinex
-nvm use
 npm ci
 npm run build
 npm run dev
 ```
 
-Before submitting code changes, install the Python test dependencies and run the
-full check (Node ≥22.19, Python 3 and a POSIX host):
+Before submitting code changes, run the full check:
 
 ```sh
 python3 -m pip install -r packages/core/test/requirements.txt -r packages/setup/test/requirements.txt
 npm run check
 ```
 
-The check builds once and covers core, setup, standalone, PTY and packed consumers.
-Do not rebuild packages while consumer tests run. Documentation-only edits need
-link and diff checks. [Native ROS checks](packages/setup/test/container/README.md)
-run separately.
-
 ## Acknowledgements
 
-Kinex builds on [Pi](https://github.com/earendil-works/pi). Its published SDKs
-provide the model integrations, coding tools, agent loop, session management and
-terminal UI. Thanks to the Pi maintainers and community for the foundation and
-plugin ecosystem that make Kinex possible.
+Kinex builds on [Pi](https://github.com/earendil-works/pi), whose SDKs provide the
+model integrations, coding tools, agent loop and terminal UI. Thanks to the Pi
+maintainers and community.
 
 ## License
 
-Kinex is licensed under the [Apache License, Version 2.0](LICENSE).
-
-Third-party components retain their own licenses. See
-[third-party notices](THIRD_PARTY_NOTICES.txt) for Pi's MIT license and attribution.
+Kinex is licensed under the [Apache License, Version 2.0](LICENSE) and provided
+"AS IS", without warranties. Third-party components retain their own licenses;
+see the [third-party notices](THIRD_PARTY_NOTICES.txt).
