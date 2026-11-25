@@ -95,61 +95,48 @@ class ReferenceNodes(unittest.TestCase):
         asyncio.run(self.world())
 
     async def world(self):
-        """Every world serves now, wait_all, wait_any and stop; here time passes by itself and has no budget."""
+        """Every world serves now, wait and stop; here time passes by itself and has no budget."""
         loop = asyncio.get_running_loop()
         stubs = {name: ModuleType(name) for name in (
             "rclpy.callback_groups", "rclpy.task", "rosgraph_msgs", "rosgraph_msgs.msg", "custom_interfaces",
-            "custom_interfaces.srv", "action_msgs", "action_msgs.msg")}
+            "custom_interfaces.srv")}
         stubs["rclpy.callback_groups"].ReentrantCallbackGroup = object
         stubs["rclpy.task"].Future = lambda executor=None: loop.create_future()
         stubs["rosgraph_msgs.msg"].Clock = NS
         stubs["custom_interfaces.srv"].__dict__.update(Now=object, Wait=object)
-        stubs["action_msgs.msg"].__dict__.update(GoalStatusArray=object, GoalStatus=NS(STATUS_ACCEPTED=1, STATUS_EXECUTING=2, STATUS_CANCELING=3))
         sys.modules["rclpy.qos"].__dict__.update(QoSProfile=NS, DurabilityPolicy=NS(TRANSIENT_LOCAL=1))
         with patch.dict(sys.modules, stubs):
             world = node("world").create({"name": "world", "operations": {
-                name: {"endpoint": f"/{name}"} for name in ("now", "wait_all", "wait_any", "stop")}}, None)
-        world.get_topic_names_and_types = lambda: [("/arm/move/_action/status", ["action_msgs/msg/GoalStatusArray"])]
-        self.assertEqual((set(world.services), list(world.published)), ({"/now", "/wait_all", "/wait_any", "/stop"}, ["/clock"]))
-        tick, _ = world.timers
+                name: {"endpoint": f"/{name}"} for name in ("now", "wait", "stop")}}, None)
+        self.assertEqual((set(world.services), list(world.published)), ({"/now", "/wait", "/stop"}, ["/clock"]))
+        tick, = world.timers
         now = world.now(None, NS())
         self.assertTrue(now.time_s == 0 and math.isnan(now.used_s) and math.isnan(now.max_s))
 
-        async def wait(first, seconds=(), goals=(), timeout=0.):
+        async def wait(seconds):
             """A wait the world has admitted, or refused: the task of its reply."""
-            request = NS(seconds=list(seconds), goals=[NS(uuid=goal) for goal in goals], timeout=timeout)
-            reply = asyncio.ensure_future(world.wait(first, request, NS(success=False, message="", elapsed=[], finished=[], timed_out=False)))
+            reply = asyncio.ensure_future(world.wait(NS(seconds=seconds), NS(success=False, message="", ended=[])))
             await asyncio.sleep(0)
             return reply
 
-        async def passes(seconds, status=None):
+        async def passes(seconds):
             world.nanoseconds += round(seconds * 1e9)
-            if status:
-                world.subscriptions["/arm/move/_action/status"](NS(status_list=[NS(goal_info=NS(goal_id=NS(uuid=b"move")), status=status)]))
             tick()
             await asyncio.sleep(0)
-        # wait_all: every entry, and a goal is over when its action server says so.
-        both = await wait(False, [1.], [b"move"])
-        self.assertIn("another wait is pending", (await (await wait(False, [1.]))).message)
-        await passes(1., status=2)
-        self.assertFalse(both.done())
-        await passes(.5, status=4)
-        reply = await both
-        self.assertEqual((reply.success, reply.elapsed, reply.finished, reply.timed_out, reply.time_s), (True, [True], [True], False, 1.5))
-        # wait_any: the first entry; its timeout ends it with what is left, and a goal no server reports goes on.
-        first = await wait(True, [5.], [b"unknown"], timeout=.5)
+        first = await wait(1.)
+        self.assertIn("another wait is pending", (await (await wait(1.))).message)
+        await passes(.5)
+        self.assertFalse(first.done())
         await passes(.5)
         reply = await first
-        self.assertEqual((reply.success, reply.elapsed, reply.finished, reply.timed_out), (True, [False], [False], True))
-        early = await wait(True, [5., .1])
-        await passes(.1)
-        self.assertEqual((await early).elapsed, [False, True])
-        # stop cancels the pending wait; a wait says what it cannot take.
-        pending = await wait(False, [5.])
+        self.assertEqual((reply.success, reply.time_s, reply.ended), (True, 1., []))  # it names no goals: it executes none
+        # Without end, for whoever awaits a goal alone, the wait lasts until it is stopped.
+        endless = await wait(math.inf)
+        await passes(100.)
+        self.assertFalse(endless.done())
         self.assertTrue(world.stop(None, NS(success=False)).success)
-        self.assertEqual(((reply := await pending).success, reply.message), (False, "cancelled"))
-        self.assertIn("needs an entry", (await (await wait(True))).message)
-        self.assertIn("finite and nonnegative", (await (await wait(False, [-1.]))).message)
+        self.assertEqual(((reply := await endless).success, reply.message), (False, "cancelled"))
+        self.assertIn("nonnegative", (await (await wait(-1.))).message)
 
     def test_joint_node_streams_pose_targets_until_a_joint_target_or_stop_replaces_them(self):
         from kinex.common.urdf import read_tree

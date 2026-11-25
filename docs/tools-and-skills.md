@@ -71,8 +71,8 @@ exception; its traceback appears once, in the error. Printed text comes back as
 bounded output.
 
 `device(name)` is a loaded device, with the topics, services and actions its profile
-declares, and `world` is the world device's time: `now`, `wait_all` and `wait_any`,
-and ticks made of them. Library functions use the same ones, so they take no scope
+declares, and `world` is the world device's time: `now`, `wait` and the ticks made
+of it; a goal is awaited to wait for its end. Library functions use the same ones, so they take no scope
 parameter and compose with ordinary Python, `asyncio.gather` included. A program
 attaches to the workspace's Python runtime, where its devices are already loaded, and
 runs one `asyncio.run(main())`; Kinex releases what it made when it ends. See
@@ -93,7 +93,7 @@ Use bounded Python loops for feedback control and settling checks; their control
 flow, state and stopping conditions belong in the code. A typical sequence is:
 
 1. Read measured state and compute or submit a control action.
-2. Wait on the world, with `world.wait_all` or `world.wait_any`, when needed;
+2. Wait on the world, with `world.wait` or by awaiting a goal, when needed;
    choose an explicit interval for replanning during motion.
 3. Check fresh feedback, faults and the task's tolerances. Bound retries and
    elapsed time; position agreement alone does not establish stability or task
@@ -228,7 +228,7 @@ than a graph of statements:
 | --- | --- |
 | Subagent | `subagent(...)`, with the first line of its instruction and the names of what it is shown |
 | Device operation | A topic's `next` or `publish`, a service call and an action's goal, labelled with the operation; a computed name shows its expression |
-| Wait | `world.wait_all` and `world.wait_any` with what they wait for, and each tick of `world.rate` |
+| Wait | `world.wait` with its seconds, and each tick of `world.rate` |
 | Call | A call to a library function, a function of the same file or, for a file outside the library, of a sibling module. One node, which opens into the callee's chart |
 | Computation | Consecutive statements that touch no device and call no charted function, folded into one node; branches and loops that only compute fold with them |
 | Branch, loop, try, scope | `if`/`match`, `for`/`while`, `try`, `with`; a test that only leaves (`if error: raise`) is one guard node |

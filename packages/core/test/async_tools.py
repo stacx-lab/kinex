@@ -164,8 +164,7 @@ def scope(catalog, **bridge):
 SERVICE = {"transport": "service", "direction": "input"}
 # The operations every world declares.
 WORLD = {"world.now": {**SERVICE, "type": "custom_interfaces/srv/Now", "endpoint": "/now"},
-         "world.wait_all": {**SERVICE, "type": "custom_interfaces/srv/Wait", "endpoint": "/wait_all"},
-         "world.wait_any": {**SERVICE, "type": "custom_interfaces/srv/Wait", "endpoint": "/wait_any"},
+         "world.wait": {**SERVICE, "type": "custom_interfaces/srv/Wait", "endpoint": "/wait"},
          "world.stop": {**SERVICE, "type": "std_srvs/srv/Trigger", "endpoint": "/world/stop"}}
 
 
@@ -176,7 +175,7 @@ class Errors(unittest.IsolatedAsyncioTestCase):
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = vars
         with patch.dict(sys.modules, {"rosidl_runtime_py.convert": convert}):
-            error = OperationError("world.wait_all", "custom_interfaces/srv/Wait", response)
+            error = OperationError("world.wait", "custom_interfaces/srv/Wait", response)
         self.assertIs(error.response, response)
         self.assertEqual(error.payload()["details"]["response"]["time_s"], 1.5)
         io, calls = scope(WORLD), []
@@ -187,10 +186,10 @@ class Errors(unittest.IsolatedAsyncioTestCase):
 
         io._request = rejected
         with self.assertRaises(OperationError) as caught:
-            await io.device("world").service("wait_all")(seconds=[.5])
+            await io.device("world").service("wait")(seconds=.5)
         self.assertIs(caught.exception, error)
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][0][0], "world.wait_all")
+        self.assertEqual(calls[0][0][0], "world.wait")
         self.assertEqual(io.enrolled, {"world"})
 
     async def test_abandoned_wait_stops_its_world(self):
@@ -202,19 +201,19 @@ class Errors(unittest.IsolatedAsyncioTestCase):
                 endpoints.append(spec["endpoint"])
                 if spec["endpoint"] == "/now":
                     return NS(time_s=0., used_s=float("nan"), max_s=float("nan"))
-                if spec["endpoint"] == "/wait_any":
+                if spec["endpoint"] == "/wait":
                     if abandon == "the request times out":
                         raise TimeoutError()
                     await stopped.wait()  # as a world ends the wait its stop cancels
-                    return NS(success=False, message="cancelled", time_s=0., elapsed=[False], finished=[])
+                    return NS(success=False, message="cancelled", time_s=0., ended=[])
                 stopped.set()
                 return NS(success=True)
 
             io._request = request
             with self.subTest(abandon), self.assertRaises(TimeoutError):
-                await asyncio.wait_for(io.world.wait_all([60]), .05)
+                await asyncio.wait_for(io.world.wait(60), .05)
             await asyncio.sleep(.01)
-            self.assertEqual(endpoints, ["/now", "/wait_any", "/world/stop"])
+            self.assertEqual(endpoints, ["/now", "/wait", "/world/stop"])
             self.assertEqual(io.enrolled, {"world"})
             await io.world.close()
 
@@ -285,24 +284,22 @@ class ProgramLoop(unittest.TestCase):
 
 
 class StubWorld:
-    """A world for a scope: its now and wait_any, over a time the waits advance, as a stepped one's does."""
+    """A world for a scope: its now and wait, over a time the waits advance, as a stepped one's does. It executes
+    the goals act gives a time to finish at, and ends a wait when one does."""
 
     def __init__(self):
         self.time, self.budget, self.late, self.asked, self.finishes = 0., (float("nan"), float("nan")), 0., [], {}
         self.io = scope({**WORLD, "arm.move": {"transport": "action", "direction": "input", "type": "x/action/Move"}}).open()
         self.io._request, self.io.act = self.request, self.act
 
-    def act(self, reference, finishes):
-        """A goal the world finishes at world time finishes."""
+    def act(self, reference, finishes=None):
+        """A goal the world finishes at world time finishes, or with None one it does not execute."""
         from kinex.communication import Goal
         goal, done = Goal.__new__(Goal), asyncio.get_running_loop().create_future()
-        goal.status, goal.task, goal.handle = "executing", done, NS(goal_id=NS(uuid=len(self.finishes)))
-
-        async def cancel():  # the device ends it, and its result arrives
-            goal.status = "canceled"
-            done.done() or done.set_result(None)
-        goal.cancel = AsyncMock(side_effect=cancel)
-        self.finishes[goal.handle.goal_id.uuid] = finishes, goal
+        goal.scope, goal.status, goal.task = self.io, "executing", done
+        goal.handle = NS(goal_id=NS(uuid=bytes([len(self.finishes), finishes is None])))
+        if finishes is not None:
+            self.finishes[goal.handle.goal_id.uuid] = finishes, goal
         return goal
 
     async def request(self, reference, spec, fields, timeout_s=None):
@@ -310,17 +307,18 @@ class StubWorld:
             return NS(success=True)
         if reference == "world.now":
             return NS(time_s=self.time, used_s=self.budget[0], max_s=self.budget[1])
-        self.asked.append((round(self.time + fields["seconds"][0], 9) if fields["seconds"] else None, self.io.world.holds))
+        seconds = fields["seconds"]
+        self.asked.append((None if seconds == float("inf") else round(self.time + seconds, 9), self.io.world.holds))
         await asyncio.sleep(0)
-        named = [self.finishes[goal["uuid"]] for goal in fields["goals"]]
-        ends = [self.time + seconds for seconds in fields["seconds"]]
-        self.time, self.late = min([*ends, *(finishes for finishes, _ in named)]) + self.late, 0.
-        for finishes, goal in named:
-            if finishes <= self.time and not goal.task.done():
-                goal.status = "succeeded"
-                goal.task.set_result(finishes)
-        return NS(success=True, message="ok", time_s=self.time, elapsed=[end <= self.time + 1e-9 for end in ends],
-                  finished=[goal.task.done() for _, goal in named])
+        executing = [(finishes, goal, uuid) for uuid, (finishes, goal) in self.finishes.items() if not goal.task.done()]
+        if seconds == float("inf") and not executing:  # nothing would end the wait
+            return NS(success=True, message="ok", time_s=self.time, ended=[])
+        self.time, self.late = min([self.time + seconds, *(finishes for finishes, _, _ in executing)]) + self.late, 0.
+        ended = [(finishes, goal, uuid) for finishes, goal, uuid in executing if finishes <= self.time]
+        for finishes, goal, _ in ended:
+            goal.status = "succeeded"
+            goal.task.set_result(finishes)
+        return NS(success=True, message="ok", time_s=self.time, ended=[NS(uuid=uuid) for _, _, uuid in ended])
 
 
 class WorldTime(unittest.IsolatedAsyncioTestCase):
@@ -333,34 +331,26 @@ class WorldTime(unittest.IsolatedAsyncioTestCase):
             await scope({}).world.now()
         self.assertEqual(caught.exception.code, "world_unavailable")
 
-    async def test_waits_for_seconds_and_goals_all_of_them_or_the_first(self):
+    async def test_a_program_awaits_time_and_goals_on_the_world(self):
         stub = StubWorld()
         world = stub.io.world
         slow, fast = stub.io.act("arm.move", 2.), stub.io.act("arm.move", 1.)
-        self.assertEqual(await world.wait_any([slow, fast, 5]), [False, True, False])
-        self.assertEqual((await world.now()).time_s, 1.)
-        self.assertEqual(await world.wait_all([slow, .5]), [True, True])  # the later of the two
-        self.assertEqual((await world.now()).time_s, 2.)
-        # A timeout ends the wait with what is left, and cancels the goals still executing.
-        late = stub.io.act("arm.move", 9.)
-        self.assertEqual(await world.wait_all([late, .2], timeout=.5), [False, True])
-        late.cancel.assert_awaited_once()
-        self.assertEqual((await world.now()).time_s, 2.5)
-        other = stub.io.act("arm.move", 99.)
-        self.assertEqual(await world.wait_any([3, other], timeout=.5), [False, False])
-        other.cancel.assert_awaited_once()
-        self.assertEqual(await world.wait_all([0]), [True])  # a barrier: no time passes
-        self.assertEqual(await world.wait_all([]), [])
-        self.assertEqual((await world.now()).time_s, 3.)
-        # Tasks wait at once: the world is asked for the earliest time, then for the rest.
+        # Awaiting a goal lets the world run to its end, and gives its result.
+        self.assertEqual((await fast, (await world.now()).time_s), (1., 1.))
+        # Tasks wait at once, for time and for a goal: the world is asked for the earliest time, then for the goal alone.
         stub.asked.clear()
-        self.assertEqual(await asyncio.gather(world.wait_all([.3]), world.wait_any([.1, .2])), [[True], [True, False]])
-        self.assertEqual(stub.asked, [(3.1, 0), (3.3, 0)])
-        for bad in ("soon", -1, True, None):
-            with self.assertRaisesRegex(TypeError, "goals and for nonnegative seconds"):
-                await world.wait_all([bad])
-        with self.assertRaisesRegex(ValueError, "needs an entry"):
-            await world.wait_any([])
+        self.assertEqual(await asyncio.gather(slow, world.wait(.5)), [2., 1.5])
+        self.assertEqual((stub.asked, (await world.now()).time_s), ([(1.5, 0), (None, 0)], 2.))
+        self.assertEqual(await asyncio.gather(world.wait(.3), world.wait(.1)), [2.3, 2.1])
+        self.assertEqual((await world.wait(0), await slow), (2.3, 2.))  # a barrier, and a goal that has ended: no time passes
+        # A goal the world does not execute ends elsewhere: awaiting it lets no world time pass.
+        foreign = stub.io.act("arm.move")
+        asyncio.get_running_loop().call_later(.05, foreign.task.set_result, "elsewhere")
+        self.assertEqual((await foreign, (await world.now()).time_s), ("elsewhere", 2.3))
+        for bad in ("soon", -1, True, None, float("inf")):
+            with self.assertRaisesRegex(TypeError, "nonnegative seconds"):
+                await world.wait(bad)
+        await asyncio.sleep(.01)  # the driver ends once nothing waits
         self.assertEqual((world.holds, world.waits, world.driver), (0, [], None))
 
     async def test_loops_at_different_rates_share_the_world_which_rests_while_a_body_runs(self):

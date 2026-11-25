@@ -30,7 +30,7 @@ async def watch(limit):
 async def move(pose, duration=2.0):
     target = await lookup_transform("arm/base", "world") * pose
     await device("arm").topic("pose_target").publish({"pose": target, "duration": duration})
-    await world.wait_all([duration])
+    await world.wait(duration)
 
 
 async def pick_place(object: str, place: list, retries: int = 2) -> dict:
@@ -144,7 +144,7 @@ async def control(policy):
     detect = device("perception").service("detect")
     await states.next()
     found = await detect(image=1)
-    await world.wait_all([move(pose=found), device("gripper").action("open")(), 0.5], timeout=5)
+    await asyncio.gather(move(pose=found), device("gripper").action("open")(), world.wait(0.5))
     async for now in world.rate(20):
         await arm.topic("joint_target").publish(policy(states.latest))
 `
@@ -228,7 +228,7 @@ test('a program charts as device operations, calls, computation and the control 
   assert.deepEqual(shape(named(flow, 'tasks.tabletop.watch').body), [
     { loop: "for sample in each message of arm.wrench", body: ['next arm.wrench', { if: [['abs(sample.force.z) > limit', ["raise RuntimeError('contact')"]]], else: [] }], else: [] },
   ])
-  assert.deepEqual(shape(named(flow, 'tasks.tabletop.move').body), ['call frames.lookup_transform', 'publish arm.pose_target', 'wait all [duration]'])
+  assert.deepEqual(shape(named(flow, 'tasks.tabletop.move').body), ['call frames.lookup_transform', 'publish arm.pose_target', 'wait duration'])
   assert.equal(flow.functions[call(named(flow, 'tasks.tabletop.move'), 'frames.lookup_transform').target].path, 'frames.lookup_transform')
   assert.deepEqual(shape(named(flow, 'tasks.grasp.close').body), [
     'publish gripper.target',
@@ -276,7 +276,7 @@ test('concurrency, dynamic names and unresolved calls have their own steps', asy
   assert.deepEqual(shape((await f.chart('tasks.patterns.control')).functions[`${path.join(f.lib, 'tasks/patterns.py')}::control`].body), [
     'compute arm,states,move,detect',
     'next arm.joint_state', 'request perception.detect',
-    'act arm.move', 'act gripper.open', "wait all [move(pose=found), device('gripper').ac…, timeout=5",
+    { parallel: 'all', branches: [[null, ['act arm.move']], [null, ['act gripper.open']], [null, ['wait 0.5']]] },
     { loop: 'for now in world.rate(20)', body: ['wait for the next tick at 20 Hz', 'publish arm.joint_target'], else: [] },
   ])
   const again = await f.chart('tasks.patterns.again')

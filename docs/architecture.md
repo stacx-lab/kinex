@@ -49,8 +49,8 @@ Examples include:
   feedback.
 - A detection or policy model exposes inference as a device through JSON
   services. Controller tools decide how to apply its output to the robot.
-- A `world` device exposes environment time through its `now`, `wait_all` and
-  `wait_any` services, the same in every world. Tools schedule work through these operations for hardware or
+- A `world` device exposes environment time through its `now` and `wait`
+  services, the same in every world. Tools schedule work through these operations for hardware or
   simulation.
 
 See [device contracts](devices.md) for frames, motion and node behavior.

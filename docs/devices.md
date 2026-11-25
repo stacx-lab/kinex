@@ -148,10 +148,10 @@ device unload; disposal finalizes recordings. Model recording is opt-in.
 
 Every workspace requires one world device per ROS domain. It keeps the time of
 device nodes, tf2 lookup and recording, on the domain's `/clock`, and declares the
-same four operations in every world, with the same descriptions: `now`, the world's
-time and the time budget; `wait_all` and `wait_any`, which wait for seconds of world
-time and for action goals, with an optional timeout; and the `stop` that cancels a
-pending wait. A world admits one wait at a time and has no reset. Physical workspaces
+same three operations in every world, with the same descriptions: `now`, the world's
+time and the time budget; `wait`, which waits seconds of world time and which a world
+that executes goals ends when one of them ends; and the `stop` that cancels a pending
+wait. A world admits one wait at a time and has no reset. Physical workspaces
 copy the template node, where time is system time; a simulator, such as one run by
 [kinex-sim](https://github.com/stacx-lab/kinex-sim), serves the same operations from
 its own clock. A profile does not say which it is: whether time passes by itself or
@@ -167,8 +167,8 @@ without inferring it from the clock, enforcing it or changing control behavior.
 
 The name is shared but the scope differs. kinex-sim's `world` is a ROS node that
 runs the whole simulated environment and hosts every device's endpoints. Kinex's
-world device covers only its time operations (`world/now`, `world/wait_all`,
-`world/wait_any` and `world/stop`); arms, grippers and cameras on the same node are separate Kinex
+world device covers only its time operations (`world/now`, `world/wait` and
+`world/stop`); arms, grippers and cameras on the same node are separate Kinex
 devices.
 
 ## Models: inference as a device

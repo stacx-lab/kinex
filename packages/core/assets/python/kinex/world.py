@@ -1,10 +1,11 @@
-"""World time for a program: the world device's now, wait_all and wait_any, and ticks made of them.
+"""World time for a program: the world device's now and wait, and what a program awaits through them.
 
-Every world serves the same operations. Where time passes by itself, in the real world and
-in a realtime simulator, a wait only blocks the program. A stepped simulator advances only
-during a wait and rests otherwise. A program's tasks may wait at once, while the world admits
-one wait at a time: a driver asks the world's wait_any for the earliest time any task waits
-for and the goals they await, and at its reply the tasks it concerns resume before the next.
+Every world serves the same operations. Where time passes by itself, in the real world and in a realtime
+simulator, a wait only blocks the program. A stepped simulator advances only during a wait and rests otherwise.
+A program's tasks may wait at once, for time and for goals of theirs to end, while the world admits one wait at a
+time: a driver asks the world to wait until the earliest time any task waits for, without end when they wait for
+goals alone, and a world that executes goals ends that wait when one ends. At its reply the tasks it concerns
+resume before the next.
 """
 import asyncio
 import contextlib
@@ -14,7 +15,7 @@ import math
 from collections import namedtuple
 from numbers import Real
 
-from kinex.communication import NOW, Goal, scope
+from kinex.communication import NOW, scope
 from kinex.errors import OperationError, RPCError
 
 Now = namedtuple("Now", "time_s used_s max_s")
@@ -25,7 +26,7 @@ class World:
         self.scope = scope
         self.deadlines, self.order = [], itertools.count()  # (world time, order, future), earliest first
         self.fresh = []  # (seconds, future): waits for time the driver has yet to place on the world's clock
-        self.waits = []  # for each wait in progress, its futures and the goal each one awaits, if any
+        self.waits = []  # for each task that waits, its futures and the goal each one awaits, if any
         self.holds = 0  # commands and requests in flight, and tick bodies: a stepped world rests
         self.kick = asyncio.Event()  # what the driver considers has changed
         self.driver = self.broken = self.device = None
@@ -40,25 +41,20 @@ class World:
         return f"{self.device}.{name}", catalog[f"{self.device}.{name}"]
 
     async def now(self):
-        """(time_s, used_s, max_s): world time in seconds, and the seconds of it the episode has used and is
-        allowed. The real world and a realtime simulator have no budget: both are None, as is max_s without a cap."""
+        """(time_s, used_s, max_s): world time in seconds, and the seconds of it the time budget has used and
+        allows. Without a budget both are None, as is max_s without a limit."""
         reply = await self.scope._request(*self._operation("now"), {})
         return Now(*(value if math.isfinite(value) else None for value in (reply.time_s, reply.used_s, reply.max_s)))
 
-    async def wait_all(self, entries, *, timeout=None):
-        """Wait until every entry is over: a number is seconds of world time from now, a goal is over once it has
-        finished. With a timeout, in seconds of world time, the wait ends then with what is left, and the goals
-        still executing are cancelled. Returns whether each entry was over, in order. A stepped simulator advances
-        only during a wait: wait_all([0]) is a barrier that lets no time pass.
+    async def wait(self, seconds):
+        """Wait seconds of world time and return the world time reached. A stepped simulator advances only while a
+        program waits, for time or for a goal: wait(0) is a barrier that lets no time pass.
 
-        Example: left, right = await world.wait_all([arm.action("move")(trajectory=plan), 0.5], timeout=5)
+        Example: await world.wait(0.5)
         """
-        return await self._wait(entries, timeout, False)
-
-    async def wait_any(self, entries, *, timeout=None):
-        """Wait until one entry is over, as wait_all waits for all; the entries left go on, unless a timeout
-        ends the wait."""
-        return await self._wait(entries, timeout, True)
+        if not isinstance(seconds, Real) or isinstance(seconds, bool) or not 0 <= seconds < math.inf:
+            raise TypeError("a world waits for nonnegative seconds of world time")
+        return await self._until(seconds=seconds)
 
     def rate(self, hz):
         """Ticks hz times a second of world time: `async for now in world.rate(20)`. A tick whose time has
@@ -105,41 +101,25 @@ class World:
         with self._blocked({future: None}):
             return await future
 
-    async def _wait(self, entries, timeout, first):
-        for entry in entries:
-            if not isinstance(entry, Goal) and not (isinstance(entry, Real) and not isinstance(entry, bool) and entry >= 0):
-                raise TypeError("a world waits for goals and for nonnegative seconds of world time")
-        if first and not entries:
-            raise ValueError("wait_any needs an entry to wait for")
+    async def _over(self, goal):
+        """Wait until a goal has ended, as world time passes: what awaiting a goal does."""
+        if goal.task.done():
+            return
         if self.broken is None:
             self.broken = self.scope.open().loop.create_future()
-        futures = [entry.task if isinstance(entry, Goal) else self._deadline(entry) for entry in entries]
-        expiry, broken = self._deadline(timeout) if timeout else None, self.broken
-        watched, pending = {broken, *([expiry] if expiry else [])}, set(futures)
-        waiting = {**dict.fromkeys(watched), **{future: entry if isinstance(entry, Goal) else None for future, entry in zip(futures, entries)}}
-        with self._blocked(waiting):
-            while pending and not (expiry and expiry.done()) and not (first and len(pending) < len(set(futures))):
-                done, _ = await asyncio.wait(pending | watched, return_when=asyncio.FIRST_COMPLETED)
-                if broken in done:
-                    raise broken.exception()
-                for future in done & pending:
-                    del waiting[future]  # resumed for it: it no longer keeps the world resting
-                pending -= done
-                self.kick.set()
-            over = [future.done() for future in futures]
-            if expiry and expiry.done():
-                for entry in dict.fromkeys(entries):
-                    if isinstance(entry, Goal) and not entry.task.done():
-                        await entry.cancel()
-        return over
+        broken = self.broken
+        with self._blocked({goal.task: goal, broken: None}):
+            await asyncio.wait({goal.task, broken}, return_when=asyncio.FIRST_COMPLETED)
+            if not goal.task.done():
+                raise broken.exception()
 
-    def _advance(self, reached, now):
-        """Resolve the deadlines up to world time reached, with the world's time now: to the nanosecond, so one
-        computed from a tick count is due on its tick."""
+    def _advance(self, reached):
+        """Resolve the deadlines up to the world time reached: to the nanosecond, so one computed from a tick
+        count is due on its tick."""
         while self.deadlines and (self.deadlines[0][0] <= reached + 1e-9 or self.deadlines[0][2].done()):
             future = heapq.heappop(self.deadlines)[2]
             if not future.done():
-                future.set_result(now)
+                future.set_result(reached)
 
     def _changed(self):
         """What waits on the world changed: the driver considers it."""
@@ -148,8 +128,8 @@ class World:
             self.driver = asyncio.ensure_future(self._drive())
 
     def _wanted(self):
-        """What to ask of the world's wait_any, (world time, goals, waits yet to place): None while the world
-        must rest, since a command is in flight or a task has yet to resume, or while nothing waits on it."""
+        """What to ask of the world's wait, (world time, goals, waits yet to place): None while the world must
+        rest, since a command is in flight or a task has yet to resume, or while nothing waits on it."""
         waiting = [item for wait in self.waits for item in wait.items()]
         goals = tuple(dict.fromkeys(goal for _, goal in waiting if goal is not None))
         if self.holds or any(future.done() for future, _ in waiting) or any(goal.status != "executing" for goal in goals):
@@ -181,8 +161,8 @@ class World:
     async def _drive(self):
         call, asked = None, False  # asked: a wait the world may still be running
         try:
-            now, wait_any = self._operation("now"), self._operation("wait_any")
-            await self.scope._enroll(wait_any[0])
+            now, wait = self._operation("now"), self._operation("wait")
+            await self.scope._enroll(wait[0])
             while self.waits:
                 await self.scope._flush()  # the commands sent so far have reached their devices
                 self.kick.clear()
@@ -199,9 +179,9 @@ class World:
                 if want is None:
                     continue
                 until, goals, _ = want
-                call, asked, stopped = asyncio.ensure_future(self.scope._request(*wait_any, {
-                    "seconds": [] if until == math.inf else [max(0., until - time_s)],
-                    "goals": [{"uuid": goal.handle.goal_id.uuid} for goal in goals]})), True, False
+                # Without a time to wait for, only goals: the wait has no end but a goal's.
+                call, asked, stopped = asyncio.ensure_future(
+                    self.scope._request(*wait, {"seconds": max(0., until - time_s)})), True, False
                 while not call.done():
                     changed = asyncio.ensure_future(self.kick.wait())
                     await asyncio.wait({call, changed}, return_when=asyncio.FIRST_COMPLETED)
@@ -220,12 +200,18 @@ class World:
                 except asyncio.CancelledError:
                     raise TimeoutError("the world did not end its wait when stopped") from None
                 asked = False
-                # A wait that ran out its time reached it, whatever floating point makes of the world's steps.
-                self._advance(until if any(reply.elapsed) else reply.time_s, reply.time_s)
-                # The results of the goals the world saw finish arrive before it advances again.
-                landed = [goal.task for goal, finished in zip(goals, reply.finished) if finished]
+                self._advance(reply.time_s)
+                ended = {bytes(goal.uuid) for goal in reply.ended}
+                landed = [goal.task for goal in goals if bytes(goal.handle.goal_id.uuid) in ended]
                 if landed:
+                    # The results of the goals the world saw end arrive before it advances again.
                     await asyncio.wait(landed, timeout=10)
+                elif not ended and not stopped and reply.time_s < min(until, time_s + 1e-9):
+                    # The world waited for nothing: it executes none of the goals awaited, whose ends come from
+                    # elsewhere. It is asked again once one has, or shortly.
+                    changed = asyncio.ensure_future(self.kick.wait())
+                    await asyncio.wait({changed, *(goal.task for goal in goals)}, timeout=.2, return_when=asyncio.FIRST_COMPLETED)
+                    changed.cancel()
         except BaseException as error:
             if asked:  # an abandoned wait would keep advancing a stepped world
                 try:

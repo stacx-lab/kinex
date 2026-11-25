@@ -183,10 +183,11 @@ class Subscription:
 
 
 class Goal:
-    """An action goal, sent as it is made. Awaiting it gives the action's result once the goal has finished; a
-    goal its device rejects, aborts or cancels raises. status is sending, executing, then succeeded, canceled,
-    aborted or rejected; feedback is the latest the device sent, and result the action's result, for a Json
-    action the objects they carry. A goal advances no world time: wait for it on the world."""
+    """An action goal, sent as it is made; sending it advances no world time. Awaiting it waits on the world
+    until the goal has ended and gives the action's result, or raises if its device rejected, aborted or cancelled
+    it. Goals of several devices run at once: send them, then await them together. status is sending, executing,
+    then succeeded, canceled, aborted or rejected; feedback is the latest the device sent, and result the
+    action's result, for a Json action the objects they carry."""
 
     def __init__(self, scope, reference, spec, goal):
         self.scope, self.reference, self.type = scope, reference, spec["type"]
@@ -220,7 +221,9 @@ class Goal:
 
     async def _finish(self):
         await self.accepted
-        reply = await self.scope._future(self.handle.get_result_async(), None)
+        # The request for the result stays with its client when the program ends first: the result still comes,
+        # once the goal is stopped, and a client that had withdrawn the request would warn of another server.
+        reply = await self.scope._future(self.handle.get_result_async(), None, withdraw=False)
         self.status, result = STATUS.get(reply.status, "aborted"), reply.result
         self.result = json.loads(result.response or "null") if self.json else result
         if self.status != "succeeded":
@@ -228,7 +231,11 @@ class Goal:
         return self.result
 
     def __await__(self):
-        return asyncio.shield(self.task).__await__()
+        return self._ended().__await__()
+
+    async def _ended(self):
+        await self.scope.world._over(self)
+        return await self.task
 
     async def cancel(self):
         """Ask the device to end the goal; awaiting it then raises as canceled."""
@@ -437,7 +444,9 @@ class Scope:
                 await self.enroll(device)
             self.enrolled.add(device)
 
-    async def _future(self, ros_future, timeout_s):
+    async def _future(self, ros_future, timeout_s, withdraw=True):
+        """Await a ROS future in the program's loop. Abandoned, its request is withdrawn, unless a reply may still
+        come that nothing else would take."""
         future = self.open().loop.create_future()
         self.pending.add(future)
         def complete(done):
@@ -455,7 +464,7 @@ class Scope:
                 return await future
         finally:
             self.pending.discard(future)
-            if not ros_future.done():
+            if withdraw and not ros_future.done():
                 ros_future.cancel()
 
     def _client(self, reference, spec):

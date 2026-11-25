@@ -88,7 +88,7 @@ async def main():
         sample = await state.next(timeout_s=2)
         if max(map(abs, sample.velocity)) < 0.005:
             break
-        await world.wait_all([0.1])
+        await world.wait(0.1)
     images = [(await lib.images.camera_frame(camera))[0] for camera in ("camera_wrist", "camera_scene")]
     finish({"steps": step + 1, "cameras": ["camera_wrist", "camera_scene"]}, file=images)
 

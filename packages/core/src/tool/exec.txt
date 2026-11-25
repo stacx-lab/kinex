@@ -3,22 +3,29 @@ A program is a complete script that ends with finish:
   import asyncio
   from kinex import args, device, finish, lib, world
 
+  async def side(arm, gripper, above, lifted):
+      await arm.action("move")(pose=above)
+      await gripper.action("grasp")()
+      return await arm.action("move")(pose=lifted)
+
   async def main():
-      arm = device("arm")
-      await arm.topic("joint_target").publish(args()["trajectory"])
-      await world.wait_all([1.0])
-      state = await arm.topic("joint_state").next()
-      finish({"positions": state.position})
+      left = side(device("left_arm"), device("left_gripper"), *args()["left"])
+      right = side(device("right_arm"), device("right_gripper"), *args()["right"])
+      results = await asyncio.gather(left, right)
+      state = await device("left_arm").topic("joint_state").next()
+      finish({"results": results, "positions": state.position})
 
   asyncio.run(main())
 finish(result=None, file=None) is the only way to return. result is JSON data: messages, arrays, poses and times are converted. file attaches the images you must see: an image message or path, or a list of them. Printed text is returned too; keep it short.
 runtime discovers devices without starting them: runtime.devices(), runtime.operations(name), runtime.describe("device.operation"). Use the names these give, never guessed ones.
-device(name) reaches a loaded device by the operations its profile declares:
+device(name) reaches a loaded device by the operations its profile declares; await means wait until it is done.
 - topic(op): await .next() is an output's next message, .latest the last received; await .publish(message) commands an input.
 - service(op)(**fields): await it for the response; a rejection raises kinex.OperationError.
-- action(op)(**fields): sends a goal and returns it at once. Wait for it on world; then goal.status and goal.result say how it ended, and await goal returns the result or raises if it failed. await goal.cancel() ends it.
+- action(op)(**fields) sends a goal and returns it at once; await the goal to wait until it has ended: that gives its result, or raises if the device rejected, aborted or cancelled it. goal.status, goal.result and goal.feedback follow it; await goal.cancel() ends it.
 A pose field takes kinex.pose(value) or [x, y, z, qx, qy, qz, qw]; a time field takes seconds.
-world is time, and time passes for a program only in its waits. await world.now() is (time_s, used_s, max_s): world time and the time budget in seconds, None without one. await world.wait_all(entries) waits until every entry is over and await world.wait_any(entries) until one is; an entry is a goal or seconds from now. Both return whether each entry was over; timeout=seconds ends the wait and cancels the goals still executing. async for now in world.rate(hz) ticks. Never wait with asyncio.sleep, time.sleep or by awaiting an unfinished goal. Send the goals of different devices, then wait once for all. Sending is not arrival: wait, then read fresh feedback. Bound every loop.
+world is time. await world.now() is (time_s, used_s, max_s): world time and the time budget in seconds, None without one. await world.wait(seconds) waits seconds of world time; async for now in world.rate(hz) ticks. Time passes for a program only while it awaits a goal or a world wait, never with asyncio.sleep or time.sleep.
+Run devices at the same time with asyncio: send their goals and await asyncio.gather(goal_a, goal_b), or gather one coroutine per arm, each awaiting its own steps in turn, as above. Awaiting goals one after another runs them one after another.
+Sending is not arrival: after a topic command, wait, then read fresh feedback. Bound every loop.
 lib holds reusable functions: find them with the lib tool, call lib.module.function(...).
 await kinex.subagent(instruction, show={"wrist": image}) returns a model's judgment as text; it sees only what is shown and has no tools, so state the reply's form and check it.
 Failure, timeout or cancellation stops every device the program commanded; success leaves motion running.

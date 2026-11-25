@@ -154,7 +154,7 @@ async def main():
     # exchange plain objects described by the operation.
     response = await device("model").service("infer")(image=image_path)
     await arm.topic("joint_target").publish(target_message)
-    await world.wait_all([0.05])
+    await world.wait(0.05)
     finish({"summary": "selected result"})
 
 asyncio.run(main())
@@ -177,7 +177,7 @@ its scope the active one for the library functions it calls; `io.device(name)` a
 | Output topic | `topic = device.topic(name)`; `await topic.next()`, `topic.latest`, `async for message in topic`, `topic.close()` |
 | Input topic | `await device.topic(name).publish(message)` |
 | Service | `await device.service(name)(**fields)` |
-| Action | `goal = device.action(name)(**fields)`; `await goal`, `goal.status`, `goal.feedback`, `goal.result`, `await goal.cancel()` |
+| Action | `goal = device.action(name)(**fields)` sends it; `await goal` waits for its end and gives its result; `goal.status`, `goal.feedback`, `goal.result`, `await goal.cancel()` |
 
 Using an operation as another transport raises `TypeError`, and one the loaded devices do
 not declare raises `RPCError`. These are protocol primitives; they do not prescribe
@@ -196,19 +196,20 @@ returns the decoded response object; owned nodes serve it with
 `kinex.node.json_service(node, operation, handler)`.
 
 Calling an action sends its goal, a message or field mapping or its fields by name, and
-returns the `Goal` at once. A goal advances no world time. `goal.status` is `sending`,
+returns the `Goal` at once; sending advances no world time. Awaiting the goal waits on
+the world until it has ended and gives its result; one the device rejects, aborts or
+cancels raises `RPCError`, with the result in its details. `goal.status` is `sending`,
 `executing`, then `succeeded`, `canceled`, `aborted` or `rejected`; `goal.feedback` is the
-latest the device sent and `goal.result` the action's result once it has finished.
-Awaiting a goal gives its result; one the device rejects, aborts or cancels raises
-`RPCError`, with the result in its details. A `custom_interfaces/action/Json` action is
-the free-form one, as the Json service is: its goal's fields travel as one JSON object,
-poses and arrays converted as `finish` converts them, and its feedback and result are the
-decoded objects. Wait for goals on the world:
+latest the device sent and `goal.result` the action's result once it has ended. A
+`custom_interfaces/action/Json` action is the free-form one, as the Json service is: its
+goal's fields travel as one JSON object, poses and arrays converted as `finish` converts
+them, and its feedback and result are the decoded objects. Goals of several devices run
+at once:
 
 ```python
 left = device("left_arm").action("move")(pose=left_pose, profile="precision")
 right = device("right_arm").action("move")(pose=right_pose)
-await world.wait_all([left, right], timeout=2.0)  # until both finish; cancelled after 2 s of world time
+await asyncio.gather(left, right)  # until both have ended
 print(left.status, left.result["position_error_m"])
 ```
 
@@ -273,16 +274,21 @@ program holds them as `world`:
 | Operation | In a program | What it does |
 | --- | --- | --- |
 | `now` | `await world.now()` | `(time_s, used_s, max_s)`: world time, and the time budget in seconds of world time, `None` where the world has none |
-| `wait_all` | `await world.wait_all(entries, timeout=None)` | wait until every entry is over |
-| `wait_any` | `await world.wait_any(entries, timeout=None)` | wait until one entry is over |
+| `wait` | `await world.wait(seconds)` | wait seconds of world time; returns the world time reached |
 | `stop` | none: Kinex calls it | cancel the pending wait |
 
-An entry is a number, seconds of world time from now, or a goal, over once it has
-finished however it ended. Both waits return whether each entry was over, in order.
-`timeout` is seconds of world time: the wait ends then with what is left, and the
-goals still executing are cancelled. `world.wait_all([0])` is a barrier that lets no
-time pass. The real world and a realtime simulator have no budget; a stepped simulator
-may have one.
+`await` means "wait until it is done", and the world decides whether time passes
+meanwhile. A message or a reply needs none. Two things do: `world.wait(seconds)`, and
+a goal, which a program awaits to wait for its end. `world.wait(0)` is a barrier that
+lets no time pass. The real world and a realtime simulator have no budget; a stepped
+simulator may have one.
+
+Waits combine as asyncio's awaitables do. `asyncio.gather(left_goal, right_goal)`
+waits for both arms; tasks that each await their own goals in turn run two sequences
+side by side; `asyncio.wait(..., return_when=FIRST_COMPLETED)` over a goal and
+`world.wait(2)` takes whichever is first, after which the program cancels the wait
+that lost, or the world would run on for it. asyncio's own timeouts and `asyncio.sleep`
+count wall time, which a stepped world does not follow: wait on the world.
 
 `async for now in world.rate(hz)` ticks on absolute deadlines, made of the same
 waits; a tick whose time has passed is skipped. Loops at different rates are ordinary
@@ -301,36 +307,39 @@ await asyncio.gather(control(device("left_arm"), 20, left_policy), control(devic
 What differs between worlds is only whether time passes by itself:
 
 - **The real world and a realtime simulator.** The world always runs, and a wait only
-  blocks the program until its entries are over.
-- **A stepped simulator.** Time has checkpoints: the simulator advances only during a
-  wait, and is paused otherwise.
+  blocks the program until its time, or its goal, is over.
+- **A stepped simulator.** Time has checkpoints: the simulator advances only while a
+  program waits, and is paused otherwise.
 
 A world admits one wait at a time, while a program's tasks may wait at once. One
 driver in the program's scope therefore turns what its tasks wait for into a single
-request at a time: it reads `now`, then asks `wait_any` for the earliest time any task
-waits for and the goals they await. The reply is a checkpoint, at which the tasks it
-concerns resume, and the next request follows only once they are waiting again. So
-several loops share one world and none advances it on its own. The world also rests
-while a command, a request or a goal is on its way to its device, and while a tick's
-body runs; before each request the driver waits until the commands sent so far are
-acknowledged. A message or a reply never advances time.
+request at a time: it reads `now`, then asks `wait` for the seconds to the earliest
+time any task waits for, and for infinite seconds when they await goals alone. A world
+that executes goals ends the wait on the step one ends at, and names it. The reply is a
+checkpoint, at which the tasks it concerns resume, and the next request follows only
+once they are waiting again. So several tasks share one world and none advances it on
+its own. The world also rests while a command, a request or a goal is on its way to its
+device, and while a tick's body runs; before each request the driver waits until the
+commands sent so far are acknowledged. A message or a reply never advances time.
 
-The two waits are `custom_interfaces/srv/Wait`: `seconds`, a list of seconds of world
-time from now, `goals`, the ids of executing action goals, and `timeout`; the reply
-carries `time_s`, whether each entry was over as `elapsed` and `finished`, and
-`timed_out`. `now` is `custom_interfaces/srv/Now`, replying `time_s`, `used_s` and
-`max_s`, NaN without a budget and `max_s` infinite without a cap. `stop` cancels the
-pending wait: the driver stops a wait when what the program waits for changes, and
-when the program abandons it. A world may end a wait early, unsuccessfully, when a
-device refuses a command or stops a motion it cannot execute: the reply says why and
-where it got to, a stepped world never advances the rest, and every task waiting on
-the world raises `kinex.OperationError`, so a script learns of the refusal at once.
-Other failures of the wait reach the same tasks. The budget can include
-initialization, so it is not world time; Kinex reports it as supplied and never
-enforces it.
+`wait` is `custom_interfaces/srv/Wait`: `seconds` of world time, and a reply with
+`time_s` and `ended`, the ids of the goals that have ended since the world's previous
+reply, where the world executes goals. Infinite seconds wait for a goal's end alone: a
+world that executes none returns at once, so a goal that ends elsewhere, in the real
+world or in a device outside a simulator, costs no simulated time, and the driver
+stops the wait when the goal's own result arrives. `now` is
+`custom_interfaces/srv/Now`, replying `time_s`, `used_s` and `max_s`, NaN without a
+budget and `max_s` infinite without a cap. `stop` cancels the pending wait: the driver
+stops a wait when what the program waits for changes, and when the program abandons
+it. A world may end a wait early, unsuccessfully, when a device refuses a command or
+stops a motion it cannot execute: the reply says why and where it got to, a stepped
+world never advances the rest, and every task waiting on the world raises
+`kinex.OperationError`, so a script learns of the refusal at once. Other failures of
+the wait reach the same tasks. The budget can include initialization, so it is not
+world time; Kinex reports it as supplied and never enforces it.
 
 The model sees these operations in the world's profile and may call them through the
-device tool as declared, such as `wait_all` with `{"seconds": [1.0]}`. A world also
+device tool as declared, such as `wait` with `{"seconds": 1.0}`. A world also
 publishes its time on the domain's `/clock`, the ROS clock that device nodes, tf2
 history and recording follow; it is not an operation. A world has no reset: an
 episode starts with its world, and a clock that starts again, as a new simulator

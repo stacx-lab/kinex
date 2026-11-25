@@ -18,7 +18,6 @@ OPAQUE = (*DEFS, ast.Lambda, ast.ClassDef)
 COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 # What a device's operation is reached through, with what calling it does.
 ENDPOINTS = {"topic": None, "service": "request", "action": "act"}
-WAITS = {"wait_all", "wait_any"}
 SPAWN = {"asyncio.create_task", "asyncio.ensure_future"}
 LIB = "kinex.lib"
 LIMIT = 400
@@ -249,9 +248,9 @@ class Function:
         reached = self.endpoint(call.func.value) if isinstance(call.func, ast.Attribute) and call.func.attr in ("next", "publish") else None
         if reached and reached["transport"] == "topic":
             return self.inputs(call) + [self.io(reached, call.func.attr, at)]
-        if name and name.startswith("kinex.world.") and names[-1] in WAITS:
+        if name == "kinex.world.wait":
             label = ", ".join(text(part, 40) for part in (*call.args, *call.keywords))
-            return self.inputs(call) + [{"kind": "wait", "label": f"{names[-1].replace('_', ' ')} {label}".strip(), **at}]
+            return self.inputs(call) + [{"kind": "wait", "label": f"wait {label}".strip(), **at}]
         if name == "kinex.subagent" and call.args:
             first = call.args[0]
             literal = isinstance(first, ast.Constant) and isinstance(first.value, str) and first.value.strip()
