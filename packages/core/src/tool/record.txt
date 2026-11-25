@@ -2,7 +2,11 @@ Record typed device topics, explicit snapshots, and session events.
 
 - start {devices: {"arm": 10, "camera": 2}, instruction?}
   Observe all declared topics until stop or the size limit. A value can also be
-  {rate: 10, operations: ["joint_state", "joint_target"]} to select operations.
+  {rate: 10, operations: ["joint_state", "joint_target"]} to select operations, or
+  give an operation its own rate or format: {rate: 10, operations: {depth: 2}}
+  records every topic at 10 Hz and depth at 2 Hz, and {operations: {image: 10,
+  depth: {rate: 2}}} only those two. Depth is the bulk of a camera recording:
+  lower its rate, or leave it out, when it is not needed.
   Output rates are maximum Hz in world time; input command topics, clock and TF
   are retained without rate filtering. Recording never advances world time or
   invokes a device service. Devices and the world clock must already be loaded.
@@ -15,10 +19,14 @@ Record typed device topics, explicit snapshots, and session events.
 - status {}
   Flush metadata and report running/recent recordings, paths, counts and errors.
 
-Each device writes stream/bag/ (rosbag2 SQLite/CDR), operations.json and
-samples.jsonl. The bag retains complete typed payloads, including color/depth
-images. The index records world time, reset epoch, acquisition time when present,
-and receipt time. Clock and TF accompany the samples. Playback uses receipt
+Each device writes stream/bag/ (rosbag2 MCAP with zstd, CDR), operations.json and
+samples.jsonl. An image operation of 8-bit color is stored as H.264 video,
+stream/<operation>.mp4, which is lossy and far smaller; {format: "bag"} on that
+operation keeps its exact pixels instead, as calibration needs. Depth and every
+other topic stay complete typed messages in the bag. The index records world
+time, reset epoch, acquisition time when present, and receipt time, and for a
+video frame its file and position; a video's own timeline is nominal. The clock
+and TF are recorded once for all devices, under tf/. Playback uses receipt
 order across resets; acquisition stamps remain unchanged. No frames are invented
 while the world is paused. rosbag2_py is required in the configured ROS environment.
 

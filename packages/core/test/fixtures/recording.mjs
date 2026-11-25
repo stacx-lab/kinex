@@ -18,6 +18,7 @@ for line in sys.stdin:
             directory = pathlib.Path(request['dir'])
             directory.mkdir(parents=True, exist_ok=True)
             (directory / 'samples.jsonl').write_text('')
+            (directory / 'config.json').write_text(json.dumps(request))
             result = {'ready': True, 'status': 'recording'}
         elif request['action'] == 'stop':
             result = {'done': True, 'status': 'stopped'}

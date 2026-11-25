@@ -17,6 +17,8 @@ test('important tools show action and target, including streamed arguments and a
     ['device', { deviceID: 'camera' }, 'device read camera'],
     ['devices', { calls: [{ deviceID: 'arm' }, { deviceID: 'camera' }] }, 'devices 2 calls'],
     ['record', { action: 'start', devices: { arm: 10, camera: 2 } }, 'record start arm=10Hz camera=2Hz'],
+    ['record', { action: 'start', devices: { arm: 10, camera: { rate: 10, operations: { depth: 2 } }, wrist: { operations: { image: { rate: 5, format: 'bag' } } } } },
+      'record start arm=10Hz camera=10Hz camera.depth=2Hz wrist.image=5Hz'],
     ['record', { action: 'snap', devices: ['arm', 'camera'] }, 'record snap arm, camera'],
     ['device_stop', {}, 'device_stop all'],
   ]) assert.equal(plain(toolRenderers(name).renderCall(args, theme, context)), expected)

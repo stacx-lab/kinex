@@ -14,7 +14,7 @@ import { create } from "../util/log.ts"
 import { eventsFile, frameFile, listRecordings, manifestFile, recordingsDir, snapshotProfiles, timelineFile, traceFile, writeManifest } from "./layout.ts"
 import type { DeviceReading } from "../device/reading.ts"
 import { createStreams, sizeOf, type Streams } from "./subscriptions.ts"
-import type { DeviceEventRow, DeviceSampling, DeviceStats, RecordingManifest, TimelineRow } from "./schema.ts"
+import type { DeviceEventRow, DeviceSampling, DeviceStats, Format, RecordingManifest, TimelineRow } from "./schema.ts"
 import { createWriter, stageFile, type Writer } from "./writer.ts"
 
 const log = create("record")
@@ -58,6 +58,8 @@ interface Active {
   persisting?: Promise<void>
   stopping?: Promise<RecordingManifest>
   reads: Set<Promise<unknown>>
+  // The clock and TF capture has failed, and the host has been told.
+  tfWarned?: boolean
   // Set by a tool-initiated stop: the trace export waits for the final
   // assistant message of the step (saved after the tool returns).
   finalMessage?: { resolve: () => void; promise: Promise<void> }
@@ -232,6 +234,14 @@ function syncManifest(active: Active) {
       emitChanged()
     }
   }
+  const tf = active.streams.tf()
+  if (tf) active.manifest.tf = tf
+  if (tf?.error && !active.tfWarned) {
+    active.tfWarned = true
+    const warning = `the clock and TF are not being recorded (${tf.error}); the devices' observations still are`
+    state().host.emit?.({ type: "recording.warning", message: warning })
+    timeline(active, { kind: "note", text: warning })
+  }
   active.manifest.wallMs = (active.manifest.ended ? Date.parse(active.manifest.ended) : Date.now()) - active.startedAt
 }
 
@@ -253,8 +263,8 @@ function emitChanged() {
 // Crash/exit fallback (sync-only context): leave a valid manifest behind.
 function checkpoint(active: Active) {
   syncManifest(active)
-  for (const stats of Object.values(active.manifest.devices))
-    if (stats.stream?.status === "recording") stats.stream.status = "stopped"
+  for (const stream of [...Object.values(active.manifest.devices).map(stats => stats.stream), active.manifest.tf])
+    if (stream?.status === "recording") stream.status = "stopped"
   active.manifest.ended = new Date().toISOString()
   active.manifest.endedBy = "exit"
   active.manifest.status = "stopped"
@@ -273,10 +283,16 @@ async function exportTrace(active: Active) {
 
 // --- public surface --------------------------------------------------------
 
-// Device rates are fixed for the lifetime of a recording.
+// What to record of a device, fixed for the lifetime of a recording. `rate` records every
+// declared topic at that rate, and `operations` as a list only those. As a map it gives an
+// operation its own rate or format, and selects operations only when the device has no rate.
+export interface OperationSpec {
+  rate?: number
+  format?: Format
+}
 export interface DeviceSpec {
-  rate: number
-  operations?: string[]
+  rate?: number
+  operations?: string[] | Record<string, number | OperationSpec>
 }
 
 export interface StartInput {
@@ -370,6 +386,31 @@ async function resolveDevice(active: Active, name: string): Promise<Device | str
   return device
 }
 
+const positive = (rate: number | undefined): rate is number => rate !== undefined && Number.isFinite(rate) && rate > 0
+
+// The operations a spec records of a device, each with its rate and any format asked for; or why not.
+function sampling(device: Device, spec: DeviceSpec): DeviceSampling | string {
+  if (spec.rate !== undefined && !positive(spec.rate)) return "rate must be positive and finite"
+  const topics = Object.entries(device.operations).filter(([, op]) => op.transport === "topic").map(([name]) => name)
+  const own = new Map<string, OperationSpec>(Array.isArray(spec.operations) ? [] : Object.entries(spec.operations ?? {})
+    .map(([name, value]) => [name, typeof value === "number" ? { rate: value } : value]))
+  const operations = Array.isArray(spec.operations) ? spec.operations
+    : spec.rate === undefined ? [...own.keys()] : [...new Set([...topics, ...own.keys()])]
+  if (!device.runtime || !operations.length || operations.some(name => device.operations[name]?.transport !== "topic"))
+    return "continuous recording requires declared topics; select operations or expose an observation topic"
+  const rates: Record<string, number> = {}, formats: Record<string, Format> = {}
+  for (const name of operations) {
+    const rate = own.get(name)?.rate ?? spec.rate, format = own.get(name)?.format
+    if (rate === undefined) return `${name} needs a rate in Hz`
+    if (!positive(rate)) return `${name}: rate must be positive and finite`
+    if (format === "video" && device.operations[name]?.type !== "sensor_msgs/msg/Image")
+      return `${name}: video stores sensor_msgs/msg/Image topics`
+    rates[name] = rate
+    if (format) formats[name] = format
+  }
+  return { rate: Math.max(...Object.values(rates)), operations, rates, formats }
+}
+
 async function configure(active: Active, specs: Record<string, DeviceSpec>): Promise<Configured> {
   const report: Configured = { applied: {}, refusals: {} }
   for (const [name, spec] of Object.entries(specs)) {
@@ -378,29 +419,20 @@ async function configure(active: Active, specs: Record<string, DeviceSpec>): Pro
       report.refusals[name] = device
       continue
     }
-    if (!Number.isFinite(spec.rate) || spec.rate <= 0) {
-      report.refusals[name] = "rate must be positive and finite"
+    const selected = sampling(device, spec)
+    if (typeof selected === "string") {
+      report.refusals[name] = selected
       continue
     }
-    const operations = spec.operations ?? Object.entries(device.operations)
-      .filter(([, op]) => op.transport === "topic").map(([name]) => name)
-    if (!device.runtime || !operations.length || operations.some(name => {
-      const op = device.operations[name]
-      return !op || op.transport !== "topic"
-    })) {
-      report.refusals[name] = "continuous recording requires declared topics; select operations or expose an observation topic"
-      continue
-    }
-    const sampling = { rate: spec.rate, operations } satisfies DeviceSampling
     active.designated.add(name)
     deviceStats(active, device)
-    const error = await active.streams.start(device, sampling)
+    const error = await active.streams.start(device, selected)
     if (error) {
       report.refusals[name] = error
       continue
     }
-    active.manifest.sampling.devices[name] = sampling
-    report.applied[name] = sampling
+    active.manifest.sampling.devices[name] = selected
+    report.applied[name] = selected
   }
   return report
 }

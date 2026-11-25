@@ -2,11 +2,14 @@
 import asyncio
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 
 from rclpy.serialization import deserialize_message
 from rosgraph_msgs.msg import Clock
+from sensor_msgs.msg import Image
 from std_msgs.msg import Float64, String
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import StaticTransformBroadcaster
@@ -27,7 +30,20 @@ CATALOG = {
                      "type": "std_msgs/msg/String"},
     "sensor.command": {"transport": "topic", "direction": "input", "endpoint": "/recording_test/command",
                        "type": "std_msgs/msg/Float64"},
+    **{f"camera.{name}": {"transport": "topic", "direction": "output", "endpoint": f"/recording_test/{name}",
+                          "type": "sensor_msgs/msg/Image"} for name in ("image", "depth", "kept")},
 }
+
+
+def bag(directory):
+    """Every message of a recorded bag, by topic, whichever storage wrote it."""
+    reader, messages = rosbag2_py.SequentialReader(), {}
+    reader.open(rosbag2_py.StorageOptions(uri=str(Path(directory) / 'bag')), rosbag2_py.ConverterOptions('cdr', 'cdr'))
+    while reader.has_next():
+        topic, data, _ = reader.read_next()
+        messages.setdefault(topic, []).append(data)
+    del reader  # Humble readers have no close().
+    return messages
 
 
 async def until(predicate):
@@ -40,11 +56,11 @@ class RecordingTests(unittest.IsolatedAsyncioTestCase):
     async def test_topics_paused_world_rate_reset_tf_and_bag_roundtrip(self):
         with tempfile.TemporaryDirectory() as directory:
             async with communication(CATALOG, domain_id=181) as io:
-                clock = io.node.create_publisher(Clock, CATALOG['environment.time']['endpoint'], qos(CATALOG['environment.time']))
-                value = io.node.create_publisher(Float64, CATALOG['sensor.value']['endpoint'], 10)
-                label = io.node.create_publisher(String, CATALOG['sensor.label']['endpoint'], 10)
-                command = io.node.create_publisher(Float64, CATALOG['sensor.command']['endpoint'], 10)
-                recorder = Recording(io, directory, ['sensor.value', 'sensor.label', 'sensor.command'], 10)
+                clock = io.bridge.node.create_publisher(Clock, CATALOG['environment.time']['endpoint'], qos(CATALOG['environment.time']))
+                value = io.bridge.node.create_publisher(Float64, CATALOG['sensor.value']['endpoint'], 10)
+                label = io.bridge.node.create_publisher(String, CATALOG['sensor.label']['endpoint'], 10)
+                command = io.bridge.node.create_publisher(Float64, CATALOG['sensor.command']['endpoint'], 10)
+                recorder = Recording(io, directory, {name: {'rate': 10} for name in ('sensor.value', 'sensor.label', 'sensor.command')}, tf=True)
                 recorder.start()
                 try:
                     await until(lambda: value.get_subscription_count() and label.get_subscription_count() and command.get_subscription_count())
@@ -53,11 +69,11 @@ class RecordingTests(unittest.IsolatedAsyncioTestCase):
                         message.clock.sec, message.clock.nanosec = sec, nanosec
                         clock.publish(message)
                     tick(10)
-                    await until(lambda: io.world_stamp == 10_000_000_000)
+                    await until(lambda: io.bridge.world_stamp == 10_000_000_000)
                     tf = TransformStamped()
                     tf.header.frame_id, tf.child_frame_id = 'world', 'sensor'
                     tf.transform.rotation.w = 1.
-                    broadcaster = StaticTransformBroadcaster(io.node)
+                    broadcaster = StaticTransformBroadcaster(io.bridge.node)
                     broadcaster.sendTransform(tf)
                     value.publish(Float64(data=1.25))
                     label.publish(String(data='ready'))
@@ -66,14 +82,15 @@ class RecordingTests(unittest.IsolatedAsyncioTestCase):
                     value.publish(Float64(data=2.5))
                     await until(lambda: recorder.skipped == 1)
                     await asyncio.sleep(.05)
-                    self.assertEqual(io.world_stamp, 10_000_000_000)
+                    self.assertEqual(io.bridge.world_stamp, 10_000_000_000)
                     self.assertEqual(recorder.samples, 2)
                     tick(10, 200_000_000)
-                    await until(lambda: io.world_stamp == 10_200_000_000)
+                    await until(lambda: io.bridge.world_stamp == 10_200_000_000)
                     value.publish(Float64(data=3.75))
                     await until(lambda: recorder.samples == 3)
                     tick(0)
-                    await until(lambda: io.world_epoch == 1)
+                    # The scope drops what it observed before a reset; publish once it has seen this one.
+                    await until(lambda: io.epoch == 1)
                     value.publish(Float64(data=5.))
                     await until(lambda: recorder.samples == 4)
                     # Commands are observed, never invoked or rate-filtered.
@@ -91,16 +108,74 @@ class RecordingTests(unittest.IsolatedAsyncioTestCase):
             samples = [row for row in rows if row['operation'] == 'sensor.value']
             self.assertEqual([row['world_ns'] for row in samples], [10_000_000_000, 10_200_000_000, 0])
             self.assertEqual([row['epoch'] for row in samples], [0, 0, 1])
-            reader = rosbag2_py.SequentialReader()
-            reader.open(rosbag2_py.StorageOptions(uri=str(Path(directory) / 'bag'), storage_id='sqlite3'),
-                        rosbag2_py.ConverterOptions('cdr', 'cdr'))
-            values = []
-            while reader.has_next():
-                topic, data, stamp = reader.read_next()
-                if topic == '/recording_test/value':
-                    values.append(deserialize_message(data, Float64).data)
-            self.assertEqual(values, [1.25, 3.75, 5.])
-            del reader  # Humble readers have no close().
+            self.assertEqual(facts['storage'], 'mcap')
+            recorded = bag(directory)
+            self.assertEqual([deserialize_message(data, Float64).data for data in recorded['/recording_test/value']], [1.25, 3.75, 5.])
+            self.assertIn('/tf_static', recorded)
+
+    async def test_a_device_capture_leaves_the_clock_and_tf_to_the_domains(self):
+        with tempfile.TemporaryDirectory() as directory:
+            async with communication(CATALOG, domain_id=181) as io:
+                clock = io.bridge.node.create_publisher(Clock, CATALOG['environment.time']['endpoint'], qos(CATALOG['environment.time']))
+                value = io.bridge.node.create_publisher(Float64, CATALOG['sensor.value']['endpoint'], 10)
+                recorder = Recording(io, directory, {'sensor.value': {'rate': 10}})
+                recorder.start()
+                try:
+                    await until(value.get_subscription_count)
+                    clock.publish(Clock())
+                    await until(lambda: io.bridge.world_stamp is not None)
+                    StaticTransformBroadcaster(io.bridge.node).sendTransform(TransformStamped())
+                    value.publish(Float64(data=1.))
+                    await until(lambda: recorder.samples == 1)
+                finally:
+                    facts = await recorder.stop()
+            self.assertEqual(list(facts['operations']), ['sensor.value'])
+            self.assertEqual(list(bag(directory)), ['/recording_test/value'])
+
+    async def test_color_goes_to_video_and_depth_stays_typed_each_at_its_own_rate(self):
+        color = lambda shade, width=64: Image(height=48, width=width, encoding='rgb8', step=width * 3, data=bytes([shade]) * (48 * width * 3))
+        depth = Image(height=48, width=64, encoding='16UC1', step=128, data=bytes(range(256)) * 24)
+        with tempfile.TemporaryDirectory() as directory:
+            async with communication(CATALOG, domain_id=181) as io:
+                clock = io.bridge.node.create_publisher(Clock, CATALOG['environment.time']['endpoint'], qos(CATALOG['environment.time']))
+                publishers = {name: io.bridge.node.create_publisher(Image, CATALOG[f'camera.{name}']['endpoint'], 10) for name in ('image', 'depth', 'kept')}
+                recorder = Recording(io, directory, {'camera.image': {'rate': 10}, 'camera.depth': {'rate': 2},
+                                                     'camera.kept': {'rate': 10, 'format': 'bag'}})
+                recorder.start()
+                try:
+                    await until(lambda: all(publisher.get_subscription_count() for publisher in publishers.values()))
+                    for step in range(6):  # 0.1 s of world time a step: every color frame is due, every fifth depth frame
+                        message = Clock()
+                        message.clock.sec, message.clock.nanosec = 10, step * 100_000_000
+                        clock.publish(message)
+                        await until(lambda: io.bridge.world_stamp == 10_000_000_000 + step * 100_000_000)
+                        # The fourth frame is wider: it starts the operation's next video.
+                        publishers['image'].publish(color(40 * step, 80 if step >= 3 else 64))
+                        publishers['depth'].publish(depth)
+                        publishers['kept'].publish(color(200))
+                        await until(lambda: recorder.counts['camera.image'] == step + 1 and recorder.counts['camera.kept'] == step + 1)
+                    await until(lambda: recorder.counts['camera.depth'] == 2)
+                finally:
+                    facts = await recorder.stop()
+            self.assertIsNone(facts.get('error'))
+            self.assertEqual(facts['operations'], {'camera.image': 6, 'camera.depth': 2, 'camera.kept': 6})
+            self.assertEqual([Path(file).name for file in facts['videos']['camera.image']], ['image.mp4', 'image.1.mp4'])
+            rows = [json.loads(line) for line in (Path(directory) / 'samples.jsonl').read_text().splitlines()]
+            self.assertEqual([(row['file'], row['frame']) for row in rows if row['operation'] == 'camera.image'],
+                             [('image.mp4', 0), ('image.mp4', 1), ('image.mp4', 2), ('image.1.mp4', 0), ('image.1.mp4', 1), ('image.1.mp4', 2)])
+            self.assertEqual([row['world_ns'] for row in rows if row['operation'] == 'camera.depth'], [10_000_000_000, 10_500_000_000])
+            self.assertTrue(all('file' not in row for row in rows if row['operation'] != 'camera.image'))
+            # Depth and the color operation kept in the bag come back bit for bit; the video operation is not in the bag.
+            recorded = bag(directory)
+            self.assertEqual(sorted(recorded), ['/recording_test/depth', '/recording_test/kept'])
+            self.assertEqual(bytes(deserialize_message(recorded['/recording_test/depth'][0], Image).data), bytes(depth.data))
+            self.assertEqual(len(recorded['/recording_test/kept']), 6)
+            probe = shutil.which('ffprobe')
+            for file, width in (('image.mp4', 64), ('image.1.mp4', 80)):
+                stream = json.loads(subprocess.run([probe, '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries',
+                    'stream=codec_name,width,height,nb_read_frames', '-of', 'json', str(Path(directory) / file)],
+                    check=True, capture_output=True, text=True).stdout)['streams'][0]
+                self.assertEqual((stream['codec_name'], stream['width'], stream['height'], stream['nb_read_frames']), ('h264', width, 48, '3'))
 
     async def test_poses_and_seconds_convert_to_and_from_native_messages(self):
         import numpy as np

@@ -1,7 +1,8 @@
 import { z } from "zod"
 import { define } from "./tool.ts"
 import { Recorder, type DeviceSpec } from "../record/recorder.ts"
-import { parseSpec } from "../record/spec.ts"
+import { describeSpecs, parseSpec } from "../record/spec.ts"
+import { Format } from "../record/schema.ts"
 import { recordingOutput, recordingSummary } from "../record/output.ts"
 import DESCRIPTION from "./record.txt"
 
@@ -16,11 +17,17 @@ export const RecordTool = define("record", {
     devices: z
       .union([z.array(z.string()), z.record(z.string(), z.union([
         z.number().positive(),
-        z.strictObject({ rate: z.number().positive(), operations: z.array(z.string().min(1)).min(1).optional() }),
+        z.strictObject({
+          rate: z.number().positive().optional(),
+          operations: z.union([
+            z.array(z.string().min(1)).min(1),
+            z.record(z.string(), z.union([z.number().positive(), z.strictObject({ rate: z.number().positive().optional(), format: Format.optional() })])),
+          ]).optional(),
+        }),
       ]))])
       .optional()
       .describe(
-        'snap: device names; start: device → maximum Hz, or {rate, operations?}. Defaults to all declared topics.',
+        'snap: device names; start: device → maximum Hz, or {rate?, operations?}. A rate records all declared topics; operations as a list selects, as a map {operation: Hz | {rate?, format?}} gives an operation its own.',
       ),
     instruction: z.string().optional().describe("snap: label for the moment; start: the task being attempted"),
     outcome: z.enum(["success", "failure", "partial"]).optional().describe("stop: how the task ended"),
@@ -45,9 +52,7 @@ export const RecordTool = define("record", {
         if (typeof spec === "string") return { title: "bad device spec", output: `${name}: ${spec}`, isError: true }
         specs[name] = spec
       }
-      const summary = Object.entries(specs)
-        .map(([name, spec]) => `${name}=${spec.rate}`)
-        .join(" ")
+      const summary = describeSpecs(specs)
       await ctx.ask({ permission: "record", description: `start background recording ${summary}${args.instruction ? ` — ${args.instruction}` : ""}` })
       const { manifest, applied, refusals } = await Recorder.start(ctx.directory, { specs, instruction: args.instruction, sessionID: ctx.sessionID })
       return {

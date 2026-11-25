@@ -83,10 +83,19 @@ Start that task on the same domain with
 | Command                                   | Purpose                                                                 |
 | ----------------------------------------- | ----------------------------------------------------------------------- |
 | `/record start left_arm=10 head_camera=2` | Record the left arm at 10 Hz and head camera at 2 Hz.                   |
+| `/record start head_camera.image=10 head_camera.depth=2` | Record only those operations, each at its own rate.      |
 | `/record snap <devices ...>`              | Capture a one-time snapshot of the named devices.                       |
 | `/record stop [outcome] [summary]`        | Finish and save; optional outcome `success`, `failure` or `partial`.    |
 | `/record status`                          | Show the active recording and summaries of recent ones.                 |
 | `/export [path]`                          | Export the current conversation session as HTML or JSONL.               |
+
+`<device>=<Hz>` records every declared topic of the device. `<device>.<operation>=<Hz>`
+gives one operation its own rate, alongside the device's rate or, without one, as the
+only operations recorded. Color images are stored as H.264 video and everything else,
+depth included, in a compressed bag; `<device>.<operation>=<Hz>:bag` keeps a color
+stream's exact pixels instead. Depth is the bulk of a camera recording, so lower its
+rate or leave it out when it is not needed. See
+[recording](agent-integration.md#recording) for the products.
 
 ### Real-world setup
 
