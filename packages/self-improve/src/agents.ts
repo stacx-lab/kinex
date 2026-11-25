@@ -3,7 +3,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Global } from "@kinex/core/global"
 import { kinex, modelFlags } from "./kinex.ts"
-import { kinexFile, waveScript, writeJson } from "./layout.ts"
+import { schedulerFile, waveScript, writeJson } from "./layout.ts"
 import type { Run } from "./run.ts"
 
 // A trial and a distillation each run as a background sub-agent of pi-subagents,
@@ -19,11 +19,13 @@ export const agentsDir = () => path.join(Global.Path.config, "agent", "agents")
 // A wave's trials start together as one workflow of pi-subagents, which runs as many at a
 // time as the call allows and tells the session once, when all have ended. The call's
 // arguments are the session's to give: the tasks improve_next named and the library
-// version their workers get. Each trial is told them as words on its standard input.
+// version their workers get. Each trial is told them as words on its standard input;
+// the run's folder is a JSON string where it holds a space or a quote.
 const WAVE = `const key = (task, index) => (index + 1) + "-" + task.replace(/[^A-Za-z0-9._-]+/g, "-").slice(-40);
+const word = value => /^[^\\s"'\`\\\\]+$/.test(value) ? value : JSON.stringify(value);
 await runs.all(args.tasks.map((task, index) => ({
   key: key(task, index), agent: "${TRIAL_AGENT}",
-  task: "run=" + args.run + " task=" + task + (args.library ? " library=" + args.library : ""),
+  task: "run=" + word(args.run) + " task=" + task + (args.library ? " library=" + args.library : ""),
 })));
 return "The wave's trials have ended; each says above how. Call improve_next.";
 `
@@ -59,7 +61,7 @@ ${description}
 export async function writeAgents(run: Run): Promise<void> {
   if (!kinex.entry) throw new Error("Cannot locate the running Kinex entry point")
   const scheduler: Scheduler = { entry: kinex.entry, flags: modelFlags() }
-  await writeJson(kinexFile(run.root), scheduler)
+  await writeJson(schedulerFile(run.root), scheduler)
   await writeFile(waveScript(run.root), WAVE)
   await mkdir(agentsDir(), { recursive: true })
   await writeFile(path.join(agentsDir(), `${TRIAL_AGENT}.md`), agentFile(TRIAL_AGENT,

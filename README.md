@@ -129,7 +129,8 @@ study its own attempts and distill them into a library of skills and code:
 Kinex plans the run and starts it once you approve. Each task runs as a trial
 judged by the simulator; a distillation then turns the trial records into the
 next library version, and later trials run with it. Trials and distillations are
-background sub-agents, so the conversation stays yours while they work.
+background sub-agents, each in a sandbox, so the conversation stays yours while
+they work. A run is kept in the workspace, under `.kinex/self-improve/runs/`, and
 `install` copies a version into the current workspace's `.kinex/`. See
 [self-improve](packages/self-improve/README.md) for the files and limits.
 

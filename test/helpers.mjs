@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 
 export async function isolate() {
   const root = await mkdtemp(path.join(tmpdir(), 'kinex-sdk-'))
@@ -16,6 +19,19 @@ export async function isolate() {
   process.env.PI_TELEMETRY = '0'
   for (const name of Object.keys(process.env)) if (name.endsWith('API_KEY') || name.endsWith('API_TOKEN')) delete process.env[name]
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) }
+}
+
+// Self-improve runs its workers and distillers only in a sandbox. Where neither bubblewrap nor
+// Docker can start one, children of these tests run under a stand-in bubblewrap that does not
+// isolate them. The check runs in a process of its own, which caches its answer, not in this one.
+export async function sandboxOrStandIn() {
+  // A sandbox binds the Kinex its children run, which the check names as a Kinex process would.
+  const entry = fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url))
+  const check = `const { kinex } = await import('@kinex/self-improve/kinex'); kinex.entry = ${JSON.stringify(entry)}; await (await import('@kinex/self-improve/sandbox')).sandboxOf()`
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const real = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', check], { cwd: root }).then(() => true, () => false)
+  if (!real) process.env.PATH = [fileURLToPath(new URL('./fixtures/sandbox', import.meta.url)), process.env.PATH].join(path.delimiter)
+  return real
 }
 
 export async function fakeProvider(t, root) {

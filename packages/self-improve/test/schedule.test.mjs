@@ -131,7 +131,7 @@ test('the next step is read from the run\'s folder and a job is opened when its 
   assert.deepEqual(await next(run), first, 'asking opens nothing')
   // The wave starts as one call, which the session makes: its tasks, the library their workers get, and how many run at a time.
   assert.ok((await describe(run, first)).startsWith(`Wave 1: 3 tasks to try, 2 at a time, each a trial in a background sub-agent. Start them with this call, unless you did a moment ago:
-subagent({ workflow: ${JSON.stringify(path.join(run.root, 'wave.js'))}, args: { run: "${path.basename(run.root)}", library: "L0", tasks: ${JSON.stringify(first.tasks)} }, globalConcurrencyLimit: 2, async: true })
+subagent({ workflow: ${JSON.stringify(path.join(run.root, 'wave.js'))}, args: { run: ${JSON.stringify(run.root)}, library: "L0", tasks: ${JSON.stringify(first.tasks)} }, globalConcurrencyLimit: 2, async: true })
 library is the version the workers are given: L0 is the newest. Nothing else in the call is yours to change.`))
 
   // Each trial asks to be admitted. As many run as the plan allows, whatever was started: a third waits for one to end.
@@ -154,7 +154,7 @@ library is the version the workers are given: L0 is the newest. Nothing else in 
 
   // The wave is distilled before another opens, and no trial is admitted meanwhile.
   assert.deepEqual(await next(run), { kind: 'distill' })
-  assert.match(await describe(run, { kind: 'distill' }), new RegExp(`\nsubagent\\(\\{ agent: "self-improve-distill", task: "run=${path.basename(run.root)}" \\}\\)\n`))
+  assert.match(await describe(run, { kind: 'distill' }), new RegExp(`\nsubagent\\(\\{ agent: "self-improve-distill", task: "run=${run.root}" \\}\\)\n`))
   await assert.rejects(admit(run, { task: y }), /is not to be tried now: the wave is to be distilled/)
   const distill = await admit(run, 'distill')
   assert.equal(distill.id, 'd001')

@@ -6,7 +6,7 @@ import { ConfigPaths } from "@kinex/core/config/paths"
 import { libRoots } from "@kinex/core/lib/catalog"
 import { parseFrontmatter } from "@kinex/core/skill/index"
 import { which } from "@kinex/core/util/process"
-import { entries, librariesDir, parseLine, pythonDir, versionDir, writeJson } from "./layout.ts"
+import { entries, librariesDir, parseLine, selfImproveDir, versionDir, writeJson } from "./layout.ts"
 
 // A library is what a worker is given beyond plain Kinex. payload/ ships and
 // uses Kinex's own folder names, so installing is a copy; memory/ is the
@@ -14,7 +14,7 @@ import { entries, librariesDir, parseLine, pythonDir, versionDir, writeJson } fr
 // the newest is the current one.
 export const payloadDir = (library: string) => path.join(library, "payload")
 export const memoryDir = (library: string) => path.join(library, "memory")
-export const briefFile = (kinex: string) => path.join(kinex, "self-improve", "brief.md")
+export const briefFile = (kinex: string) => path.join(selfImproveDir(kinex), "brief.md")
 // The payload folders, each installed into the workspace's Kinex folder of the same
 // name: skills, host tools, kinex.lib modules, and programs exec runs by file.
 export const PARTS = ["skills", "tools", "lib", "programs"] as const
@@ -55,10 +55,10 @@ async function write(root: string, source: string | undefined, manifest: { paren
 
 export const createLibrary = (root: string) => write(root, undefined, {})
 
-// The Python a library's code is read with: the workers' own, which the first
-// trial builds, else the host's. A host with neither has no worker to ship to.
-async function python(): Promise<string | undefined> {
-  for (const bin of [".pixi/envs/default/bin", ".venv/bin"]) if (await exists(path.join(pythonDir(), bin, "python3"))) return path.join(pythonDir(), bin, "python3")
+// The Python a library's code is read with: the workers' own environment, which
+// the first trial builds, else the host's. A host with neither has no worker to ship to.
+async function python(environment: string | undefined): Promise<string | undefined> {
+  for (const bin of [".pixi/envs/default/bin", ".venv/bin"]) if (environment && await exists(path.join(environment, bin, "python3"))) return path.join(environment, bin, "python3")
   return which("python3")
 }
 
@@ -98,10 +98,10 @@ const SUFFIXES = new Set(["py", "md", "json", "jsonl", "txt", "yaml", "yml", "cs
 // follows it. A mention is <module>.<name>, with kinex.lib. or lib. before it or
 // not; names of the module's own files are passed over, and the first name after
 // them must be defined.
-async function code(library: string): Promise<string[]> {
+async function code(library: string, environment: string | undefined): Promise<string[]> {
   const payload = payloadDir(library)
   const files = (await Promise.all((["lib", "programs"] as const).map(async part => (await sources(path.join(payload, part))).map(file => path.join(part, file))))).flat()
-  const interpreter = files.length ? await python() : undefined
+  const interpreter = files.length ? await python(environment) : undefined
   if (!interpreter) return []
   const { stdout } = await promisify(execFile)(interpreter, ["-I", "-c", DEFINED, ...files], { cwd: payload, maxBuffer: 64 * 1024 * 1024 })
   const parsed = JSON.parse(stdout) as Record<string, Parsed>
@@ -140,8 +140,11 @@ async function rows(library: string): Promise<string[]> {
   return problems
 }
 
-/** Problems that would keep the candidate from loading as Kinex content, break Kinex's own, or cost the trials that ship it; none means it may ship. */
-export async function check(library: string): Promise<string[]> {
+/**
+ * Problems that would keep the candidate from loading as Kinex content, break Kinex's own, or cost the
+ * trials that ship it; none means it may ship. `python` is the workers' Python environment, which compiles its code.
+ */
+export async function check(library: string, python?: string): Promise<string[]> {
   const problems: string[] = []
   const skills = path.join(payloadDir(library), "skills")
   const tools = path.join(payloadDir(library), "tools")
@@ -176,12 +179,12 @@ export async function check(library: string): Promise<string[]> {
   const lines = brief ? brief.split(/\r?\n/).length : 0
   if (lines > briefLimit.lines || brief.length > briefLimit.characters)
     problems.push(`payload/brief.md: ${lines} lines and ${brief.length} characters, at most ${briefLimit.lines} lines and ${briefLimit.characters} characters`)
-  return [...problems, ...await code(library), ...await rows(library)]
+  return [...problems, ...await code(library, python), ...await rows(library)]
 }
 
 /** Candidate to version: nothing is published unless the check passes. */
-export async function publish(root: string, candidate: string, manifest: { parent: string; source: string }) {
-  const problems = await check(candidate)
+export async function publish(root: string, candidate: string, manifest: { parent: string; source: string }, python?: string) {
+  const problems = await check(candidate, python)
   return problems.length ? { problems } : { problems, version: await write(root, candidate, manifest) }
 }
 

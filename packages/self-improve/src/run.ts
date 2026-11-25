@@ -1,8 +1,7 @@
-import { mkdir } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { configFile, entries, readJson, runsDir, writeJson } from "./layout.ts"
+import { configFile, entries, readJson, runsDir, selfImproveDir, writeJson } from "./layout.ts"
 import { createLibrary } from "./library.ts"
-import type { Sandbox } from "./sandbox.ts"
 import { KINEX_SIM } from "./sim.ts"
 
 export interface Config {
@@ -28,9 +27,7 @@ export interface Config {
   command: string
   /** More options for every `kinex-sim launch` of the run, such as a split or a recording. */
   launch?: string[]
-  /** Whether workers run in a sandbox: `true` takes bubblewrap where it can run and Docker where it cannot, a name takes that one. */
-  sandbox?: boolean | Sandbox
-  /** The image a Docker sandbox starts from; the host's system folders are bound over it. */
+  /** The image a Docker sandbox starts from, where bubblewrap cannot run; the host's system folders are bound over it. */
   image?: string
   /** The kinex.lib roots that packages composed with core add in the Kinex that made the run: a library must not replace their modules. */
   libRoots?: string[]
@@ -50,14 +47,19 @@ export const REPAIRS = 2
 export const REPAIR_S = 1800
 
 /** A new run's settings: the plan and the limits a run starts with. The user approves these, and the run is made from them. */
-export function newConfig(selection: string, plan: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "sandbox" | "seed" | "launch"> & { command?: string }): Config {
+export function newConfig(selection: string, plan: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "libRoots" | "seed" | "launch"> & { command?: string }): Config {
   return { selection, helpers: HELPERS, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: START_GAP_S, ...plan, command: plan.command ?? KINEX_SIM }
 }
 
-export async function createRun(config: Config): Promise<Run> {
+/** A new run in the workspace whose Kinex folder is `kinex`. */
+export async function createRun(kinex: string, config: Config): Promise<Run> {
   const stamp = new Date().toISOString().replaceAll(/[-:]|\.\d+Z/g, "").replace("T", "-")
-  const root = path.join(runsDir(), stamp)
+  const root = path.join(runsDir(kinex), stamp)
   await mkdir(root, { recursive: true })
+  // Runs and the trials' Python are large and this machine's own; an installed brief is the workspace's, and may be kept.
+  await writeFile(path.join(selfImproveDir(kinex), ".gitignore"), "runs/\npython/\n", { flag: "wx" }).catch((error: unknown) => {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error
+  })
   await writeJson(configFile(root), config)
   await createLibrary(root)
   return { root, config }
@@ -70,9 +72,13 @@ export async function openRunAt(root: string): Promise<Run> {
   return { root, config }
 }
 
-/** The named run, or the newest: run names are their creation times. */
-export async function openRun(name?: string): Promise<Run> {
-  const selected = name ?? (await entries(runsDir())).filter(entry => !entry.startsWith(".")).at(-1)
-  if (!selected) throw new Error("No self-improve run yet; start one with /self-improve <what to practise>")
-  return openRunAt(path.join(runsDir(), selected)).catch(() => { throw new Error(`No self-improve run named ${selected}`) })
+/**
+ * The named run of the workspace whose Kinex folder is `kinex`, or its newest: run names are their creation
+ * times. A run of another workspace is named by its folder, as an absolute path.
+ */
+export async function openRun(kinex: string, name?: string): Promise<Run> {
+  if (name && path.isAbsolute(name)) return openRunAt(name)
+  const selected = name ?? (await entries(runsDir(kinex))).filter(entry => !entry.startsWith(".")).at(-1)
+  if (!selected) throw new Error("No self-improve run in this workspace yet; start one with /self-improve <what to practise>")
+  return openRunAt(path.join(runsDir(kinex), selected)).catch(() => { throw new Error(`No self-improve run named ${selected} in this workspace`) })
 }

@@ -13,9 +13,11 @@ export interface SessionExit {
   wallS: number
 }
 
-// The one place a child's command and environment are built; a sandboxed child
-// runs the same command inside the sandbox.
-function command(role: Role, cwd: string, record: string, prompt: string, sandbox: Sandbox | undefined, image: string | undefined) {
+/** How a child runs: in which sandbox, with which Docker image, reading which Python environment. */
+export interface Confinement { sandbox: Sandbox; image?: string; python?: string }
+
+// The one place a child's command and environment are built; it runs inside its sandbox.
+function command(role: Role, cwd: string, record: string, prompt: string, { sandbox, image, python }: Confinement) {
   if (!kinex.entry) throw new Error("Cannot locate the running Kinex entry point")
   const { KINEX_SIM_PROJECT: _project, VIRTUAL_ENV: _venv, ...inherited } = process.env
   // A child is a session of its own, not a sub-agent of the one that scheduled its job.
@@ -30,17 +32,21 @@ function command(role: Role, cwd: string, record: string, prompt: string, sandbo
     PATH: (process.env.PATH ?? "").split(path.delimiter).filter(visible).join(path.delimiter) }
   // A container is named so that it can be removed when the command that started it was killed.
   const container = sandbox === "docker" ? `kinex-self-improve-${process.pid}-${path.basename(path.dirname(record))}-${Date.now()}` : undefined
-  return { argv: sandbox ? sandboxed(argv, cwd, sessionFile(record), sandbox, { name: container, image, env }) : argv, env, container }
+  // A worker writes its transcript. pi-subagents keeps what a session's sub-agents leave (their sessions, artifacts
+  // and exports) in the folder of that session's file, so a distiller, whose sub-agents run in its sandbox, writes its record.
+  const write = role === "distiller" ? [record] : [sessionFile(record)]
+  return { argv: sandboxed(argv, cwd, write, sandbox, { name: container, image, python, env }), env, container }
 }
 
 /**
- * Runs one headless Kinex in `cwd` and leaves its record in `record`: the prompt,
- * the transcript Kinex writes into the session file it is given, and its output.
- * A sandboxed child can write only `cwd`, its transcript and Kinex's agent
- * folder. With `resume` the child goes on in the session the record already
- * holds. The child ends at `deadline` or when `signal` aborts.
+ * Runs one headless Kinex in `cwd`, inside its sandbox, and leaves its record in
+ * `record`: the prompt, the transcript Kinex writes into the session file it is
+ * given, and its output. The child can write only `cwd`, its transcript (a
+ * distiller its record) and Kinex's agent folder. With
+ * `resume` the child goes on in the session the record already holds. The child
+ * ends at `deadline` or when `signal` aborts.
  */
-export async function runSession(role: Role, cwd: string, record: string, prompt: string, deadline: number, options: { sandbox?: Sandbox; image?: string; resume?: boolean; signal?: AbortSignal } = {}): Promise<SessionExit> {
+export async function runSession(role: Role, cwd: string, record: string, prompt: string, deadline: number, options: Confinement & { resume?: boolean; signal?: AbortSignal }): Promise<SessionExit> {
   await mkdir(record, { recursive: true })
   if (!options.resume) {
     await writeFile(promptFile(record), prompt)
@@ -48,7 +54,7 @@ export async function runSession(role: Role, cwd: string, record: string, prompt
     await writeFile(sessionFile(record), "")
   }
   const started = Date.now()
-  const { argv, env, container } = command(role, cwd, record, prompt, options.sandbox, options.image)
+  const { argv, env, container } = command(role, cwd, record, prompt, options)
   const child = spawnProcess(argv, { cwd, env, group: true, signal: options.signal })
   child.stdin.end()
   const log = createWriteStream(outputFile(record), { flags: "a" })

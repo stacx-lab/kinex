@@ -208,7 +208,7 @@ export async function collect(root: string, config: Config, input: DistillInput,
 - Sub-agents were told to keep reusable functions in \`.kinex/lib/\` (imported as \`kinex.lib.<module>\`), whole-task programs in
   \`.kinex/programs/\`, skills in \`.kinex/skills/\` and notes in \`.kinex/memos/\`, improved in place; what each kept beyond the
   library it was shipped is in its learned.md and learned/.
-- ${config.sandbox ? "Sub-agents ran in a sandbox that shows them only their workspace" : "Sub-agents were kept to their workspace by instruction only"}, with the network open.
+- Sub-agents ran in a sandbox that shows them only their workspace, with the network open.
 `)
   return trials
 }

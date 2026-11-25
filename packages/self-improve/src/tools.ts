@@ -1,12 +1,14 @@
 import { z } from "zod"
 import { define, type Def } from "@kinex/core"
+import { ConfigPaths } from "@kinex/core/config/paths"
 import { currentScope } from "@kinex/core/scope"
 import { writeAgents } from "./agents.ts"
 import { candidateDir } from "./distill.ts"
+import { homeOf, pythonDir, runOf, selfImproveDir } from "./layout.ts"
 import { check } from "./library.ts"
 import { currentRole } from "./roles.ts"
 import { REPAIRS, createRun, newConfig, type Config, type Run } from "./run.ts"
-import { sandboxName, sandboxSetting } from "./sandbox.ts"
+import { sandboxName } from "./sandbox.ts"
 import { checked, current, describe, next, schedule } from "./scheduler.ts"
 import { KINEX_SIM, launchOptions, listTasks, matching } from "./sim.ts"
 
@@ -19,7 +21,7 @@ const UNATTENDED = "unattended"
 
 const output = (title: string, text: string) => ({ title, output: text })
 
-/** What the user approves: the tasks, the commands a trial is started, ended and judged with, and what a round is. */
+/** What the user approves: the tasks, the commands a trial is started, ended and judged with, what a round is, and the sandbox its sub-agents run in. */
 export function planText(config: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "command" | "launch" | "seed" | "trialTimeoutS" | "distillTimeoutS">, sandbox: string): string {
   const tasks = config.tasks ?? []
   const seed = config.seed === undefined ? "" : ` --seed ${config.seed}`
@@ -28,9 +30,9 @@ export function planText(config: Pick<Config, "tasks" | "robot" | "rounds" | "pa
   return [
     `Self-improve plan: ${tasks.length} ${tasks.length === 1 ? "task" : "tasks"} of kinex-sim's catalog on robot ${config.robot}: ${tasks.join(", ")}`,
     `Rounds: ${config.rounds}. A round is a wave of trials, one for each task still unsolved, ${config.parallel} at a time, then one distillation.${config.batches?.length ? ` Tasks open in batches of ${config.batches.join(", ")}, then the rest, one batch a wave.` : ""}`,
-    `A trial starts with \`${config.command} launch <task> --execution-mode stepped --early-stop --detach${seed}${also}\` on a ROS domain of its own and \`${config.command} setup <task>\` into a fresh workspace, where one worker sub-agent ${sandbox} attempts the task with the newest library for at most ${config.trialTimeoutS} s. It ends with \`${config.command} stop\`, and \`${config.command} judge\` decides the outcome: the simulator's verdict, never the worker's report.`,
+    `A trial starts with \`${config.command} launch <task> --execution-mode stepped --early-stop --detach${seed}${also}\` on a ROS domain of its own and \`${config.command} setup <task>\` into a fresh workspace, where one worker sub-agent attempts the task with the newest library for at most ${config.trialTimeoutS} s. It ends with \`${config.command} stop\`, and \`${config.command} judge\` decides the outcome: the simulator's verdict, never the worker's report.`,
     `A distillation is a sub-agent in a folder of its own that turns every trial record into the next library version in at most ${config.distillTimeoutS} s; a version is published only when improve_check finds nothing${REPAIRS ? `, after up to ${REPAIRS} repair turns` : ""}.`,
-    "Trials and distillations run in the background with nobody to approve their steps.",
+    `Trials and distillations run in the background with nobody to approve their steps, each in a ${sandbox} sandbox that shows it only its own folder.`,
   ].join("\n")
 }
 
@@ -78,10 +80,12 @@ const planTool = define("improve_plan", {
     const robot = catalog.find(task => task.id === tasks[0])?.robot ?? ""
     const config = newConfig(planned.request, { tasks, robot, rounds: args.rounds, parallel: args.parallel, ...(args.batches?.length ? { batches: args.batches } : {}),
       command, ...(launch.length ? { launch } : {}), ...(args.seed === undefined ? {} : { seed: args.seed }),
-      sandbox: sandboxSetting(), ...(currentScope().builtinLibRoots?.length ? { libRoots: [...currentScope().builtinLibRoots ?? []] } : {}) })
-    const sandbox = await sandboxName()
-    await ctx.ask({ permission: UNATTENDED, description: planText(config, sandbox ? `in a ${sandbox} sandbox` : "without a sandbox") })
-    const run = await createRun(config)
+      ...(currentScope().builtinLibRoots?.length ? { libRoots: [...currentScope().builtinLibRoots ?? []] } : {}) })
+    // The run belongs to this workspace. A host where no sandbox can run has its plan refused here, before anything exists.
+    const kinex = await ConfigPaths.projectDir(ctx.directory)
+    const sandbox = await sandboxName({ python: pythonDir(selfImproveDir(kinex)) })
+    await ctx.ask({ permission: UNATTENDED, description: planText(config, sandbox) })
+    const run = await createRun(kinex, config)
     await writeAgents(run)
     schedule({ request: planned.request, run, approved: true })
     return output("Plan approved", `The self-improve run ${run.root} is scheduled.\n\n${await step(run)}`)
@@ -114,7 +118,8 @@ const checkTool = define("improve_check", {
   description: "The gate: loads library/payload the way Kinex would and returns what does not load, a lib module named like a builtin kinex.lib module, Python in lib/ or programs/ that does not compile, a skill or the brief naming something a lib module does not define, a row in memory/rows that is not a JSON object, and a brief.md longer than 15 lines or 2,000 characters. A library with problems is not published.",
   parameters: z.strictObject({}),
   execute: async (_args, ctx) => {
-    const problems = await check(candidateDir(ctx.directory))
+    // A distiller works in its distillation's workspace, inside the run whose trials' Python compiles its code.
+    const problems = await check(candidateDir(ctx.directory), pythonDir(homeOf(runOf(ctx.directory))))
     return { title: problems.length ? `${problems.length} problems` : "No problems", output: problems.join("\n") || "No problems: the library may ship.", isError: problems.length > 0 }
   },
 })

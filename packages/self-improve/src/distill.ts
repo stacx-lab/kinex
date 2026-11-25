@@ -3,10 +3,11 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Assets } from "@kinex/core/installation/assets"
 import { finishJob, openJob, type Job, type Result } from "./job.ts"
-import { distillationsDir, parseLine, readJson, trialsDir, versionDir, workspaceDir } from "./layout.ts"
+import { distillationsDir, homeOf, parseLine, pythonDir, readJson, trialsDir, versionDir, workspaceDir } from "./layout.ts"
 import { check, newestVersion, publish } from "./library.ts"
 import { collect, type DistillInput, type Status } from "./records.ts"
 import { HELPERS, REPAIRS, REPAIR_S, type Run } from "./run.ts"
+import { sandboxOf } from "./sandbox.ts"
 import { runSession, type SessionExit } from "./session.ts"
 import FRAME from "./distill-frame.txt"
 import REPAIR from "./distill-repair.txt"
@@ -19,7 +20,7 @@ import REFERENCE from "./reference.txt"
 // rules are rsi's distill-lean prompts, edited only where this package differs
 // from rsi: one episode per trial, trials in waves, the folder names, the check
 // and sub-agents as tools, one library with task skills, code as kinex.lib
-// modules rather than a skill's body, no container.
+// modules rather than a skill's body.
 export const candidateDir = (workspace: string) => path.join(workspace, "library")
 
 // What a distiller may know of a worker's world, as rsi gives its principal:
@@ -45,7 +46,8 @@ async function rigOf(root: string, trials: readonly string[]): Promise<string | 
   return undefined
 }
 
-export interface Distillation { job: Job; input: DistillInput; prompt: string; deadline: number }
+/** A distillation as its turns see it; `python` is the trials' environment, which the check compiles code with. */
+export interface Distillation { job: Job; input: DistillInput; prompt: string; deadline: number; python: string }
 
 /** Opens the distillation of every finished trial, from the newest library. */
 export async function openDistillation(run: Run, status: Status): Promise<Job> {
@@ -58,6 +60,8 @@ export async function prepareDistillation(run: Run, job: Job, input: DistillInpu
   const trials = await collect(run.root, run.config, input, path.join(job.workspace, "records"))
   await reference(path.join(job.workspace, "reference"), await rigOf(run.root, input.trials))
   await mkdir(path.join(job.workspace, "notes"))
+  // The distiller's own Kinex folder: without one, Kinex would take the nearest above it, the workspace's the run belongs to.
+  await mkdir(path.join(job.workspace, ".kinex"))
   await cp(versionDir(run.root, input.base), candidateDir(job.workspace), { recursive: true })
   const deadline = Date.now() + input.timeoutS * 1000
   const goals = new Map(trials.map(trial => [trial.task, trial.instruction ?? ""]))
@@ -71,7 +75,7 @@ export async function prepareDistillation(run: Run, job: Job, input: DistillInpu
     SCHEDULE: unopened.length ? SCHEDULE.trim() : "",
   }
   const prompt = `${FRAME}\n${RULES}`.replaceAll(/\[\[(\w+)\]\]/g, (_, name: string) => fill[name] ?? "").replaceAll(/\n{3,}/g, "\n\n")
-  return { job, input, prompt, deadline }
+  return { job, input, prompt, deadline, python: pythonDir(homeOf(run.root)) }
 }
 
 type Exit = Pick<SessionExit, "status"> & { error?: string }
@@ -86,7 +90,7 @@ export async function distillTurns(distillation: Distillation, turn: (prompt: st
   let exit = await turn(distillation.prompt, distillation.deadline)
   let repairs = 0
   for (; exit.status === "done" && repairs < REPAIRS; repairs++) {
-    const problems = await check(candidateDir(distillation.job.workspace))
+    const problems = await check(candidateDir(distillation.job.workspace), distillation.python)
     if (!problems.length) break
     // Sub-agents of a repair turn end with it.
     distillation.deadline = Date.now() + REPAIR_S * 1000
@@ -108,20 +112,23 @@ export async function scheduled(root: string): Promise<string[]> {
 }
 
 /** Candidate to version, when the distiller's session ended normally and the check passes; an unfinished one may leave a half-written library. */
-export async function finishDistillation(run: Run, { job, input }: Distillation, session: Pick<SessionExit, "status" | "wallS"> & { error?: string; repairs?: number }): Promise<Result> {
-  const outcome = session.status === "done" ? await publish(run.root, candidateDir(job.workspace), { parent: input.base, source: job.id }) : {}
+export async function finishDistillation(run: Run, { job, input, python }: Distillation, session: Pick<SessionExit, "status" | "wallS"> & { error?: string; repairs?: number }): Promise<Result> {
+  const outcome = session.status === "done" ? await publish(run.root, candidateDir(job.workspace), { parent: input.base, source: job.id }, python) : {}
   return finishJob(job, { ...session, ...outcome })
 }
 
-// One distillation: a headless distiller in the distillation's own folder, then
-// while the check finds problems a repair turn of the same session. The
-// distiller's sub-agents are its own. Only a session that ended normally can publish.
+// One distillation: a headless distiller in the distillation's own folder, in a
+// sandbox as a worker is, then while the check finds problems a repair turn of
+// the same session. The distiller's sub-agents are its own and run in its
+// sandbox. Only a session that ended normally can publish.
 export async function runDistillation(run: Run, job: Job, input: DistillInput, signal: AbortSignal): Promise<Result> {
   const distillation = await prepareDistillation(run, job, input)
+  const { python } = distillation
+  const confinement = { sandbox: await sandboxOf({ image: run.config.image, python }), image: run.config.image, python }
   const started = Date.now()
   let turns = 0
   const turn = async (prompt: string, deadline: number): Promise<Exit> => {
-    const exit = await runSession("distiller", job.workspace, job.record, prompt, deadline, { signal, resume: turns++ > 0 })
+    const exit = await runSession("distiller", job.workspace, job.record, prompt, deadline, { ...confinement, signal, resume: turns++ > 0 })
     return exit.status === "error" ? { status: "error", error: `the distiller exited ${exit.exitCode}; see output.log` } : { status: exit.status }
   }
   const exit = await distillTurns(distillation, turn)

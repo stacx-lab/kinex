@@ -5,7 +5,7 @@ import { createScope, inScope, withSignal } from "@kinex/core/scope"
 import { runDistillation } from "./distill.ts"
 import type { Scheduler } from "./agents.ts"
 import { finishJob, type Result } from "./job.ts"
-import { inputFile, kinexFile, readJson, recordDir, runsDir } from "./layout.ts"
+import { inputFile, readJson, recordDir, schedulerFile } from "./layout.ts"
 import { kinex } from "./kinex.ts"
 import { describeDistillation, describeTrial, type DistillInput, type TrialInput } from "./records.ts"
 import { REPAIRS, REPAIR_S, openRunAt, type Run } from "./run.ts"
@@ -17,9 +17,10 @@ import { runTrial } from "./trial.ts"
 // names, does it, and says in a line how it ended. What it prints is what the
 // session that started it is told.
 //   node main.js <trial|distill>, with the call's words on standard input:
-//   run=<run> for a distillation, run=<run> task=<task> [library=<version>] for a trial
+//   run=<run folder> for a distillation, run=<run folder> task=<task> [library=<version>] for a trial
+// A value is a word, or a JSON string where it holds a space or a quote.
 const [kind] = process.argv.slice(2)
-if (kind !== "trial" && kind !== "distill") throw new Error("Usage: main.js <trial|distill>, with run=<run> [task=<task>] [library=<version>] on standard input")
+if (kind !== "trial" && kind !== "distill") throw new Error("Usage: main.js <trial|distill>, with run=<run folder> [task=<task>] [library=<version>] on standard input")
 const what = kind === "trial" ? "trial" : "distillation"
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
@@ -28,8 +29,9 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 const SLACK_S = 3600
 
 /** What the call says: the words on standard input, where the last word of a name counts. */
-const Call = z.object({ run: z.string().regex(/^[\w.-]+$/), task: z.string().optional(), library: z.string().regex(/^L\d+$/).optional() })
-const said = (text: string) => Call.safeParse(Object.fromEntries([...text.matchAll(/\b(run|task|library)=([^\s"'`]+)/g)].map(([, name, value]) => [name, value]))).data
+const Call = z.object({ run: z.string().refine(value => path.isAbsolute(value)), task: z.string().optional(), library: z.string().regex(/^L\d+$/).optional() })
+const value = (written: string) => written.startsWith('"') ? JSON.parse(written) as string : written
+const said = (text: string) => Call.safeParse(Object.fromEntries([...text.matchAll(/\b(run|task|library)=("(?:[^"\\]|\\.)*"|[^\s"'`]+)/g)].map(([, name, written]) => [name, value(written!)]))).data
 
 // A job ends itself at its run's limit for it, counted from when the scheduler admitted it.
 async function work(run: Run, call: z.infer<typeof Call>, signal: AbortSignal, within: (seconds: number) => void): Promise<string> {
@@ -54,8 +56,8 @@ async function work(run: Run, call: z.infer<typeof Call>, signal: AbortSignal, w
 // leaves no result, so it counts as abandoned, not failed.
 async function main(): Promise<void> {
   const call = said(await text(process.stdin))
-  const run = call && await openRunAt(path.join(runsDir(), call.run)).catch(() => undefined)
-  const scheduler = run && await readJson<Scheduler>(kinexFile(run.root))
+  const run = call && await openRunAt(call.run).catch(() => undefined)
+  const scheduler = run && await readJson<Scheduler>(schedulerFile(run.root))
   if (!call || !run || !scheduler) {
     console.log(`No self-improve run is named. Start this sub-agent only with the call improve_next gives. Call improve_next.`)
     return

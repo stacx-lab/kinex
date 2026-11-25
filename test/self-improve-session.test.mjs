@@ -5,14 +5,14 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { isolate, workspace } from './helpers.mjs'
+import { isolate, sandboxOrStandIn, workspace } from './helpers.mjs'
 
 const isolation = await isolate()
 after(isolation.cleanup)
-// A stand-in for kinex-sim, and no sandbox: these tests start no worker.
+// A stand-in for kinex-sim. These tests start no worker, but a plan names the sandbox its sub-agents would run in.
 const kinexSim = fileURLToPath(new URL('./fixtures/kinex-sim.mjs', import.meta.url))
 process.env.FAKE_KINEX_SIM_STATE = isolation.root
-process.env.KINEX_SELF_IMPROVE_SANDBOX = 'off'
+await sandboxOrStandIn()
 const { createKinexRuntime, PermissionDeniedError } = await import('@kinex/core')
 const { selfImproveContribution } = await import('@kinex/self-improve')
 const { checked, current } = await import('@kinex/self-improve/scheduler')
@@ -56,8 +56,8 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   const [request] = asked
   assert.equal(request.permission, 'unattended')
   assert.match(request.description, /^Self-improve plan: 1 task of kinex-sim's catalog on robot sim\/arm: sim\/open-door\nRounds: 1\./)
-  assert.match(request.description, /A trial starts with `[^`]* launch <task> --execution-mode stepped --early-stop --detach`[^\n]*one worker sub-agent without a sandbox[^\n]*It ends with `[^`]* stop`, and `[^`]* judge` decides the outcome/)
-  assert.match(request.description, /\nTrials and distillations run in the background with nobody to approve their steps\.$/)
+  assert.match(request.description, /A trial starts with `[^`]* launch <task> --execution-mode stepped --early-stop --detach`[^\n]*one worker sub-agent attempts the task[^\n]*It ends with `[^`]* stop`, and `[^`]* judge` decides the outcome/)
+  assert.match(request.description, /\nTrials and distillations run in the background with nobody to approve their steps, each in a (bubblewrap|Docker) sandbox that shows it only its own folder\.$/)
   // How kinex-sim is run is the plan's: its command with the environment it needs, more launch options and a seed. The user is shown the lines.
   const simulator = `SIM_GPU=1 ${kinexSim}`
   await assert.rejects(call('improve_plan', { tasks: ['sim/open-door'], command: simulator, launch: ['--split', 'target'], seed: 7 }, false), PermissionDeniedError)
@@ -71,17 +71,19 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   const approved = await call('improve_plan', { tasks: ['sim/press-button', 'sim/open-door'], rounds: 2, parallel: 2, batches: [1] })
   const { run } = current()
   assert.deepEqual({ ...run.config, libRoots: undefined }, { selection: 'the sim tasks, two rounds', tasks: ['sim/open-door', 'sim/press-button'], robot: 'sim/arm', rounds: 2, parallel: 2, batches: [1],
-    sandbox: false, libRoots: undefined, helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, command: kinexSim })
-  assert.ok(approved.output.startsWith(`The self-improve run ${run.root} is scheduled.\n\nWave 1: 1 task to try, 2 at a time, each a trial in a background sub-agent. Start them with this call, unless you did a moment ago:\nsubagent({ workflow: ${JSON.stringify(path.join(run.root, 'wave.js'))}, args: { run: "${path.basename(run.root)}", library: "L0", tasks: [`))
+    libRoots: undefined, helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, command: kinexSim })
+  // The run belongs to the workspace it was planned in.
+  assert.equal(path.dirname(run.root), path.join(directory, '.kinex/self-improve/runs'))
+  assert.ok(approved.output.startsWith(`The self-improve run ${run.root} is scheduled.\n\nWave 1: 1 task to try, 2 at a time, each a trial in a background sub-agent. Start them with this call, unless you did a moment ago:\nsubagent({ workflow: ${JSON.stringify(path.join(run.root, 'wave.js'))}, args: { run: ${JSON.stringify(run.root)}, library: "L0", tasks: [`))
   // The workflow that starts a wave is in the run's folder: one trial sub-agent for each task, told the run, the task and the library.
-  assert.match(await readFile(path.join(run.root, 'wave.js'), 'utf8'), /runs\.all\(args\.tasks\.map\([^]*agent: "self-improve-trial",\n  task: "run=" \+ args\.run \+ " task=" \+ task \+ \(args\.library \? " library=" \+ args\.library : ""\)/)
+  assert.match(await readFile(path.join(run.root, 'wave.js'), 'utf8'), /runs\.all\(args\.tasks\.map\([^]*agent: "self-improve-trial",\n  task: "run=" \+ word\(args\.run\) \+ " task=" \+ task \+ \(args\.library \? " library=" \+ args\.library : ""\)/)
   assert.deepEqual(await names(), ['improve_next'])
   // The commands that do the run's jobs are named where pi-subagents reads its agents.
   const agent = await readFile(path.join(process.env.KINEX_CONFIG_DIR, 'agent/agents/self-improve-trial.md'), 'utf8')
   assert.match(agent, /^---\nname: self-improve-trial\n[^]*runner:\n  type: external-cli\n  command: "[^"]+"\n  args: \["[^"]*main\.js","trial"\]\n/)
   // They say nothing of the run, so two Kinex that schedule different runs share them; the run keeps which Kinex its children are.
   assert.ok(!agent.includes(path.basename(run.root)))
-  assert.deepEqual(JSON.parse(await readFile(path.join(run.root, 'kinex.json'), 'utf8')), { entry: process.argv[1], flags: [] })
+  assert.deepEqual(JSON.parse(await readFile(path.join(run.root, 'scheduler.json'), 'utf8')), { entry: process.argv[1], flags: [] })
   assert.match(await readFile(path.join(process.env.KINEX_CONFIG_DIR, 'agent/agents/self-improve-distill.md'), 'utf8'), /"distill"/)
   await assert.rejects(improve.execute('another run', command), /is already scheduled in this Kinex; \/self-improve stop ends it/)
   // The command completes to its subcommands and to the versions the newest run has to install.
@@ -95,7 +97,7 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   assert.match(resumed.prompt, /is scheduled in this Kinex again\. Call improve_next/)
   asked.length = 0
   await assert.rejects(call('improve_next', {}, false), PermissionDeniedError)
-  assert.ok((await call('improve_next', {})).output.includes(`subagent({ workflow: ${JSON.stringify(path.join(run.root, 'wave.js'))}, args: { run: "${path.basename(run.root)}", library: "L0", tasks: [`))
+  assert.ok((await call('improve_next', {})).output.includes(`subagent({ workflow: ${JSON.stringify(path.join(run.root, 'wave.js'))}, args: { run: ${JSON.stringify(run.root)}, library: "L0", tasks: [`))
   assert.match(asked.at(-1).description, /^Continue the self-improve run /)
   await call('improve_next', {})
   assert.equal(asked.length, 2, 'the user is asked once')
