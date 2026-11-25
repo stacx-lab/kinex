@@ -129,10 +129,19 @@ test('verified release tarballs upgrade an actual local npm installation and per
     await mkdir(path.join(source, 'bin'), { recursive: true })
     await writeFile(path.join(source, 'package.json'), JSON.stringify({
       name, version: '0.10.4', type: 'module',
-      ...(index === 2 ? { bin: { kinex: 'bin/kinex.mjs' }, dependencies: { '@kinex/core': '0.10.4', '@kinex/setup': '0.10.4' } } : {}),
+      ...(index === 2 ? {
+        bin: { kinex: 'bin/kinex.mjs' }, bundleDependencies: ['@kinex/self-improve'],
+        dependencies: { '@kinex/core': '0.10.4', '@kinex/setup': '0.10.4', '@kinex/self-improve': '0.10.4' },
+      } : {}),
       scripts: { postinstall: 'node -e "process.exit(99)"' },
     }))
     await writeFile(path.join(source, 'bin/kinex.mjs'), '#!/usr/bin/env node\nconsole.log("NEW_CLI:" + process.argv[2])')
+    // A package standalone bundles travels inside its archive, as a release packs it.
+    if (index === 2) {
+      const bundled = path.join(source, 'node_modules/@kinex/self-improve')
+      await mkdir(bundled, { recursive: true })
+      await writeFile(path.join(bundled, 'package.json'), JSON.stringify({ name: '@kinex/self-improve', version: '0.10.4', type: 'module', peerDependencies: { '@kinex/core': '0.10.4' } }))
+    }
     const packed = JSON.parse((await exec('npm', ['pack', '--json', '--pack-destination', f.root], { cwd: source })).stdout)[0]
     f.artifacts.set(f.names[index], await readFile(path.join(f.root, packed.filename)))
   }
@@ -144,9 +153,11 @@ test('verified release tarballs upgrade an actual local npm installation and per
   }
   await upgradeKinex({ ...f.options, all: true })
   assert.ok(output.some(text => text.includes('NEW_CLI:update')))
-  for (const name of ['kinex', '@kinex/core', '@kinex/setup']) {
+  for (const name of ['kinex', '@kinex/core', '@kinex/setup', 'kinex/node_modules/@kinex/self-improve']) {
     assert.equal(JSON.parse(await readFile(path.join(f.prefix, 'node_modules', name, 'package.json'), 'utf8')).version, '0.10.4')
   }
+  // The bundled package uses the installation's one core, not a copy of its own.
+  await assert.rejects(stat(path.join(f.prefix, 'node_modules/kinex/node_modules/@kinex/core')), { code: 'ENOENT' })
   const consumer = JSON.parse(await readFile(path.join(f.prefix, 'package.json'), 'utf8'))
   for (const spec of Object.values(consumer.dependencies)) {
     assert.match(spec, /^file:/)

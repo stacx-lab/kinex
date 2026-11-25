@@ -38,6 +38,7 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
   const setupWorkspace = path.join(relocated, 'setup-consumer')
   await mkdir(setupWorkspace)
   await t.test('setup composes, relocates and can be removed', () => checkSetupPackage(setupWorkspace, relocated, env, setup))
+  // The release's three archives, all any released Kinex installs when it updates.
   await install(relocated, setup, standalone)
   await rename(relocated, relocated + '-standalone')
   relocated += '-standalone'
@@ -57,6 +58,13 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
     assert.equal(manifest.dependencies[`@kinex/${name}`], manifest.version)
     if (name === 'setup') assert.equal(dependency.dependencies['@kinex/core'], manifest.version)
   }
+  // Self-improve ships inside the standalone archive and shares the installation's core.
+  assert.deepEqual(manifest.bundleDependencies, ['@kinex/self-improve'])
+  assert.deepEqual([...standalone.bundled].sort(), ['@kinex/self-improve'])
+  const selfImprove = JSON.parse(await readFile(path.join(relocated, 'node_modules/kinex/node_modules/@kinex/self-improve/package.json'), 'utf8'))
+  assert.equal(selfImprove.version, manifest.version)
+  assert.equal(selfImprove.peerDependencies['@kinex/core'], manifest.version)
+  await assert.rejects(stat(path.join(relocated, 'node_modules/kinex/node_modules/@kinex/core')), { code: 'ENOENT' })
   assert.match((await invoke('--help')).stdout, /--enable-recording/)
   assert.match((await invoke('-p', '/devices')).stdout, /No devices/)
   await exec(process.execPath, ['--input-type=module', '-e', `
@@ -68,6 +76,7 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
       assert.ok(app.host.session.getAllTools().some(tool => tool.name === 'web_search'))
       assert.ok(app.host.session.extensionRunner.getCommand('btw'))
       assert.ok(app.host.session.extensionRunner.getCommand('onboarding'))
+      assert.ok(app.host.session.extensionRunner.getCommand('self-improve'))
       for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2']) assert.equal(app.host.session.extensionRunner.getCommand(name), undefined)
     } finally { await app.dispose() }
   `], { cwd: relocated, env, timeout: 20000 })

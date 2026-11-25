@@ -1,0 +1,13 @@
+#!/bin/sh
+# Stands in for bubblewrap on a host where no sandbox can run (test/helpers.mjs):
+# it runs the command after -- in the folder --chdir names, without isolation.
+# What a real sandbox hides is tested where one runs (packages/self-improve/test/sandbox.test.mjs).
+directory=.
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --chdir) directory=$2; shift 2 ;;
+    --) shift; break ;;
+    *) shift ;;
+  esac
+done
+cd "$directory" && exec "$@"

@@ -1,8 +1,7 @@
 import path from "node:path"
-import { createKinexRuntime, type KinexRuntime, type RuntimeOptions } from "@kinex/core"
+import { createKinexRuntime, type KinexRuntime, type RuntimeOptions, type Subagent } from "@kinex/core"
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { Interaction, type Mode } from "./interaction.ts"
-import type { Subagents } from "./subagent.ts"
 
 // Workspace ownership outlives SDK sessions and extension reloads.
 type Entry = ReturnType<ExtensionContext["sessionManager"]["getBranch"]>[number]
@@ -17,7 +16,7 @@ export class RoboticsOwner {
   runtime?: KinexRuntime
   failure?: Error
   // Set by the application once its model runtime exists; programs reach it through the runtime.
-  subagents?: Subagents
+  subagents?: Subagent
   private context?: ExtensionContext
   private trace?: ExtensionContext["sessionManager"]
   private observed = new Set<string>()
@@ -31,7 +30,7 @@ export class RoboticsOwner {
       ...this.interaction.host,
       subagent: (request, signal) => {
         if (!this.subagents) throw new Error("Subagents are not available in this session")
-        return this.subagents.run(request, signal)
+        return this.subagents(request, signal)
       },
       exportTrace: async (sessionID, range) => {
         if (this.trace?.getSessionId() !== sessionID) return { sessionID, messages: [] }
@@ -47,7 +46,7 @@ export class RoboticsOwner {
     return this.runtime
   }
 
-  /** The model of the session in front of the user, which subagents use until one is chosen. */
+  /** The model of the session in front of the user, which a program's subagents use unless a call names another. */
   get model() { return this.context?.model }
 
   bind(ctx: ExtensionContext) {

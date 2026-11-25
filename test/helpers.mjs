@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 
 export async function isolate() {
   const root = await mkdtemp(path.join(tmpdir(), 'kinex-sdk-'))
@@ -16,6 +19,19 @@ export async function isolate() {
   process.env.PI_TELEMETRY = '0'
   for (const name of Object.keys(process.env)) if (name.endsWith('API_KEY') || name.endsWith('API_TOKEN')) delete process.env[name]
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) }
+}
+
+// Self-improve runs its workers and distillers only in a sandbox. Where neither bubblewrap nor
+// Docker can start one, children of these tests run under a stand-in bubblewrap that does not
+// isolate them. The check runs in a process of its own, which caches its answer, not in this one.
+export async function sandboxOrStandIn() {
+  // A sandbox binds the Kinex its children run, which the check names as a Kinex process would.
+  const entry = fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url))
+  const check = `const { kinex } = await import('@kinex/self-improve/kinex'); kinex.entry = ${JSON.stringify(entry)}; await (await import('@kinex/self-improve/sandbox')).sandboxOf()`
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const real = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', check], { cwd: root }).then(() => true, () => false)
+  if (!real) process.env.PATH = [fileURLToPath(new URL('./fixtures/sandbox', import.meta.url)), process.env.PATH].join(path.delimiter)
+  return real
 }
 
 export async function fakeProvider(t, root) {
@@ -35,7 +51,7 @@ export async function fakeProvider(t, root) {
     const send = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason }] })}\n\n`)
     if (step.tool || step.tools) {
       const calls = step.tools ?? [{ name: step.tool, args: step.args }]
-      send({ role: 'assistant', tool_calls: calls.map((call, index) => ({ index, id: `call_${requests.length}_${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } })) })
+      send({ role: 'assistant', ...(step.text ? { content: step.text } : {}), tool_calls: calls.map((call, index) => ({ index, id: `call_${requests.length}_${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } })) })
       send({}, 'tool_calls')
     } else { send({ role: 'assistant', content: step.text ?? 'FAKE_REPLY_OK' }); send({}, 'stop') }
     res.write(`data: ${JSON.stringify({ ...base, choices: [], usage: { prompt_tokens: step.inputTokens ?? 1000, completion_tokens: 20, total_tokens: (step.inputTokens ?? 1000) + 20, prompt_tokens_details: { cached_tokens: 800 } } })}\n\ndata: [DONE]\n\n`)

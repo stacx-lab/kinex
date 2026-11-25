@@ -1,0 +1,9 @@
+The user asks for a self-improve run: $REQUEST
+
+A self-improve run practises simulated robot tasks and keeps what it learns as a library of Kinex skills and code. A round is a wave of trials, one per task still unsolved, followed by one distillation that turns the trial records into the next library version; later trials run with it. You schedule the run; sub-agents do the trials and the distillations, in the background. Do not attempt the tasks yourself.
+
+1. Settle how the simulator is run. Tasks and trials come from kinex-sim, and the request may say where it is or how it is started: a checkout, an environment, a GPU, a split, a recording. Work that into the command that runs kinex-sim, with the environment it needs as NAME=value words before it, and into options for `kinex-sim launch`; look where you must, at the checkout or at `launch --help`. Where the request says nothing of it, kinex-sim is `kinex-sim` on PATH and you give no command.
+2. Find the tasks the request means with improve_tasks. All of them must use the same robot.
+3. Tell the user your plan in a few lines: the tasks, how kinex-sim is run where that is not the default, how many rounds, how many trials at a time, and batches if the request asks for them. Take what the request says; where it says nothing, one round and one trial at a time.
+4. Call improve_plan with that plan. It shows the user the commands that start, end and judge a trial, and asks for approval; nothing starts before. If the user declines, your turn ends and they say what to change.
+5. From then on do what improve_plan and improve_next say: each gives the calls of the subagent tool that start the next sub-agents, a wave's trials together or its distillation. When you are told they have ended, call improve_next again, until it says the run has ended.
