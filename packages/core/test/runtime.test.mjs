@@ -283,8 +283,9 @@ test('a program asks the host subagent, alongside other calls, and handles its f
   const calls = []
   const state = { aborted: 0 }
   const until = (signal, milliseconds) => new Promise((resolve, reject) => {
-    const timer = milliseconds === undefined ? undefined : setTimeout(resolve, milliseconds)
-    signal.addEventListener('abort', () => { clearTimeout(timer); state.aborted++; reject(signal.reason) }, { once: true })
+    const abort = () => { clearTimeout(timer); state.aborted++; reject(signal.reason) }
+    const timer = milliseconds === undefined ? undefined : setTimeout(() => { signal.removeEventListener('abort', abort); resolve() }, milliseconds)
+    signal.addEventListener('abort', abort, { once: true })
   })
   const subagent = async (request, signal) => {
     calls.push(request)
@@ -343,11 +344,28 @@ asyncio.run(main())
     'subagent failed: provider refused', 'subagent failed: subagent gave no reply within 0.3 s', 'subagent fake/default (T): reply to slow', '',
   ])
 
-  // A call the program stops waiting for ends with the invocation.
+  // A call the program stops waiting for is answered all the same: while its loop runs, or once the
+  // invocation ends it, after that loop has closed. Neither answer keeps the runtime from serving calls.
   const aborted = state.aborted
-  const abandoned = await execScript(runtime, { python: 'import asyncio\nfrom kinex import finish, subagent\nasync def main():\n    task = asyncio.create_task(subagent("never"))\n    await asyncio.sleep(0.2)\n    finish("done")\nasyncio.run(main())' })
-  assert.deepEqual(JSON.parse(abandoned.output), { output: '', result: 'done' })
+  const abandoned = await execScript(runtime, { python: `
+import asyncio
+from kinex import finish, runtime, subagent
+async def main():
+    try:
+        await asyncio.wait_for(subagent("slow"), 0.1)
+    except TimeoutError:
+        pass
+    task = asyncio.create_task(subagent("never"))
+    await asyncio.sleep(0.5)
+    finish([device["name"] for device in runtime.devices()])
+asyncio.run(main())
+` })
+  assert.ok(!abandoned.isError, abandoned.output)
+  assert.deepEqual(JSON.parse(abandoned.output).result, ['sensor'])
+  assert.match(JSON.parse(abandoned.output).output, /^subagent fake\/default \(\d+\.\d s\): reply to slow\n$/)
   assert.equal(state.aborted, aborted + 1)
+  const next = await execScript(runtime, { timeout_s: 5, python: 'from kinex import finish, runtime\nfinish([device["name"] for device in runtime.devices()])' })
+  assert.deepEqual(JSON.parse(next.output), { output: '', result: ['sensor'] })
 
   // A host without subagents says so, and the program can fall back.
   const plain = await fixture(t, { host })
