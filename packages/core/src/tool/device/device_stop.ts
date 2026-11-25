@@ -33,6 +33,8 @@ export const DeviceStopTool = define("device_stop", {
     const lines = outcomes.map((outcome, index) => {
       if ("error" in outcome) return `${outcome.device}: ${outcome.error}`
       const device = targets[index]!
+      // A world's stop cancels its pending wait; the world goes on.
+      if (device.type === "world") return `${device.name}: pending wait cancelled`
       const stop = "stop" in device ? device.stop : undefined
       const scope = stop && known(stop) ? ` (${stop.behavior}; affects ${stop.affected_devices.join(", ")})` : ""
       return `${device.name}: stopped${scope}`

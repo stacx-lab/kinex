@@ -155,6 +155,15 @@ for(const [via,stop] of Object.entries(stoppers)) test(`a device stop cancels on
  assert.equal(await stops(dir),2)
 })
 
+test('device_stop reports a world stop as its pending wait cancelled',async t=>{
+ const {runtime,directory}=await fixture(t)
+ await protocolDevice(runtime,directory,'world',{type:'world',loaded:true})
+ await protocolDevice(runtime,directory,'sensor',{loaded:true})
+ const result=await runtime.tools.call('device_stop',{},{sessionID:'stop'})
+ assert.ok(!result.isError,result.output)
+ assert.deepEqual(result.output.split('\n').sort(),['sensor: stopped','world: pending wait cancelled'])
+})
+
 test('separate runtimes own separate node processes and disposal does not close the other',async t=>{
  const {runtime:a,directory}=await fixture(t)
  await protocolDevice(a,directory,'sensor',{loaded:true})
