@@ -11,10 +11,10 @@ execution approval covers the invocation; Python cannot change device lifecycle.
 """
 
 import asyncio
+import concurrent.futures
 import itertools
 import json
 import os
-import queue
 import sys
 import threading
 
@@ -78,7 +78,9 @@ def _emit(payload):
 
 
 # Calls carry an id, so a slow one, such as a subagent, does not hold back the others.
-# One thread reads the host's answers and hands each to the call that waits for it.
+# One thread reads the host's answers for as long as the runtime lives, while the programs
+# that wait for them come and go. It completes each call's future and runs no caller's code,
+# so no caller, not even one whose event loop has ended, can stop it from reading.
 _calls = {}
 _calls_lock = threading.Lock()
 _ids = itertools.count(1)
@@ -91,15 +93,15 @@ def _read():
             _serve(answer)
             continue
         with _calls_lock:
-            deliver = _calls.pop(answer.pop("id", None), None)
-        if deliver:
-            deliver(answer)
+            call = _calls.pop(answer.pop("id", None), None)
+        if call:
+            call.set_result(answer)
     with _calls_lock:
         waiting = list(_calls.values())
         _calls.clear()
         _calls[None] = None  # marks the dialog closed
-    for deliver in waiting:
-        deliver(None)
+    for call in waiting:
+        call.set_result(None)
     _serve(None)
 
 
@@ -123,15 +125,21 @@ class _Output:
         pass
 
 
-def _send(payload, deliver):
+def _send(payload):
+    """Send a host call: a future of its answer, or of None once the host closes the dialog."""
     if _out is None:
         raise RuntimeError("not running inside exec: the host dialog is unavailable")
+    call = concurrent.futures.Future()
+    # The host works on the call from now on. A caller that stops waiting cannot cancel it, so only
+    # the answer completes it.
+    call.set_running_or_notify_cancel()
     with _calls_lock:
         if None in _calls:
             raise RuntimeError("harness closed the dialog")
         identifier = next(_ids)
-        _calls[identifier] = deliver
+        _calls[identifier] = call
     _emit({**payload, "id": identifier})
+    return call
 
 
 def _answer(response):
@@ -145,17 +153,13 @@ def _answer(response):
 
 
 def _rpc(payload):
-    answers = queue.SimpleQueue()
-    _send(payload, answers.put)
-    return _answer(answers.get())
+    return _answer(_send(payload).result())
 
 
 async def _call(payload):
-    """A host call that leaves the event loop free while the host works."""
-    loop = asyncio.get_running_loop()
-    answer = loop.create_future()
-    _send(payload, lambda response: loop.call_soon_threadsafe(lambda: answer.done() or answer.set_result(response)))
-    return _answer(await answer)
+    """A host call that leaves the event loop free while the host works. An answer that arrives after
+    the loop has ended goes nowhere: wrap_future drops it."""
+    return _answer(await asyncio.wrap_future(_send(payload)))
 
 
 def profile(device, *, optional=False):
