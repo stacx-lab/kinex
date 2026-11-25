@@ -1,0 +1,8 @@
+# A free-form goal: JSON objects whose fields the operation description defines.
+string request
+---
+bool success
+string message
+string response
+---
+string feedback

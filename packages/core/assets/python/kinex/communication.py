@@ -22,6 +22,7 @@ from kinex.errors import RPCError, OperationError
 _active = contextvars.ContextVar("kinex_communication", default=None)
 # Free-form operations carry JSON objects; their descriptions define the fields.
 JSON = "custom_interfaces/srv/Json"
+JSON_ACTION = "custom_interfaces/action/Json"
 WAIT = "custom_interfaces/srv/Wait"
 NOW = "custom_interfaces/srv/Now"
 CLOCK = "rosgraph_msgs/msg/Clock"
@@ -184,11 +185,12 @@ class Subscription:
 class Goal:
     """An action goal, sent as it is made. Awaiting it gives the action's result once the goal has finished; a
     goal its device rejects, aborts or cancels raises. status is sending, executing, then succeeded, canceled,
-    aborted or rejected; feedback is the latest the device sent, and result the action's result. A goal advances
-    no world time: wait for it on the world."""
+    aborted or rejected; feedback is the latest the device sent, and result the action's result, for a Json
+    action the objects they carry. A goal advances no world time: wait for it on the world."""
 
     def __init__(self, scope, reference, spec, goal):
         self.scope, self.reference, self.type = scope, reference, spec["type"]
+        self.json = self.type == JSON_ACTION
         self.feedback = self.result = self.handle = None
         self.status = "sending"
         self.accepted = asyncio.ensure_future(self._send(spec, goal))
@@ -197,12 +199,10 @@ class Goal:
             task.add_done_callback(lambda done: done.cancelled() or done.exception())
         self.accepted.add_done_callback(lambda _: scope.world.kick.set())
 
-    def _failure(self, text):
-        from rosidl_runtime_py.convert import message_to_ordereddict
-        reason = getattr(self.result, "error_string", "")
+    def _failure(self, text, reason=""):
+        from kinex.common.plain import plain
         return RPCError(f"{self.reference} {text}" + (f": {reason}" if reason else ""), code=f"goal_{self.status}", details={
-            "operation": self.reference, "type": self.type,
-            **({} if self.result is None else {"result": message_to_ordereddict(self.result)})})
+            "operation": self.reference, "type": self.type, **({} if self.result is None else {"result": plain(self.result)})})
 
     async def _send(self, spec, goal):
         scope, timeout_s = self.scope, spec.get("timeout_s", 10)
@@ -216,14 +216,15 @@ class Goal:
             raise self._failure("rejected the goal")
 
     def _feedback(self, message):
-        self.feedback = message.feedback
+        self.feedback = json.loads(message.feedback.feedback) if self.json else message.feedback
 
     async def _finish(self):
         await self.accepted
         reply = await self.scope._future(self.handle.get_result_async(), None)
-        self.status, self.result = STATUS.get(reply.status, "aborted"), reply.result
+        self.status, result = STATUS.get(reply.status, "aborted"), reply.result
+        self.result = json.loads(result.response or "null") if self.json else result
         if self.status != "succeeded":
-            raise self._failure(f"was {self.status}")
+            raise self._failure(f"was {self.status}", result.message if self.json else getattr(result, "error_string", ""))
         return self.result
 
     def __await__(self):
@@ -492,10 +493,15 @@ class Scope:
         return actions[reference]
 
     def act(self, reference, goal=None, **fields):
-        """Send an action its goal, a message or field mapping, or its fields by name: the Goal, already sent."""
+        """Send an action its goal, a message or field mapping, or its fields by name: the Goal, already sent.
+        A Json action takes the fields of its object."""
+        from kinex.common.plain import plain
         from rosidl_runtime_py.utilities import get_action
         spec = self.operation(reference, "action", "input")
-        return Goal(self, reference, spec, message_value(get_action(spec["type"]).Goal, fields if goal is None else goal))
+        fields = fields if goal is None else goal
+        if spec["type"] == JSON_ACTION:
+            fields = {"request": json.dumps(plain(fields), allow_nan=False)}
+        return Goal(self, reference, spec, message_value(get_action(spec["type"]).Goal, fields))
 
     async def request(self, reference, *, timeout_s=None, **fields):
         """Call a service with its request's fields; the response, or for a Json operation its decoded object."""

@@ -200,13 +200,16 @@ returns the `Goal` at once. A goal advances no world time. `goal.status` is `sen
 `executing`, then `succeeded`, `canceled`, `aborted` or `rejected`; `goal.feedback` is the
 latest the device sent and `goal.result` the action's result once it has finished.
 Awaiting a goal gives its result; one the device rejects, aborts or cancels raises
-`RPCError`, with the result in its details. Wait for goals on the world:
+`RPCError`, with the result in its details. A `custom_interfaces/action/Json` action is
+the free-form one, as the Json service is: its goal's fields travel as one JSON object,
+poses and arrays converted as `finish` converts them, and its feedback and result are the
+decoded objects. Wait for goals on the world:
 
 ```python
-left = device("left_arm").action("move")(multi_dof_trajectory={"joint_names": ["flange"], "points": [{"transforms": [left_pose]}]})
-right = device("right_arm").action("move")(multi_dof_trajectory={"joint_names": ["flange"], "points": [{"transforms": [right_pose]}]})
+left = device("left_arm").action("move")(pose=left_pose, profile="precision")
+right = device("right_arm").action("move")(pose=right_pose)
 await world.wait_all([left, right], timeout=2.0)  # until both finish; cancelled after 2 s of world time
-print(left.status, left.result.error_string)
+print(left.status, left.result["position_error_m"])
 ```
 
 `finish` converts ROS messages, poses and NumPy values in its result to JSON and

@@ -4,15 +4,21 @@ A program is a complete script that ends with finish:
   from kinex import args, device, finish, lib, world
 
   async def main():
-      state = await device("arm").topic("joint_state").next()
-      image, _ = await lib.images.camera_frame(args()["camera"])
-      finish({"positions": state.position}, file=[image])
+      arm = device("arm")
+      await arm.topic("joint_target").publish(args()["trajectory"])
+      await world.wait_all([1.0])
+      state = await arm.topic("joint_state").next()
+      finish({"positions": state.position})
 
   asyncio.run(main())
-finish(result=None, file=None) is the only way to return. result is JSON data; messages, arrays and dataclasses are converted, a pose to [x, y, z, qx, qy, qz, qw], a time to seconds. Images are never data: attach those you must see through file, an image message or path or a list of them. Without finish the result is null; an uncaught exception is the failure. Printed text is returned too; keep it short.
-runtime discovers without starting devices: runtime.devices(), runtime.operations(name), runtime.describe("device.operation"). Use the names these give, never ones guessed from a device type; load devices through the host first.
-device(name) reaches a loaded device through the operations its profile declares. A topic: topic = device("arm").topic("joint_state"), then await topic.next() for an output's next message (the retained one again where the device retains it), topic.latest for the last received and async for to follow it; await device("arm").topic("joint_target").publish(message) commands an input. A service: await device(name).service(op)(**fields); a rejection raises kinex.OperationError. An action: goal = device(name).action(op)(**fields) sends the goal at once and advances no time; awaiting it gives its result once it has finished, a goal the device rejects, aborts or cancels raises, and goal.status, goal.feedback, goal.result and await goal.cancel() follow it. Fields take seconds for a time and a pose for a Pose or Transform: a scipy RigidTransform, from kinex.pose(value), or its seven numbers.
-world is the world device's time, the same in the real world and in a simulator: await world.now() is (time_s, used_s, max_s), world time and the episode's budget in seconds (None where there is none); await world.wait_all([goal, 0.5]) waits until every entry is over and await world.wait_any([...]) until one is, an entry being a goal, over once it has finished, or seconds of world time from now. Both return whether each entry was over, and take timeout=seconds of world time, at which the wait ends and the goals still executing are cancelled. async for now in world.rate(20) ticks. Goals on different devices run at the same time: send them all, then wait once for all of them. A stepped simulator advances only during a wait, and a message or a reply never advances it. Sending is not arrival: wait, then check fresh feedback; bound every loop.
-lib holds reusable functions, which take and return NumPy arrays, poses and seconds: find them with the lib tool, call lib.module.function(...). 
+finish(result=None, file=None) is the only way to return. result is JSON data: messages, arrays, poses and times are converted. file attaches the images you must see: an image message or path, or a list of them. Printed text is returned too; keep it short.
+runtime discovers devices without starting them: runtime.devices(), runtime.operations(name), runtime.describe("device.operation"). Use the names these give, never guessed ones.
+device(name) reaches a loaded device by the operations its profile declares:
+- topic(op): await .next() is an output's next message, .latest the last received; await .publish(message) commands an input.
+- service(op)(**fields): await it for the response; a rejection raises kinex.OperationError.
+- action(op)(**fields): sends a goal and returns it at once. Wait for it on world; then goal.status and goal.result say how it ended, and await goal returns the result or raises if it failed. await goal.cancel() ends it.
+A pose field takes kinex.pose(value) or [x, y, z, qx, qy, qz, qw]; a time field takes seconds.
+world is time, and time passes for a program only in its waits. await world.now() is (time_s, used_s, max_s): world time and the time budget in seconds, None without one. await world.wait_all(entries) waits until every entry is over and await world.wait_any(entries) until one is; an entry is a goal or seconds from now. Both return whether each entry was over; timeout=seconds ends the wait and cancels the goals still executing. async for now in world.rate(hz) ticks. Never wait with asyncio.sleep, time.sleep or by awaiting an unfinished goal. Send the goals of different devices, then wait once for all. Sending is not arrival: wait, then read fresh feedback. Bound every loop.
+lib holds reusable functions: find them with the lib tool, call lib.module.function(...).
 await kinex.subagent(instruction, show={"wrist": image}) returns a model's judgment as text; it sees only what is shown and has no tools, so state the reply's form and check it.
 Failure, timeout or cancellation stops every device the program commanded; success leaves motion running.

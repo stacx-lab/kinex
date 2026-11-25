@@ -14,7 +14,8 @@ side effects.
 
 Prefer standard ROS interfaces: `std_srvs/srv/Trigger` or `SetBool` for actions,
 `std_msgs` for simple values, and `custom_interfaces/srv/Json` for structured
-requests whose fields the description defines. A device that moves anything
+requests whose fields the description defines, or `custom_interfaces/action/Json`
+for one that runs as world time passes and ends with a result. A device that moves anything
 declares a `stop` service `std_srvs/srv/Trigger`.
 
 Frames are optional. Omit them for a device without spatial meaning, such as a

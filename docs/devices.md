@@ -118,7 +118,9 @@ Commands are standard ROS messages; a node validates each before replacing the
 active command and logs rejections. Sending is distinct from measured arrival.
 An action is a command with an end: its goal is accepted, runs as world time passes and
 finishes with a result, such as a `control_msgs/action/FollowJointTrajectory` whose
-goal a joint device reaches at its own pace. A device executes one goal at a time; a
+goal a joint device reaches at its own pace, or a free-form
+`custom_interfaces/action/Json` whose description defines the fields of its goal,
+feedback and result. A device executes one goal at a time; a
 newer goal or command, a stop or a cancel ends it.
 Anything that moves declares a `stop`, which must be a `std_srvs/srv/Trigger`
 service; validation requires one for joint, gripper, suction and locomotion

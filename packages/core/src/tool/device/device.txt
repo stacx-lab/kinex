@@ -1,3 +1,4 @@
-Call a named device's declared operation with action and args. Inspect the compact operation catalog for names, topic/service types and payload contracts. Prefer exec, with device and world, for streams and composed operations so intermediate data stays outside model context.
-load/unload accept no arguments; status observes readiness without starting or restarting resources. stop invokes the declared stopping behavior and cancels running scripts that commanded the device. Runtime definition changes require unload, validation and explicit reload. Never terminate borrowed services.
-Image observations return selected image attachments and acquisition timestamps. A sent command is not measured arrival. The world device owns time: its now gives world time and the time budget, and its wait_all and wait_any take seconds, a list of seconds of world time, with an optional timeout; reads never advance time. lib.frames.lookup_transform uses tf2 and ROS frame IDs.
+Call one operation of a device: deviceID, action and args.
+action is an operation its profile declares: an output topic returns its next message (an image as an attachment), a service takes args as its request, an input topic takes args as its message. A goal, an action operation, runs only in exec.
+load, unload and status take no args: load starts the device and waits until it is ready, unload releases it, status reports readiness without starting anything. stop runs the device's declared stop and cancels the programs that commanded it.
+Prefer exec for streams and for several operations in a row.
