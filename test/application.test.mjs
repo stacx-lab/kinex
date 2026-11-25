@@ -110,6 +110,56 @@ test('same-workspace replacement retains device nodes and finalizes recording', 
   assert.equal(app.owner.runtime, core)
 })
 
+test('a device that fails to warm after a session replacement is reported once, by the session that replaced it', { timeout: 20000 }, async t => {
+  const cwd = await workspace(t)
+  await fakeProvider(t, isolation.root)
+  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  t.after(() => app.dispose())
+  const core = app.owner.runtime
+  // The node answers its load late and fails, as a simulator that never comes up does.
+  await seed(core)
+  await writeFile(path.join(cwd, '.kinex/devices/sensor/handler.py'), "def dispatch(action, args, cancelled):\n    if action == 'load':\n        cancelled.wait(2)\n        raise RuntimeError('sensor never came up')\n")
+  await core.profiles.writeDevice({ name: 'sensor', loaded: true })
+  const notified = []
+  const ui = { setHeader() {}, setStatus() {}, setWidget() {}, notify: (message, level) => notified.push(`${level}: ${message}`) }
+  const rejections = []
+  const record = error => rejections.push(error)
+  process.on('unhandledRejection', record)
+  t.after(() => process.off('unhandledRejection', record))
+  await bind(app, ui)
+  app.host.setRebindSession(() => bind(app, ui))
+  await app.host.newSession()
+  const [activation] = await core.devices.warmLoaded()
+  await activation.ready.catch(() => {})
+  await delay(100)
+  assert.deepEqual(rejections, [])
+  assert.deepEqual(notified, ['error: sensor: RosOperationError: sensor never came up'])
+})
+
+test('a command that outlives its session leaves no outcome and never touches its replaced ctx', { timeout: 20000 }, async t => {
+  const cwd = await workspace(t)
+  await fakeProvider(t, isolation.root)
+  const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
+  t.after(() => app.dispose())
+  await seed(app.owner.runtime)
+  await writeFile(path.join(cwd, '.kinex/devices/sensor/handler.py'), "def dispatch(action, args, cancelled):\n    if action == 'load':\n        cancelled.wait(2)\n")
+  const notified = []
+  const widgets = []
+  const ui = { setHeader() {}, setStatus() {}, notify: (message, level) => notified.push(`${level}: ${message}`), onTerminalInput: () => () => {},
+    setWidget: (...args) => widgets.push(args[0]) }
+  await bind(app, ui)
+  app.host.setRebindSession(() => bind(app, ui))
+  const previous = app.host.session
+  const running = previous.prompt('/load sensor')
+  await delay(300)
+  assert.ok(widgets.includes('kinex-command'))
+  await app.host.newSession()
+  await running
+  assert.equal(widgets.filter(name => name === 'kinex-command').length, 1, 'the row of a replaced session is not redrawn')
+  assert.equal(previous.sessionManager.getBranch().filter(entry => entry.type === 'custom_message' && entry.customType === 'kinex').length, 0)
+  assert.deepEqual(notified, ['info: sensor: activating'])
+})
+
 for (const source of ['file', 'camera', 'exec']) test(`${source} images are stored as bytes and survive session resume`, async t => {
   const cwd = await workspace(t)
   const fake = await fakeProvider(t, isolation.root)
