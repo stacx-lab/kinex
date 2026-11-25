@@ -3,18 +3,26 @@ import { Loader, matchesKey } from "@earendil-works/pi-tui"
 import type { ContributionCommand } from "@kinex/core/integration"
 import { commandRow } from "./render.ts"
 
-export async function executeCommand(command: ContributionCommand, args: string, ctx: ExtensionContext, signal: AbortSignal | undefined = ctx.signal) {
+/**
+ * The UI of a ctx's session while that session lasts, and undefined once it is over or where there is none.
+ * Pi rejects every use of a ctx after its session is replaced or reloaded, while a command goes on in the
+ * runtime: whatever may run later than the handler that received the ctx reaches the UI through this.
+ */
+export type SessionUI = (ctx: ExtensionContext) => ExtensionContext["ui"] | undefined
+
+export async function executeCommand(command: ContributionCommand, args: string, ctx: ExtensionContext, ui: SessionUI, signal: AbortSignal | undefined = ctx.signal) {
   if (command.interrupt) ctx.abort()
   return command.execute(args, {
     sessionID: ctx.sessionManager.getSessionId(),
     signal: command.interrupt ? undefined : signal,
     confirm: async (title, description) => {
-      if (!ctx.hasUI) return false
-      const accepted = await ctx.ui.confirm(title, description, { signal })
+      const shown = ui(ctx)
+      if (!shown) return false
+      const accepted = await shown.confirm(title, description, { signal })
       signal?.throwIfAborted()
       return accepted
     },
-    notify: message => { if (ctx.hasUI) ctx.ui.notify(message, "info") },
+    notify: message => { ui(ctx)?.notify(message, "info") },
   })
 }
 
@@ -22,14 +30,14 @@ export async function executeCommand(command: ContributionCommand, args: string,
  * A user command while it runs: its pending row above the editor, and Escape to cancel it.
  * During an agent run Escape already ends the run, and the command with it.
  */
-export function commandProgress(ctx: ExtensionContext, name: string, args: string) {
+export function commandProgress(ctx: ExtensionContext, name: string, args: string, ui: SessionUI) {
   const cancel = new AbortController()
   const signal = ctx.signal ? AbortSignal.any([ctx.signal, cancel.signal]) : cancel.signal
   if (!ctx.hasUI) return { signal, cancelled: () => false, end() {} }
   const started = Date.now()
+  const hint = ctx.signal ? "" : " · esc to cancel"
   // A command that answers at once would only flash its row.
-  const shown = setTimeout(() => ctx.ui.setWidget("kinex-command", (tui, theme) => {
-    const hint = ctx.signal ? "" : " · esc to cancel"
+  const shown = setTimeout(() => ui(ctx)?.setWidget("kinex-command", (tui, theme) => {
     const label = () => `${Math.floor((Date.now() - started) / 1000)} s${hint}`
     const loader = new Loader(tui, text => theme.fg("accent", text), text => theme.fg("muted", text), label())
     loader.setPaddingX(0)
@@ -46,7 +54,7 @@ export function commandProgress(ctx: ExtensionContext, name: string, args: strin
   return {
     signal,
     cancelled: () => cancel.signal.aborted,
-    end() { clearTimeout(shown); release?.(); ctx.ui.setWidget("kinex-command", undefined) },
+    end() { clearTimeout(shown); release?.(); ui(ctx)?.setWidget("kinex-command", undefined) },
   }
 }
 
