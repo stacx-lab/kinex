@@ -138,6 +138,7 @@ class Runtime:
         self.bridge.tf.device(name, True)
 
     def unload(self, name):
+        """A device has no live host, loaded or not: its operations leave the catalog, its frames the graph."""
         for reference in [reference for reference in self.catalog if reference.split(".")[0] == name]:
             del self.catalog[reference]
         if self.bridge is not None:

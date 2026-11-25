@@ -528,6 +528,64 @@ class Messages(unittest.TestCase):
             message_value(self.Trajectory, [1, 2])
 
 
+class FrameGraph(unittest.TestCase):
+    """Whose frames a lookup may use across device hosts' lives; tf2's own history is stood in for."""
+
+    def setUp(self):
+        class Buffer:
+            def __init__(self, cache_time=None):
+                pass
+
+            def set_transform(self, value, authority):
+                pass
+
+            def set_transform_static(self, value, authority):
+                pass
+
+        tf2, duration = ModuleType("tf2_ros"), ModuleType("rclpy.duration")
+        tf2.Buffer, tf2.TransformListener = Buffer, None
+        tf2.TransformException = type("TransformException", (Exception,), {})
+        tf2.LookupException = type("LookupException", (tf2.TransformException,), {})
+        duration.Duration = lambda **_: None
+        self.enterContext(patch.dict(sys.modules, {"tf2_ros": tf2, "rclpy": ModuleType("rclpy"), "rclpy.duration": duration}))
+        from kinex.host.frame_graph import FrameBuffer
+        self.graph = FrameBuffer()
+
+    @staticmethod
+    def frame(parent, child):
+        return NS(header=NS(frame_id=parent, stamp=NS(sec=0, nanosec=0)), child_frame_id=child)
+
+    def test_a_reloaded_device_keeps_what_its_new_host_published_before_it_was_loaded(self):
+        graph, mount, link = self.graph, self.frame("world/base", "camera/base"), self.frame("camera/base", "camera/pan")
+        graph.set_transform_static(mount, "host")
+        graph.device("camera", True)
+        self.assertTrue(graph.connected("world/base", "camera/base"))
+        graph.device("camera", False)
+        self.assertEqual(graph.edges(), {})
+        # The next host latches its mounts once, and moves, before its device is announced loaded.
+        graph.set_transform_static(mount, "host")
+        graph.set_transform(link, "host")
+        self.assertFalse(graph.connected("world/base", "camera/pan"))
+        self.assertEqual(graph.explain("world/base", "camera/pan", None), "camera is not loaded")
+        graph.device("camera", True)
+        self.assertTrue(graph.connected("world/base", "camera/pan"))
+
+    def test_a_host_that_never_loaded_leaves_no_frames_to_a_later_one(self):
+        graph, mount, lens = self.graph, self.frame("world/base", "camera/base"), self.frame("camera/base", "camera/lens")
+        graph.device("camera", False)  # no live host: one is about to start
+        graph.set_transform_static(mount, "host")
+        graph.set_transform_static(lens, "host")
+        self.assertFalse(graph.connected("world/base", "camera/lens"))
+        graph.device("camera", False)  # no live host: that one ended without loading
+        self.assertEqual(graph.edges(), {})
+        # The next host no longer publishes the lens, whose calibration became unknown.
+        graph.set_transform_static(mount, "host")
+        graph.device("camera", True)
+        self.assertTrue(graph.connected("world/base", "camera/base"))
+        self.assertFalse(graph.connected("world/base", "camera/lens"))
+        self.assertEqual(graph.explain("world/base", "camera/lens", None), "camera/lens is not on TF; camera has camera/base")
+
+
 class DeviceHostShutdown(unittest.IsolatedAsyncioTestCase):
     async def test_closed_input_unloads_a_loaded_device(self):
         import io
