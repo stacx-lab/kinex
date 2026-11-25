@@ -49,6 +49,9 @@ class Scope:
     def __init__(self, streams):
         self.adapters = {name: OpenCVGeometry(STREAM, fisheye=True) for name in streams}
 
+    def operation(self, reference, transport=None):
+        return self.catalog.get(reference, {})
+
     async def request(self, reference, **fields):
         if reference.endswith(".geometry"):
             return {"streams": {name: {**STREAM, "frame": f"camera/{name}", "calibration_id": name} for name in self.adapters}}
