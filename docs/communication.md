@@ -490,10 +490,12 @@ same ROS domain, then open Kinex, which loads the exported devices when it start
 ## Recording
 
 Continuous recording observes the selected operations, by default every declared
-topic of the device, including input commands, and saves typed CDR messages with
-rosbag2. Output sample rates use the world clock. Clock and TF data are retained
-alongside the observations, with reset epochs in the sample index. Recording
-never requests world progress. See [recording](agent-integration.md#recording)
-for products and lifecycle. The Kinex Python environment must provide
-`rosbag2_py` and SQLite storage; frame conversion additionally uses
+topic of the device, including input commands, each at its own rate, and keeps
+each kind of data in the form that suits it: 8-bit color images as H.264 video,
+everything else, depth included, as typed CDR messages with rosbag2. Output
+sample rates use the world clock. Clock and TF data are recorded once for the
+domain, with reset epochs in the sample index. Recording never requests world
+progress. See [recording](agent-integration.md#recording) for products and
+lifecycle. The Kinex Python environment must provide `rosbag2_py` with MCAP or
+SQLite storage, and `ffmpeg` for video; frame conversion additionally uses
 `tf2_geometry_msgs`. Discovery imports neither.

@@ -56,24 +56,47 @@ leaves it unset and programs receive `subagent_unavailable`.
 ## Recording
 
 Manual recording is available; model recording is opt-in. Continuous capture
-observes declared topic operations in a separate owned process. It saves rosbag2
-SQLite/CDR bags with full typed payloads, including image/depth streams, plus
-manifests, timelines, profile snapshots and a per-sample index. The world clock
-and TF topics accompany each device bag. Output rates are capped in world time;
-input commands and frame/clock data are not rate-filtered. Recording never calls
-world waits or advances simulation. Paused time produces no repeated frames.
+observes declared topic operations in a separate owned process for each device,
+plus one for the domain's world clock and TF, which every device's observations
+are read against. It saves manifests, timelines, profile snapshots, a per-sample
+index and each kind of data in the form that suits it:
 
-`recording.start({specs: {arm: {rate: 10, operations: ["joint_state", "joint_target"]}},
-sessionID})` selects operations; omitting `operations` captures all declared
-topics. Service-only devices can be captured with explicit snapshots using their
-configured observation; continuous capture requires topic operations.
+| Data | Stored as | |
+|---|---|---|
+| 8-bit color images (`rgb8`, `bgr8`, `rgba8`, `bgra8`, `mono8`) | H.264 video, `stream/<operation>.mp4` | lossy; two to three orders smaller than the pixels |
+| Depth and other images | typed messages in the bag | lossless; a 16-bit depth frame keeps under a third of its size |
+| Joint states and commands, grippers, IMU, wrenches, odometry | typed messages in the bag | lossless |
+| World clock and TF | typed messages in `tf/bag/` | once for all devices |
+
+Bags are rosbag2 MCAP with zstd chunks and CDR messages; an environment without
+the MCAP plugin writes SQLite, and `stream.storage` in the manifest names which.
+Output rates are capped in world time; input commands and frame/clock data are
+not rate-filtered. Recording never calls world waits or advances simulation.
+Paused time produces no repeated frames.
+
+`recording.start({specs: {arm: {rate: 10}}, sessionID})` captures all of a
+device's declared topics at one rate. `operations` as a list selects operations:
+`{rate: 10, operations: ["joint_state", "joint_target"]}`. As a map it gives an
+operation its own rate or format, `{rate: 10, operations: {depth: 2}}`, and
+selects only when the device has no rate: `{operations: {image: 10, depth: {rate: 2}}}`.
+The format of an operation is `"video"` or `"bag"`: `{image: {rate: 10, format: "bag"}}`
+keeps a color stream's exact pixels, as calibration needs. Without one, an image
+operation goes to video when its frames are 8-bit color and `ffmpeg` is present,
+and to the bag otherwise. The manifest's `sampling` records each operation's rate
+in `rates` and the formats asked for in `formats`. Service-only devices can be
+captured with explicit snapshots using their configured observation; continuous
+capture requires topic operations.
 
 `devices/<name>/stream/bag/` holds the bag, `operations.json` its catalog, and
 `samples.jsonl` the operation, acquisition stamp, world time, reset epoch and
-receipt time for each recorded message. Full payloads stay in the bag rather than
-crossing the host JSON channel. Bags use monotonic receipt order across world
-resets; message stamps are unchanged. Ordinary host-observed requests/responses
-retain invocation attribution separately. No automatic video transcoding occurs.
+receipt time for each recorded message, with the `file` and `frame` of one stored
+as video. A video holds its frames in arrival order at a nominal rate, as
+fragmented MP4 that stays readable if capture dies; read a frame's time from
+the index, never from the video's timeline. A frame of another size or encoding
+starts the operation's next file, `<operation>.1.mp4`. Full payloads stay in the
+bag or video rather than crossing the host JSON channel. Bags use monotonic
+receipt order across world resets; message stamps are unchanged. Ordinary
+host-observed requests/responses retain invocation attribution separately.
 
 Queue losses and errors are counted. Rate-filtered output samples are counted
 separately from losses. Unload/disposal finalize owned capture processes;

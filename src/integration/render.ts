@@ -20,8 +20,18 @@ function summary(name: string, args: Record<string, unknown>): string[] {
   if (name === "devices") return [`${Array.isArray(args.calls) ? args.calls.length : 0} calls`]
   if (name === "device_stop") return [string(args.deviceID) || "all"]
   if (name === "record") {
+    // A device's rate, then each operation given its own: arm=10Hz camera.depth=2Hz.
+    const rates = (device: string, spec: unknown) => {
+      if (typeof spec === "number") return [`${device}=${spec}Hz`]
+      const { rate, operations } = object(spec)
+      const own = Array.isArray(operations) ? [] : Object.entries(object(operations)).map(([operation, value]) => {
+        const hz = typeof value === "number" ? value : object(value).rate
+        return `${device}.${operation}=${typeof hz === "number" ? hz : typeof rate === "number" ? rate : "?"}Hz`
+      })
+      return typeof rate === "number" ? [`${device}=${rate}Hz`, ...own] : own.length ? own : [`${device}=?Hz`]
+    }
     const devices = Array.isArray(args.devices) ? args.devices.map(string).join(", ")
-      : Object.entries(object(args.devices)).map(([device, rate]) => `${device}=${typeof rate === "number" ? rate : "?"}Hz`).join(" ")
+      : Object.entries(object(args.devices)).flatMap(([device, spec]) => rates(device, spec)).join(" ")
     return [[string(args.action), devices, string(args.outcome)].filter(Boolean).join(" ")]
   }
   return []

@@ -46,4 +46,11 @@ test('manual recording omits empty optional fields by default and accepts --verb
   assert.deepEqual(snap.readings.sensor.data.faults, [])
   assert.deepEqual((await run('snap --verbose sensor')).refusals, {})
   await assert.rejects(run('status unexpected'), /Usage/)
+  // An operation takes its own rate and format; a format belongs to an operation, and is one of two.
+  for (const spec of ['sensor=fast', 'sensor=5:bag', 'sensor.read=5:mp4', 'sensor.read=5:bag:video', '=5'])
+    await assert.rejects(run(`start ${spec}`), /expected <device>=<Hz> or <device>\.<operation>=<Hz>/)
+  // Recording needs a world clock, which this workspace lacks: the specs parse and each device is refused for that.
+  const refused = await run('start sensor=5 sensor.read=2:bag task text')
+  assert.match(refused.refusals.sensor, /requires a world device/)
+  assert.equal(refused.manifest.task, 'task text')
 })

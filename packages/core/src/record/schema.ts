@@ -4,10 +4,19 @@ import { z } from "zod"
 // the row shapes of the JSONL files. Downstream analysis and dataset exporters
 // read these files.
 
+// How an operation's messages are kept. An image operation of 8-bit color defaults to
+// video, which is lossy; "bag" keeps its typed messages, as every other operation does.
+export const Format = z.enum(["video", "bag"])
+export type Format = z.infer<typeof Format>
+
 // Capture configuration is fixed at start; every source records continuously.
+// `rate` is the highest of the operations' rates; `rates` gives each operation's own, and
+// `formats` the formats that were asked for. Recordings made before these have neither.
 export const DeviceSampling = z.object({
   rate: z.number().positive(),
   operations: z.array(z.string()).min(1),
+  rates: z.record(z.string(), z.number().positive()).default({}),
+  formats: z.record(z.string(), Format).default({}),
 })
 export type DeviceSampling = z.infer<typeof DeviceSampling>
 
@@ -18,6 +27,10 @@ export const StreamStats = z.object({
   status: z.enum(["starting", "recording", "stopped", "error"]),
   bytes: z.number().default(0),
   bag: z.string().optional(),
+  // The bag's rosbag2 storage: mcap, or sqlite3 where the environment has no MCAP plugin.
+  storage: z.string().optional(),
+  // The video files of each operation recorded as video, in order.
+  videos: z.record(z.string(), z.array(z.string())).default({}),
   operations: z.record(z.string(), z.number().nonnegative()).default({}),
   filtered: z.number().default(0),
   timestamps: z.string().optional(),
@@ -62,6 +75,8 @@ export const RecordingManifest = z.object({
   // other device the agent or a tool touched is tapped under passive/.
   devices: z.record(z.string(), DeviceStats).default({}),
   passive: z.record(z.string(), DeviceStats).default({}),
+  // The domain's clock and TF, recorded once under tf/ for every device.
+  tf: StreamStats.optional(),
   bytes: z.number().default(0),
   quotaHit: z.boolean().optional(),
   messageRange: z.object({ first: z.string().optional(), last: z.string().optional() }).default({}),
