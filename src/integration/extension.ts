@@ -4,7 +4,7 @@ import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "@earendil
 import { type KinexRuntime } from "@kinex/core"
 import { formatJSON } from "@kinex/core/util/json"
 import type { KinexCapabilities } from "@kinex/core/integration"
-import { registerCommands, executeCommand, commandProgress } from "./commands.ts"
+import { registerCommands, executeCommand, commandProgress, type SessionUI } from "./commands.ts"
 import type { RoboticsOwner } from "./owner.ts"
 import { contextUpdate } from "./context.ts"
 import { attachedImages, toolBridge } from "./tools.ts"
@@ -25,11 +25,16 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     const bridge = toolBridge(pi, capabilities, owner.interaction)
     await bridge.refresh()
     let unsubscribe: (() => void) | undefined
+    // Pi makes an extension for each session and rejects its pi and every ctx once that session is replaced
+    // or reloaded, which follows session_shutdown. The runtime, its devices and a running command go on, so
+    // what they report later asks active first: ui is the one way from them to the session's UI.
     let active = false
+    const ui: SessionUI = ctx => active && ctx.hasUI ? ctx.ui : undefined
     let statusGeneration = 0
     const time = sessionTime(milliseconds => pi.appendEntry(sessionTimeEntry, { milliseconds }))
     const indicator = footerIndicator(() => formatElapsed(time.milliseconds))
     const notify = (ctx: ExtensionContext, message: string, level: "info" | "warning" | "error") => {
+      if (!active) return
       if (ctx.hasUI) ctx.ui.notify(message, level)
       else console.error(`Kinex: ${message}`)
     }
@@ -37,8 +42,8 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
       if (!active) return
       const generation = ++statusGeneration
       const list = await runtime.devices.list()
-      if (!active || generation !== statusGeneration) return
-      if (ctx.hasUI) ctx.ui.setStatus("kinex", `Kinex · ${list.filter(device => device.loaded).length}/${list.length} devices · ${owner.interaction.mode}`)
+      if (generation !== statusGeneration) return
+      ui(ctx)?.setStatus("kinex", `Kinex · ${list.filter(device => device.loaded).length}/${list.length} devices · ${owner.interaction.mode}`)
     }
     // The model reads the text, which states which user command produced it; the user sees the row drawn from the details.
     type Command = Pick<CommandRow, "name" | "args">
@@ -60,24 +65,25 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
     }
     const execute = async (name: string, args: string, ctx: ExtensionContext) => {
       const command = { name, args: args.trim() }
-      const progress = commandProgress(ctx, name, command.args)
+      const progress = commandProgress(ctx, name, command.args, ui)
       const started = performance.now()
       try {
         const found = capabilities.commands.find(item => item.name === name)
         if (!found) throw new Error(`Unknown command: ${name}`)
-        const result = await executeCommand(found, args, ctx, progress.signal)
+        const result = await executeCommand(found, args, ctx, ui, progress.signal)
+        const images = result.kind === "workflow" ? [] : (await attachedImages(result.attachments)).map(({ mimeType, data }) => ({ mimeType, data }))
         progress.end()
+        // The command ran on past its session: nobody is left to read its outcome.
+        if (!active) return
         if (result.kind === "workflow") await session.prompt(result.prompt)
         else {
-          post(command, result.text, {
-            isError: result.isError === true, durationMs: performance.now() - started,
-            images: (await attachedImages(result.attachments)).map(({ mimeType, data }) => ({ mimeType, data })),
-          })
+          post(command, result.text, { isError: result.isError === true, durationMs: performance.now() - started, images })
           if (!ctx.hasUI) report(result.text)
           if (result.isError) owner.failure = new Error(result.text)
         }
       } catch (error) {
         progress.end()
+        if (!active) return
         // The user's own cancellation is an outcome the model should know about, not a fault.
         if (progress.cancelled()) return post(command, "Cancelled by the user", { isError: true, durationMs: performance.now() - started })
         fault(ctx, error)
@@ -130,7 +136,9 @@ export function kinexExtension(owner: RoboticsOwner, runtime: KinexRuntime, capa
         if (event.type === "recording.warning") notify(ctx, event.message, "warning")
       })
       await indicator.bind(runtime, ctx)
+      // Warming is the runtime's: it may fail after this session, and the session that follows reports it.
       for (const activation of await runtime.devices.warmLoaded()) void activation.ready.catch(error => notify(ctx, `${activation.device.name}: ${String(error)}`, "error"))
+      if (!active) return
       await bridge.refreshActive()
       subagentModels = await owner.subagents?.models() ?? []
       await status(ctx)
