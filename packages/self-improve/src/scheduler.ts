@@ -201,14 +201,15 @@ export async function admit(run: Run, request: TrialRequest | "distill", signal?
 // A workflow of pi-subagents can pass a list of at most this many tasks.
 const CALL_TASKS = 50
 const literal = (value: unknown) => JSON.stringify(value)
+// A value in a call's words: as it is, or a JSON string where it holds a space or a quote (main.ts).
+const word = (value: string) => /^[^\s"'`\\]+$/.test(value) ? value : JSON.stringify(value)
 
 /** A step as the session reads it: the calls that start it, and what to do when it has ended. */
 export async function describe(run: Run, step: Step): Promise<string> {
-  const name = path.basename(run.root)
   const after = "When you are told that it has ended, call improve_next again; where no such notice comes, call bg_wait first. Do not attempt the tasks yourself, and start nothing improve_next did not give."
   if (step.kind === "trials") {
     const calls = Array.from({ length: Math.ceil(step.tasks.length / CALL_TASKS) }, (_, index) => step.tasks.slice(index * CALL_TASKS, (index + 1) * CALL_TASKS))
-      .map(tasks => `subagent({ workflow: ${literal(waveScript(run.root))}, args: { run: ${literal(name)}, library: ${literal(step.library)}, tasks: ${literal(tasks)} }, globalConcurrencyLimit: ${run.config.parallel}, async: true })`)
+      .map(tasks => `subagent({ workflow: ${literal(waveScript(run.root))}, args: { run: ${literal(run.root)}, library: ${literal(step.library)}, tasks: ${literal(tasks)} }, globalConcurrencyLimit: ${run.config.parallel}, async: true })`)
     const versions = (await scan(run.root)).versions
     return [
       `Wave ${step.wave}: ${step.tasks.length} ${step.tasks.length === 1 ? "task" : "tasks"} to try, ${run.config.parallel} at a time, each a trial in a background sub-agent. Start ${calls.length === 1 ? "them with this call" : "them with these calls"}, unless you did a moment ago:`,
@@ -218,7 +219,7 @@ export async function describe(run: Run, step: Step): Promise<string> {
   }
   if (step.kind === "distill") return [
     "The wave is done. Start its distillation now, as a background sub-agent, unless you did a moment ago:",
-    `subagent({ agent: "${DISTILL_AGENT}", task: "run=${name}" })`,
+    `subagent({ agent: "${DISTILL_AGENT}", task: ${literal(`run=${word(run.root)}`)} })`,
     `It turns the trial records into the next library version. ${after}`,
   ].join("\n")
   if (step.kind === "wait") return `Nothing to start: ${step.running.join(", ")} ${step.running.length === 1 ? "is" : "are"} still running. ${after}`

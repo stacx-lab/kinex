@@ -14,7 +14,7 @@ run's files and its settings; this page keeps the contracts.
 | Scheduler | Code that decides the next step from the run's folder and admits the jobs that do it | none |
 | Session | The user's session: it plans the run and starts the sub-agents of each step | `improve_tasks`, `improve_plan`; then `improve_next` |
 | Worker | A headless child Kinex in a trial workspace with one library version installed; starts with `/load all`; sandboxed | none |
-| Distiller | A headless child Kinex in the distillation's folder, in a session of its own | `improve_check` |
+| Distiller | A headless child Kinex in the distillation's folder, in a session of its own; sandboxed | `improve_check` |
 
 - `/self-improve <request>` is a workflow: the session reads the request, settles
   how kinex-sim is run for it (its command and environment, more options for
@@ -125,25 +125,31 @@ changes the stable prompt.
 
 ## Run state and lifecycle
 
-A run lives under `<Kinex data directory>/self-improve/<run>/`, outside every
-workspace, because discovery merges each ancestor's `.kinex`. Job folders are
+A run belongs to the workspace it was planned in and lives under
+`.kinex/self-improve/runs/<run>/` there; `status`, `install`, `resume` and `stop`
+see that workspace's runs, and another workspace's run is named by its folder.
+Discovery merges each ancestor's `.kinex`, but workers and distillers run only in
+a sandbox, where nothing of the workspace above their own folder has a name, and
+a trial's Python is prepared from the settings its worker reads there: the global
+configuration's and the trial's own. Job folders are
 reserved by creating them; a job is finished when its atomically written
 `record/result.json` exists, and status is read by scanning folders. Running jobs
 share no file.
 
 A job is done by a process of its own, which a background sub-agent runs. The
 call says the run, and for a trial the task and the library version
-(`run=<run> task=<task> library=L1`), so the two agent files that name the
+(`run=<run folder> task=<task> library=L1`), so the two agent files that name the
 command are the same for every run, and Kinex processes that schedule different
 runs share them. The process asks the scheduler for its job while it alone holds
 the run's lock, and opens the job's folder itself, claimed with its process id:
 a job is never opened twice, and one whose process is gone without a result is
 abandoned. What passes between a job and everything else is files in the run's
 folder; a sub-agent's own words are one line and the path of its record. The run's
-`kinex.json` keeps which Kinex schedules it now: its children are that Kinex on
-that model. A job ends itself an hour after its run's limit for it. Jobs take turns, through a lock in the runs'
-folder, at what must not happen twice at once: building the shared Python
-environment and starting a worker. Because a job is its own process it outlives
+`scheduler.json` keeps which Kinex schedules it now: its children are that Kinex on
+that model. A job ends itself an hour after its run's limit for it. Jobs take turns
+at what must not happen twice at once: building the workspace's shared Python
+environment, through a lock beside it, and starting a worker, through a lock in
+Kinex's data folder, since every worker of the machine loads devices. Because a job is its own process it outlives
 the Kinex that started it; `/self-improve stop` ends a run's jobs, their workers
 and their simulators from any Kinex. A job whose process is gone without a
 result is abandoned, not failed; `resume` schedules the run again, and the
@@ -151,22 +157,24 @@ scheduler continues from what the folders hold.
 
 ## Isolation and boundaries
 
-Children run without permission prompts. A worker runs in a sandbox built from
-an empty root, bubblewrap's or where that cannot run a Docker container's, with
-its own process, IPC and mount namespaces and no capabilities. It can write only
-its workspace, its transcript and Kinex's agent folder (credentials refresh
-there; settings and the commands a run's jobs are started with stay read-only),
-and read only the system, Node, Kinex, the shared Python environment and Kinex's
-configuration. kinex-sim's command, files and processes, other jobs, the run's
-libraries and every verdict have no name inside, so a worker can neither stop
-its simulator nor change its outcome: `kinex-sim launch`, `setup`, `stop` and
-`judge` all run outside, in the trial's own process. It shares the host's
-network, which DDS to its simulator and the model's API need, so other ROS
-domains and the internet stay reachable. Its `/dev/shm` is its own, so DDS
-reaches the simulator over UDP. A run planned with the sandbox off runs workers
-unsandboxed. A distiller is never sandboxed: it is kept to its folder by a clean
-workspace, an environment without kinex-sim's activation and an instruction, and
-its context holds nothing of the workspace the run was planned in.
+Children run without permission prompts, and only in a sandbox built from an
+empty root, bubblewrap's or where that cannot run a Docker container's, with its
+own process, IPC and mount namespaces and no capabilities. A host where neither
+can start one has its plans refused; there is no way to run a child without one.
+A worker can write only its workspace, its transcript and Kinex's agent folder
+(credentials refresh there; settings and the commands a run's jobs are started
+with stay read-only); a distiller writes its record instead of its transcript,
+because pi-subagents keeps what its sub-agents leave beside its session file, and
+its sub-agents run in its sandbox. A child reads only the system, Node, Kinex,
+the shared Python environment and Kinex's configuration. The workspace the run
+belongs to, kinex-sim's command, files and processes, other jobs, the run's
+libraries and every verdict have no name inside, so a worker can neither stop its
+simulator nor change its outcome: `kinex-sim launch`, `setup`, `stop` and `judge`
+all run outside, in the trial's own process. A distiller's workspace has a Kinex
+folder of its own, so Kinex never takes the one above it. A child shares the
+host's network, which DDS to a worker's simulator and the model's API need, so
+other ROS domains and the internet stay reachable. Its `/dev/shm` is its own, so
+DDS reaches the simulator over UDP.
 
 The package reaches simulators only through the kinex-sim command, core only
 through package exports, and background work only through pi-subagents, which

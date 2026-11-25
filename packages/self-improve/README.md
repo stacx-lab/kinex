@@ -5,9 +5,9 @@ what it learned as ordinary Kinex skills, `kinex.lib` modules and programs. Requ
 aligned `@kinex/core` version, a prepared
 [kinex-sim](https://github.com/stacx-lab/kinex-sim), as for any simulated work,
 the [pi-subagents](https://www.npmjs.com/package/pi-subagents) extension, which
-standalone Kinex bundles, and to sandbox workers either
-[bubblewrap](https://github.com/containers/bubblewrap) with unprivileged user
-namespaces or Docker.
+standalone Kinex bundles, and, since workers and distillers run only in a
+sandbox, either [bubblewrap](https://github.com/containers/bubblewrap) with
+unprivileged user namespaces or Docker.
 
 ```text
 /self-improve ten RoboCasa tasks about doors, three rounds    plan a run with the session, approve it, and it starts
@@ -15,7 +15,7 @@ namespaces or Docker.
                                                               how the simulator is run is part of the request
 /self-improve robocasa/* six rounds, batches of 10, 20, 40    the request is read by the session, whatever its form
 /self-improve status [run]                                    no model: jobs, solved tasks per version
-/self-improve install L2 [run]                                no model: copy L2 into this workspace
+/self-improve install L2 [run]                                no model: copy L2 into this workspace; another workspace's run by its folder
 /self-improve resume [run]                                    schedule a run again from what is on disk
 /self-improve stop                                            no model: end the run's jobs
 ```
@@ -45,7 +45,7 @@ names.
 | Scheduler | Code, `src/scheduler.ts`: it decides the next step from the run's folder and admits the jobs that do it | none: it is not a model |
 | Session | The user's session, which plans the run and starts the sub-agents of each step | `improve_tasks` and `improve_plan` while it plans, `improve_next` while a run is scheduled |
 | Worker | A headless child Kinex, one per trial, in a fresh rig workspace with one library version installed, sandboxed | none |
-| Distiller | A headless child Kinex, one per distillation, in a session and a folder of its own | `improve_check` |
+| Distiller | A headless child Kinex, one per distillation, in a session and a folder of its own, sandboxed | `improve_check` |
 
 A wave gives every open task still unsolved one trial with the newest version;
 they run as many at a time as the plan allows. With
@@ -79,9 +79,9 @@ call and the session makes it:
 
 ```js
 // a wave: one workflow, a trial sub-agent for each task
-subagent({ workflow: "<run folder>/wave.js", args: { run: "<run>", library: "L1", tasks: ["sim/a", "sim/b"] }, globalConcurrencyLimit: 2, async: true })
+subagent({ workflow: "<run folder>/wave.js", args: { run: "<run folder>", library: "L1", tasks: ["sim/a", "sim/b"] }, globalConcurrencyLimit: 2, async: true })
 // its distillation
-subagent({ agent: "self-improve-distill", task: "run=<run>" })
+subagent({ agent: "self-improve-distill", task: "run=<run folder>" })
 ```
 
 pi-subagents runs each command in the background, shows it, stops it on request
@@ -90,7 +90,8 @@ and tells the session when the call's sub-agents have ended.
 - The call's arguments are what the session may choose: `library` is the version
   the wave's workers are given, the newest unless the session gives another
   published one. The tasks, how often one is tried and how many run at a time are
-  the scheduler's: a trial sub-agent is told `run=<run> task=<task> library=<version>`
+  the scheduler's: a trial sub-agent is told `run=<run folder> task=<task> library=<version>`
+  (a folder with a space or a quote is written as a JSON string)
   and asks to be admitted, so a task that is not to be tried now is refused and a
   trial beyond the plan's number waits for one to end.
 
@@ -98,7 +99,7 @@ and tells the session when the call's sub-agents have ended.
   `agents/self-improve-distill.md`). Each names this package's command,
   `dist/main.js`, and nothing of a run: the call says the run, so Kinex processes
   that schedule different runs share the files. The files stay after a run.
-- The run's `kinex.json` keeps the Kinex and the model flags of the session that
+- The run's `scheduler.json` keeps the Kinex and the model flags of the session that
   schedules it; the command starts workers and distillers as that Kinex.
 - The command ends its job an hour after the run's limit for it (`trialTimeoutS`,
   or `distillTimeoutS` and its repair turns), as it does when it is stopped.
@@ -111,12 +112,17 @@ and tells the session when the call's sub-agents have ended.
 
 ## Files
 
-A run keeps everything under `<Kinex data directory>/self-improve/<run>/`, outside
-every workspace so that no workspace's `.kinex` leaks into a trial.
+A run belongs to the workspace it was planned in and keeps everything under
+`.kinex/self-improve/runs/<run>/` there. Beside the runs, `.kinex/self-improve/python/`
+is the Kinex Python environment the workspace's trials share, and a `.gitignore`
+keeps both out of version control. Kinex discovery merges each ancestor's
+`.kinex`, but workers and distillers run in a sandbox, where nothing of the
+workspace above their own folder has a name. Not `kinex.json`: Kinex reads a
+`kinex.json` in every folder above a workspace as configuration.
 
 ```text
 config.json                 the request, tasks, rounds, parallel, batches, limits, the kinex-sim command
-kinex.json                  the Kinex and model flags of the session that schedules the run now
+scheduler.json              the Kinex and model flags of the session that schedules the run now
 wave.js                     the pi-subagents workflow that starts a wave's trials
 waves/w001.json             a wave as it was opened: its library version and tasks
 libraries/L0, L1, ...       published versions; never edited, the newest is current
@@ -165,14 +171,15 @@ distillations/d001/
   it waits half an hour for a job by default (pi-subagents' `timeoutMs`), so a
   long run is better scheduled from the terminal. Interrupted, it waits for its
   jobs; `/self-improve stop` from another Kinex ends them.
-- Workers keep network access. The numbers show whether a library helps; they
+- Workers and distillers keep network access. The numbers show whether a library helps; they
   are not benchmark results.
 - The check guarantees that a library loads and that its code compiles. Whether
   it is better is measured by the next wave: `status` shows successes per task and
   version.
-- Trial workspaces link one shared Kinex Python environment,
-  `<data>/self-improve/.python`, which trials prepare one at a time before any
-  worker uses it; workers only read it.
+- Trial workspaces link the workspace's shared Kinex Python environment,
+  `.kinex/self-improve/python`, which trials prepare one at a time before any
+  worker uses it, from the global configuration and the trial's own settings, as
+  its worker reads them; workers only read it.
 - A worker's instruction is the launched episode's task description, from
   `kinex-sim describe --domain-id N`: the instruction upstream's evaluator gives
   its policy, then any further text the simulator states. A simulator that gives
@@ -181,11 +188,12 @@ distillations/d001/
   ended at it. Its task list
   does not report splits, so `improve_tasks` selects by simulator, pattern and count.
 - Trials run as many at a time as the plan says, but their workers start `startGapS`
-  apart (10 s): each loads a ROS process per device, and workers that load in the
-  same moment run past the devices' ready limit.
+  apart (10 s), whichever workspace their run belongs to: each loads a ROS process
+  per device, and workers that load in the same moment run past the devices' ready
+  limit. They take turns through a lock in Kinex's data folder.
 - `config.json` can be edited while no job of the run is running: `seed`, `trialTimeoutS` (3600),
   `distillTimeoutS` (7200), `startGapS` (10), `rounds`, `parallel`, `batches`, `helpers` (10,
-  how many of a distiller's sub-agents run at once), `sandbox`, `image`.
+  how many of a distiller's sub-agents run at once), `image`.
 - How kinex-sim is run is part of the plan. The session works it out of the
   request and the user approves the lines with the plan: the command, with the
   environment it needs first as `NAME=value` words
@@ -195,14 +203,12 @@ distillations/d001/
   folder, for what trials must not share (`--record {record}/video`). A `--config` given to launch is given to `setup` too. The execution mode,
   the early stop and the ROS domain are the method's and are refused. A request
   that says nothing runs `kinex-sim` on `PATH`. The run keeps them in `config.json` as `command`, `launch` and `seed`.
-- Workers run in a sandbox (`"sandbox": true`): bubblewrap where it can run, else
-  a Docker container (`"image"`, default `ubuntu:24.04`, with the host's system
-  folders bound over it). `"sandbox": "bwrap"` or `"docker"` names one. A plan is
-  refused when the sandbox it would use cannot start a worker here: Docker cannot
-  where it may not read Node's, Kinex's or the configuration's folder, as on a
-  home folder its daemon has no access to. `KINEX_SELF_IMPROVE_SANDBOX=off` plans
-  a run without a sandbox, and `=bwrap` or `=docker` names one. See
-  [isolation](../../docs/self-improve.md#isolation-and-boundaries).
+- Workers and distillers always run in a sandbox: bubblewrap where it can run,
+  else a Docker container (`"image"`, default `ubuntu:24.04`, with the host's
+  system folders bound over it). There is no way to run them without one: a plan
+  is refused where neither can start a child, as Docker cannot where it may not
+  read Node's, Kinex's or the configuration's folder, on a home folder its daemon
+  has no access to. See [isolation](../../docs/self-improve.md#isolation-and-boundaries).
 
 ## Composition
 
@@ -231,4 +237,7 @@ things of its host, and standalone Kinex gives them:
 `npm run test:self-improve` runs the package tests; at the repository root
 `test/self-improve.test.mjs` drives runs through the real CLI with a
 scripted model and a stand-in kinex-sim, and `test/self-improve-tui.test.mjs`
-drives the approval, a run and a stop in a real terminal.
+drives the approval, a run and a stop in a real terminal. Their workers and
+distillers run in a real sandbox where one can start here; elsewhere the tests
+put a stand-in bubblewrap first on `PATH` (`test/fixtures/sandbox/bwrap`), which
+does not isolate. `test/sandbox.test.mjs` checks what a real sandbox hides.

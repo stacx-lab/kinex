@@ -1,4 +1,5 @@
 import type { CommandContext, CommandResult, KinexRuntime } from "@kinex/core"
+import { ConfigPaths } from "@kinex/core/config/paths"
 import type { KinexContribution } from "@kinex/core/integration"
 import { toModelSchema } from "@kinex/core/tool/registry"
 import { writeAgents } from "./agents.ts"
@@ -13,25 +14,28 @@ import PLAN from "./plan.txt"
 
 export const selfImproveToolNames = toolNames
 
+// A run is one of this workspace's by name, or any run by its folder.
 const USAGE = "Usage: /self-improve <what to practise> | status [run] | install <version> [run] | resume [run] | stop"
 
 export function selfImproveContribution(runtime: KinexRuntime): KinexContribution {
   // Whether this session was given a brief, so that it is also told when one is removed.
   const session: { briefed?: boolean } = {}
+  // Runs belong to the workspace they were planned in: this one's Kinex folder holds them.
+  const kinex = () => ConfigPaths.projectDir(runtime.directory)
   async function execute(args: string, context: CommandContext): Promise<CommandResult> {
     context.signal?.throwIfAborted()
     if (currentRole()) throw new Error("/self-improve is not available inside a self-improve session")
     const tokens = args.trim().split(/\s+/).filter(Boolean)
     const [first, second, third] = tokens
     if (first === "status") {
-      const run = await openRun(second)
+      const run = await openRun(await kinex(), second)
       const status = await scan(run.root)
       const jobs = await live(run.root, status)
       return { kind: "output", text: renderStatus(run.root, status, id => jobs.has(id)) }
     }
     if (first === "install") {
       if (!second) throw new Error(USAGE)
-      const run = await openRun(third)
+      const run = await openRun(await kinex(), third)
       // A folder that is not a published version would install as an empty library.
       const known = await versions(run.root)
       if (!known.includes(second)) throw new Error(`No library version ${second} in ${run.root}; versions: ${known.join(", ")}`)
@@ -41,7 +45,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
     if (first === "stop") {
       if (second) throw new Error(USAGE)
       // After Kinex was started again no run is scheduled here, and the newest may still have jobs running.
-      const run = current()?.run ?? await openRun().catch(() => undefined)
+      const run = current()?.run ?? await openRun(await kinex()).catch(() => undefined)
       const stopped = run ? await stop(run) : []
       const planned = current()
       schedule(undefined)
@@ -50,7 +54,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
     }
     if (current()?.run) throw new Error(`The self-improve run ${current()?.run?.root} is already scheduled in this Kinex; /self-improve stop ends it`)
     if (first === "resume") {
-      const run = await openRun(second)
+      const run = await openRun(await kinex(), second)
       await writeAgents(run)
       schedule({ request: run.config.selection, run })
       return { kind: "workflow", prompt: `The self-improve run ${run.root} (${run.config.selection}) is scheduled in this Kinex again. Call improve_next and do what it says: it gives the calls of the subagent tool that start the next sub-agents. Do not attempt the tasks yourself.` }
@@ -63,7 +67,7 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
   // What completes after the command: its subcommands, and the newest run's versions to install.
   async function choices(): Promise<string[]> {
     if (currentRole()) return []
-    const run = await openRun().catch(() => undefined)
+    const run = await openRun(await kinex()).catch(() => undefined)
     return ["status", "stop", "resume", ...(run ? (await versions(run.root)).map(version => `install ${version}`) : [])]
   }
   return {

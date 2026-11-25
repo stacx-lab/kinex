@@ -109,7 +109,10 @@ rate or leave it out when it is not needed. See
 | `/self-improve stop`                    | End a run's running trials and distillations.                                |
 
 Approving a plan moves Kinex from `ask` to `auto` mode: trials and distillations
-run as background sub-agents with nobody to approve their steps.
+run as background sub-agents with nobody to approve their steps, each in a
+bubblewrap or Docker sandbox. Runs belong to the workspace they were planned in
+(`.kinex/self-improve/runs/`): `[run]` names one of its runs, or another
+workspace's run by its folder.
 
 ## Shell commands
 

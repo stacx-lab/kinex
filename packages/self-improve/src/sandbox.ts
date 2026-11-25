@@ -6,15 +6,16 @@ import { promisify } from "node:util"
 import { Global } from "@kinex/core/global"
 import { agentsDir } from "./agents.ts"
 import { kinex } from "./kinex.ts"
-import { pythonDir, runsDir } from "./layout.ts"
+import { dataDir } from "./layout.ts"
 
-// A worker runs in a sandbox built from an empty root: bubblewrap's, or where
-// that cannot run a Docker container's. It sees only what is bound here: the
-// system, Node, Kinex, the shared Python environment, its configuration and
-// credentials, its workspace and its transcript. Everything else on the host
-// has no name inside: kinex-sim's command, files and processes, other trials,
-// the run's libraries and the verdicts. It shares the host's network, which DDS
-// to its simulator and the model's API need.
+// A worker and a distiller run in a sandbox built from an empty root: bubblewrap's,
+// or where that cannot run a Docker container's; there is no other way to run one.
+// It sees only what is bound here: the system, Node, Kinex, the trials' Python
+// environment, its configuration and credentials, its workspace and its
+// transcript. Everything else on the host has no name inside: the workspace the
+// run belongs to, kinex-sim's command, files and processes, other jobs, the run's
+// libraries and the verdicts. It shares the host's network, which DDS to a
+// worker's simulator and the model's API need.
 export type Sandbox = "bwrap" | "docker"
 
 const exec = promisify(execFile)
@@ -47,8 +48,8 @@ function kinexRoot(entry: string): string {
   throw new Error(`Cannot find the Kinex installation of ${entry}`)
 }
 
-// What a worker may see of the host beyond the system, and what of it it may write.
-function binds() {
+// What a child may see of the host beyond the system, and what of it it may write.
+function binds(python: string | undefined) {
   const [node, entry] = [process.execPath, kinex.entry]
   if (!entry) throw new Error("Cannot locate the running Kinex entry point")
   const config = Global.Path.config
@@ -58,7 +59,7 @@ function binds() {
   // they are refreshed in place, with a lock beside the link.
   const auth = existsSync(path.join(agent, "auth.json")) ? realpathSync(path.join(agent, "auth.json")) : undefined
   return {
-    readOnly: [path.dirname(path.dirname(realpathSync(node))), kinexRoot(entry), pythonDir(), config].filter(existsSync),
+    readOnly: [path.dirname(path.dirname(realpathSync(node))), kinexRoot(entry), ...python ? [python] : [], config].filter(existsSync),
     // In this order: the agent folder is writable, and inside it the settings and
     // the commands a run's jobs are started with, which the scheduling Kinex reads, are not.
     inAgent: [...(existsSync(agent) ? [{ path: agent, write: true }] : []), ...[settings, agentsDir()].filter(existsSync).map(target => ({ path: target, write: false })),
@@ -66,12 +67,14 @@ function binds() {
   }
 }
 
-interface Options { name?: string; image?: string; env?: NodeJS.ProcessEnv }
+/** The Docker image, and the trials' Python environment, which a child reads. */
+interface Given { image?: string; python?: string }
+interface Options extends Given { name?: string; env?: NodeJS.ProcessEnv }
 
 // `argv` in the sandbox, which may write `write` and starts in `directory`.
 function within(kind: Sandbox, argv: readonly string[], write: readonly string[], directory: string, options: Options): string[] {
   const { folders, links } = system()
-  const { readOnly, inAgent } = binds()
+  const { readOnly, inAgent } = binds(options.python)
   if (kind === "docker") {
     const mount = (target: string, readonly: boolean) => ["--mount", `type=bind,source=${target},target=${target}${readonly ? ",readonly" : ""}`]
     const user = os.userInfo()
@@ -80,7 +83,7 @@ function within(kind: Sandbox, argv: readonly string[], write: readonly string[]
     return ["docker", "run", "--rm", ...(options.name ? ["--name", options.name] : []),
       "--network", "host", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", `${user.uid}:${user.gid}`,
       // Kinex keeps a session folder in its data folder, which a container, unlike bubblewrap's root, would not let it make.
-      "--tmpfs", "/tmp:exec,mode=1777", "--tmpfs", `${os.homedir()}:exec,mode=1777`, "--tmpfs", `${path.join(path.dirname(runsDir()), "agent")}:exec,mode=1777`,
+      "--tmpfs", "/tmp:exec,mode=1777", "--tmpfs", `${os.homedir()}:exec,mode=1777`, "--tmpfs", `${path.join(dataDir(), "agent")}:exec,mode=1777`,
       ...folders.flatMap(folder => mount(folder, true)), ...readOnly.flatMap(target => mount(target, true)),
       ...inAgent.flatMap(entry => mount(entry.path, !entry.write)), ...write.flatMap(target => mount(target, false)),
       "--workdir", directory,
@@ -102,9 +105,9 @@ function within(kind: Sandbox, argv: readonly string[], write: readonly string[]
     "--", ...argv]
 }
 
-/** `argv` run inside the sandbox, with the Node and Kinex this process runs on. */
-export function sandboxed(argv: readonly string[], workspace: string, session: string, kind: Sandbox = "bwrap", options: Options = {}): string[] {
-  return within(kind, argv, [workspace, session], workspace, options)
+/** `argv` run inside the sandbox in `workspace`, which it may write with `write`, with the Node and Kinex this process runs on. */
+export function sandboxed(argv: readonly string[], workspace: string, write: readonly string[], kind: Sandbox = "bwrap", options: Options = {}): string[] {
+  return within(kind, argv, [workspace, ...write], workspace, options)
 }
 
 // A container's root is its image's, under the host's system folders bound over it:
@@ -112,45 +115,37 @@ export function sandboxed(argv: readonly string[], workspace: string, session: s
 export const IMAGE = "ubuntu:24.04"
 
 const NAMES: Record<Sandbox, string> = { bwrap: "bubblewrap", docker: "Docker" }
-// Whether a worker could start in the sandbox is found by starting nothing in it, with all a worker
+// Whether a child could start in the sandbox is found by starting nothing in it, with all a child
 // is given: a Docker that cannot bind a folder, as on a home it may not read, is not one that can run here.
 // Checked once per process, before a trial launches a simulator for a worker that could not start.
 const checked = new Map<string, Promise<string | undefined>>()
-function unavailable(kind: Sandbox, image?: string): Promise<string | undefined> {
-  const key = `${kind} ${image ?? ""}`
-  const found = checked.get(key) ?? Promise.resolve().then(() => within(kind, ["true"], [], "/", { image })).then(([file = kind, ...args]) => exec(file, args))
+/** Why `kind` cannot start a child here, or undefined when it can. */
+export function unavailable(kind: Sandbox, given: Given = {}): Promise<string | undefined> {
+  const key = `${kind} ${given.image ?? ""} ${given.python ?? ""}`
+  const found = checked.get(key) ?? Promise.resolve().then(() => within(kind, ["true"], [], "/", given)).then(([file = kind, ...args]) => exec(file, args))
     .then(() => undefined, (error: Error & { stderr?: string }) => error.stderr?.trim().split("\n")[0] || error.message)
   checked.set(key, found)
   return found
 }
 
 /**
- * The sandbox a run's workers use: the one its configuration names, or with
- * `true` bubblewrap where it can run and Docker where it cannot. A run that asks
- * for a sandbox this host cannot give does not start its workers without one.
+ * The sandbox a run's workers and distillers use here: bubblewrap where it can
+ * run, else Docker. A host that can give neither runs no job.
  */
-export async function sandboxOf(wanted: boolean | Sandbox | undefined, image?: string): Promise<Sandbox | undefined> {
-  if (!wanted) return undefined
+export async function sandboxOf(given: Given = {}): Promise<Sandbox> {
   const reasons: string[] = []
-  for (const kind of wanted === true ? ["bwrap", "docker"] as const : [wanted]) {
-    const reason = await unavailable(kind, image)
+  for (const kind of ["bwrap", "docker"] as const) {
+    const reason = await unavailable(kind, given)
     if (!reason) return kind
     reasons.push(`${NAMES[kind]}: ${reason}`)
   }
-  throw new Error(`This run sandboxes its workers, and no sandbox can run here (${reasons.join("; ")}). ` +
-    `Install bubblewrap and allow unprivileged user namespaces, or give this user a Docker that can bind Node, Kinex and Kinex's folders, or start the run with KINEX_SELF_IMPROVE_SANDBOX=off.`)
+  throw new Error(`Self-improve runs its workers and distillers in a sandbox, and none can run here (${reasons.join("; ")}). ` +
+    "Install bubblewrap and allow unprivileged user namespaces, or give this user a Docker that can bind Node, Kinex and Kinex's folders.")
 }
 
-/** What a new run's workers are sandboxed with here, by name, or undefined when it runs them without. */
-export async function sandboxName(): Promise<string | undefined> {
-  const kind = await sandboxOf(sandboxSetting())
-  return kind && NAMES[kind]
-}
-
-/** A new run's sandbox: on unless KINEX_SELF_IMPROVE_SANDBOX says off, or names the one to use. */
-export function sandboxSetting(): boolean | Sandbox {
-  const value = process.env.KINEX_SELF_IMPROVE_SANDBOX
-  return value === "off" ? false : value === "bwrap" || value === "docker" ? value : true
+/** The sandbox a new run's children use here, by name. */
+export async function sandboxName(given: Given = {}): Promise<string> {
+  return NAMES[await sandboxOf(given)]
 }
 
 /** Removes the container `name`, which outlives a Docker command that was killed. */
