@@ -19,6 +19,17 @@ def device_of(frame):
 
 
 class FrameBuffer(Buffer):
+    """A domain's tf2 history, with the frames its device hosts publish now.
+
+    A device's frames belong to the host that publishes them. TF and the device
+    lifecycle arrive unordered: a host latches its mounts before its device is
+    announced loaded, and a host that fails to load is never announced at all. So
+    arrival is never judged by whether the device is loaded. Every frame that
+    arrives is kept; device(name, False) is told whenever the device has no live
+    host, before one starts and after one ends, and forgets what the last one
+    published; only a loaded device's frames are looked up.
+    """
+
     def __init__(self, history_s=SCOPE_HISTORY_S):
         super().__init__(cache_time=Duration(seconds=history_s))
         self.history_s = history_s
@@ -31,15 +42,11 @@ class FrameBuffer(Buffer):
 
     def set_transform_static(self, value, authority):
         with self.lock:
-            if value.child_frame_id.split("/", 1)[0] in self.blocked:
-                return
             self.fixed[value.child_frame_id] = (value, authority)
             super().set_transform_static(value, authority)
 
     def set_transform(self, value, authority):
         with self.lock:
-            if value.child_frame_id.split("/", 1)[0] in self.blocked:
-                return
             if self.clock_stamp is not None and nanoseconds(value.header.stamp) > self.clock_stamp:
                 self.future[value.child_frame_id] = (value, authority)
                 return

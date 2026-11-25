@@ -435,6 +435,11 @@ by a pose or applying it to points seen in `source` expresses them in `target`. 
 runtime keeps 120 s of world-time history across programs, so a stamp from an earlier
 program remains answerable; a standalone scope's own history keeps tf2's 10 s. A
 world-clock rewind invalidates dynamic history while retaining fixed calibration.
+A device's frames belong to the host that publishes them: the runtime keeps them from
+the moment they arrive, is told whenever the device has no live host, before one starts
+and after one ends, and then forgets them, and resolves them only while the device is
+loaded. A reloaded device therefore keeps the mounts its new host latched, and a host
+that failed to load leaves none.
 
 The simulator supplies state and measurements, or node geometry descriptors, not TF or a transform-lookup
 service. Camera nodes set image frame IDs to the calibrated optical frame.

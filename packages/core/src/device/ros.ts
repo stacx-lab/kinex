@@ -138,12 +138,16 @@ async function readyDevices(cwd: string) {
   return ready
 }
 
+async function runtimeKey(cwd: string, domain: number) {
+  return `${await ProfileStore.workspaceDir(cwd)}:runtime:${domain}`
+}
+
 /**
  * The domain's runtime, holding exactly the domain's ready devices. It starts on first use and
  * stays up between programs; one that has died, or whose world clock changed, is replaced.
  */
 async function runtime(cwd: string, domain: number, signal?: AbortSignal, start = true) {
-  const key = `${await ProfileStore.workspaceDir(cwd)}:runtime:${domain}`
+  const key = await runtimeKey(cwd, domain)
   return serialize(transitions(), key, async () => {
     const clock = await worldClock(cwd, domain)
     const fingerprint = JSON.stringify(clock ?? null)
@@ -177,6 +181,23 @@ async function runtime(cwd: string, domain: number, signal?: AbortSignal, start 
       host.devices.set(device.name, definition)
     }
     return host
+  })
+}
+
+/**
+ * The device has no live host: its domain's runtime, if one is up, drops the device and forgets the
+ * frames its last host published. TF reaches the runtime apart from these announcements, so the
+ * runtime keeps whatever arrives and learns a host's life here, before one starts and after one ends,
+ * whether or not the device ever became ready.
+ */
+async function forget(cwd: string, device: Device, signal?: AbortSignal) {
+  const key = await runtimeKey(cwd, device.runtime?.domain_id ?? 0)
+  await serialize(transitions(), key, async () => {
+    const host = runtimes().get(key)
+    if (!host?.ready || host.proc.exitCode !== null) return
+    host.devices.delete(device.name)
+    // A runtime that ends before it answers has nothing left to forget.
+    await request(host, "unload", { device: device.name }, signal).catch((error: unknown) => { if (host.ready) throw error })
   })
 }
 
@@ -248,7 +269,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       try { if (host.proc.exitCode === null) await request(host, "unload", {}) }
       finally { await terminate(host, true); hosts().delete(directory) }
     }
-    await runtime(cwd, domain, undefined, false)
+    await forget(cwd, device)
     return { deviceID: device.name, data: { unloaded: true } }
   }
   if (action === "status" && (!host || host.proc.exitCode !== null))
@@ -261,6 +282,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       if (host) await terminate(host)
       const launch = await rosLaunch(cwd, device, signal)
       signal?.throwIfAborted()
+      await forget(cwd, device, signal)
       host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.host.device"], {
         cwd: directory, env: launch.env, group: true,
       })), definition: fingerprint, ready: false, pending: new Map() }
@@ -274,6 +296,7 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
     } catch (error) {
       await terminate(host)
       hosts().delete(directory)
+      await forget(cwd, device)
       throw error
     }
     // The device joins its domain's runtime, which programs attach to. A domain with a world clock
