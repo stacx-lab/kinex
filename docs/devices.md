@@ -137,8 +137,9 @@ aperture.
 ### Observations and recording
 
 Operations retain typed payloads and acquisition stamps. Recording subscribes to
-selected declared topics and saves rosbag2, world time and TF. It never advances
-time. Explicit snapshots read `runtime.observation`; a camera without one reads its
+selected declared topics, each at its own rate, and saves color images as video,
+everything else in rosbag2, and world time and TF once for the domain. It never
+advances time. Explicit snapshots read `runtime.observation`; a camera without one reads its
 image and, for rgbd, the equally stamped depth; stereo returns `left_file`,
 `right_file` and each eye's stamp and frame. Other devices fall back to
 their first joint state or image output. Recorder deactivation precedes

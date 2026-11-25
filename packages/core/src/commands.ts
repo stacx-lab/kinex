@@ -147,8 +147,8 @@ async function record(runtime: KinexRuntime, tokens: string[], sessionID: string
     return json({ active, recent: (await runtime.recording.recent(5)).filter(entry => entry.id !== active?.id).map(recordingSummary) })
   }
   if (verb === "start") {
-    const { specs, instruction } = parseSpecs(rest)
-    if (!Object.keys(specs).length) throw new Error("Usage: /record start <device=Hz ...> [instruction]")
+    const { specs, instruction } = parseSpecs(rest, (await runtime.devices.list()).map(device => device.name))
+    if (!Object.keys(specs).length) throw new Error("Usage: /record start <device=Hz | device.operation=Hz[:video|:bag] ...> [instruction]")
     return json(await runtime.recording.start({ specs, instruction, sessionID }))
   }
   if (verb === "snap") {

@@ -420,6 +420,42 @@ test('recording works concurrently in two runtimes and finalizes on disposal', a
   }
 })
 
+test('a recording gives each operation its rate and format, and records the clock and TF once', async t => {
+  const { runtime, directory } = await fixture(t, { host, enableRecording: true })
+  await recordingDevices(runtime, directory)
+  const start = specs => runtime.recording.start({ specs, sessionID: 'operations' })
+  // A device rate records every topic; an operation in the map takes its own.
+  const { manifest, applied } = await start({ telemetry: { rate: 20, operations: { health: { rate: 2, format: 'bag' } } } })
+  assert.deepEqual(applied.telemetry, { rate: 20, operations: ['temperature', 'health'], rates: { temperature: 20, health: 2 }, formats: { health: 'bag' } })
+  const recorded = path.join(directory, '.kinex', 'recordings', manifest.id)
+  const config = async dir => JSON.parse(await readFile(path.join(recorded, dir, 'config.json'), 'utf8'))
+  assert.deepEqual((await config('devices/telemetry/stream')).operations,
+    { 'telemetry.temperature': { rate: 20, format: null }, 'telemetry.health': { rate: 2, format: 'bag' } })
+  const shared = await config('tf')
+  assert.deepEqual([shared.tf, shared.operations, Object.keys(shared.catalog)], [true, {}, ['_world.time']])
+  assert.equal((await config('devices/telemetry/stream')).tf, undefined)
+  const saved = await runtime.recording.stop()
+  assert.equal(saved.tf.status, 'stopped')
+  assert.deepEqual(saved.sampling.devices.telemetry.rates, { temperature: 20, health: 2 })
+  // Without a device rate the map selects; a list selects at the device's rate.
+  assert.deepEqual((await start({ telemetry: { operations: { health: 1 } } })).applied.telemetry,
+    { rate: 1, operations: ['health'], rates: { health: 1 }, formats: {} })
+  await runtime.recording.stop()
+  assert.deepEqual((await start({ telemetry: { rate: 5, operations: ['temperature'] } })).applied.telemetry,
+    { rate: 5, operations: ['temperature'], rates: { temperature: 5 }, formats: {} })
+  await runtime.recording.stop()
+  for (const [spec, reason] of [
+    [{ operations: ['health'] }, /health needs a rate/],
+    [{ operations: { health: { rate: 1, format: 'video' } } }, /video stores sensor_msgs\/msg\/Image/],
+    [{ rate: 5, operations: { missing: 1 } }, /requires declared topics/],
+    [{ rate: 0 }, /rate must be positive/],
+  ]) {
+    const refused = await start({ telemetry: spec })
+    assert.match(refused.refusals.telemetry, reason)
+    assert.equal(refused.manifest.status, 'stopped')
+  }
+})
+
 test('disposal flushes every deferred transcript without leaving export timers', async t => {
   const exported = []
   const { runtime, directory } = await fixture(t, { host: { ...host, exportTrace: async (sessionID, range) => {
