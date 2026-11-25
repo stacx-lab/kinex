@@ -94,14 +94,13 @@ export function createStreams(input: { cwd: string; dir: string }): Streams {
         if (!device.runtime) throw new CaptureError("continuous recording requires declared ROS topics")
         if (!await rosReady(input.cwd, device)) throw new CaptureError(`${device.name} requires explicit load before recording`)
         const ros = await rosCatalog(input.cwd)
-        const clocks = Object.entries(ros.catalog).filter(([, op]) => op.type === "rosgraph_msgs/msg/Clock" && op.direction === "output")
-        if (clocks.length !== 1) throw new CaptureError("recording requires one loaded world clock")
+        if (!ros.clock) throw new CaptureError("recording requires a world device, whose clock times the samples")
         const names = sampling.operations.map(name => `${device.name}.${name}`)
         const catalog = Object.fromEntries([...names.map(name => {
           const op = ros.catalog[name]
           if (!op || op.transport !== "topic") throw new CaptureError(`${name} is not a loaded topic`)
           return [name, op] as const
-        }), ...clocks])
+        }), ["_world.time", ros.clock] as const])
         const launch = await pythonLaunch(input.cwd, "node")
         entry.proc = spawnProcess([...launch.command, "-u", "-m", "kinex.host.recording"], {
           cwd: input.cwd, env: { ...launch.env, ROS_DOMAIN_ID: String(ros.domain_id) }, group: true,

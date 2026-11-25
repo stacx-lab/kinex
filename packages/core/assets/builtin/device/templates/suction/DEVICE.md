@@ -6,10 +6,10 @@ description: Vacuum suction tool switched on and off, or set to a vacuum level.
 
 ## Setup
 
-A suction tool has no moving joints and no URDF. `frames.tcp` is the cup's contact
-centre with +z as the approach direction; summarize cup size, count and material in
-`description`. `vacuum` is `binary` when the device only switches vacuum on and off,
-or `proportional` when it accepts a level.
+A suction tool has no joints and no URDF. `frames.tcp` is the cup's contact centre,
+with +z as the approach direction; summarize cup size, count and material in
+`description`. `vacuum` is `binary` when the device only switches vacuum on and
+off, or `proportional` when it accepts a level.
 
 The sibling `node.py` adapts an existing ROS vacuum driver with an on/off service
 and an object-detection topic; copy it into the device directory and set its topic
@@ -19,14 +19,16 @@ constants.
 
 - `target` (recommended): input topic `std_msgs/msg/Float64` whose `data` is a
   vacuum level from 0 (release, venting) to 1 (full vacuum); binary devices accept
-  only 0 or 1. It persists until replaced, and sending is not a grasp. Serve it with
-  `stop` through `kinex.node.command_service`.
-- `stop` (recommended): service `std_srvs/srv/Trigger` that ends pending
-  commands and keeps the current vacuum; a stop never releases a held object.
+  only 0 or 1. It persists until replaced.
+- `stop` (recommended): service `std_srvs/srv/Trigger` that ends pending commands
+  and keeps the current vacuum, so it never releases a held object.
 - `grasped` (recommended): output topic `std_msgs/msg/Bool`, true while an object
   is held, for example vacuum reached or an object detected.
 - `pressure` (optional): output topic `sensor_msgs/msg/FluidPressure`, absolute
   pressure in Pa stamped at acquisition; add ambient pressure to a gauge reading.
+
+Serve `target` and `stop` through `kinex.node.command_service`. Sending a target is
+not a grasp: programs verify it with `grasped`.
 
 ### Profile
 
@@ -40,13 +42,13 @@ runtime:
   nodes: [{entry: node.py, factory: create}]
 operations:
   target:
-    description: Vacuum level (data) from 0 (release) to 1 (full vacuum); binary devices accept only 0 or 1. It persists until replaced; verify the grasp with grasped.
+    description: Vacuum level (data) from 0 (release) to 1 (full vacuum); binary devices accept only 0 or 1. It persists until replaced.
     transport: topic
     direction: input
     endpoint: /kinex/suction/target
     type: std_msgs/msg/Float64
   stop:
-    description: Stop pending commands and keep the current vacuum; a held object is never released.
+    description: End pending commands and keep the current vacuum; a held object is never released.
     transport: service
     direction: input
     endpoint: /kinex/suction/stop

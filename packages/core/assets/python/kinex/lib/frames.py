@@ -6,9 +6,7 @@ pose, a scipy RigidTransform, and never advances world time.
 
 from numbers import Real
 
-from kinex import io
-from kinex.communication import duration
-from kinex.errors import RPCError
+from kinex.communication import duration, scope
 from kinex.values import pose
 
 
@@ -36,23 +34,12 @@ async def lookup_transform(target, source, stamp=None, timeout_s=5):
         raise ValueError("transform timeout_s must be finite and within 0..30 seconds")
     if target == source:
         return pose([0, 0, 0, 0, 0, 0, 1])
-    stamp = _stamp(stamp)
-    if io.frame_service:
-        result = await io._request(io.frame_service, {
-            "target_frame": target, "source_frame": source, "stamp": stamp, "wait_s": timeout_s,
-        }, timeout_s + 1)
-        return pose(result.transform)
-    if io.supervised:
-        raise RPCError("Kinex frame service is unavailable; load a ROS device with a configured world clock.",
-                       code="frames_unavailable")
-    # Explicit standalone ROS clients own only their local subscription history.
     from rclpy.time import Time
-    time = Time.from_msg(stamp)
-    buffer = io.transforms()
+    io, time = scope(), Time.from_msg(_stamp(stamp))
+    buffer = io.bridge.transforms()
     if timeout_s:
         try:
             await io._future(buffer.wait_for_transform_async(target, source, time), timeout_s)
         except TimeoutError:
             raise TimeoutError(buffer.timed_out(target, source, time, timeout_s)) from None
     return pose(buffer.lookup_transform(target, source, time))
-

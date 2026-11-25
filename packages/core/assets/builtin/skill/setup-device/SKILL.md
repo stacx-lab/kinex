@@ -28,7 +28,7 @@ Define each operation with transport, direction, endpoint, native ROS type and
 bounded QoS; declare an action only where the device's controller already serves one. Services and actions are inputs. Use the type guide's names for recommended operations
 and name others after the actual node. `load`, `unload` and
 `status` are reserved host verbs. Commands use standard message types; anything
-that moves, and a world with `wait`, declares a `std_srvs/srv/Trigger` `stop`,
+that moves, and a world for its waits, declares a `std_srvs/srv/Trigger` `stop`,
 served after the command subscriptions (`kinex.node.command_service` does).
 Describe exact command semantics on each operation, including replacement and
 expiry behavior. A joint device declares only the command operations the user

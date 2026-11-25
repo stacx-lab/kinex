@@ -9,6 +9,7 @@ from unittest.mock import patch
 from kinex.communication import ambient
 from kinex.lib import images
 from kinex.common.camera import frame, stereo_frame
+from kinex.device import Device
 
 
 def image(sec, frame_id, width=4, height=2):
@@ -17,6 +18,8 @@ def image(sec, frame_id, width=4, height=2):
 
 
 class Stream:
+    buffer, latest = (), None
+
     def __init__(self, messages):
         self.messages, self.closed = list(messages), False
 
@@ -33,13 +36,17 @@ class Scope:
     def __init__(self, **streams):
         self.streams = streams
         self.requests = []
-        self.catalog = {f"camera.{name}": {} for name in streams}
+        self.catalog = {f"camera.{name}": {"timeout_s": 5, "direction": "output", "stream": stream} for name, stream in streams.items()}
+        self.topics = {}
 
-    def subscribe(self, reference):
-        return self.streams[reference.split(".", 1)[1]]
+    def subscribe(self, spec, depth):
+        return spec["stream"]
 
-    def operation(self, reference):
-        return {"timeout_s": 5}
+    def operation(self, reference, transport=None):
+        return self.catalog[reference]
+
+    def device(self, name):
+        return Device(self, name)
 
     async def request(self, reference, **fields):
         self.requests.append((reference, fields))
@@ -58,14 +65,14 @@ STEREO = {"type": "rgb", "layout": "stereo", "left": {"width": 4, "height": 2}, 
 class StereoFrames(unittest.IsolatedAsyncioTestCase):
     async def test_pair_keeps_each_stamp_and_closes_streams(self):
         left, right = Stream([image(1, "camera/left")]), Stream([image(2, "camera/right")])
-        pair = await stereo_frame(Scope(left_image=left, right_image=right), "camera")
+        pair = await stereo_frame(Scope(left_image=left, right_image=right).device("camera"))
         self.assertEqual([item.header.frame_id for item in pair], ["camera/left", "camera/right"])
         self.assertEqual([item.header.stamp.sec for item in pair], [1, 2])
         self.assertTrue(left.closed and right.closed)
 
     async def test_single_read_selects_an_eye(self):
         scope = Scope(left_image=Stream([]), right_image=Stream([image(3, "camera/right")]))
-        self.assertEqual((await frame(scope, "camera", eye="right"))[0].header.frame_id, "camera/right")
+        self.assertEqual((await frame(scope.device("camera"), eye="right"))[0].header.frame_id, "camera/right")
         with patch.object(images, "profile", lambda _: STEREO):
             with self.assertRaisesRegex(ValueError, "eye is required"), ambient(scope):
                 await images.camera_frame("camera")
@@ -94,7 +101,7 @@ class StereoFrames(unittest.IsolatedAsyncioTestCase):
 class StereoGeometry(unittest.IsolatedAsyncioTestCase):
     async def test_each_eye_unprojects_with_its_own_calibration(self):
         scope = Scope()
-        scope.catalog["camera.geometry"] = {}
+        scope.catalog.update({f"camera.{name}": {} for name in ("geometry", "unproject")})
         with patch.object(images, "profile", lambda _: STEREO), ambient(scope):
             geometry = await images.camera_geometry("camera")
             await geometry.unproject([[1, 1]], "right")

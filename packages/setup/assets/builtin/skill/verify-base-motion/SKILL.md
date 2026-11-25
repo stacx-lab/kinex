@@ -16,7 +16,7 @@ and its acceptance criteria before trials; do not run a full axis sweep by defau
 Use documented or explicitly supplied trial amplitudes, durations and tolerances.
 Require a clear trial area and an available stop path. Keep the arm in the agreed
 configuration and preserve the base controller's balance/posture behavior. Start
-with one selected axis/direction. Device writes return immediately; use world.wait
+with one selected axis/direction. Device writes return immediately; use world.wait_all([seconds])
 and fresh timestamped readings to measure the interval. Stop on faults, unexpected
 movement or operator interruption. Command expiry is not measured stopping.
 

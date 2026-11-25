@@ -14,7 +14,7 @@ export async function checkCorePackage(directory, env, pack) {
   // Cameras are native image topics; no capture service is shipped.
   assert.ok(!pack.files.some(entry => /custom_interfaces\/srv\/Capture/.test(entry.path)))
   assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/__init__.py'))
-  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/host/run.py'))
+  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/host/runtime.py'))
   assert.ok(pack.files.some(file => file.path === 'assets/builtin/skill/setup-device/SKILL.md'))
   assert.ok(!pack.files.some(file => /builtin\/skill\/calibrate-/.test(file.path)))
   for (const name of ['node.py', 'env.sh', 'setup.sh', 'provision.py', 'artifacts.json', 'requirements.txt', 'DEVICE.md'])

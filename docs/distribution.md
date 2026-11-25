@@ -30,8 +30,7 @@ Plugins for Pi, Claude Code and Codex release independently in
 core/setup snapshots.
 Release archives include SHA-256 checksums.
 
-Core ships the `custom_interfaces` ROS package (`Json`, `LookupTransform` and
-`Wait` services). ROS workspaces build it into Kinex Python and rebuild it on next
+Core ships the `custom_interfaces` ROS package (`Json` and `Wait` services). ROS workspaces build it into Kinex Python and rebuild it on next
 use when an update changes its sources.
 [kinex-sim](https://github.com/stacx-lab/kinex-sim) serves `Wait` and `Json` from
 its own identical copy of the package, so it builds without a Kinex checkout.

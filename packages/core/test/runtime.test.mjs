@@ -468,6 +468,6 @@ finish({"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operat
   assert.equal(value.entry_device,'clock')
   const override = await runtime.tools.call('exec',{python:'raise Exception("must not run")',interpreter:'/must/not/run'},{sessionID:'override'})
   assert.equal(override.isError,true)
-  const noDevices = await execScript(runtime,{python:'import asyncio\nfrom kinex import io\nasyncio.run(io.read("clock.time"))'})
+  const noDevices = await execScript(runtime,{python:'import asyncio\nfrom kinex import device\nasyncio.run(device("clock").topic("time").next())'})
   assert.equal(JSON.parse(noDevices.output).code,'devices_not_ready')
 })

@@ -57,16 +57,16 @@ to its executor before checking readiness.
 
 Builtin type templates ship reference `node.py` files that adapt an existing ROS
 driver: they read vendor topics with sensor-data QoS and publish or serve the
-public endpoints. Their source routes are implementation details. Kinex remaps
-each device node's `/clock` to the world `time` topic; the world template's clock
-node disables global ROS arguments so it is never remapped into its own output.
+public endpoints. Their source routes are implementation details. A domain with a
+world device runs its device nodes on the world's time, the domain's `/clock`; the
+world template's node disables global ROS arguments so it never follows its own clock.
 Workspaces exported by [kinex-sim](https://github.com/stacx-lab/kinex-sim) borrow
 the simulator graph's endpoints and declare no nodes of their own.
 
 `load`, `unload` and `status` are host lifecycle operations, not declared ROS
 operations; profiles cannot declare them. `stop` calls the declared
 `std_srvs/srv/Trigger` service, or is a no-op for a passive device. Actuators with
-command topics and worlds with `wait` must declare one. Loading checks interface
+command topics and worlds, for their waits, must declare one. Loading checks interface
 readiness; normal calls never restart failed nodes.
 
 Unload before changing definitions. Core fingerprints runtime fields, profile
@@ -113,72 +113,107 @@ Python and communicates with Kinex through ROS; simulator packages are not
 installed in Kinex Python. `exec` has no interpreter
 option.
 
-## Async communication
+## The Python runtime
+
+ROS is the communication layer; a program's control flow runs on asyncio. Kinex keeps one
+Python runtime for each ROS domain of a workspace, started on first use and kept between
+programs. It holds what is slow to make: the interpreter with its imported libraries, the
+ROS node whose discovery of the graph is complete, the clients and publishers of the
+loaded devices' operations, the world's clock, and the tf2 history. The host
+tells it when a device's nodes come up or go away, so its catalog is always the loaded
+devices.
+
+An exec program attaches to it. The program is run as `__main__` in a thread of its own,
+with a scope on the runtime's bridge: its event loop, its topic subscriptions, the goals
+it sent, the devices it commanded and its world waits. A subscription is made when the
+program first reads its topic, which is fast on a node that already knows the graph, and
+ends with the program: a simulator renders a camera only for its subscribers, so a
+subscription kept between programs would cost every step. Each program gets the library
+and its own helper modules as they are on disk; installed packages stay imported. The
+runtime runs one program at a time. The exec boundary is unchanged by this: see
+[commands and cleanup](#commands-and-cleanup). A program that does not end when it is
+cancelled is ended with its runtime, and the next program starts another; device nodes
+live in their own processes and are not affected.
+
+Each device also has a host process of its own, in Kinex Python or in the interpreter
+its profile names. It owns the device's nodes and answers the host's own calls: readiness,
+the device tool's reads, requests and commands, and `stop`, which therefore works
+whatever a program is doing.
+
+## Devices in a program
 
 ```python
 import asyncio
-from kinex import finish, io
+from kinex import device, finish, world
 
 async def main():
-    state = io.subscribe("arm.joint_state", depth=1)
-    sample = await state.next(timeout_s=2)
+    arm = device("arm")
+    states = arm.topic("joint_state")
+    sample = await states.next()
     # Payload fields follow the declared ROS types; Json operations
     # exchange plain objects described by the operation.
-    response = await io.request("model.infer", image=image_path)
-    await io.publish("arm.joint_target", target_message)
-    await io.request("world.wait", duration_s=0.05)
+    response = await device("model").service("infer")(image=image_path)
+    await arm.topic("joint_target").publish(target_message)
+    await world.wait_all([0.05])
     finish({"summary": "selected result"})
 
 asyncio.run(main())
 ```
 
 This is an exec program. `image_path` and `target_message` above are application
-inputs. Python reaches devices only through `kinex.communication`. exec owns one
-scope per invocation, `io`, opened on first use inside the program's event loop
-and released when the program ends, so a program runs one `asyncio.run(main())`;
-programs and library functions import it with `from kinex import io` and take no
-scope parameter. `io.read(operation)`
-takes the next message of an output topic. A standalone client outside exec
-enters `async with communication(catalog) as io`, which makes its scope the
-active one for the library functions it calls. A `custom_interfaces/srv/Json`
-operation encodes keyword arguments as one JSON object and returns the decoded
-response object; owned nodes serve it with
-`kinex.node.json_service(node, operation, handler)`. `publish`, `subscribe`,
-`request` and `serve` are protocol primitives; they do not prescribe
-control flow. Use ordinary functions, branching and asyncio task groups.
-Messages may be native ROS messages or field mappings; see [values](#values) for
-what a mapping may hold. A subscription used with
-`with` or `async with` closes on exit; the scope closes any others. `finish`
-converts ROS messages, poses and NumPy values in its result to JSON and non-finite
-numbers to `null`; images are attached only through its `file`. Subscriptions expose
-`next`, `latest(max_age_s=...)` and idempotent `close`. Both ROS and Python queues
-are bounded. Receipt-age checks detect transport staleness; observation timestamps
-belong to world time.
+inputs. Python reaches devices only through `kinex.communication`, whose scope a program
+reaches as `device` and `world`, imported from `kinex`; library functions use the same
+ones and take no scope parameter. A scope binds to the program's event loop at the first
+thing the program awaits through it, so a program runs one `asyncio.run(main())` and may
+name its devices before it. A standalone client outside exec enters
+`async with communication(catalog) as io`, which gives it a bridge of its own and makes
+its scope the active one for the library functions it calls; `io.device(name)` and
+`io.world` are its devices and its world.
 
-`await io.act(operation, goal)` sends an action its goal, a message or field mapping,
-and returns the `Goal` once the device accepts it; a rejected goal raises. It never
-waits for the goal: a goal advances no world time. `goal.status` is `executing`, then
-`succeeded`, `canceled` or `aborted`; `goal.feedback` is the latest the device sent,
-`goal.result` the action's result once it has finished, `goal.done` whether it has, and
-`await goal.cancel()` asks the device to end it. A world wait takes `goals` to wait
-for, and when it returns the results of those it reports finished have arrived:
+`device(name)` is a loaded device, reached through the operations its profile declares:
+
+| Operation | In a program |
+| --- | --- |
+| Output topic | `topic = device.topic(name)`; `await topic.next()`, `topic.latest`, `async for message in topic`, `topic.close()` |
+| Input topic | `await device.topic(name).publish(message)` |
+| Service | `await device.service(name)(**fields)` |
+| Action | `goal = device.action(name)(**fields)`; `await goal`, `goal.status`, `goal.feedback`, `goal.result`, `await goal.cancel()` |
+
+Using an operation as another transport raises `TypeError`, and one the loaded devices do
+not declare raises `RPCError`. These are protocol primitives; they do not prescribe
+control flow. Use ordinary functions, branching and asyncio task groups. Messages may be
+native ROS messages or field mappings; see [values](#values) for what a mapping may hold.
+
+A topic object is the same one each time a program asks for it. `next()` gives the next
+unread message, bounded by the operation's `timeout_s`. On a topic that retains its last
+message (`transient_local`), `next()` with nothing unread subscribes again and is sent
+that message, so a paused world can be read twice. `latest` is the last message received,
+without waiting. Both ROS and Python queues are bounded; `depth` on `topic(name, depth=…)`
+sets how many unread messages a program keeps. Reading never advances world time.
+
+A `custom_interfaces/srv/Json` operation encodes keyword arguments as one JSON object and
+returns the decoded response object; owned nodes serve it with
+`kinex.node.json_service(node, operation, handler)`.
+
+Calling an action sends its goal, a message or field mapping or its fields by name, and
+returns the `Goal` at once. A goal advances no world time. `goal.status` is `sending`,
+`executing`, then `succeeded`, `canceled`, `aborted` or `rejected`; `goal.feedback` is the
+latest the device sent and `goal.result` the action's result once it has finished.
+Awaiting a goal gives its result; one the device rejects, aborts or cancels raises
+`RPCError`, with the result in its details. Wait for goals on the world:
 
 ```python
-left = await io.act("left_arm.move", {"multi_dof_trajectory": {"joint_names": ["flange"], "points": [{"transforms": [left_pose]}]}})
-right = await io.act("right_arm.move", {"multi_dof_trajectory": {"joint_names": ["flange"], "points": [{"transforms": [right_pose]}]}})
-await io.request("world.wait", goals=[left, right], goal_timeout_s=2.0)  # until both finish; cancelled after 2 s
+left = device("left_arm").action("move")(multi_dof_trajectory={"joint_names": ["flange"], "points": [{"transforms": [left_pose]}]})
+right = device("right_arm").action("move")(multi_dof_trajectory={"joint_names": ["flange"], "points": [{"transforms": [right_pose]}]})
+await world.wait_all([left, right], timeout=2.0)  # until both finish; cancelled after 2 s of world time
 print(left.status, left.result.error_string)
 ```
 
-`await goal.wait()` returns the result when the goal has finished; in a stepped world
-only a world wait advances it there, so use it where time passes by itself.
-
-`io.serve({endpoint, type}, handler)` hosts a temporary async service. Its endpoint
-must be under `io.namespace + "/"`. Handlers and communication resources
-are removed when the scope closes. Persistent services belong to device nodes.
+`finish` converts ROS messages, poses and NumPy values in its result to JSON and
+non-finite numbers to `null`; images are attached only through its `file`.
 
 Reusable code is a public function of a `kinex.lib` module, builtin or in a
-workspace's `.kinex/lib`. Library functions share the invocation's scope and
+workspace's `.kinex/lib`. Library functions share the program's scope and
 cleanup, call each other as ordinary functions and have no persistent lifecycle; see
 [programs and the library](tools-and-skills.md#programs-and-the-library-exec-and-lib).
 
@@ -200,7 +235,7 @@ boundaries between them; a program does not.
 | Frame | `device:frame` or `device/frame` | the same | `frame_id` |
 
 Operations carry the ROS types their profile declares; Kinex defines no message
-format of its own, and `io.read` and subscriptions return native messages.
+format of its own, and topics return native messages.
 Library functions take a value in any equivalent form and return it in one: a
 vector may be a list, a tuple, a message's array field or an array; a pose may be
 a `RigidTransform`, its seven numbers or a `Pose`, `Transform`, `PoseStamped` or
@@ -208,7 +243,7 @@ a `RigidTransform`, its seven numbers or a `Pose`, `Transform`, `PoseStamped` or
 `pose(value)` and `seconds(value)`, imported from `kinex`, make these conversions
 for a program's own use.
 
-`io.publish` and `io.request` encode a field mapping by each field's declared
+A topic's `publish`, a service and an action encode a field mapping by each field's declared
 type: seconds for a `Time` or `Duration`, a pose for a `Pose` or `Transform`, one
 `RigidTransform` holding several poses for an array of them, numbers for a
 `Point`, `Vector3` or `Quaternion`, and arrays for numeric fields. The mapping
@@ -217,57 +252,95 @@ and times as seconds; `kinex.plain(value)` gives that JSON-ready form to a
 program that writes a file of its own.
 
 ```python
-state = await io.read("arm.joint_state")
+state = await device("arm").topic("joint_state").next()
 arm = lib.kinematics.joint_model("arm")
 flange = arm.fk(state.position)                       # the message's array, as it is
 tcp = flange * pose([0, 0, 0.1, 0, 0, 0, 1])          # poses compose as objects
 seen = await lib.frames.lookup_transform("arm:base", "camera:color", image) * found
-await io.publish("arm.joint_target", {"joint_names": arm.names, "points": [
+await device("arm").topic("joint_target").publish({"joint_names": arm.names, "points": [
     {"positions": arm.ik(seen, state.position), "time_from_start": 2.0}]})
 ```
 
 ## World time
 
-A world provides the required `time` clock and, as recommended, relative
-`wait(duration_s)` with its `stop`; only simulators add `reset`. A zero wait is an
-observation barrier. Waits are sequential: the world rejects a wait while another
-is pending, and `stop` cancels the pending one. Realtime waits observe progress;
-stepped waits authorize world advancement. A periodic loop must skip missed
-deadlines, and must not assume an expired wait produces a fresh observation.
+The world device is the only clock. Every world declares the same operations, whether
+it is the real world, a simulator running in realtime or a stepped simulator, and a
+program holds them as `world`:
 
-A wait has two things to wait for, and ends once both are over: `duration_s` of
-world time, and `goals`, a list of `Goal`s, to finish. With a positive
-`goal_timeout_s`, goals still executing that long into the wait are cancelled. Give
-either or both: a wait without goals lasts `duration_s`, whatever goals do, and one
-with goals alone lasts until they finish. Its reply's `finished` says of each goal
-whether it had. A world where time passes by itself need not observe goals: when its
-reply reports none, `io.request` awaits the goals itself after the world's wait and
-cancels those still executing at their timeout.
+| Operation | In a program | What it does |
+| --- | --- | --- |
+| `now` | `await world.now()` | `(time_s, used_s, max_s)`: world time, and the time budget in seconds of world time, `None` where the world has none |
+| `wait_all` | `await world.wait_all(entries, timeout=None)` | wait until every entry is over |
+| `wait_any` | `await world.wait_any(entries, timeout=None)` | wait until one entry is over |
+| `stop` | none: Kinex calls it | cancel the pending wait |
 
-A wait reply carries `time_s` and that wait's `waited_s`. A world may end a wait
-early, unsuccessfully, when a device refuses a command or stops a motion it cannot
-execute: `waited_s` says how far it ran, the message says why, and a stepped world
-never advances, or charges, the rest. Since a failed wait raises, a script learns of
-the refusal at once instead of waiting it out. A world may report the
-episode budget on an optional `budget` topic (`std_msgs/msg/Float64MultiArray`):
-`data` is `[used_s, max_s]`, seconds of world time used and allowed, `max_s`
-infinite for no cap, and `[NaN, NaN]` in realtime, which has no budget. The budget
-can include initialization, so it is not world time; Kinex reports it as supplied
-and never enforces it.
+An entry is a number, seconds of world time from now, or a goal, over once it has
+finished however it ended. Both waits return whether each entry was over, in order.
+`timeout` is seconds of world time: the wait ends then with what is left, and the
+goals still executing are cancelled. `world.wait_all([0])` is a barrier that lets no
+time pass. The real world and a realtime simulator have no budget; a stepped simulator
+may have one.
+
+`async for now in world.rate(hz)` ticks on absolute deadlines, made of the same
+waits; a tick whose time has passed is skipped. Loops at different rates are ordinary
+tasks:
+
+```python
+async def control(arm, hz, policy):
+    states, commands = arm.topic("joint_state"), arm.topic("joint_target")
+    await states.next()
+    async for now in world.rate(hz):
+        await commands.publish(policy(states.latest))
+
+await asyncio.gather(control(device("left_arm"), 20, left_policy), control(device("right_arm"), 10, right_policy))
+```
+
+What differs between worlds is only whether time passes by itself:
+
+- **The real world and a realtime simulator.** The world always runs, and a wait only
+  blocks the program until its entries are over.
+- **A stepped simulator.** Time has checkpoints: the simulator advances only during a
+  wait, and is paused otherwise.
+
+A world admits one wait at a time, while a program's tasks may wait at once. One
+driver in the program's scope therefore turns what its tasks wait for into a single
+request at a time: it reads `now`, then asks `wait_any` for the earliest time any task
+waits for and the goals they await. The reply is a checkpoint, at which the tasks it
+concerns resume, and the next request follows only once they are waiting again. So
+several loops share one world and none advances it on its own. The world also rests
+while a command, a request or a goal is on its way to its device, and while a tick's
+body runs; before each request the driver waits until the commands sent so far are
+acknowledged. A message or a reply never advances time.
+
+The two waits are `custom_interfaces/srv/Wait`: `seconds`, a list of seconds of world
+time from now, `goals`, the ids of executing action goals, and `timeout`; the reply
+carries `time_s`, whether each entry was over as `elapsed` and `finished`, and
+`timed_out`. `now` is `custom_interfaces/srv/Now`, replying `time_s`, `used_s` and
+`max_s`, NaN without a budget and `max_s` infinite without a cap. `stop` cancels the
+pending wait: the driver stops a wait when what the program waits for changes, and
+when the program abandons it. A world may end a wait early, unsuccessfully, when a
+device refuses a command or stops a motion it cannot execute: the reply says why and
+where it got to, a stepped world never advances the rest, and every task waiting on
+the world raises `kinex.OperationError`, so a script learns of the refusal at once.
+Other failures of the wait reach the same tasks. The budget can include
+initialization, so it is not world time; Kinex reports it as supplied and never
+enforces it.
+
+The model sees these operations in the world's profile and may call them through the
+device tool as declared, such as `wait_all` with `{"seconds": [1.0]}`. A world also
+publishes its time on the domain's `/clock`, the ROS clock that device nodes, tf2
+history and recording follow; it is not an operation. A world has no reset: an
+episode starts with its world, and a clock that starts again, as a new simulator
+run's does, invalidates what was observed before it.
 
 Subscriptions, TF lookup and calibration sampling never advance the world.
 Host watchdogs use monotonic wall time so timeouts and cancellation still work
-when the world is paused. World reset interrupts waits and invalidates cached
-time-dependent observations.
+when the world is paused.
 
 A service rejection raises `kinex.OperationError`. Its `operation`, `interface`,
-raw `response` and serializable `details` survive error reporting. Catch an
-expected terminal wait inside the same communication scope, inspect its response,
-and inspect measurements at or after the returned `time_s`. Benchmark judging
-belongs to the environment operator, not device operations. A rejected wait
-alone does not establish success. Other failures must propagate. Create and
-validate all subscriptions before creating their `next()` coroutines so a missing
-operation cannot leave unawaited coroutines.
+raw `response` and serializable `details` survive error reporting. Benchmark judging
+belongs to the environment operator, not device operations. A wait that ended early
+does not establish success. Other failures must propagate.
 
 ## Commands and cleanup
 
@@ -288,13 +361,15 @@ One host approval covers a Python invocation and composed operations. Python
 cannot load/unload devices. Explicit stop remains approval-free; model recording
 is opt-in. This API is not a sandbox for arbitrary Python.
 
-Before its first command to a device, a publish or a service request, an
-invocation reports the device to the host. Successful completion leaves motion
-running; before teardown, the scope waits for reliable subscribers to acknowledge
+Before its first command to a device, a publish, a service request or a goal, a
+program reports the device to the host. Successful completion leaves motion
+running; before its scope is released, it waits for reliable subscribers to acknowledge
 its commands, and an unacknowledged command fails it. Failure, cancellation or
-timeout stops every device the invocation commanded, from the communication scope
-and again from the host after the Python process ends; a wait abandoned inside a
-scope stops its world. Any host stop of a device, through `device_stop`, `/stop`,
+timeout stops every device the program commanded, from its scope and again from the
+host once the program has ended; a wait abandoned inside a scope stops its world.
+Releasing a scope ends the program's subscriptions and the processes it left running,
+and leaves the runtime's clients as they were. A program that does not end within a
+second of its cancellation is ended with its runtime, and the host stops its devices. Any host stop of a device, through `device_stop`, `/stop`,
 a device call's `stop` action or the runtime API, also cancels running
 invocations that commanded it. Uncertain commands are not retried. Unload releases
 owned nodes and stops according to the declared device contract, without
@@ -341,15 +416,12 @@ approaching, retracting and lifting: local IK solves each waypoint from the prev
 a jump between waypoints raises `IKError` with reason `discontinuity`, and the plan is
 timed by the same limits as `lib.motion.trajectory`.
 
-Kinex automatically owns a persistent tf2 service
-(`custom_interfaces/srv/LookupTransform`) for each runtime ROS domain with a world
-clock. Use
+The runtime of each ROS domain keeps the domain's tf2 history. Use
 `await lib.frames.lookup_transform(target, source, stamp=None, timeout_s=5)`,
 which returns the pose of `source` in `target` as a `RigidTransform`: multiplying it
-by a pose or applying it to points seen in `source` expresses them in `target`. Its internal endpoint is passed to exec outside
-the device catalog; no world operation or device factory registers it. The
-service retains 120 s of world-time history, so a stamp from an earlier call
-remains answerable; a standalone scope's local history keeps tf2's 10 s. A
+by a pose or applying it to points seen in `source` expresses them in `target`. The
+runtime keeps 120 s of world-time history across programs, so a stamp from an earlier
+program remains answerable; a standalone scope's own history keeps tf2's 10 s. A
 world-clock rewind invalidates dynamic history while retaining fixed calibration.
 
 The simulator supplies state and measurements, or node geometry descriptors, not TF or a transform-lookup
@@ -357,8 +429,8 @@ service. Camera nodes set image frame IDs to the calibrated optical frame.
 
 `lib.frames.lookup_transform` uses tf2 and accepts qualified frame references or ROS frame IDs.
 Supply `stamp`, in seconds or as the stamped message a measurement came in, for a
-particular world time; omitting it explicitly requests the latest available transform. Kinex retains the tf2 service
-across exec calls, so a new invocation can query a paused world without waiting
+particular world time; omitting it explicitly requests the latest available transform. The runtime listens
+between programs, so a new program can query a paused world without waiting
 for another physics tick. Missing relationships and unavailable timestamps are
 errors. A lookup waits its whole timeout, then names the cause: a frame not on TF
 with the frames its device has published, an unloaded device, frames in
@@ -384,7 +456,7 @@ to a model device. Pass an image to `finish(file=...)` to attach it for the mode
 
 ## Native validation
 
-`custom_interfaces` defines only the `Json`, `Wait` and `LookupTransform`
+`custom_interfaces` defines only the `Json`, `Now` and `Wait`
 services; commands and observations use standard ROS messages, and actions standard
 ROS actions such as those of `control_msgs`, which Kinex Python installs. The ROS
 providers build it from `packages/core/assets/ros`; build that directory in any

@@ -19,16 +19,17 @@ async def main():
                         'endpoint': '/kinex_test/query', 'type': 'std_srvs/srv/Trigger'},
     }
     async with communication(catalog, domain_id=int(os.environ.get('ROS_DOMAIN_ID', '0'))) as io:
-        source = Node('kinex_test_source', context=io.context)
-        io.extra_nodes.append(source)
-        io.executor.add_node(source)
+        source = Node('kinex_test_source', context=io.bridge.context)
+        io.bridge.extra_nodes.append(source)
+        io.bridge.executor.add_node(source)
         publisher = source.create_publisher(Float64, '/kinex_test/value', 10)
         def query(request, response):
             response.success = True
             response.message = 'native response'
             return response
         source.create_service(Trigger, '/kinex_test/query', query)
-        stream = io.subscribe('sensor.measurement', depth=2)
+        sensor = io.device('sensor')
+        stream = sensor.topic('measurement', depth=2)
         profile = {'name': 'arm', 'frames': {
             'base': {'parent': 'world:base', 'translation_m': [1, 0, 0], 'rotation_xyzw': [0, 0, 0, 1]},
             'flange': {'parent': 'arm:base', 'translation_m': [0, 2, 0], 'rotation_xyzw': [0, 0, 0, 1]},
@@ -37,14 +38,14 @@ async def main():
         }}
         broadcasters = publish_profile(source, profile)
         buffer = Buffer()
-        listener = TransformListener(buffer, io.node)
+        listener = TransformListener(buffer, io.bridge.node)
         try:
             async with asyncio.timeout(10):
                 while not source.count_subscribers('/kinex_test/value'):
                     await asyncio.sleep(.02)
                 publisher.publish(Float64(data=7.0))
                 assert (await stream.next(timeout_s=5)).data == 7
-                response = await io.request('sensor.query')
+                response = await sensor.service('query')()
                 assert response.success and response.message == 'native response'
                 while not buffer.can_transform('world/base', 'arm/tool', Time()):
                     await asyncio.sleep(.02)

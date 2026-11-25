@@ -15,23 +15,22 @@ const builtin = fileURLToPath(new URL('../assets/python/kinex/lib', import.meta.
 const TABLETOP = `"""Pick and place on a table."""
 import asyncio
 
-from kinex import io, lib
+from kinex import device, lib, world
 from kinex.lib.frames import lookup_transform
 from . import grasp
 
 
 async def watch(limit):
     """Stop when the wrist force exceeds a limit."""
-    async with io.subscribe("arm.wrench") as wrench:
-        async for sample in wrench:
-            if abs(sample.force.z) > limit:
-                raise RuntimeError("contact")
+    async for sample in device("arm").topic("wrench"):
+        if abs(sample.force.z) > limit:
+            raise RuntimeError("contact")
 
 
 async def move(pose, duration=2.0):
     target = await lookup_transform("arm/base", "world") * pose
-    await io.publish("arm.pose_target", {"pose": target, "duration": duration})
-    await io.request("world.wait", duration_s=duration)
+    await device("arm").topic("pose_target").publish({"pose": target, "duration": duration})
+    await world.wait_all([duration])
 
 
 async def pick_place(object: str, place: list, retries: int = 2) -> dict:
@@ -43,7 +42,7 @@ async def pick_place(object: str, place: list, retries: int = 2) -> dict:
             if found is None:
                 continue
             above = [*found.translation[:2], found.translation[2] + 0.1, 1, 0, 0, 0]
-            await asyncio.gather(move(above), io.publish("gripper.target", {"data": 1.0}))
+            await asyncio.gather(move(above), device("gripper").topic("target").publish({"data": 1.0}))
             held = await grasp.close(found)
             if held:
                 break
@@ -52,14 +51,14 @@ async def pick_place(object: str, place: list, retries: int = 2) -> dict:
         async with asyncio.timeout(20):
             await move(place)
             await asyncio.sleep(0.5)
-        state = await io.read("arm.joint_state")
+        state = await device("arm").topic("joint_state").next()
         return {"object": object, "joints": list(state.position)}
     finally:
         guard.cancel()
 `
 
 const GRASP = `"""Grasping."""
-from kinex import io
+from kinex import device
 
 
 def _width(state):
@@ -73,9 +72,9 @@ def _width(state):
 
 async def close(pose, force=20.0):
     """Close the gripper and report whether something is held."""
-    await io.publish("gripper.target", {"data": 0.0, "force": force})
+    await device("gripper").topic("target").publish({"data": 0.0, "force": force})
     for _ in range(10):
-        state = await io.subscribe("gripper.joint_state").next(timeout_s=1)
+        state = await device("gripper").topic("joint_state").next(timeout_s=1)
         if _width(state) > 0.002:
             return True
     return False
@@ -85,19 +84,19 @@ const PATTERNS = `"""Concurrency patterns."""
 import asyncio
 from asyncio import gather
 
-from kinex import io, lib, subagent
+from kinex import device, lib, subagent, world
 from kinex.lib.tasks import pick_place
 from .grasp import close as grip
 
 
 async def sweep(arms, mode):
     async def reach(arm):
-        await io.publish(f"{arm}.pose_target", {})
+        await device(arm).topic("pose_target").publish({})
 
     await gather(*(reach(arm) for arm in arms))
     tasks = [asyncio.create_task(reach(arm)) for arm in arms]
     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-    state = await asyncio.wait_for(io.read("arm.joint_state"), 2)
+    state = await asyncio.wait_for(device("arm").topic("joint_state").next(), 2)
     total = await asyncio.to_thread(score, state)
     if mode == "pick":
         await pick_place("cup", [0, 0, 0])
@@ -133,8 +132,21 @@ async def judged(object, front, wrist):
         Is the mug centred in both views?
         Answer yes or no.""", show={"front": front, "wrist": wrist, object: 1}, model="fake/small")
     if reply.strip() != "yes":
-        return await subagent(f"Find the {object}.", show={"front": await io.read("front.color")})
+        return await subagent(f"Find the {object}.", show={"front": await device("front").topic("color").next()})
     return await subagent(PROMPT)
+
+
+async def control(policy):
+    """Operations held by name, and the world's waits."""
+    arm = device("arm")
+    states = arm.topic("joint_state")
+    move = arm.action("move")
+    detect = device("perception").service("detect")
+    await states.next()
+    found = await detect(image=1)
+    await world.wait_all([move(pose=found), device("gripper").action("open")(), 0.5], timeout=5)
+    async for now in world.rate(20):
+        await arm.topic("joint_target").publish(policy(states.latest))
 `
 
 async function fixture(t) {
@@ -184,7 +196,7 @@ test('a program charts as device operations, calls, computation and the control 
   const flow = await f.chart('tasks.tabletop.pick_place')
   assert.deepEqual(flow.problems, [])
   const entry = flow.functions[flow.entry]
-  assert.deepEqual([entry.path, entry.name, entry.file, entry.line, entry.signature, entry.doc], ['tasks.tabletop.pick_place', 'pick_place', path.join(f.lib, 'tasks/tabletop.py'), 23,
+  assert.deepEqual([entry.path, entry.name, entry.file, entry.line, entry.signature, entry.doc], ['tasks.tabletop.pick_place', 'pick_place', path.join(f.lib, 'tasks/tabletop.py'), 22,
     'async def pick_place(object: str, place: list, retries: int=2) -> dict', 'Pick an object and place it at a pose. </script>'])
   assert.equal(entry.source.split('\n').length, entry.end - entry.line + 1)
   assert.match(entry.source, /^async def pick_place/)
@@ -200,7 +212,7 @@ test('a program charts as device operations, calls, computation and the control 
         { if: [['held', ['break']]], else: [] },
       ], else: ["raise RuntimeError(f'could not grasp {object}')"] },
       { scope: 'timeout 20 s', timeout: true, body: ['call move', 'sleep 0.5 s'] },
-      'read arm.joint_state',
+      'next arm.joint_state',
       "return {'object': object, 'joints': list(state.position)}",
     ], on: [], else: [], finally: ['cancel guard'] },
   ])
@@ -214,11 +226,9 @@ test('a program charts as device operations, calls, computation and the control 
   assert.equal(flow.functions[call(entry, 'tasks.grasp.close').target].path, 'tasks.grasp.close')
   assert.equal(flow.functions[call(entry, 'frames.lookup_transform').target].file, path.join(builtin, 'frames.py'))
   assert.deepEqual(shape(named(flow, 'tasks.tabletop.watch').body), [
-    { scope: 'subscribed to arm.wrench', timeout: false, body: [
-      { loop: 'for sample in each message of arm.wrench', body: ['next arm.wrench', { if: [['abs(sample.force.z) > limit', ["raise RuntimeError('contact')"]]], else: [] }], else: [] },
-    ] },
+    { loop: "for sample in each message of arm.wrench", body: ['next arm.wrench', { if: [['abs(sample.force.z) > limit', ["raise RuntimeError('contact')"]]], else: [] }], else: [] },
   ])
-  assert.deepEqual(shape(named(flow, 'tasks.tabletop.move').body), ['call frames.lookup_transform', 'publish arm.pose_target', 'request world.wait'])
+  assert.deepEqual(shape(named(flow, 'tasks.tabletop.move').body), ['call frames.lookup_transform', 'publish arm.pose_target', 'wait all [duration]'])
   assert.equal(flow.functions[call(named(flow, 'tasks.tabletop.move'), 'frames.lookup_transform').target].path, 'frames.lookup_transform')
   assert.deepEqual(shape(named(flow, 'tasks.grasp.close').body), [
     'publish gripper.target',
@@ -237,7 +247,7 @@ test('concurrency, dynamic names and unresolved calls have their own steps', asy
     { parallel: 'all', branches: [['for arm in arms', ['call reach']]] },
     { loop: 'for arm in arms', body: [{ spawn: null, body: ['call reach'] }], else: [] },
     { parallel: 'first', branches: [['for each of tasks', []]] },
-    { scope: 'timeout 2 s', timeout: true, body: ['read arm.joint_state'] },
+    { scope: 'timeout 2 s', timeout: true, body: ['next arm.joint_state'] },
     'call score',
     { if: [["mode == 'pick'", ['call tasks.pick_place']], ["mode == 'grip'", ['call tasks.grasp.close']]], else: ['call motion.ready', 'compute total'] },
     { loop: 'repeat', body: ['sleep 0.1 s', { if: [['total', ['break']]], else: [] }], else: [] },
@@ -248,7 +258,7 @@ test('concurrency, dynamic names and unresolved calls have their own steps', asy
     .filter(step => step.kind === 'call' && step.target).map(step => [step.label, flow.functions[step.target]]))
   // Library calls are named by their library path however the code imports them: a re-export is
   // followed to its definition, an alias to its function, and a workspace module replaces the builtin.
-  assert.deepEqual(shape(named(flow, 'tasks.patterns.sweep.reach').body), ["publish f'{arm}.pose_target' (dynamic)"])
+  assert.deepEqual(shape(named(flow, 'tasks.patterns.sweep.reach').body), ["publish {arm}.pose_target (dynamic)"])
   assert.equal(targets['tasks.pick_place'].path, 'tasks.tabletop.pick_place')
   assert.equal(targets['tasks.grasp.close'].path, 'tasks.grasp.close')
   assert.equal(targets['motion.ready'].file, path.join(f.lib, 'motion.py'))
@@ -257,11 +267,18 @@ test('concurrency, dynamic names and unresolved calls have their own steps', asy
   // A subagent call is its own step: its instruction's first line and the names of what it is shown.
   assert.deepEqual(shape((await f.chart('tasks.patterns.judged')).functions[`${path.join(f.lib, 'tasks/patterns.py')}::judged`].body), [
     'subagent Is the mug centred in both views? <- front,wrist,object',
-    { if: [["reply.strip() != 'yes'", ['read front.color', "subagent f'Find the {object}.' (dynamic) <- front", "return await subagent(f'Find the {object}.', show={'front': await …"]]], else: [] },
+    { if: [["reply.strip() != 'yes'", ['next front.color', "subagent f'Find the {object}.' (dynamic) <- front", "return await subagent(f'Find the {object}.', show={'front': await …"]]], else: [] },
     'subagent PROMPT (dynamic) <- ',
     'return await subagent(PROMPT)',
   ])
 
+  // A device and its operations keep their names when a program holds them, and the world's waits are waits.
+  assert.deepEqual(shape((await f.chart('tasks.patterns.control')).functions[`${path.join(f.lib, 'tasks/patterns.py')}::control`].body), [
+    'compute arm,states,move,detect',
+    'next arm.joint_state', 'request perception.detect',
+    'act arm.move', 'act gripper.open', "wait all [move(pose=found), device('gripper').ac…, timeout=5",
+    { loop: 'for now in world.rate(20)', body: ['wait for the next tick at 20 Hz', 'publish arm.joint_target'], else: [] },
+  ])
   const again = await f.chart('tasks.patterns.again')
   assert.deepEqual(Object.keys(again.functions), [again.entry])
   assert.equal(again.functions[again.entry].body[0].arms[0].body[0].target, again.entry)
@@ -269,14 +286,14 @@ test('concurrency, dynamic names and unresolved calls have their own steps', asy
 
 test('a file outside the library charts one of its functions and its sibling modules', async t => {
   const f = await fixture(t)
-  await f.write('scripts/steps.py', 'from kinex import io\n\nasync def nudge(arm):\n    await io.publish(arm + ".joint_target", {})\n')
+  await f.write('scripts/steps.py', 'from kinex import device\n\nasync def nudge(arm):\n    await device(arm).topic("joint_target").publish({})\n')
   await f.write('scripts/run.py', 'import steps\nfrom kinex.lib.tasks.grasp import close\n\nasync def main(arm="left"):\n    await steps.nudge(arm)\n    return await close(None)\n\ndef helper():\n    return 1\n')
   const flow = await f.chart('scripts/run.py:main')
   const entry = flow.functions[flow.entry]
   assert.equal(entry.path, 'run.py:main')
   assert.deepEqual(shape(entry.body), ['call steps.nudge', 'call tasks.grasp.close', 'return await close(None)'])
   assert.deepEqual(Object.values(flow.functions).map(item => item.path).sort(), ['run.py:main', 'steps.py:nudge', 'tasks.grasp._width', 'tasks.grasp.close'])
-  assert.deepEqual(shape(named(flow, 'steps.py:nudge').body), ["publish arm + '.joint_target' (dynamic)"])
+  assert.deepEqual(shape(named(flow, 'steps.py:nudge').body), ["publish {arm}.joint_target (dynamic)"])
   assert.equal((await f.chart(`${path.join(f.directory, 'scripts/run.py')}:helper`)).functions[`${path.join(f.directory, 'scripts/run.py')}::helper`].name, 'helper')
 
   await assert.rejects(f.chart('scripts/run.py:absent'), /defines no function absent; it defines main, helper/)
@@ -295,13 +312,13 @@ test('a program file charts its top-level statements, opens main and ends at fin
   const f = await fixture(t)
   await f.write('.kinex/programs/look.py', `"""Look at the arm and report its joints."""
 import asyncio
-from kinex import args, finish, io, lib
+from kinex import args, device, finish, lib
 
 LIMIT = 3
 
 
 async def main():
-    state = await io.read("arm.joint_state")
+    state = await device("arm").topic("joint_state").next()
     if not state.position:
         finish({"seen": False})
     image, _ = await lib.images.camera_frame(args()["camera"])
@@ -318,7 +335,7 @@ asyncio.run(main())
   const main = flow.functions[entry.body.at(-1).target]
   assert.equal(main.path, 'look.py:main')
   assert.deepEqual(shape(main.body), [
-    'read arm.joint_state',
+    'next arm.joint_state',
     { if: [['not state.position', ["finish {'seen': False}"]]], else: [] },
     'call images.camera_frame',
     "finish {'positions': state.position}, file=[image]",

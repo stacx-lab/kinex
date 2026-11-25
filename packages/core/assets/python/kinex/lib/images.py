@@ -5,7 +5,7 @@ see it. Reading a camera never advances world time.
 """
 import numpy as np
 
-from kinex import io, profile
+from kinex import device, profile
 from kinex.common.camera import array, camera_stream, frame, project, rays, save, stereo
 from kinex.common.camera import stereo_frame as read_stereo
 
@@ -19,7 +19,7 @@ async def camera_frame(camera, timeout_s=None, eye=None):
     Example: image, depth = await lib.images.camera_frame("camera")
     """
     camera_stream(profile(camera), eye)
-    return await frame(io, camera, timeout_s=timeout_s, eye=eye)
+    return await frame(device(camera), timeout_s=timeout_s, eye=eye)
 
 
 async def stereo_frame(camera, timeout_s=None):
@@ -30,7 +30,7 @@ async def stereo_frame(camera, timeout_s=None):
     Example: left, right = await lib.images.stereo_frame("camera")
     """
     camera_stream(profile(camera), "left")
-    return await read_stereo(io, camera, timeout_s=timeout_s)
+    return await read_stereo(device(camera), timeout_s=timeout_s)
 
 
 def image_array(image):
@@ -51,7 +51,7 @@ def save_image(image):
 
 
 class CameraGeometry:
-    """Invocation-owned camera geometry; remote calls use the invocation's communication scope."""
+    """A program's camera geometry; remote calls go to the camera's own services."""
 
     def __init__(self, camera, streams, remote):
         self.camera, self.streams, self.remote = camera, streams, remote
@@ -67,7 +67,7 @@ class CameraGeometry:
             if not np.isfinite(batch).all():
                 raise ValueError("geometry inputs must be finite")
             if self.remote:
-                result = await io.request(f"{self.camera}.{action}", stream=stream,
+                result = await device(self.camera).service(action)(stream=stream,
                     calibration_id=descriptor["calibration_id"], **{"pixels" if action == "unproject" else "points": batch.tolist()})
                 result = result["rays" if action == "unproject" else "pixels"]
             else:
@@ -103,9 +103,9 @@ async def camera_geometry(camera):
     Example: rays = await (await lib.images.camera_geometry("camera")).unproject([[320, 240]])
     """
     record = profile(camera)
-    remote = f"{camera}.geometry" in io.catalog
+    remote = "geometry" in device(camera).operations
     if remote:
-        streams = (await io.request(f"{camera}.geometry"))["streams"]
+        streams = (await device(camera).service("geometry")())["streams"]
     else:
         streams = {eye: record[eye] for eye in ("left", "right")} if stereo(record) else {"color": record["color"]}
         if record.get("depth", {}).get("registration") == "native":

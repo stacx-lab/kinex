@@ -117,7 +117,7 @@ class Run:
             sample.update(await self._images(profile))
         else:
             operation = operation or _observation(profile)
-            message, settled = await _read(f"{device}.{operation}", _motion(profile) if settle else None,
+            message, settled = await _read(kinex.device(device).topic(operation), _motion(profile) if settle else None,
                                            threshold, stable_reads, timeout_s)
             sample.update(operation=operation, data=plain(message), **({"settled": settled} if settle else {}))
             if model:
@@ -133,9 +133,9 @@ class Run:
         from kinex.common.camera import frame, stereo, stereo_frame
         name = profile["name"]
         if stereo(profile):
-            images = dict(zip(("left", "right"), await stereo_frame(kinex.io, name)))
+            images = dict(zip(("left", "right"), await stereo_frame(kinex.device(name))))
         else:
-            image, depth = await frame(kinex.io, name)
+            image, depth = await frame(kinex.device(name))
             images = {"color": image, **({"depth": depth} if depth is not None else {})}
         files = {stream: self._keep(message) for stream, message in images.items()}
         stamps = {stream: kinex.seconds(message) for stream, message in images.items()}
@@ -265,25 +265,23 @@ def _motion(profile):
 SETTLE_INTERVAL_S = .3
 
 
-async def _read(operation, motion, threshold, stable_reads, timeout_s):
-    """The next message, or with motion the newest once stable_reads fresh stamps settled."""
-    with kinex.io.subscribe(operation) as stream:
-        message = await stream.next(timeout_s=stream.spec.get("timeout_s", 10))
-        if motion is None:
-            return message, None
-        loop = asyncio.get_running_loop()
-        deadline, stable, last = loop.time() + timeout_s, 0, float("-inf")
-        while True:
-            stamp = kinex.seconds(message)
-            if stamp < last:
-                raise RuntimeError("sample clock moved backwards")
-            if stamp > last:
-                stable = stable + 1 if all(abs(value) <= threshold for value in motion(message)) else 0
-                last = stamp
-            if stable >= stable_reads:
-                return message, True
-            if loop.time() >= deadline:
-                return message, False
-            await asyncio.sleep(min(SETTLE_INTERVAL_S, deadline - loop.time()))
-            newest = stream.latest()
-            message = message if newest is None else newest
+async def _read(stream, motion, threshold, stable_reads, timeout_s):
+    """The topic's next message, or with motion the newest once stable_reads fresh stamps settled."""
+    message = await stream.next()
+    if motion is None:
+        return message, None
+    loop = asyncio.get_running_loop()
+    deadline, stable, last = loop.time() + timeout_s, 0, float("-inf")
+    while True:
+        stamp = kinex.seconds(message)
+        if stamp < last:
+            raise RuntimeError("sample clock moved backwards")
+        if stamp > last:
+            stable = stable + 1 if all(abs(value) <= threshold for value in motion(message)) else 0
+            last = stamp
+        if stable >= stable_reads:
+            return message, True
+        if loop.time() >= deadline:
+            return message, False
+        await asyncio.sleep(min(SETTLE_INTERVAL_S, deadline - loop.time()))
+        message = stream.latest or message

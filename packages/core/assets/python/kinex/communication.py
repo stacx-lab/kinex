@@ -1,8 +1,10 @@
-"""Invocation-scoped asyncio pub/sub and request/response over ROS 2.
+"""Asyncio topics, requests and goals over ROS 2.
 
-Imports are inert. exec owns one scope per invocation, reached as `kinex.io` and opened
-on first use; a standalone client enters communication() itself. World operations are
-the sole source of workflow timing.
+A Bridge is the ROS side: one context, node and executor thread, the world clock and the
+clients of the catalog's operations. A Scope is one program's use of a bridge, bound to
+that program's event loop: exec gives each program one, reached through `kinex.device`
+and `kinex.world`; a standalone client enters communication() itself. Imports are inert,
+and the world is the sole source of workflow timing.
 """
 import asyncio
 from collections import deque
@@ -12,7 +14,6 @@ import importlib
 import json
 from numbers import Real
 import threading
-import time
 import uuid
 from kinex.common.geometry import vector
 from kinex.common.plain import TIMES, ros_type
@@ -22,6 +23,8 @@ _active = contextvars.ContextVar("kinex_communication", default=None)
 # Free-form operations carry JSON objects; their descriptions define the fields.
 JSON = "custom_interfaces/srv/Json"
 WAIT = "custom_interfaces/srv/Wait"
+NOW = "custom_interfaces/srv/Now"
+CLOCK = "rosgraph_msgs/msg/Clock"
 # How a goal finished, by its action_msgs/msg/GoalStatus.
 STATUS = {4: "succeeded", 5: "canceled", 6: "aborted"}
 
@@ -110,12 +113,12 @@ def qos(spec, depth=None):
 
 
 class Subscription:
-    def __init__(self, io, spec, depth):
+    def __init__(self, scope, spec, depth):
         from rosidl_runtime_py.utilities import get_message
-        self.io, self.spec = io, spec
+        self.scope, self.spec = scope, spec
         self.buffer = deque(maxlen=qos(spec, depth).depth)
         self.event = asyncio.Event()
-        self.last = None
+        self.latest = None
         self.closed = False
         self.dropped = 0
         # A single scheduled delivery and bounded cross-thread inbox prevent
@@ -123,7 +126,7 @@ class Subscription:
         self.inbox = deque(maxlen=self.buffer.maxlen)
         self.lock = threading.Lock()
         self.scheduled = False
-        self.handle = io.node.create_subscription(
+        self.handle = scope.bridge.node.create_subscription(
             get_message(spec["type"]), spec["endpoint"], self._receive, qos(spec, depth))
 
     def _receive(self, message):
@@ -132,9 +135,9 @@ class Subscription:
                 return
             if len(self.inbox) == self.inbox.maxlen:
                 self.dropped += 1
-            self.inbox.append((message, time.monotonic()))
+            self.inbox.append(message)
             if not self.scheduled:
-                self.scheduled = self.io._post(self._deliver)
+                self.scheduled = self.scope._post(self._deliver)
 
     def _deliver(self):
         with self.lock:
@@ -147,116 +150,98 @@ class Subscription:
             if len(self.buffer) == self.buffer.maxlen:
                 self.dropped += 1
             self.buffer.append(value)
-            self.last = value
+            self.latest = value
         self.event.set()
+
+    def clear(self):
+        with self.lock:
+            self.inbox.clear()
+        self.buffer.clear()
+        self.latest = None
 
     async def next(self, *, timeout_s=None):
         async with asyncio.timeout(timeout_s):
             while not self.buffer:
                 if self.closed:
                     raise RuntimeError("subscription closed")
-                if self.io.spin_error:
-                    raise self.io.spin_error
+                if self.scope.bridge.spin_error:
+                    raise self.scope.bridge.spin_error
                 self.event.clear()
                 await self.event.wait()
-            return self.buffer.popleft()[0]
-
-    def latest(self, *, max_age_s=None):
-        # This is a receipt-age bound for transport freshness, not world time.
-        if self.last is None:
-            return None
-        message, received = self.last
-        if max_age_s is not None and time.monotonic() - received > max_age_s:
-            raise TimeoutError("cached observation is stale")
-        return message
-
-    # A context manager closes the stream on exit; the scope closes any others at its end.
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        self.close()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *_):
-        self.close()
+            return self.buffer.popleft()
 
     def close(self):
         with self.lock:
             if self.closed:
                 return
             self.closed = True
-            self.inbox.clear()
-        self.buffer.clear()
-        self.last = None
+        self.clear()
         self.event.set()
-        self.io.node.destroy_subscription(self.handle)
-        if self in self.io.subscriptions:
-            self.io.subscriptions.remove(self)
+        self.scope.bridge.node.destroy_subscription(self.handle)
+        self.scope.subscriptions.remove(self)
 
 
 class Goal:
-    """An action goal its device is executing. status is executing, then succeeded, canceled or aborted;
-    feedback is the latest the device sent, and result the action's result once the goal has finished. A world
-    wait takes goals to wait for: sending one advances no world time."""
+    """An action goal, sent as it is made. Awaiting it gives the action's result once the goal has finished; a
+    goal its device rejects, aborts or cancels raises. status is sending, executing, then succeeded, canceled,
+    aborted or rejected; feedback is the latest the device sent, and result the action's result. A goal advances
+    no world time: wait for it on the world."""
 
-    def __init__(self, io):
-        self.io, self.feedback, self.result, self.status = io, None, None, "executing"
+    def __init__(self, scope, reference, spec, goal):
+        self.scope, self.reference, self.type = scope, reference, spec["type"]
+        self.feedback = self.result = self.handle = None
+        self.status = "sending"
+        self.accepted = asyncio.ensure_future(self._send(spec, goal))
+        self.task = asyncio.ensure_future(self._finish())
+        for task in (self.accepted, self.task):  # a failure nobody awaits is the goal's status, not a warning
+            task.add_done_callback(lambda done: done.cancelled() or done.exception())
+        self.accepted.add_done_callback(lambda _: scope.world.kick.set())
+
+    def _failure(self, text):
+        from rosidl_runtime_py.convert import message_to_ordereddict
+        reason = getattr(self.result, "error_string", "")
+        return RPCError(f"{self.reference} {text}" + (f": {reason}" if reason else ""), code=f"goal_{self.status}", details={
+            "operation": self.reference, "type": self.type,
+            **({} if self.result is None else {"result": message_to_ordereddict(self.result)})})
+
+    async def _send(self, spec, goal):
+        scope, timeout_s = self.scope, spec.get("timeout_s", 10)
+        with scope.world.hold():
+            await scope._enroll(self.reference)
+            async with asyncio.timeout(timeout_s):
+                client = await scope._action(self.reference, spec)
+                self.handle = await scope._future(client.send_goal_async(goal, feedback_callback=self._feedback), timeout_s)
+        self.status = "executing" if self.handle.accepted else "rejected"
+        if not self.handle.accepted:
+            raise self._failure("rejected the goal")
 
     def _feedback(self, message):
         self.feedback = message.feedback
 
-    def _finished(self, reply):
-        if not reply.cancelled() and reply.exception() is None:
-            self.status, self.result = STATUS[reply.result().status], reply.result().result
-
-    @property
-    def done(self):
-        return self.result is not None
-
-    async def wait(self):
-        """The result once the goal has finished. Only a world wait advances a stepped world to it."""
-        await asyncio.shield(self.reply)
+    async def _finish(self):
+        await self.accepted
+        reply = await self.scope._future(self.handle.get_result_async(), None)
+        self.status, self.result = STATUS.get(reply.status, "aborted"), reply.result
+        if self.status != "succeeded":
+            raise self._failure(f"was {self.status}")
         return self.result
 
+    def __await__(self):
+        return asyncio.shield(self.task).__await__()
+
     async def cancel(self):
-        await self.io._future(self.handle.cancel_goal_async(), 10)
+        """Ask the device to end the goal; awaiting it then raises as canceled."""
+        with self.scope.world.hold():
+            await asyncio.wait([self.accepted])
+            if self.status == "executing" and (await self.scope._future(self.handle.cancel_goal_async(), 10)).goals_canceling:
+                await asyncio.wait([self.task], timeout=10)  # its end, as the device reports it
 
 
-class Communication:
-    def __init__(self, catalog=None, *, domain_id=None):
-        from kinex import _request
-        startup = (_request or {}).get("ros", {})
-        self.frame_service = startup.get("frames") if catalog is None else None
-        self.catalog = catalog if catalog is not None else startup.get("catalog", {})
-        self.namespace = "/kinex/invocations/i_" + uuid.uuid4().hex
-        self.domain_id = domain_id if domain_id is not None else startup.get("domain_id", 0)
-        self.supervised = catalog is None and bool(startup)
-        self.subscriptions = []
-        self.publishers = {}
-        self.clients = {}
-        self.actions = {}
-        self.enrolled = set()
-        self.enroll_lock = asyncio.Lock()
-        self.pending = set()
-        self.handlers = set()
-        self.spin_error = None
-        self.extra_nodes = []
-        self.opened = False
-        self.closed = False
-        self.tf = None
+class Bridge:
+    """The ROS side: one context, node and executor thread, the world's clock, and the clients and publishers
+    of the catalog's operations, which outlive the scopes that use them."""
 
-    def open(self):
-        """Acquire ROS resources once, inside the running event loop."""
-        if self.opened:
-            if self.loop.is_closed():
-                raise RuntimeError("io belongs to the program's event loop, which has ended: use one asyncio.run(main())")
-            return self
-        if self.supervised and not self.catalog:
-            raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host before using io.",
-                           code="devices_not_ready")
+    def __init__(self, catalog, domain_id=0):
         try:
             import rclpy
             import tf2_ros  # Validate the Kinex ROS client environment before acquiring resources.
@@ -265,31 +250,113 @@ class Communication:
                            code="ros_environment_unavailable") from error
         from rclpy.context import Context
         from rclpy.executors import SingleThreadedExecutor
-        self.loop = asyncio.get_running_loop()
-        self.context = Context()
-        clocks = [op for op in self.catalog.values() if op["type"] == "rosgraph_msgs/msg/Clock" and op["direction"] == "output"]
-        arguments = []
-        if clocks:
-            arguments = ["--ros-args", "-p", "use_sim_time:=true", "-r", f"/clock:={clocks[0]['endpoint']}"]
-        # Context arguments apply to device factory nodes as well as this client.
-        rclpy.init(args=arguments, context=self.context, domain_id=self.domain_id)
-        self.node = rclpy.create_node("kinex_" + uuid.uuid4().hex, context=self.context)
-        self.world_stamp = None
+        self.catalog, self.scopes = catalog, set()  # the caller's mapping: it gains and loses devices as they load
+        self.clients, self.actions, self.publishers, self.extra_nodes = {}, {}, {}, []
+        self.spin_error = self.tf = self.world_stamp = None
         self.world_epoch = 0
-        self.clock_lock = threading.Lock()
-        self.clock_pending = None
-        self.clock_scheduled = False
-        if clocks:
+        self.clock = next((op for op in catalog.values() if op["type"] == CLOCK and op["direction"] == "output"), None)
+        self.context = Context()
+        arguments = ["--ros-args", "-p", "use_sim_time:=true"] if self.clock else []
+        # Context arguments apply to device factory nodes as well as this client.
+        rclpy.init(args=arguments, context=self.context, domain_id=domain_id)
+        self.node = rclpy.create_node("kinex_" + uuid.uuid4().hex, context=self.context)
+        if self.clock:
             from rosgraph_msgs.msg import Clock
-            self.clock_subscription = self.node.create_subscription(
-                Clock, clocks[0]["endpoint"],
-                self._clock_received, qos(clocks[0]))
+            self.node.create_subscription(Clock, self.clock["endpoint"], self._clock, qos(self.clock))
         # Async service callbacks yield to this executor. Computation devices
         # have separate processes, so idle transport clients need no worker pool.
         self.executor = SingleThreadedExecutor(context=self.context)
         self.executor.add_node(self.node)
         self.thread = threading.Thread(target=self._spin, daemon=True)
         self.thread.start()
+
+    def unload(self, device):
+        """Release the clients this bridge made for a device's operations."""
+        for clients, destroy in ((self.publishers, self.node.destroy_publisher), (self.clients, self.node.destroy_client),
+                                 (self.actions, lambda client: client.destroy())):
+            for reference in [reference for reference in clients if reference.split(".")[0] == device]:
+                destroy(clients.pop(reference))
+
+    def _clock(self, message):
+        stamp = message.clock.sec * 1_000_000_000 + message.clock.nanosec
+        if self.world_stamp is not None and stamp < self.world_stamp:
+            self.world_epoch += 1
+        self.world_stamp = stamp
+        if self.tf is not None:
+            self.tf.observe_clock(stamp)
+        for scope in tuple(self.scopes):
+            scope._notify()
+
+    def _spin(self):
+        from rclpy.executors import ExternalShutdownException
+        try:
+            self.executor.spin()
+        except ExternalShutdownException:
+            pass
+        except Exception as error:
+            self.spin_error = error
+            for scope in tuple(self.scopes):
+                scope._post(scope._failed, error)
+
+    def transforms(self, history_s=None):
+        """The domain's tf2 history, listened to from its first use."""
+        if self.tf is None:
+            from kinex.host.frame_graph import SCOPE_HISTORY_S, listen
+            self.tf, self.tf_listener = listen(self.node, history_s or SCOPE_HISTORY_S)
+            if self.world_stamp is not None:
+                self.tf.observe_clock(self.world_stamp)
+        return self.tf
+
+    async def close(self):
+        if self.tf is not None:
+            self.tf_listener.unregister()
+        for client in self.actions.values():
+            client.destroy()
+        await asyncio.to_thread(self.executor.shutdown, timeout_sec=2)
+        for node in self.extra_nodes:
+            node.destroy_node()
+        self.node.destroy_node()
+        self.context.try_shutdown()
+        await asyncio.to_thread(self.thread.join, 2)
+
+
+class Scope:
+    """One program's use of a bridge, bound to that program's event loop: its streams, goals and world waits,
+    and the devices it commanded. It binds on its first use inside the loop; closing it releases what the program
+    made, flushing its commands on success and stopping its devices on failure, and leaves a bridge it was given
+    as it found it."""
+
+    def __init__(self, bridge=None, *, catalog=None, domain_id=0, enroll=None):
+        from kinex.world import World
+        # Without a bridge the scope makes its own on first use, and closes it.
+        self.given, self.owned, self.cold = bridge, None, (catalog or {}, domain_id)
+        self.enroll = enroll  # reports a device to the host before its first command
+        self.subscriptions, self.topics, self.unacknowledged = [], {}, set()
+        self.enrolled, self.pending = set(), set()
+        self.enroll_lock = asyncio.Lock()
+        self.clock_scheduled = self.opened = self.closed = False
+        self.world = World(self)
+
+    @property
+    def bridge(self):
+        if self.given is None:
+            self.given = self.owned = Bridge(*self.cold)
+        return self.given
+
+    @property
+    def catalog(self):
+        """The operations by reference; naming one starts no ROS."""
+        return self.cold[0] if self.given is None else self.given.catalog
+
+    def open(self):
+        """Bind to the running event loop, once: what a program awaits belongs to its one loop."""
+        if self.opened:
+            if self.loop.is_closed():
+                raise RuntimeError("devices belong to the program's event loop, which has ended: use one asyncio.run(main())")
+            return self
+        self.loop = asyncio.get_running_loop()
+        self.epoch = self.bridge.world_epoch
+        self.bridge.scopes.add(self)
         self.opened = True
         return self
 
@@ -306,45 +373,26 @@ class Communication:
             return False
         return True
 
-    def _clock_received(self, message):
-        with self.clock_lock:
-            self.clock_pending = message
-            if not self.clock_scheduled:
-                self.clock_scheduled = self._post(self._clock_deliver)
+    def _notify(self):
+        """The world's clock moved; one delivery carries every move since the last."""
+        if not self.clock_scheduled:
+            self.clock_scheduled = True  # before posting: the loop may deliver at once
+            if not self._post(self._clock):
+                self.clock_scheduled = False
 
-    def _clock_deliver(self):
-        with self.clock_lock:
-            message = self.clock_pending
-            self.clock_scheduled = False
-        if not self.closed:
-            self._clock(message)
-
-    def _clock(self, message):
-        stamp = message.clock.sec * 1_000_000_000 + message.clock.nanosec
-        if self.world_stamp is not None and stamp < self.world_stamp:
-            self.world_epoch += 1
+    def _clock(self):
+        self.clock_scheduled = False
+        if self.closed:
+            return
+        if self.epoch != self.bridge.world_epoch:
+            # A clock that starts again, as a new simulator run's does, invalidates what was observed before it.
+            self.epoch = self.bridge.world_epoch
             for stream in self.subscriptions:
-                with stream.lock:
-                    stream.inbox.clear()
-                stream.buffer.clear()
-                stream.last = None
-        if self.tf is not None:
-            self.tf.observe_clock(stamp)
-        self.world_stamp = stamp
-
-    def _spin(self):
-        from rclpy.executors import ExternalShutdownException
-        try:
-            self.executor.spin()
-        except ExternalShutdownException:
-            pass
-        except Exception as error:
-            self._post(self._failed, error)
+                stream.clear()
 
     def _failed(self, error):
         if self.closed:
             return
-        self.spin_error = error
         for stream in self.subscriptions:
             stream.event.set()
         for future in tuple(self.pending):
@@ -354,40 +402,42 @@ class Communication:
     def operation(self, reference, transport=None, direction=None):
         if self.closed:
             raise RuntimeError("communication scope closed")
-        if self.spin_error:
-            raise self.spin_error
+        if self.given is not None and self.given.spin_error:
+            raise self.given.spin_error
         spec = self.catalog.get(reference)
+        if spec is None and self.enroll and all(name.startswith("_") for name in self.catalog):
+            raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host first.",
+                           code="devices_not_ready")
         if spec is None:
             raise RPCError(f"unknown or unavailable operation {reference}; query runtime.operations(device) and runtime.devices()", code="operation_unavailable", details={"operation": reference})
         if transport and spec["transport"] != transport:
-            raise TypeError(f"{reference} is not a {transport}")
+            raise TypeError(f"{reference} is a {spec['transport']}, not a {transport}")
         if direction and spec["direction"] != direction:
             raise TypeError(f"{reference} is not a device {direction}")
         return spec
 
-    def subscribe(self, operation, *, depth=None):
-        stream = Subscription(self, self.operation(operation, "topic", "output"), depth)
+    def device(self, name):
+        from kinex.device import Device
+        return Device(self, name)
+
+    def subscribe(self, spec, depth=None):
+        self.open()
+        stream = Subscription(self, spec, depth)
         self.subscriptions.append(stream)
         return stream
 
-    async def read(self, operation, *, timeout_s=None):
-        """The next message on an output topic; timeout_s defaults to the operation's."""
-        with self.subscribe(operation) as stream:
-            return await stream.next(timeout_s=stream.spec.get("timeout_s", 10) if timeout_s is None else timeout_s)
-
-    async def _enroll(self, operation):
-        """Report a commanded device so the host stops it if this invocation fails."""
-        device = operation.split(".", 1)[0]
+    async def _enroll(self, reference):
+        """Report a commanded device so the host stops it if this program fails."""
+        device = reference.split(".", 1)[0]
         async with self.enroll_lock:
             if device in self.enrolled:
                 return
-            if self.supervised:
-                from kinex import _rpc
-                await asyncio.to_thread(_rpc, {"call": "ros_enroll", "device": device})
+            if self.enroll:
+                await self.enroll(device)
             self.enrolled.add(device)
 
     async def _future(self, ros_future, timeout_s):
-        future = self.loop.create_future()
+        future = self.open().loop.create_future()
         self.pending.add(future)
         def complete(done):
             def deliver():
@@ -407,12 +457,12 @@ class Communication:
             if not ros_future.done():
                 ros_future.cancel()
 
-    def _client(self, spec):
+    def _client(self, reference, spec):
         from rosidl_runtime_py.utilities import get_service
-        key = (spec["endpoint"], spec["type"])
-        if key not in self.clients:
-            self.clients[key] = self.node.create_client(get_service(spec["type"]), spec["endpoint"])
-        return self.clients[key]
+        clients = self.bridge.clients
+        if reference not in clients:
+            clients[reference] = self.bridge.node.create_client(get_service(spec["type"]), spec["endpoint"])
+        return clients[reference]
 
     async def _discovered(self, client):
         while not client.service_is_ready():
@@ -420,107 +470,74 @@ class Communication:
                 raise asyncio.CancelledError()
             await asyncio.sleep(.01)  # Transport discovery, never world scheduling.
 
-    async def _request(self, spec, fields, timeout_s=None, *, operation=None):
-        client = self._client(spec)
+    async def _request(self, reference, spec, fields, timeout_s=None):
+        client = self._client(reference, spec)
         timeout_s = spec.get("timeout_s", 10) if timeout_s is None else timeout_s
         async with asyncio.timeout(timeout_s):
             await self._discovered(client)
             result = await self._future(client.call_async(message_value(client.srv_type.Request, fields)), timeout_s)
         if hasattr(result, "success") and not result.success:
-            raise OperationError(operation or spec["endpoint"], spec["type"], result)
+            raise OperationError(reference, spec["type"], result)
         return result
 
-    async def _action(self, spec):
+    async def _action(self, reference, spec):
         """The action's client, once its server is discovered."""
         from rclpy.action import ActionClient
         from rosidl_runtime_py.utilities import get_action
-        key = (spec["endpoint"], spec["type"])
-        if key not in self.actions:
-            self.actions[key] = ActionClient(self.node, get_action(spec["type"]), spec["endpoint"])
-        while not self.actions[key].server_is_ready():
+        actions = self.bridge.actions
+        if reference not in actions:
+            actions[reference] = ActionClient(self.bridge.node, get_action(spec["type"]), spec["endpoint"])
+        while not actions[reference].server_is_ready():
             await asyncio.sleep(.01)  # Transport discovery, never world scheduling.
-        return self.actions[key]
+        return actions[reference]
 
-    async def act(self, operation, goal):
-        """Send an action its goal, a message or field mapping; the Goal once the device accepts it. A
-        rejected goal raises. The goal then runs as world time passes: this never waits for it."""
-        spec = self.operation(operation, "action", "input")
-        await self._enroll(operation)
-        sent, timeout_s = Goal(self), spec.get("timeout_s", 10)
-        async with asyncio.timeout(timeout_s):
-            client = await self._action(spec)
-            sent.handle = await self._future(client.send_goal_async(
-                message_value(client._action_type.Goal, goal), feedback_callback=sent._feedback), timeout_s)
-            if not sent.handle.accepted:
-                raise RPCError(f"{operation} rejected the goal", code="operation_rejected",
-                               details={"operation": operation, "type": spec["type"]})
-            sent.reply = asyncio.ensure_future(self._future(sent.handle.get_result_async(), None))
-            sent.reply.add_done_callback(sent._finished)
-        return sent
+    def act(self, reference, goal=None, **fields):
+        """Send an action its goal, a message or field mapping, or its fields by name: the Goal, already sent."""
+        from rosidl_runtime_py.utilities import get_action
+        spec = self.operation(reference, "action", "input")
+        return Goal(self, reference, spec, message_value(get_action(spec["type"]).Goal, fields if goal is None else goal))
 
-    async def request(self, operation, *, timeout_s=None, **fields):
-        spec = self.operation(operation, "service", "input")
-        await self._enroll(operation)
-        try:
-            if spec["type"] == WAIT and fields.get("goals"):
-                goals, patience = fields["goals"], fields.get("goal_timeout_s")
-                fields = {**fields, "goals": [{"uuid": goal.handle.goal_id.uuid} for goal in goals]}
-                result = await self._request(spec, fields, timeout_s, operation=operation)
-                if len(result.finished) < len(goals):
-                    # A world that does not observe goals, where time passes by itself, has only waited
-                    # duration_s: await the goals here, cancelling those still executing at their timeout.
-                    started, waits = self.loop.time(), [asyncio.ensure_future(goal.wait()) for goal in goals]
-                    await asyncio.wait(waits, timeout=max(0., patience - result.waited_s) if patience else None)
-                    for goal in goals:
-                        if not goal.done:
-                            await goal.cancel()
-                    result.finished = [True] * len(goals)
-                    result.waited_s += self.loop.time() - started
-                    result.time_s += self.loop.time() - started
-                # The results of the goals the wait saw finish have arrived when it returns.
-                await asyncio.gather(*(goal.wait() for goal, finished in zip(goals, result.finished) if finished))
-                return result
+    async def request(self, reference, *, timeout_s=None, **fields):
+        """Call a service with its request's fields; the response, or for a Json operation its decoded object."""
+        spec = self.operation(reference, "service", "input")
+        with self.world.hold():
+            await self._enroll(reference)
             if spec["type"] != JSON:
-                return await self._request(spec, fields, timeout_s, operation=operation)
-            result = await self._request(spec, {"request": json.dumps(fields, allow_nan=False)}, timeout_s, operation=operation)
+                return await self._request(reference, spec, fields, timeout_s)
+            result = await self._request(reference, spec, {"request": json.dumps(fields, allow_nan=False)}, timeout_s)
             return json.loads(result.response)
-        except BaseException as error:
-            # An abandoned wait would keep advancing a stepped world.
-            if spec["type"] == WAIT and not isinstance(error, OperationError):
-                try:
-                    await self._stop([operation.split(".", 1)[0]])
-                except Exception as cleanup:
-                    error.add_note(f"wait cleanup failed: {cleanup}")
-            raise
 
-    async def publish(self, operation, message):
+    async def publish(self, reference, message):
         from rosidl_runtime_py.utilities import get_message
-        spec = self.operation(operation, "topic", "input")
+        spec = self.operation(reference, "topic", "input")
         value = message_value(get_message(spec["type"]), message)
-        await self._enroll(operation)
-        publisher = self.publishers.get(operation)
-        if publisher is None:
-            publisher = self.node.create_publisher(type(value), spec["endpoint"], qos(spec))
-            self.publishers[operation] = publisher
-        stop = self.catalog.get(operation.split(".", 1)[0] + ".stop")
-        async with asyncio.timeout(spec.get("timeout_s", 10)):
-            # Nodes serve stop after their command subscriptions: once it is discovered,
-            # the command reaches the device itself, not only another subscriber.
-            if stop:
-                await self._discovered(self._client(stop))
-            while publisher.get_subscription_count() == 0:
-                await asyncio.sleep(.01)
-        publisher.publish(value)
+        with self.world.hold():
+            await self._enroll(reference)
+            publisher = self.bridge.publishers.get(reference)
+            if publisher is None:
+                publisher = self.bridge.publishers[reference] = self.bridge.node.create_publisher(type(value), spec["endpoint"], qos(spec))
+            stop = reference.split(".", 1)[0] + ".stop"
+            async with asyncio.timeout(spec.get("timeout_s", 10)):
+                # Nodes serve stop after their command subscriptions: once it is discovered,
+                # the command reaches the device itself, not only another subscriber.
+                if stop in self.catalog:
+                    await self._discovered(self._client(stop, self.catalog[stop]))
+                while publisher.get_subscription_count() == 0:
+                    await asyncio.sleep(.01)
+            publisher.publish(value)
+            self.unacknowledged.add(reference)
 
     async def _flush(self):
-        """Wait until reliable subscribers acknowledge every command; teardown would drop it."""
-        if not self.publishers:
+        """Wait until reliable subscribers acknowledge the commands sent since the last flush: a stepped world
+        advances only past commands its devices hold, and teardown would drop one still on its way."""
+        if not self.unacknowledged:
             return
         from rclpy.duration import Duration
-        unacknowledged = [operation for operation, publisher in self.publishers.items()
-                          if not await asyncio.to_thread(publisher.wait_for_all_acked, Duration(seconds=2))]
-        if unacknowledged:
-            raise TimeoutError(f"commands were not acknowledged: {', '.join(unacknowledged)}")
+        sent, self.unacknowledged = sorted(self.unacknowledged), set()
+        lost = [reference for reference in sent
+                if not await asyncio.to_thread(self.bridge.publishers[reference].wait_for_all_acked, Duration(seconds=2))]
+        if lost:
+            raise TimeoutError(f"commands were not acknowledged: {', '.join(lost)}")
 
     async def _stop(self, devices):
         """Call each device's declared stop service once; devices without one are skipped."""
@@ -530,58 +547,22 @@ class Communication:
             if spec is None:
                 continue
             try:
-                await self._request(spec, {}, 2, operation=f"{device}.stop")
+                await self._request(f"{device}.stop", spec, {}, 2)
             except Exception as error:
                 failures.append(error)
         if failures:
             raise ExceptionGroup("device stop failed", failures)
 
-    def serve(self, interface, handler):
-        from rosidl_runtime_py.utilities import get_service
-        from rclpy.callback_groups import ReentrantCallbackGroup
-        cls = get_service(interface["type"])
-        endpoint = interface["endpoint"]
-        if not endpoint.startswith(self.namespace + "/"):
-            raise ValueError("temporary services must use this invocation's namespace")
-        async def invoke(request, response):
-            async def run():
-                result = handler(request)
-                return await result if hasattr(result, "__await__") else result
-            # ROS futures yield executor workers; asyncio executes the handler.
-            from rclpy.task import Future
-            bridge = Future(executor=self.executor)
-            if self.loop.is_closed():  # the program has ended; its request stays unanswered
-                return await bridge
-            pending = asyncio.run_coroutine_threadsafe(run(), self.loop)
-            self.handlers.add(pending)
-            def complete(done):
-                self.handlers.discard(done)
-                try:
-                    bridge.set_result(message_value(cls.Response, done.result()))
-                except Exception as error:
-                    bridge.set_exception(error)
-            pending.add_done_callback(complete)
-            return await bridge
-        self.node.create_service(cls, endpoint, invoke, callback_group=ReentrantCallbackGroup())
-        return endpoint
-
-    def transforms(self):
-        if self.tf is None:
-            from kinex.host.frame_graph import listen
-            self.tf, self.tf_listener = listen(self.node)
-            if self.world_stamp is not None:
-                self.tf.observe_clock(self.world_stamp)
-        return self.tf
-
     async def close(self, error=None):
         """Release the scope: success flushes commands, failure stops every commanded device."""
-        if not self.opened or self.closed:
+        if self.closed or self.given is None:
             return
         # exec closes its scope after the program's own loop has ended.
         self.loop = asyncio.get_running_loop()
         succeeded = error is None or isinstance(error, SystemExit) and error.code in (None, 0)
-        failure = self.spin_error if succeeded else error
+        failure = self.bridge.spin_error if succeeded else error
         try:
+            await self.world.close()
             if failure is None:
                 try:
                     await self._flush()
@@ -597,24 +578,13 @@ class Communication:
                     raise failure
         finally:
             self.closed = True
+            self.bridge.scopes.discard(self)
             for future in tuple(self.pending):
                 future.cancel()
-            handlers = tuple(self.handlers)
-            for handler in handlers:
-                handler.cancel()
-            await asyncio.gather(*(asyncio.wrap_future(handler) for handler in handlers), return_exceptions=True)
             for stream in tuple(self.subscriptions):
                 stream.close()
-            if self.tf is not None:
-                self.tf_listener.unregister()
-            for client in self.actions.values():
-                client.destroy()
-            await asyncio.to_thread(self.executor.shutdown, timeout_sec=2)
-            for node in self.extra_nodes:
-                node.destroy_node()
-            self.node.destroy_node()
-            self.context.try_shutdown()
-            await asyncio.to_thread(self.thread.join, 2)
+            if self.owned:
+                await self.bridge.close()
 
     async def __aexit__(self, kind, error, traceback):
         try:
@@ -623,14 +593,14 @@ class Communication:
             _active.reset(self.token)
 
 
-def communication(catalog=None, *, domain_id=None):
-    """A scope for a standalone client to enter; inside exec, use `kinex.io`."""
-    return Communication(catalog, domain_id=domain_id)
+def communication(catalog=None, *, domain_id=0):
+    """A scope with a bridge of its own, for a standalone client to enter; exec gives a program its scope."""
+    return Scope(catalog=catalog, domain_id=domain_id)
 
 
 @contextlib.contextmanager
 def ambient(scope):
-    """Make a scope the active one for a block, as exec does for an invocation."""
+    """Make a scope the active one for a block, as exec does for a program."""
     token = _active.set(scope)
     try:
         yield scope
@@ -639,20 +609,8 @@ def ambient(scope):
 
 
 def scope():
-    """The active communication scope, opened on first use."""
+    """The active scope."""
     active = _active.get()
     if active is None:
         raise RuntimeError("no communication scope: run through exec or enter communication()")
-    if isinstance(active, Communication):
-        active.open()
     return active
-
-
-class _Ambient:
-    """`kinex.io`: the active scope's subscribe, read, publish, request and serve."""
-
-    def __getattr__(self, name):
-        return getattr(scope(), name)
-
-
-io = _Ambient()

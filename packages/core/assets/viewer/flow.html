@@ -244,7 +244,7 @@ function frame(spec, head, step, context, ...children) {
   return h(spec, node("button.head", step, context, ...head), ...children)
 }
 
-const VERBS = { next: "next message", latest: "latest message" }
+const VERBS = { next: "next message", act: "goal" }
 const EXITS = { break: "leave the loop", continue: "next iteration", finish: "the program ends" }
 
 function exit(step) {

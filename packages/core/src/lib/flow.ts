@@ -16,7 +16,7 @@ const at = { line: z.number().int(), end: z.number().int() }
 // Steps nest, so the block's static type stops at unknown; parsing still checks every level.
 const Block: z.ZodType<unknown[]> = z.lazy(() => z.array(FlowStep))
 const Io = z.strictObject({
-  kind: z.literal("io"), verb: z.enum(["request", "publish", "read", "subscribe", "next", "latest"]),
+  kind: z.literal("io"), verb: z.enum(["request", "act", "publish", "next"]),
   operation: z.string().describe("the operation's name, or its expression when dynamic"), dynamic: z.boolean(), ...at,
 })
 const Call = z.strictObject({ kind: z.literal("call"), label: z.string(), target: z.string().nullable().describe("the called function's id; null when it is not charted"), ...at })

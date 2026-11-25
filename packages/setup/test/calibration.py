@@ -86,37 +86,31 @@ def joint_state(position, velocity, seconds):
 class Stream:
     """A subscription delivering its messages in order and then repeating the last."""
 
+    closed = False
+
     def __init__(self, messages):
-        self.messages, self.spec = list(messages), {"timeout_s": 1}
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        pass
+        self.messages = list(messages)
 
     def close(self):
         pass
 
+    @property
     def latest(self):
         return self.messages.pop(0) if len(self.messages) > 1 else self.messages[0]
 
     async def next(self, *, timeout_s=None):
         if not self.messages:
             raise TimeoutError
-        return self.latest()
+        return self.latest
 
 
-class IO:
-    def __init__(self, topics):
-        self.topics = topics
-        self.catalog = {name: {} for name in topics}
-
-    def subscribe(self, operation):
-        return Stream(self.topics[operation])
-
-    def operation(self, operation):
-        return {"timeout_s": 1}
+def devices(topics):
+    """kinex.device over a scope whose output topics deliver these messages."""
+    from kinex.device import Device
+    catalog = {name: {"timeout_s": 1, "direction": "output", "messages": messages} for name, messages in topics.items()}
+    scope = SimpleNamespace(catalog=catalog, topics={}, operation=lambda reference, transport=None: catalog[reference],
+                            subscribe=lambda spec, depth: Stream(spec["messages"]))
+    return patch.object(kinex, "device", lambda name: Device(scope, name))
 
 
 class Runs(Workspace):
@@ -137,20 +131,20 @@ class Runs(Workspace):
         self.joint("arm")
         run = calibration.start("calibrate-tcp-offset", arm="arm")
         moving = [joint_state(.35, .1, 1), *(joint_state(.35, 0, t) for t in (2, 3, 4))]
-        with patch.object(calibration, "SETTLE_INTERVAL_S", 0), patch.object(kinex, "io", IO({"arm.joint_state": moving})):
+        with patch.object(calibration, "SETTLE_INTERVAL_S", 0), devices({"arm.joint_state": moving}):
             sample = asyncio.run(run.sample("arm", frame="flange", settle=True, stable_reads=2))
         self.assertTrue(sample["settled"])
         self.assertEqual(sample["data"]["header"]["stamp"], 3)
         expected = [math.cos(.35), math.sin(.35), 0, 0, 0, math.sin(.175), math.cos(.175)]
         np.testing.assert_allclose(sample["kinematics"]["pose"], expected, atol=1e-9)
         # A cached reading repeats its stamp, so it never establishes rest.
-        with patch.object(calibration, "SETTLE_INTERVAL_S", 0), patch.object(kinex, "io", IO({"arm.joint_state": [joint_state(.35, 0, 5)]})):
+        with patch.object(calibration, "SETTLE_INTERVAL_S", 0), devices({"arm.joint_state": [joint_state(.35, 0, 5)]}):
             cached = asyncio.run(run.sample("arm", settle=True, stable_reads=2, timeout_s=.05, note="cached"))
         self.assertEqual((cached["settled"], cached["index"], cached["note"], "kinematics" in cached), (False, 1, "cached", False))
         self.assertEqual([item["index"] for item in run.samples("arm")], [0, 1])
         # A profile without runtime or operations still samples a named operation.
         del self.profiles["arm"]["runtime"], self.profiles["arm"]["operations"]
-        with patch.object(kinex, "io", IO({"arm.joint_state": [joint_state(.35, 0, 6)]})):
+        with devices({"arm.joint_state": [joint_state(.35, 0, 6)]}):
             self.assertEqual(asyncio.run(run.sample("arm", "joint_state"))["index"], 2)
         with self.assertRaisesRegex(ValueError, "name the operation"):
             asyncio.run(run.sample("arm"))
@@ -163,14 +157,14 @@ class Runs(Workspace):
                                    height=1, width=1, step=step, data=bytes(step), is_bigendian=0)
         self.device("camera", "rgbd")
         run = calibration.start("calibrate-camera-intrinsics", target="camera")
-        with patch.object(kinex, "io", IO({"camera.image": [image("rgb8", 3)], "camera.depth": [image("16UC1", 2)]})):
+        with devices({"camera.image": [image("rgb8", 3)], "camera.depth": [image("16UC1", 2)]}):
             sample = asyncio.run(run.sample("camera"))
         self.assertEqual(set(sample["files"]), {"color", "depth"})
         for file in sample["files"].values():
             self.assertEqual(Path(file).parent, run.directory / "artifacts")
         with self.assertRaisesRegex(ValueError, "no velocity feedback"):
             asyncio.run(run.sample("camera", settle=True))
-        with patch.object(kinex, "io", IO({"camera.image": [image("bogus", 3)], "camera.depth": [image("16UC1", 2)]})), self.assertRaises(ValueError):
+        with devices({"camera.image": [image("bogus", 3)], "camera.depth": [image("16UC1", 2)]}), self.assertRaises(ValueError):
             asyncio.run(run.sample("camera"))
         self.assertEqual(len(run.samples()), 1)
 

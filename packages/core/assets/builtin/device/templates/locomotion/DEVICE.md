@@ -8,9 +8,8 @@ description: Mobile base, quadruped or humanoid moved by body velocity, posture 
 
 A locomotion device moves its body: a wheeled base, a quadruped or a humanoid's
 walking controller. `frames.base` is the body frame, normally an unlocalized root;
-odometry never establishes a global pose. Raw leg joints are not part of this
-type: register them as a separate joint device, never loaded while the locomotion
-controller owns the legs.
+odometry never establishes a global pose. Raw leg joints are a separate joint
+device, never loaded while the locomotion controller owns the legs.
 
 `velocity` declares the commandable body axes (`vx`, `vy`, `vz` in m/s, `wx`, `wy`,
 `wz` in rad/s) with `units: si`, or `normalized` when the controller takes [-1, 1]
@@ -20,11 +19,11 @@ including zero, or null when unbounded. With `limits: strict` the node rejects
 commands outside them; use `native` when the controller saturates them itself.
 
 `modes` is the controller's state machine. Each mode names the operations it
-`accepts` and the modes it can be commanded to through `transitions`. A device also
-reports modes it enters on its own, such as after a fall; declare them, and list
-them in no transitions if they cannot be requested. Make a mode for anything that
-changes what the body accepts or how it behaves, and an operation for a setting
-within a mode. A wheeled base has one mode:
+`accepts` and the modes it can be commanded to through `transitions`. Declare modes
+the device enters on its own, such as after a fall, and list them in no transitions
+if they cannot be requested. Make a mode for anything that changes what the body
+accepts or how it behaves, and an operation for a setting within a mode. A wheeled
+base has one mode:
 
 ```yaml
 modes:
@@ -42,33 +41,33 @@ modes:
 
 Expose only the actions a task needs; never expose actions that drop the body,
 such as motor damping, or acrobatics unless the user asks. The sibling `node.py`
-adapts a driver with velocity, pose and odometry topics, a mode topic and a
-service per mode; copy it into the device directory and set its constants.
+adapts a driver with velocity, pose and odometry topics, a mode topic and a service
+per mode; copy it into the device directory and set its constants.
 
 ### Operations
 
 - `velocity` (recommended): input topic `geometry_msgs/msg/Twist` in base axes.
-  The body follows the latest twist and stops when none arrives within the
-  watchdog timeout its description states, so callers re-send to keep moving.
+  The body follows the latest twist and stops when none arrives within a watchdog
+  timeout of world time, which the description states, so callers re-send to keep
+  moving.
 - `posture` (optional): input topic `geometry_msgs/msg/Pose`, a body offset from
   the nominal stance (`position.z` height, orientation roll, pitch, yaw); it
   persists until replaced.
 - `mode_target` (recommended with more than one mode): input topic
-  `std_msgs/msg/String` whose `data` names a declared transition target. Sending
-  is not arrival; wait until `mode` reports it.
+  `std_msgs/msg/String` whose `data` names a declared transition target.
 - `mode` (recommended with more than one mode): output topic `std_msgs/msg/String`,
   `transient_local`, the last declared mode reached.
 - `odometry` (recommended): output topic `nav_msgs/msg/Odometry` with measured
   twist in `<device>/base` and a dead-reckoned pose in `<device>/odom` that drifts.
-- `stop` (recommended): service `std_srvs/srv/Trigger` that sends zero
-  velocity and keeps the mode and posture; it never sits, lies down or powers off.
+- `stop` (recommended): service `std_srvs/srv/Trigger` that sends zero velocity and
+  keeps the mode and posture; it never sits, lies down or powers off.
 - Mode-specific inputs (optional): any other operation a mode accepts. Inputs that
   move the body are `std_msgs/msg/String` topics carrying JSON; others may be
   services. The description is the whole contract.
 
-Serve the inputs with `stop` through `kinex.node.command_service`. The node
-rejects an operation the current mode does not accept and a transition it does
-not list.
+Serve the inputs and `stop` through `kinex.node.command_service`. The node rejects
+an operation the current mode does not accept and a transition it does not list.
+Sending a command is not arrival: programs verify it with `odometry` or `mode`.
 
 ### Profile
 
@@ -82,7 +81,7 @@ runtime:
   nodes: [{entry: node.py, factory: create}]
 operations:
   velocity:
-    description: Body velocity in base axes. The body follows the latest twist and stops 0.5 s of world time after the last one, so re-send to keep moving; verify with odometry.
+    description: Body velocity in base/base axes, in the units and bounds of the profile's velocity. The body follows the latest twist and stops 0.5 s of world time after the last, so re-send to keep moving.
     transport: topic
     direction: input
     endpoint: /kinex/base/velocity
@@ -94,7 +93,7 @@ operations:
     endpoint: /kinex/base/posture
     type: geometry_msgs/msg/Pose
   mode_target:
-    description: Request a declared transition from the current mode, naming the target in data; wait until mode reports it.
+    description: Request a declared transition from the current mode, naming the target in data; mode reports its arrival.
     transport: topic
     direction: input
     endpoint: /kinex/base/mode_target
@@ -107,14 +106,14 @@ operations:
     type: std_msgs/msg/String
     qos: {depth: 1, reliability: reliable, durability: transient_local}
   odometry:
-    description: Measured body twist in base/base and a drifting dead-reckoned pose in base/odom; never a global pose.
+    description: Measured body twist in base/base (m/s, rad/s) and a drifting dead-reckoned pose in base/odom; never a global pose.
     transport: topic
     direction: output
     endpoint: /kinex/base/odometry
     type: nav_msgs/msg/Odometry
     qos: {depth: 1, reliability: reliable, durability: transient_local}
   stop:
-    description: Send zero velocity and keep the mode and posture.
+    description: Command zero velocity and keep the mode and posture.
     transport: service
     direction: input
     endpoint: /kinex/base/stop

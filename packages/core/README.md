@@ -54,11 +54,11 @@ concurrent dispatch; results preserve order and per-entry failures. Image
 results attach PNG, JPEG, GIF or WebP files for the model. Python reaches devices only through
 `kinex.communication`.
 
-For workflows use `io`, the invocation's communication scope: async pub/sub and
-request/response on declared operations. Commands are standard ROS messages;
+For workflows a program imports `device` and `world`: a device's declared topics,
+services and actions as asyncio operations, and world time. Commands are standard ROS messages;
 sending is not arrival. Measure feedback to verify results. Use the world for time
 and tf2 for stamped transforms. Free-form operations, including model inference,
-use `custom_interfaces/srv/Json`: `io.request` sends its keyword fields as one JSON
+use `custom_interfaces/srv/Json`: calling the service sends its keyword fields as one JSON
 object and returns the decoded response. Cameras are `image` and, for rgbd, `depth`
 topics; `lib.images.camera_frame(camera)` returns the current image and its equally
 stamped depth without advancing world time. A program's operation requirements
@@ -80,15 +80,15 @@ For example, wait until an arm settles, then attach two camera images:
 
 ```python
 import asyncio
-from kinex import finish, io, lib
+from kinex import device, finish, lib, world
 
 async def main():
-    state = io.subscribe("arm.joint_state", depth=1)
+    state = device("arm").topic("joint_state")
     for step in range(50):
         sample = await state.next(timeout_s=2)
         if max(map(abs, sample.velocity)) < 0.005:
             break
-        await io.request("world.wait", duration_s=0.1)
+        await world.wait_all([0.1])
     images = [(await lib.images.camera_frame(camera))[0] for camera in ("camera_wrist", "camera_scene")]
     finish({"steps": step + 1, "cameras": ["camera_wrist", "camera_scene"]}, file=images)
 
@@ -240,11 +240,12 @@ validation error result; permission denial propagates to the host.
 
 One `python_tool` approval covers an invocation. Python reaches devices only through
 `kinex.communication`; it cannot change device lifecycle or control recording. The
-`kinex` root (`args`, `finish`, `io`, `subagent`, `profile`, `robot`, `pose`,
-`seconds`, `plain`, `communication`, `runtime`, `RPCError` and `OperationError`)
-and `kinex.lib` form the exec API. `io` is the invocation's one scope, opened on
-first use inside the program's event loop and released when the program ends, so a
-program runs one `asyncio.run(main())`; `communication()` is for standalone
+`kinex` root (`args`, `finish`, `device`, `world`, `subagent`, `profile`, `robot`, `pose`,
+`seconds`, `plain`, `runtime`, `RPCError` and `OperationError`)
+and `kinex.lib` form the exec API. A program attaches to the workspace's Python runtime,
+where the loaded devices' operations are kept between programs; what it awaits binds to
+its event loop and is released when it ends, so a
+program runs one `asyncio.run(main())`; `kinex.communication.communication()` is for standalone
 clients outside exec. `kinex.node` gives device nodes command routing, JSON
 services and URDF link frames; `kinex.common` holds shared internals and
 `kinex.host` the processes the runtime launches. Cleanup follows
@@ -272,7 +273,7 @@ the builtin modules, in that order; `KINEX_LIB` carries all but the last to exec
 device nodes, and `KINEX_WORKSPACE` names the workspace's `.kinex`. Modules nest to any depth. Standard
 imports work (`from kinex.lib.tabletop import grasp`), and `lib.tabletop.grasp`
 loads modules on first use. Library functions take no scope parameter: they
-import `io` from `kinex`. The `lib` tool and the `/lib` command return one node of
+import `device` and `world` from `kinex`. The `lib` tool and the `/lib` command return one node of
 this tree per call, as `{node, problems}`: a module with its docstring, submodules
 and function names, or a function with its signature, docstring, file and line.
 They read source and never start Python. `await subagent(instruction, show={...})`

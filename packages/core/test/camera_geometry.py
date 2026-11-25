@@ -11,6 +11,12 @@ from kinex.common.camera import rays
 STREAM = {"width":4,"height":3,"frame":"camera/base","calibration_id":"one",
           "projection":{"fx":2,"fy":2,"cx":1,"cy":1,"skew":0},"distortion":{"model":"vendor"}}
 
+def scope(request, operations=("geometry", "unproject", "project")):
+    """A scope whose camera serves these operations through request."""
+    catalog = {f"camera.{name}": {"transport": "service"} for name in operations}
+    return SimpleNamespace(catalog=catalog, request=request, operation=lambda reference, transport=None: catalog[reference])
+
+
 class Geometry(unittest.IsolatedAsyncioTestCase):
     async def test_batches_round_trips_and_profile_checks(self):
         calls = []
@@ -22,7 +28,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
             if operation.endswith(".unproject"):
                 return {"rays":[[(u-1)/2,(v-1)/2,1] if u>=0 else None for u,v in args["pixels"]]}
             return {"pixels":[[x/z*2+1,y/z*2+1] for x,y,z in args["points"]]}
-        self.enterContext(ambient(SimpleNamespace(catalog={"camera.geometry":{}},request=request)))
+        self.enterContext(ambient(scope(request)))
         with patch("kinex.lib.images.profile",return_value={"color":{"width":4,"height":3}}):
             geometry=await camera_geometry("camera")
         result=await geometry.unproject([[1,1]]*8193)
@@ -38,7 +44,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
     async def test_placeholder_profile_streams_defer_to_active_geometry(self):
         async def request(operation, **args):
             return {"streams":{"color":STREAM,"depth":STREAM}}
-        self.enterContext(ambient(SimpleNamespace(catalog={"camera.geometry":{}},request=request)))
+        self.enterContext(ambient(scope(request)))
         with patch("kinex.lib.images.profile",return_value={"color":"???","depth":{"registration":"native","width":"???"}}):
             geometry=await camera_geometry("camera")
         self.assertEqual(set(geometry.streams),{"color","depth"})
@@ -50,7 +56,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
             async def request(*args,**kwargs):
                 raise error
             with patch("kinex.lib.images.profile",return_value={"color":STREAM}):
-                with self.assertRaises(type(error)), ambient(SimpleNamespace(catalog={"camera.geometry":{}},request=request)):
+                with self.assertRaises(type(error)), ambient(scope(request)):
                     await camera_geometry("camera")
 
     async def test_stale_ids(self):

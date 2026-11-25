@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image
 
 from kinex.common.camera import array, frame, save
+from kinex.device import Device
 
 def message(encoding, values, bigendian=False, pad=0):
     values = np.asarray(values)
@@ -42,6 +43,8 @@ def stamped(seconds):
 
 
 class Stream:
+    buffer, latest = (), None
+
     def __init__(self, stamps):
         self.messages, self.closed = [stamped(s) for s in stamps], False
 
@@ -54,28 +57,29 @@ class Stream:
         self.closed = True
 
 
-def scope(**streams):
-    return SimpleNamespace(catalog={f"camera.{name}": {"timeout_s": 1} for name in streams},
-                           subscribe=lambda reference: streams[reference.split(".", 1)[1]],
-                           operation=lambda reference: {"timeout_s": 1})
+def camera(**streams):
+    """A camera device whose topics are these streams."""
+    catalog = {f"camera.{name}": {"timeout_s": 1, "direction": "output", "stream": stream} for name, stream in streams.items()}
+    return Device(SimpleNamespace(catalog=catalog, topics={}, operation=lambda reference, transport=None: catalog[reference],
+                                  subscribe=lambda spec, depth: spec["stream"]), "camera")
 
 
 class CameraFrames(unittest.IsolatedAsyncioTestCase):
     async def test_rgb_reads_one_image_and_closes_its_stream(self):
         image = Stream([4])
-        self.assertEqual(await frame(scope(image=image), "camera"), (stamped(4), None))
+        self.assertEqual(await frame(camera(image=image)), (stamped(4), None))
         self.assertTrue(image.closed)
 
     async def test_rgbd_pairs_image_and_depth_with_equal_stamps(self):
         image, depth = Stream([1, 2, 3]), Stream([2])
-        color, registered = await frame(scope(image=image, depth=depth), "camera")
+        color, registered = await frame(camera(image=image, depth=depth))
         self.assertEqual((color.header.stamp.sec, registered.header.stamp.sec), (2, 2))
         self.assertTrue(image.closed and depth.closed)
 
     async def test_unpaired_streams_time_out_and_close(self):
         image, depth = Stream([1]), Stream([2])
         with self.assertRaises(TimeoutError):
-            await frame(scope(image=image, depth=depth), "camera", timeout_s=.05)
+            await frame(camera(image=image, depth=depth), timeout_s=.05)
         self.assertTrue(image.closed and depth.closed)
 
 

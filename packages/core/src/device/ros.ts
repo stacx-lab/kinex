@@ -17,13 +17,27 @@ import { urdfSpec } from "./profile/urdf.ts"
 import type { DeviceReading } from "./reading.ts"
 
 type Pending = ReturnType<typeof Promise.withResolvers<Record<string, unknown>>>
+type Message = Record<string, unknown>
 interface Host extends ServeProcess {
   pending: Map<string, Pending>
   definition: string
   ready: boolean
 }
+/** What serves a running program: the calls it makes of the host, and the text it prints. */
+export interface Program {
+  call(request: Message): Promise<Message>
+  output?: (text: string) => void
+}
+// A ROS domain's Python runtime: the devices loaded into it, each by its definition, the
+// program it runs and its interpreter.
+interface Runtime extends Host {
+  devices: Map<string, string>
+  program?: Program
+  clock?: unknown
+  executable: string
+}
 const hosts = scoped(() => new Map<string, Host>())
-const frameHosts = scoped(() => new Map<string, Host & { endpoint: string }>())
+const runtimes = scoped(() => new Map<string, Runtime>())
 const transitions = scoped(() => new Map<string, Promise<void>>())
 
 function resolvedOperations(device: Device) {
@@ -53,12 +67,20 @@ async function definition(directory: string, device: Device) {
   return hash.digest("hex")
 }
 
-async function receive(host: Host) {
+async function receive(host: Host & { program?: Program }) {
   try {
     for (;;) {
       const line = await readLine(host.source, Date.now() + 2_147_483_647)
       if (line === undefined) throw new Error(`ROS host exited: ${host.stderr.tail}`)
       const result = z.record(z.string(), z.unknown()).parse(JSON.parse(line))
+      if ("output" in result) { host.program?.output?.(String(result.output)); continue }
+      if ("call" in result) {
+        // Answered when it settles, so a slow call, such as a subagent, holds back no other.
+        const answer = host.program?.call(result) ?? Promise.resolve({ ok: false, error: "no program is running" })
+        void answer.catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+          .then(response => host.proc.stdin.write(JSON.stringify({ ...response, id: result.id }) + "\n"))
+        continue
+      }
       const id = z.string().parse(result.id)
       const pending = host.pending.get(id)
       if (!pending) continue // Cancelled requests may complete after their caller.
@@ -95,51 +117,111 @@ async function request(host: Host, action: string, args: Record<string, unknown>
   }
 }
 
-/** Joins the device to its domain's frame host and returns the domain's world clock, if any. */
-async function frames(cwd: string, device: Device, signal?: AbortSignal) {
-  const domain = device.runtime?.domain_id ?? 0
-  const workspace = await ProfileStore.workspaceDir(cwd)
-  const key = `${workspace}:frames:${domain}`
+// A world keeps its domain's time on the ROS clock topic, which is not one of its operations.
+const CLOCK = { description: "", transport: "topic", direction: "output", endpoint: "/clock", type: "rosgraph_msgs/msg/Clock",
+  qos: { depth: 1, reliability: "reliable", durability: "transient_local" } }
+
+/** The domain's clock, if the workspace has a world device there. */
+async function worldClock(cwd: string, domain: number) {
+  const worlds = (await ProfileStore.listDevices(cwd)).filter(value => value.type === "world" && (value.runtime?.domain_id ?? 0) === domain)
+  if (worlds.length > 1) throw new NamedError("RosClockError", "one world is required per ROS domain")
+  return worlds.length ? CLOCK : undefined
+}
+
+/** The devices whose nodes are up, by their definitions. */
+async function readyDevices(cwd: string) {
+  const ready: Array<{ device: Device; definition: string }> = []
+  for (const device of await ProfileStore.listDevices(cwd)) {
+    const host = device.loaded && device.runtime ? hosts().get(await ProfileStore.deviceDir(cwd, device.name)) : undefined
+    if (host && await rosReady(cwd, device)) ready.push({ device, definition: host.definition })
+  }
+  return ready
+}
+
+/**
+ * The domain's runtime, holding exactly the domain's ready devices. It starts on first use and
+ * stays up between programs; one that has died, or whose world clock changed, is replaced.
+ */
+async function runtime(cwd: string, domain: number, signal?: AbortSignal, start = true) {
+  const key = `${await ProfileStore.workspaceDir(cwd)}:runtime:${domain}`
   return serialize(transitions(), key, async () => {
-    const worlds = (await ProfileStore.listDevices(cwd)).filter(value => value.type === "world" && value.runtime?.domain_id === domain)
-    const clocks = worlds.flatMap(world => Object.values(resolvedOperations(world)).filter(op => op.type === "rosgraph_msgs/msg/Clock" && op.direction === "output"))
-    if (!clocks.length) return undefined
-    if (clocks.length !== 1) throw new NamedError("RosClockError", "one world clock is required per ROS domain")
-    const [clock] = clocks
-    const fingerprint = JSON.stringify(clock)
-    let host = frameHosts().get(key)
+    const clock = await worldClock(cwd, domain)
+    const fingerprint = JSON.stringify(clock ?? null)
+    let host = runtimes().get(key)
     if (host && (!host.ready || host.proc.exitCode !== null || host.definition !== fingerprint)) {
       await terminate(host)
-      frameHosts().delete(key)
+      runtimes().delete(key)
       host = undefined
     }
     if (!host) {
-      const launch = await pythonLaunch(cwd, "node", undefined, signal)
-      const endpoint = `/kinex/internal/f_${shortID()}/lookup_transform`
-      host = { ...serveProcess(spawnProcess([...launch.command, "-u", "-m", "kinex.host.device"], {
-        cwd, env: launch.env, group: true,
-      })), endpoint, definition: fingerprint, ready: false, pending: new Map() }
-      frameHosts().set(key, host)
+      if (!start) return undefined
+      const launch = await pythonLaunch(cwd, "exec", undefined, signal)
+      signal?.throwIfAborted()
+      const proc = spawnProcess([...launch.command, "-u", "-m", "kinex.host.runtime"], { cwd, env: launch.env, group: true })
+      const created: Runtime = { ...serveProcess(proc, text => created.program?.output?.(text)), definition: fingerprint, ready: true,
+        pending: new Map(), devices: new Map(), clock, executable: launch.executable }
+      host = created
+      // A program may leave children holding output pipes open after its runtime exits.
+      void proc.exit.then(() => proc.kill("SIGKILL")).catch(() => {})
+      proc.stdin.write(JSON.stringify({ ros: { domain_id: domain, clock } }) + "\n")
+      runtimes().set(key, host)
       void receive(host)
-      try {
-        await request(host, "$frames", { clock, domain_id: domain, endpoint }, signal)
-        host.ready = true
-      } catch (error) {
-        await terminate(host)
-        frameHosts().delete(key)
-        throw error
-      }
     }
-    await request(host, "$frame_device", { name: device.name, active: true }, signal)
-    return clock
+    const ready = (await readyDevices(cwd)).filter(({ device }) => (device.runtime?.domain_id ?? 0) === domain)
+    for (const name of [...host.devices.keys()].filter(name => !ready.some(({ device }) => device.name === name))) {
+      await request(host, "unload", { device: name }, signal)
+      host.devices.delete(name)
+    }
+    for (const { device, definition } of ready.filter(({ device, definition }) => host.devices.get(device.name) !== definition)) {
+      await request(host, "load", { profile: { ...device, operations: resolvedOperations(device) } }, signal)
+      host.devices.set(device.name, definition)
+    }
+    return host
   })
 }
 
-async function forgetFrames(cwd: string, device: Device) {
-  const key = `${await ProfileStore.workspaceDir(cwd)}:frames:${device.runtime?.domain_id ?? 0}`
-  const host = frameHosts().get(key)
-  if (host?.ready && host.proc.exitCode === null)
-    await request(host, "$frame_device", { name: device.name, active: false })
+/** The ROS domain the ready devices share, the default without any. */
+async function sharedDomain(cwd: string) {
+  const domains = new Set((await readyDevices(cwd)).map(({ device }) => device.runtime?.domain_id ?? 0))
+  if (domains.size > 1) throw new NamedError("RosDomainError", "one invocation requires a shared ROS domain")
+  return [...domains][0] ?? 0
+}
+
+/**
+ * Run a program in the runtime of the ready devices' domain, which runs one at a time: what its
+ * finish returned or the error that ended it, with the interpreter that ran it. Aborting cancels
+ * the program, which stops what it commanded; one that does not end in a second ends with its runtime.
+ */
+export async function rosExec(cwd: string, program: Message, serve: Program, signal: AbortSignal) {
+  const host = await runtime(cwd, await sharedDomain(cwd), signal)
+  if (!host) throw new NamedError("RosRuntimeError", "the Python runtime did not start")
+  return serialize(transitions(), `${host.proc.pid}:program`, async () => {
+    signal.throwIfAborted()
+    const id = shortID()
+    const pending = Promise.withResolvers<Message>()
+    const cancel = () => {
+      host.proc.stdin.write(JSON.stringify({ cancel: id }) + "\n")
+      const timer = setTimeout(() => void terminate(host), 1000)
+      void pending.promise.catch(() => {}).finally(() => clearTimeout(timer))
+    }
+    host.pending.set(id, pending)
+    host.program = serve
+    signal.addEventListener("abort", cancel, { once: true })
+    try {
+      host.proc.stdin.write(JSON.stringify({ id, action: "exec", args: program }) + "\n")
+      const reply = await pending.promise.catch(async (error: unknown) => {
+        // The runtime is gone. A program may end it itself, as os._exit does: its exit code is then its outcome.
+        const code = await Promise.race([host.proc.exit, new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1000))])
+        if (signal.aborted || code === undefined) throw error
+        return code === 0 ? { return: null, files: [] } : { error: `script exited with code ${code}` }
+      })
+      return { reply, executable: host.executable }
+    } finally {
+      signal.removeEventListener("abort", cancel)
+      host.pending.delete(id)
+      host.program = undefined
+    }
+  })
 }
 
 export async function rosReady(cwd: string, device: Device) {
@@ -160,12 +242,13 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
   if (action === "load") await ProfileStore.validateFrames(cwd, device.name)
   const directory = await ProfileStore.deviceDir(cwd, device.name)
   let host = hosts().get(directory)
+  const domain = device.runtime?.domain_id ?? 0
   if (action === "unload") {
     if (host) {
       try { if (host.proc.exitCode === null) await request(host, "unload", {}) }
       finally { await terminate(host, true); hosts().delete(directory) }
     }
-    await forgetFrames(cwd, device)
+    await runtime(cwd, domain, undefined, false)
     return { deviceID: device.name, data: { unloaded: true } }
   }
   if (action === "status" && (!host || host.proc.exitCode !== null))
@@ -184,17 +267,18 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
       hosts().set(directory, host)
       void receive(host)
     }
+    const clock = await worldClock(cwd, domain)
     try {
-      const clock = await frames(cwd, device, signal)
       await request(host, "load", { profile: { ...device, operations: resolvedOperations(device) }, clock }, signal, (device.runtime?.ready_timeout_s ?? 30) * 1000)
       host.ready = true
     } catch (error) {
       await terminate(host)
       hosts().delete(directory)
-      try { await forgetFrames(cwd, device) }
-      catch (cleanup) { throw new AggregateError([error, cleanup], "Device load and frame cleanup failed") }
       throw error
     }
+    // The device joins its domain's runtime, which programs attach to. A domain with a world clock
+    // starts it now, so the first program finds it up; without one Kinex Python stays untouched until a program runs.
+    await runtime(cwd, domain, signal, clock !== undefined)
     return { deviceID: device.name, data: { ready: true } }
   }
   if (!host?.ready || (action !== "stop" && host.definition !== await definition(directory, device)))
@@ -207,30 +291,22 @@ async function dispatch(cwd: string, device: Device, action: string, args: Recor
 }
 
 export async function rosCatalog(cwd: string) {
-  const devices = (await ProfileStore.listDevices(cwd)).filter(device => device.loaded && device.runtime)
-  const ready = []
-  for (const device of devices) if (await rosReady(cwd, device)) ready.push(device)
-  const domains = new Set(ready.map(device => device.runtime?.domain_id))
-  if (domains.size > 1) throw new NamedError("RosDomainError", "one invocation requires a shared ROS domain")
-  const domain = ready[0]?.runtime?.domain_id ?? 0
-  const frameHost = frameHosts().get(`${await ProfileStore.workspaceDir(cwd)}:frames:${domain}`)
-  return { domain_id: domain,
-    ...(frameHost?.ready && frameHost.proc.exitCode === null ? { frames: { endpoint: frameHost.endpoint, type: "custom_interfaces/srv/LookupTransform" } } : {}),
+  const ready = (await readyDevices(cwd)).map(({ device }) => device)
+  const domain_id = await sharedDomain(cwd)
+  return { domain_id, clock: await worldClock(cwd, domain_id),
     catalog: Object.fromEntries(ready.flatMap(device => Object.entries(resolvedOperations(device)).map(([name, op]) => [`${device.name}.${name}`, op]))) }
 }
 
 export async function closeRos() {
-  const results = await Promise.allSettled([...hosts().values()].map(async host => {
-    try { if (host.ready) await request(host, "unload", {}) }
-    finally { await terminate(host, true) }
-  }))
+  const results = await Promise.allSettled([
+    ...[...hosts().values()].map(async host => {
+      try { if (host.ready) await request(host, "unload", {}) }
+      finally { await terminate(host, true) }
+    }),
+    ...[...runtimes().values()].map(host => terminate(host, true)),
+  ])
   hosts().clear()
-  const frames = await Promise.allSettled([...frameHosts().values()].map(async host => {
-    try { if (host.proc.exitCode === null) await request(host, "unload", {}) }
-    finally { await terminate(host, true) }
-  }))
-  frameHosts().clear()
-  results.push(...frames)
+  runtimes().clear()
   const errors = results.filter(result => result.status === "rejected").map(result => result.reason)
   if (errors.length) throw new AggregateError(errors, "ROS disposal failed")
 }

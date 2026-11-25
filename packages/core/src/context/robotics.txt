@@ -17,9 +17,9 @@ Write `profile.yaml` and `workspace.yaml` only with profile_write.
 A device is a profile plus the ROS topics and services its nodes serve. Its
 descriptions are its contract; operation names come from the profile, not the type.
 Only nodes touch SDKs, simulators and model services, and hold persistent resources.
-The world device owns time and waits. Its budget topic, when declared, reports the episode
-budget as [used_s, max_s], seconds of world time used and allowed (null max_s: no cap; both
-null: no budget, as in realtime). Use the device tool to load, unload, read and command.
+The world device owns time: its now gives world time and the time budget, seconds of world
+time used and allowed (none in the real world or a realtime simulator), and its wait_all and
+wait_any wait for seconds of world time and for goals. Use the device tool to load, unload, read and command.
 
 ## Python
 

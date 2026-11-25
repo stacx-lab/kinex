@@ -16,7 +16,7 @@ class Node:
 
     def __init__(self, name, **_):
         self.name, self.services, self.nanoseconds = name, {}, 0
-        self.published, self.subscriptions, self.warnings = {}, {}, []
+        self.published, self.subscriptions, self.warnings, self.timers = {}, {}, [], []
 
     def create_publisher(self, kind, topic, *_):
         return NS(publish=self.published.setdefault(topic, []).append)
@@ -30,8 +30,8 @@ class Node:
     def create_service(self, kind, endpoint, callback, **_):
         self.services[endpoint] = callback
 
-    def create_timer(self, *_, **__):
-        pass
+    def create_timer(self, period, callback, **_):
+        self.timers.append(callback)
 
     def get_clock(self):
         return NS(now=lambda: NS(nanoseconds=self.nanoseconds, to_msg=lambda: None))
@@ -91,33 +91,65 @@ class ReferenceNodes(unittest.TestCase):
         self.assertEqual(node_name({"name": "wrist-cam.2 left"}), "kinex_wrist_cam_2_left")
         self.assertEqual(node_name({"name": "3d"}, "links"), "kinex_3d_links")
 
-    def test_world_waits_are_sequential_and_stop_cancels_them(self):
+    def test_the_real_world_serves_now_and_its_waits_against_system_time(self):
         asyncio.run(self.world())
 
     async def world(self):
+        """Every world serves now, wait_all, wait_any and stop; here time passes by itself and has no budget."""
         loop = asyncio.get_running_loop()
         stubs = {name: ModuleType(name) for name in (
-            "rclpy.callback_groups", "rclpy.task", "rosgraph_msgs", "rosgraph_msgs.msg", "custom_interfaces", "custom_interfaces.srv")}
+            "rclpy.callback_groups", "rclpy.task", "rosgraph_msgs", "rosgraph_msgs.msg", "custom_interfaces",
+            "custom_interfaces.srv", "action_msgs", "action_msgs.msg")}
         stubs["rclpy.callback_groups"].ReentrantCallbackGroup = object
         stubs["rclpy.task"].Future = lambda executor=None: loop.create_future()
         stubs["rosgraph_msgs.msg"].Clock = NS
-        stubs["custom_interfaces.srv"].Wait = object
-        sys.modules["rclpy.qos"].__dict__.update(QoSProfile=NS, ReliabilityPolicy=NS(RELIABLE=0, BEST_EFFORT=1),
-                                                  DurabilityPolicy=NS(VOLATILE=0, TRANSIENT_LOCAL=1))
+        stubs["custom_interfaces.srv"].__dict__.update(Now=object, Wait=object)
+        stubs["action_msgs.msg"].__dict__.update(GoalStatusArray=object, GoalStatus=NS(STATUS_ACCEPTED=1, STATUS_EXECUTING=2, STATUS_CANCELING=3))
+        sys.modules["rclpy.qos"].__dict__.update(QoSProfile=NS, DurabilityPolicy=NS(TRANSIENT_LOCAL=1))
         with patch.dict(sys.modules, stubs):
-            world = node("world").WallClock({"name": "world", "operations": {
-                name: {"endpoint": f"/{name}"} for name in ("time", "wait", "stop")}}, None)
-        wait = lambda duration: world.wait(NS(duration_s=duration), NS(success=False, message="", time_s=0., waited_s=0.))
-        first = asyncio.ensure_future(wait(1.))
-        await asyncio.sleep(0)
-        self.assertIn("another wait is pending", (await wait(1.)).message)
+            world = node("world").create({"name": "world", "operations": {
+                name: {"endpoint": f"/{name}"} for name in ("now", "wait_all", "wait_any", "stop")}}, None)
+        world.get_topic_names_and_types = lambda: [("/arm/move/_action/status", ["action_msgs/msg/GoalStatusArray"])]
+        self.assertEqual((set(world.services), list(world.published)), ({"/now", "/wait_all", "/wait_any", "/stop"}, ["/clock"]))
+        tick, _ = world.timers
+        now = world.now(None, NS())
+        self.assertTrue(now.time_s == 0 and math.isnan(now.used_s) and math.isnan(now.max_s))
+
+        async def wait(first, seconds=(), goals=(), timeout=0.):
+            """A wait the world has admitted, or refused: the task of its reply."""
+            request = NS(seconds=list(seconds), goals=[NS(uuid=goal) for goal in goals], timeout=timeout)
+            reply = asyncio.ensure_future(world.wait(first, request, NS(success=False, message="", elapsed=[], finished=[], timed_out=False)))
+            await asyncio.sleep(0)
+            return reply
+
+        async def passes(seconds, status=None):
+            world.nanoseconds += round(seconds * 1e9)
+            if status:
+                world.subscriptions["/arm/move/_action/status"](NS(status_list=[NS(goal_info=NS(goal_id=NS(uuid=b"move")), status=status)]))
+            tick()
+            await asyncio.sleep(0)
+        # wait_all: every entry, and a goal is over when its action server says so.
+        both = await wait(False, [1.], [b"move"])
+        self.assertIn("another wait is pending", (await (await wait(False, [1.]))).message)
+        await passes(1., status=2)
+        self.assertFalse(both.done())
+        await passes(.5, status=4)
+        reply = await both
+        self.assertEqual((reply.success, reply.elapsed, reply.finished, reply.timed_out, reply.time_s), (True, [True], [True], False, 1.5))
+        # wait_any: the first entry; its timeout ends it with what is left, and a goal no server reports goes on.
+        first = await wait(True, [5.], [b"unknown"], timeout=.5)
+        await passes(.5)
+        reply = await first
+        self.assertEqual((reply.success, reply.elapsed, reply.finished, reply.timed_out), (True, [False], [False], True))
+        early = await wait(True, [5., .1])
+        await passes(.1)
+        self.assertEqual((await early).elapsed, [False, True])
+        # stop cancels the pending wait; a wait says what it cannot take.
+        pending = await wait(False, [5.])
         self.assertTrue(world.stop(None, NS(success=False)).success)
-        self.assertEqual(((result := await first).success, result.message), (False, "cancelled by stop"))
-        second = asyncio.ensure_future(wait(.5))
-        await asyncio.sleep(0)
-        world.nanoseconds = 500_000_000
-        world.tick()
-        self.assertEqual(((result := await second).success, result.waited_s), (True, .5))
+        self.assertEqual(((reply := await pending).success, reply.message), (False, "cancelled"))
+        self.assertIn("needs an entry", (await (await wait(True))).message)
+        self.assertIn("finite and nonnegative", (await (await wait(False, [-1.]))).message)
 
     def test_joint_node_streams_pose_targets_until_a_joint_target_or_stop_replaces_them(self):
         from kinex.common.urdf import read_tree

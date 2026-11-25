@@ -7,55 +7,50 @@ description: Color camera with profile intrinsics and a calibrated optical frame
 ## Setup
 
 Set `layout: mono` for one color stream or `layout: stereo` for a pair (below).
-Declare color geometry (`width`, `height`, `fps`, `projection`, `distortion`);
-For undistorted pinhole streams Kinex derives `fov`. SDKs may own active calibration. `frames.base`
-is the optical frame (+X right, +Y down, +Z forward) and its mount. Stamp every
-image at acquisition on the world clock and set `header.frame_id` to
-`<device>/base`. Decide whether images are raw or rectified, and compare the
-source's live calibration with the profile.
+Declare color geometry (`width`, `height`, `fps`, `projection`, `distortion`); for
+an undistorted pinhole stream Kinex derives `fov`. `frames.base` is the optical
+frame (+X right, +Y down, +Z forward) and its mount. Stamp every image at
+acquisition on the world clock and set `header.frame_id` to `<device>/base`.
+Decide whether images are raw or rectified, and compare the source's live
+calibration with the profile.
 
-Distortion metadata accepts arbitrary model names and JSON parameters. SDK-owned
-calibration does not need to be duplicated; use geometry service descriptors.
-See [camera geometry](geometry.md) for services, adapters and calibration ownership.
-Raw images remain unchanged for model consumers. Publish `rgb8`; a node adapting a
-`mono8` source (for example an infrared stereo pair) replicates it to three channels.
+Distortion metadata accepts any model name and JSON parameters. A camera whose SDK
+owns its calibration serves it through geometry services instead of duplicating it
+in the profile; see [camera geometry](geometry.md). Publish `rgb8`, with pixels
+unchanged for model consumers; a node adapting a `mono8` source, such as an
+infrared stereo pair, replicates it to three channels.
 
-A reader subscribes to `image` and takes the next frame; snapshots and programs
-read it this way. A live camera streams continuously. A simulator, whose world
-may be paused, publishes a current frame to each new subscriber (for example on the
-publisher's matched event) and declares `reliable` QoS. DDS can deliver that frame
-before the reader has discovered the publisher, which drops it, so while subscribed
-and paused the simulator also repeats its current frame at a short interval (for
-example 0.2 s), as a live camera keeps streaming a still scene. Reading never
-advances world time.
+Readers subscribe to `image` and take the next frame, so a loaded camera streams
+continuously. Where world time rests between waits, as in a stepped simulator, the
+camera declares `reliable` QoS, sends its current frame to each new subscriber (for
+example on the publisher's matched event) and repeats it at a short interval, about
+0.2 s, while subscribed: DDS can deliver the first before the reader has discovered
+the publisher. Reading never advances world time.
 
-The sibling `node.py` adapts an existing ROS camera driver to this contract; copy
-it into the device directory and map each image operation to the driver's topic in
-`SOURCES`.
+The sibling `node.py` adapts an existing ROS camera driver; copy it into the device
+directory and map each image operation to the driver's topic in `SOURCES`.
 
 ### Stereo
 
 A stereo camera whose SDK publishes depth registered to one eye is an `rgbd` device
-with that eye as `color`; programs then read depth directly. A raw pair is one
-`rgb` device with `layout: stereo`. Declare `left` and `right` geometry instead of
-`color`, publish `left_image` and `right_image` instead of `image`, and declare
-`frames.left` and `frames.right` as the optical frames, setting each `header.frame_id`
-to `<device>/left` or `<device>/right`. Eyes may differ in resolution. Frames chain
-`base` -> reference eye -> other eye: the reference eye's parent is `<device>:base` and
-the other eye's parent is the reference eye. `frames.base` carries the robot mount and
-may be placed anywhere convenient, including at the reference eye.
+with that eye as `color`. A raw pair is one `rgb` device with `layout: stereo`:
+declare `left` and `right` geometry instead of `color`, publish `left_image` and
+`right_image` instead of `image`, and declare `frames.left` and `frames.right` as
+the optical frames, with `header.frame_id` `<device>/left` or `<device>/right`.
+Eyes may differ in resolution. Frames chain `base` -> reference eye -> other eye:
+the reference eye's parent is `<device>:base` and the other eye's parent is the
+reference eye. `frames.base` carries the robot mount and may sit anywhere
+convenient, including at the reference eye. Record a factory eye-to-eye transform
+from the SDK as the other eye's frame; it is calibrated otherwise.
 
-Stamp each image at its own acquisition on the world clock. A paired read does not
-imply hardware synchronization: consumers compare stamps. Serve geometry with
-`left` and `right` streams. `node.py` maps `left_image` and `right_image` in `SOURCES`.
-Record a factory eye-to-eye transform from the SDK as the other eye's frame; it is
-calibrated otherwise.
+Stamp each image at its own acquisition. A paired read does not imply hardware
+synchronization: consumers compare stamps. Geometry services serve `left` and
+`right` streams, and `node.py` maps `left_image` and `right_image` in `SOURCES`.
 
 ### Operations
 
 - `image` (recommended): output topic `sensor_msgs/msg/Image`, `rgb8` at the
-  profile resolution, `best_effort` with depth 1 for a streaming driver. Snapshots,
-  programs and recording subscribe to it.
+  profile resolution; `best_effort` with depth 1 for a streaming driver.
 
 ### Profile
 

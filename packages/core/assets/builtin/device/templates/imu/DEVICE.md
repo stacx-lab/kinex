@@ -8,19 +8,18 @@ description: Inertial measurements with explicit acceleration quantity, measured
 
 Declare `measurement`: `angular_velocity`, `linear_acceleration` with its
 `quantity` (`specific_force` includes gravity, `gravity_removed` excludes it),
-`orientation` with its `reference`, and optional `magnetic_field`; use `null` for
+`orientation` with its `reference`, and optional `magnetic_field`; use null for
 channels the device does not provide. Each vector channel lists its `axes`,
 optional `range` and `resolution`, and `bias`. `frames.base` is the measurement
 frame and its mount. Record `sample_rate_hz` when known.
 
-The node subtracts the profile `bias` from every published sample, so readings
-are calibrated and consumers never correct them. Record zero bias until
-calibrated; a bias calibration averages readings in a known static state and
-adds the residual to it. Never remove gravity, tare or reset orientation
-implicitly.
+The node subtracts the profile `bias` from every published sample, so readings are
+calibrated and consumers never correct them. Record zero bias until calibrated; a
+bias calibration averages readings in a known static state and adds the residual
+to it. Never remove gravity, tare or reset orientation implicitly.
 
-The sibling `node.py` adapts an existing ROS IMU driver to this contract; copy it
-into the device directory and set `SOURCE`, and `MAGNETIC` when measured.
+The sibling `node.py` adapts an existing ROS IMU driver; copy it into the device
+directory and set `SOURCE`, and `MAGNETIC` when measured.
 
 ### Operations
 
@@ -29,7 +28,6 @@ into the device directory and set `SOURCE`, and `MAGNETIC` when measured.
   reference, stamped at acquisition on the world clock. A channel the device does
   not provide has covariance `[0] = -1` (REP-145) and NaN values; unmeasured axes
   are NaN, and unknown covariance is all zeros. Use `best_effort` with depth 1.
-  Recording and snapshots read it through `runtime.observation`.
 - `magnetic_field` (optional): output topic `sensor_msgs/msg/MagneticField` in
   tesla in `<device>/base`, bias-corrected, only when the device measures it.
 
@@ -61,4 +59,5 @@ frames:
   base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```
 
-Unknown sample rates, channel ranges and resolutions use ???. Null means explicitly absent or inapplicable. Optional specifications do not require calibration unless the task needs them.
+Unknown sample rates, ranges and resolutions use `???`; null means absent or
+inapplicable.

@@ -1,12 +1,17 @@
-# The wait ends once duration_s has passed and every goal has finished.
-float64 duration_s
-# Action goals to wait for. With a positive goal_timeout_s, those still executing that long into the wait are cancelled.
+# A world's wait_all and wait_any: wait_all ends once every entry is over, wait_any once one is.
+# Seconds of world time from now, each an entry.
+float64[] seconds
+# Executing action goals, each an entry that is over once the goal has finished.
 unique_identifier_msgs/UUID[] goals
-float64 goal_timeout_s
+# Seconds of world time after which the wait ends whatever is left; zero for no limit.
+float64 timeout
 ---
 bool success
 string message
+# World time when the wait ended.
 float64 time_s
-float64 waited_s
-# Whether each of goals had finished when the wait ended, in their order.
+# Whether each of seconds and each of goals was over when the wait ended, in their order.
+bool[] elapsed
 bool[] finished
+# The wait ended at its timeout, with entries left.
+bool timed_out

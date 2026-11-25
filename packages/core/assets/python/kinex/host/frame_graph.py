@@ -1,22 +1,13 @@
-"""Kinex-owned persistent tf2 history; independent of device operations."""
-import math
+"""Kinex-owned tf2 history; independent of device operations."""
 import threading
 
-from custom_interfaces.srv import LookupTransform
-from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.clock import Clock as RosClock, ClockType
 from rclpy.duration import Duration
-from rclpy.node import Node
-from rclpy.time import Time
-from rosgraph_msgs.msg import Clock
 from tf2_ros import Buffer, LookupException, TransformException, TransformListener
 
-from kinex.communication import qos
-
-# World-time TF history. A scope resolves what it observes within one invocation (tf2's
-# default); the persistent service also answers stamps a model reuses across later calls.
+# World-time TF history. A standalone scope resolves what it observes itself (tf2's default);
+# the runtime keeps more, to answer the stamps a model reuses across later programs.
 SCOPE_HISTORY_S = 10.
-SERVICE_HISTORY_S = 120.
+HISTORY_S = 120.
 
 
 def nanoseconds(stamp):
@@ -162,60 +153,3 @@ def listen(node, history_s=SCOPE_HISTORY_S):
     buffer = FrameBuffer(history_s)
     # Several devices publish TF in one world step; a shallow reader queue drops samples.
     return buffer, TransformListener(buffer, node, qos=QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL))
-
-
-class FrameGraphNode(Node):
-    def __init__(self, clock, endpoint, context):
-        super().__init__("kinex_frames", context=context)
-        self.buffer, self.listener = listen(self, SERVICE_HISTORY_S)
-        self.stamp = None
-        self.pending = set()
-        self.calls = ReentrantCallbackGroup()
-        self.watchdog_clock = RosClock(clock_type=ClockType.STEADY_TIME)
-        operation = clock
-        self.create_subscription(Clock, operation["endpoint"], self.clock, qos(operation))
-        self.create_service(LookupTransform, endpoint,
-                            self.lookup, callback_group=self.calls)
-
-    def clock(self, message):
-        stamp = nanoseconds(message.clock)
-        if self.stamp is not None and stamp < self.stamp:
-            for future in tuple(self.pending):
-                if not future.done():
-                    future.set_exception(RuntimeError("world clock reset during transform lookup"))
-        self.buffer.observe_clock(stamp)
-        self.stamp = stamp
-
-    async def lookup(self, request, response):
-        future, timer = None, None
-        try:
-            if not math.isfinite(request.wait_s) or not 0 <= request.wait_s <= 30:
-                raise ValueError("transform wait_s must be finite and within 0..30 seconds")
-            if request.wait_s:
-                if len(self.pending) >= 32:
-                    raise RuntimeError("too many pending transform lookups")
-                future = self.buffer.wait_for_transform_async(
-                    request.target_frame, request.source_frame, Time.from_msg(request.stamp))
-                self.pending.add(future)
-
-                def expired():
-                    if not future.done():
-                        future.set_exception(TimeoutError("transform lookup timed out"))
-
-                timer = self.create_timer(request.wait_s, expired, clock=self.watchdog_clock,
-                                          callback_group=self.calls)
-                await future
-            response.transform = self.buffer.lookup_transform(
-                request.target_frame, request.source_frame, Time.from_msg(request.stamp))
-            response.success = True
-        except TimeoutError:
-            response.message = self.buffer.timed_out(
-                request.target_frame, request.source_frame, Time.from_msg(request.stamp), request.wait_s)
-        except (TransformException, ValueError, RuntimeError) as error:
-            response.message = str(error)
-        finally:
-            if timer is not None:
-                self.destroy_timer(timer)
-            if future is not None:
-                self.pending.discard(future)
-        return response

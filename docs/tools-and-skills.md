@@ -47,10 +47,10 @@ Supply exactly one of:
 
 ```python
 import asyncio
-from kinex import args, finish, io, lib
+from kinex import args, device, finish, lib
 
 async def main():
-    state = await io.read("arm.joint_state")
+    state = await device("arm").topic("joint_state").next()
     image, depth = await lib.images.camera_frame(args()["camera"])
     finish({"positions": state.position}, file=[image])
 
@@ -70,11 +70,14 @@ A program that ends without `finish` returns `null`. Failure is an uncaught
 exception; its traceback appears once, in the error. Printed text comes back as
 bounded output.
 
-`io` is the invocation's communication scope, opened on first use inside the
-program's event loop: `io.read`, `io.subscribe`, `io.publish` and `io.request` on
-declared operations. Library functions use the same scope, so they take no `io`
+`device(name)` is a loaded device, with the topics, services and actions its profile
+declares, and `world` is the world device's time: `now`, `wait_all` and `wait_any`,
+and ticks made of them. Library functions use the same ones, so they take no scope
 parameter and compose with ordinary Python, `asyncio.gather` included. A program
-runs one `asyncio.run(main())`; Kinex releases the scope when the program ends.
+attaches to the workspace's Python runtime, where its devices are already loaded, and
+runs one `asyncio.run(main())`; Kinex releases what it made when it ends. See
+[devices in a program](communication.md#devices-in-a-program) and
+[world time](communication.md#world-time).
 
 | Caller | Invocation |
 | --- | --- |
@@ -90,7 +93,7 @@ Use bounded Python loops for feedback control and settling checks; their control
 flow, state and stopping conditions belong in the code. A typical sequence is:
 
 1. Read measured state and compute or submit a control action.
-2. Wait through the world device's `wait` when needed, one wait at a time;
+2. Wait on the world, with `world.wait_all` or `world.wait_any`, when needed;
    choose an explicit interval for replanning during motion.
 3. Check fresh feedback, faults and the task's tolerances. Bound retries and
    elapsed time; position agreement alone does not establish stability or task
@@ -122,12 +125,12 @@ same name farther away. Builtin modules cover frames (`frames`), cameras
 
 Save code that several programs share as a module under `.kinex/lib`, at any
 depth: a docstring saying what the module contains, then functions with typed
-signatures and docstrings, `async` when they use `io`.
+signatures and docstrings, `async` when they use devices or the world.
 
 ```python
 # .kinex/lib/tabletop.py
 """Tabletop manipulation for this cell. Poses are in arm/base."""
-from kinex import io
+from kinex import device, world
 from kinex.lib import frames, images
 
 async def grasp(object: str, arm: str = "arm") -> dict:
@@ -224,11 +227,12 @@ than a graph of statements:
 | Step | From |
 | --- | --- |
 | Subagent | `subagent(...)`, with the first line of its instruction and the names of what it is shown |
-| Device operation | `io.request`, `io.publish`, `io.read`, a subscription's `next` or `latest`, labelled with the operation; a computed name shows its expression |
+| Device operation | A topic's `next` or `publish`, a service call and an action's goal, labelled with the operation; a computed name shows its expression |
+| Wait | `world.wait_all` and `world.wait_any` with what they wait for, and each tick of `world.rate` |
 | Call | A call to a library function, a function of the same file or, for a file outside the library, of a sibling module. One node, which opens into the callee's chart |
 | Computation | Consecutive statements that touch no device and call no charted function, folded into one node; branches and loops that only compute fold with them |
 | Branch, loop, try, scope | `if`/`match`, `for`/`while`, `try`, `with`; a test that only leaves (`if error: raise`) is one guard node |
-| Concurrency | `asyncio.gather` and `asyncio.wait` as branches between two bars, `create_task` as a task running alongside until it is awaited or cancelled, `asyncio.timeout`/`wait_for` and subscriptions as scopes |
+| Concurrency | `asyncio.gather` and `asyncio.wait` as branches between two bars, `create_task` as a task running alongside until it is awaited or cancelled, `asyncio.timeout`/`wait_for` as scopes |
 | Exit | `finish`, `return`, `raise`, `break`, `continue` |
 
 An `await` on its own is an ordinary step: only the constructs above run things at

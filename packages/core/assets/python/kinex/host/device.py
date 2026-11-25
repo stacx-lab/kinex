@@ -1,10 +1,11 @@
-"""Owned device nodes and low-volume host control; stream payloads stay in ROS."""
+"""A device's owned nodes and low-volume host control, apart from the runtime that programs attach to: a device
+stops, and answers the host, whatever a program is doing. Stream payloads stay in ROS."""
 import asyncio
 import importlib.util
 import json
 import sys
 
-from kinex.communication import communication, seconds
+from kinex.communication import WAIT, communication, seconds
 from kinex.common.plain import plain
 
 
@@ -52,64 +53,55 @@ class DeviceHost:
         catalog.update({f"{profile['name']}.{name}": op for name, op in profile["operations"].items()})
         # The host holds its scope across requests, each in its own task, so it never makes it ambient.
         self.io = communication(catalog, domain_id=config.get("domain_id", 0)).open()
+        bridge = self.io.bridge
         for index, definition in enumerate(config.get("nodes", [])):
             spec = importlib.util.spec_from_file_location(f"kinex_device_{index}", definition["entry"])
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            node = getattr(module, definition.get("factory", "create"))(profile, self.io.context)
-            self.io.extra_nodes.append(node)
-            self.io.executor.add_node(node)
+            node = getattr(module, definition.get("factory", "create"))(profile, bridge.context)
+            bridge.extra_nodes.append(node)
+            bridge.executor.add_node(node)
         from kinex.common.frames import publish_profile
-        publish_profile(self.io.node, profile)
+        publish_profile(bridge.node, profile)
         if has_links(profile):
             from kinex.host.links import LinkPublisher
             # The host runs in the device directory, where the profile's URDF path resolves.
-            links = LinkPublisher(profile, self.io.context, ".")
-            self.io.extra_nodes.append(links)
-            self.io.executor.add_node(links)
+            links = LinkPublisher(profile, bridge.context, ".")
+            bridge.extra_nodes.append(links)
+            bridge.executor.add_node(links)
         await self.ready()
         return {"ready": True}
 
     async def ready(self):
         async with asyncio.timeout(self.profile["runtime"].get("ready_timeout_s", 30)):
             from rosidl_runtime_py.utilities import get_service
-            for node in self.io.extra_nodes:
-                ready = getattr(node, "ready", None)
+            node, name = self.io.bridge.node, self.profile["name"]
+            for extra in self.io.bridge.extra_nodes:
+                ready = getattr(extra, "ready", None)
                 if ready is not None:
                     await ready()
             clients = []
             try:
-                for op in self.profile["operations"].values():
+                for operation, op in self.profile["operations"].items():
                     if op["transport"] == "service":
-                        client = self.io.node.create_client(get_service(op["type"]), op["endpoint"])
+                        client = node.create_client(get_service(op["type"]), op["endpoint"])
                         clients.append(client)
                         while not client.service_is_ready():
                             await asyncio.sleep(.02)
                     elif op["transport"] == "action":
-                        await self.io._action(op)
+                        await self.io._action(f"{name}.{operation}", op)
                     elif op["direction"] == "output":
                         endpoint = op["endpoint"]
-                        while not self.io.node.count_publishers(endpoint):
+                        while not node.count_publishers(endpoint):
                             await asyncio.sleep(.02)
                     else:
-                        while not self.io.node.count_subscribers(op["endpoint"]):
+                        while not node.count_subscribers(op["endpoint"]):
                             await asyncio.sleep(.02)
             finally:
                 for client in clients:
-                    self.io.node.destroy_client(client)
+                    node.destroy_client(client)
 
     async def run(self, action, args):
-        if action == "$frames":
-            from kinex.host.frame_graph import FrameGraphNode
-            self.io = communication({"_world.time": args["clock"]}, domain_id=args["domain_id"]).open()
-            self.io.frame_service = {"endpoint": args["endpoint"], "type": "custom_interfaces/srv/LookupTransform"}
-            self.graph = FrameGraphNode(args["clock"], args["endpoint"], self.io.context)
-            self.io.extra_nodes.append(self.graph)
-            self.io.executor.add_node(self.graph)
-            return {"ready": True}
-        if action == "$frame_device":
-            self.graph.buffer.device(args["name"], args["active"])
-            return {"ready": True}
         if action == "load":
             return await self.load(args["profile"], args.get("clock"))
         if action == "unload":
@@ -118,8 +110,7 @@ class DeviceHost:
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
-                if self.profile is not None:
-                    await self.stop()
+                await self.stop()
                 await self.io.close()
                 self.io = None
             return {"unloaded": True}
@@ -130,43 +121,47 @@ class DeviceHost:
             return {"ready": True}
         if action == "stop":
             return await self.stop()
+        device = self.io.device(self.profile["name"])
         if action == "$sample":
             configured = self.profile["runtime"].get("observation")
             if not configured and self.profile["type"] in ("rgb", "rgbd"):
                 from kinex.common.camera import frame, save, stereo, stereo_frame
                 if stereo(self.profile):
-                    images = dict(zip(("left", "right"), await stereo_frame(self.io, self.profile["name"])))
+                    images = dict(zip(("left", "right"), await stereo_frame(device)))
                     sample = {f"{eye}_{key}": value for eye, image in images.items()
                               for key, value in observation(image).items()}
                     # Timestamp the pair by its later eye; each eye retains its own stamp.
                     return {**sample, "timestamp": max(sample["left_timestamp"], sample["right_timestamp"])}
                 # One acquisition: the image and, for rgbd, its equally stamped depth.
-                image, depth = await frame(self.io, self.profile["name"])
+                image, depth = await frame(device)
                 return {**observation(image), **({"depth_file": save(depth)} if depth is not None else {})}
-            candidates = [(name, op) for name, op in self.profile["operations"].items()
+            candidates = [name for name, op in device.operations.items()
                           if op["direction"] == "output" and op["type"] in
-                          ("sensor_msgs/msg/JointState", "sensor_msgs/msg/Image", "rosgraph_msgs/msg/Clock")]
-            action = configured or (candidates[0][0] if candidates else None)
+                          ("sensor_msgs/msg/JointState", "sensor_msgs/msg/Image")]
+            action = configured or (candidates[0] if candidates else None)
             if not action:
                 raise ValueError("declare runtime.observation for this device")
-        reference = f"{self.profile['name']}.{action}"
-        op = self.io.operation(reference)
+        op = device.operations[action]
         if op["direction"] == "output":
-            stream = self.io.subscribe(reference)
+            stream = device.topic(action, depth=1)
             try:
-                return observation(await stream.next(timeout_s=op.get("timeout_s", 10)))
+                return observation(await stream.next())
             finally:
                 stream.close()
-        # Calls share the loaded connection; an abandoned wait stops its world.
         if op["transport"] == "service":
-            return observation(await self.io.request(reference, **args))
-        await self.io.publish(reference, args)
+            try:
+                return observation(await device.service(action)(**args))
+            except BaseException:
+                if op["type"] == WAIT:  # an abandoned wait would keep advancing a stepped world
+                    await self.stop()
+                raise
+        await device.topic(action).publish(args)
         return {"published": True}
 
     async def stop(self):
         op = self.profile["operations"].get("stop")
         if op:
-            return plain(await self.io._request(op, {}))
+            return plain(await self.io._request(f"{self.profile['name']}.stop", op, {}))
         # Passive devices declare the built-in no-op stop.
         return {"success": True, "message": "no stop operation"}
 

@@ -39,13 +39,13 @@ class Library(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(output.split(), ["near", "kinex.lib.frames", "kinex.lib.kinematics"])
 
     async def test_ambient_scope_is_required_and_scoped_to_its_block(self):
-        from kinex import io
+        from kinex import device, world
         with self.assertRaisesRegex(RuntimeError, "no communication scope"):
-            io.catalog
-        with ambient(NS(catalog={"a.b": {}})):
-            self.assertEqual(io.catalog, {"a.b": {}})
+            device("a")
+        with ambient(NS(catalog={"a.b": {}}, world=NS(rate=lambda hz: hz))):
+            self.assertEqual((device("a").operations, world.rate(5)), ({"b": {}}, 5))
         with self.assertRaises(RuntimeError):
-            io.catalog
+            world.rate(5)
 
     def test_a_pose_is_taken_in_any_form_and_written_as_seven_numbers(self):
         message = NS(header=NS(), pose=NS(position=NS(x=1., y=2., z=3.), orientation=NS(x=0., y=0., z=0., w=1.)))
@@ -101,97 +101,85 @@ class Library(unittest.IsolatedAsyncioTestCase):
 
 
 class Transforms(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        messages = ModuleType("builtin_interfaces.msg")
-        messages.Time = lambda sec=0, nanosec=0: NS(sec=sec, nanosec=nanosec)
-        self.enterContext(patch.dict(sys.modules, {"builtin_interfaces.msg": messages}))
+    """A lookup reads the scope's tf2 history: the runtime's, which outlives a program, or a standalone scope's own."""
 
-    async def test_service_preserves_frames_stamp_and_errors(self):
-        relation = NS(transform=NS(translation=NS(x=1., y=2., z=3.), rotation=NS(x=0., y=0., z=0., w=1.)))
+    def setUp(self):
+        messages, self.time = ModuleType("builtin_interfaces.msg"), ModuleType("rclpy.time")
+        messages.Time = lambda sec=0, nanosec=0: NS(sec=sec, nanosec=nanosec)
+        self.time.Time = Mock()
+        self.enterContext(patch.dict(sys.modules, {"builtin_interfaces.msg": messages, "rclpy.time": self.time}))
+        self.buffer = Mock()
+        self.buffer.lookup_transform.return_value = NS(transform=NS(translation=NS(x=1., y=2., z=3.), rotation=NS(x=0., y=0., z=0., w=1.)))
+        self.io = self.enterContext(ambient(NS(bridge=NS(transforms=Mock(return_value=self.buffer)), _future=AsyncMock())))
+
+    async def test_lookup_preserves_frames_stamp_and_errors(self):
+        io, buffer, time = self.io, self.buffer, self.time.Time
         stamp = NS(sec=2, nanosec=500000000)
-        io = self.enterContext(ambient(NS(frame_service=object(), _request=AsyncMock(return_value=relation))))
         found = await lookup_transform("arm:base", "camera/optical", stamp, 2)
         self.assertEqual(components(found).tolist(), [1, 2, 3, 0, 0, 0, 1])
-        io._request.assert_awaited_once_with(io.frame_service, {
-            "target_frame": "arm/base", "source_frame": "camera/optical", "stamp": stamp, "wait_s": 2,
-        }, 3)
+        time.from_msg.assert_called_once_with(stamp)
+        buffer.wait_for_transform_async.assert_called_once_with("arm/base", "camera/optical", time.from_msg.return_value)
+        io._future.assert_awaited_once_with(buffer.wait_for_transform_async.return_value, 2)
+        buffer.lookup_transform.assert_called_once_with("arm/base", "camera/optical", time.from_msg.return_value)
         # A pose seen in the source frame moves to the target by a product.
         self.assertEqual(components(found * pose([0, 0, .5, 0, 0, 0, 1])).tolist(), [1, 2, 3.5, 0, 0, 0, 1])
         # A stamped message keeps its own stamp; seconds select the same time; None the latest.
         await lookup_transform("arm/base", "camera/optical", NS(header=NS(stamp=stamp)))
-        self.assertIs(io._request.call_args.args[1]["stamp"], stamp)
+        self.assertIs(time.from_msg.call_args.args[0], stamp)
         await lookup_transform("arm/base", "camera/optical", 2.5)
-        self.assertEqual(vars(io._request.call_args.args[1]["stamp"]), {"sec": 2, "nanosec": 500000000})
-        await lookup_transform("arm/base", "camera/optical", timeout_s=0)
-        self.assertEqual(vars(io._request.call_args.args[1]["stamp"]), {"sec": 0, "nanosec": 0})
+        self.assertEqual(vars(time.from_msg.call_args.args[0]), {"sec": 2, "nanosec": 500000000})
+        io._future.reset_mock()
+        await lookup_transform("arm/base", "camera/optical", timeout_s=0)  # an immediate lookup waits for nothing
+        io._future.assert_not_awaited()
+        self.assertEqual(vars(time.from_msg.call_args.args[0]), {"sec": 0, "nanosec": 0})
         # A frame in itself is the identity and asks no one.
-        io._request.reset_mock()
+        buffer.reset_mock()
         self.assertEqual(components(await lookup_transform("arm:base", "arm/base")).tolist(), [0, 0, 0, 0, 0, 0, 1])
-        io._request.assert_not_awaited()
-        for error in (RPCError("missing frame"), TimeoutError(), asyncio.CancelledError()):
-            io._request.side_effect = error
+        buffer.lookup_transform.assert_not_called()
+        # A lookup that runs out its wait says why; other failures are its own.
+        buffer.timed_out.return_value = "camera/optical is not on TF"
+        io._future.side_effect = TimeoutError()
+        with self.assertRaisesRegex(TimeoutError, "camera/optical is not on TF"):
+            await lookup_transform("arm/base", "camera/optical")
+        for error in (RPCError("missing frame"), asyncio.CancelledError()):
+            io._future.side_effect = error
             with self.assertRaises(type(error)) as caught:
                 await lookup_transform("arm/base", "camera/optical")
             self.assertIs(caught.exception, error)
 
-    async def test_missing_service_and_invalid_timeout_do_not_fall_back(self):
-        io = self.enterContext(ambient(NS(frame_service=None, supervised=True, transforms=Mock())))
-        with self.assertRaises(RPCError) as caught:
-            await lookup_transform("world/base", "arm/tool")
-        self.assertEqual(caught.exception.code, "frames_unavailable")
+    async def test_an_invalid_timeout_looks_nothing_up(self):
         for timeout in (-1, 31, float("nan"), float("inf")):
             with self.assertRaises(ValueError):
                 await lookup_transform("world/base", "arm/tool", timeout_s=timeout)
-        io.transforms.assert_not_called()
-
-    async def test_standalone_uses_communication_owned_history(self):
-        time = ModuleType("rclpy.time")
-        time.Time = Mock()
-        buffer = Mock()
-        buffer.lookup_transform.return_value = NS(transform=NS(translation=NS(x=0., y=0., z=1.), rotation=NS(x=0., y=0., z=0., w=1.)))
-        io = self.enterContext(ambient(NS(frame_service=None, supervised=False, transforms=Mock(return_value=buffer), _future=AsyncMock())))
-        stamp = object()
-        with patch.dict(sys.modules, {"rclpy.time": time}):
-            result = await lookup_transform("world:base", "arm:tool", stamp)
-            self.assertEqual(components(result).tolist(), [0, 0, 1, 0, 0, 0, 1])
-            time.Time.from_msg.assert_called_once_with(stamp)
-            buffer.wait_for_transform_async.assert_called_once_with("world/base", "arm/tool", time.Time.from_msg.return_value)
-            io._future.assert_awaited_once_with(buffer.wait_for_transform_async.return_value, 5)
-            buffer.lookup_transform.assert_called_once_with("world/base", "arm/tool", time.Time.from_msg.return_value)
-            io._future.reset_mock()
-            await lookup_transform("world/base", "arm/tool", timeout_s=0)
-            io._future.assert_not_awaited()
-            self.assertEqual(vars(time.Time.from_msg.call_args.args[0]), {"sec": 0, "nanosec": 0})
-            buffer.lookup_transform.assert_called_with("world/base", "arm/tool", time.Time.from_msg.return_value)
+        self.io.bridge.transforms.assert_not_called()
 
 
-def scope(catalog):
-    """A Communication with its ROS teardown stubbed."""
-    from kinex.communication import Communication
-    io = Communication(catalog)
-    io.opened = True
-    io.executor = NS(shutdown=lambda **kw: None)
-    io.node = NS(destroy_node=lambda: None)
-    io.context = NS(try_shutdown=lambda: None)
-    io.thread = NS(join=lambda _: None)
-    return io
+def scope(catalog, **bridge):
+    """A Scope on a bridge whose ROS side is stubbed."""
+    from kinex.communication import Scope
+    return Scope(NS(**{**dict(catalog=catalog, scopes=set(), spin_error=None, publishers={}, clock=None, world_stamp=None,
+                              world_epoch=0, budget=None), **bridge}))
 
 
-WAIT = {"world.wait": {"transport": "service", "direction": "input", "type": "custom_interfaces/srv/Wait", "endpoint": "/wait"},
-        "world.stop": {"transport": "service", "direction": "input", "type": "std_srvs/srv/Trigger", "endpoint": "/world/stop"}}
+SERVICE = {"transport": "service", "direction": "input"}
+# The operations every world declares.
+WORLD = {"world.now": {**SERVICE, "type": "custom_interfaces/srv/Now", "endpoint": "/now"},
+         "world.wait_all": {**SERVICE, "type": "custom_interfaces/srv/Wait", "endpoint": "/wait_all"},
+         "world.wait_any": {**SERVICE, "type": "custom_interfaces/srv/Wait", "endpoint": "/wait_any"},
+         "world.stop": {**SERVICE, "type": "std_srvs/srv/Trigger", "endpoint": "/world/stop"}}
 
 
 class Errors(unittest.IsolatedAsyncioTestCase):
     async def test_service_rejection_retains_response_without_replaying_or_stopping(self):
         from kinex.errors import OperationError
-        response = NS(success=False, message="episode ended", time_s=1.5, waited_s=.1)
+        response = NS(success=False, message="episode ended", time_s=1.5)
         convert = ModuleType("rosidl_runtime_py.convert")
         convert.message_to_ordereddict = vars
         with patch.dict(sys.modules, {"rosidl_runtime_py.convert": convert}):
-            error = OperationError("world.wait", "custom_interfaces/srv/Wait", response)
+            error = OperationError("world.wait_all", "custom_interfaces/srv/Wait", response)
         self.assertIs(error.response, response)
         self.assertEqual(error.payload()["details"]["response"]["time_s"], 1.5)
-        io, calls = scope(WAIT), []
+        io, calls = scope(WORLD), []
 
         async def rejected(*args, **kwargs):
             calls.append((args, kwargs))
@@ -199,26 +187,36 @@ class Errors(unittest.IsolatedAsyncioTestCase):
 
         io._request = rejected
         with self.assertRaises(OperationError) as caught:
-            await io.request("world.wait", duration_s=.5)
+            await io.device("world").service("wait_all")(seconds=[.5])
         self.assertIs(caught.exception, error)
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][1]["operation"], "world.wait")
+        self.assertEqual(calls[0][0][0], "world.wait_all")
         self.assertEqual(io.enrolled, {"world"})
 
     async def test_abandoned_wait_stops_its_world(self):
-        for error in (TimeoutError(), asyncio.CancelledError()):
-            io, endpoints = scope(WAIT), []
+        """A wait the world may still be running, after its request failed or its program stopped waiting."""
+        for abandon in ("the request times out", "the program stops waiting"):
+            io, endpoints, stopped = scope(WORLD), [], asyncio.Event()
 
-            async def request(spec, fields, timeout_s=None, **_):
+            async def request(reference, spec, fields, timeout_s=None):
                 endpoints.append(spec["endpoint"])
-                if spec["endpoint"] == "/wait":
-                    raise error
+                if spec["endpoint"] == "/now":
+                    return NS(time_s=0., used_s=float("nan"), max_s=float("nan"))
+                if spec["endpoint"] == "/wait_any":
+                    if abandon == "the request times out":
+                        raise TimeoutError()
+                    await stopped.wait()  # as a world ends the wait its stop cancels
+                    return NS(success=False, message="cancelled", time_s=0., elapsed=[False], finished=[])
+                stopped.set()
                 return NS(success=True)
 
             io._request = request
-            with self.assertRaises(type(error)):
-                await io.request("world.wait", duration_s=60)
-            self.assertEqual(endpoints, ["/wait", "/world/stop"])
+            with self.subTest(abandon), self.assertRaises(TimeoutError):
+                await asyncio.wait_for(io.world.wait_all([60]), .05)
+            await asyncio.sleep(.01)
+            self.assertEqual(endpoints, ["/now", "/wait_any", "/world/stop"])
+            self.assertEqual(io.enrolled, {"world"})
+            await io.world.close()
 
     async def test_scope_failure_stops_commanded_devices_and_success_leaves_them(self):
         for error, stopped in ((None, False), (SystemExit(0), False), (SystemExit(None), False),
@@ -237,9 +235,9 @@ class Errors(unittest.IsolatedAsyncioTestCase):
     async def test_unacknowledged_commands_fail_the_scope_and_stop_devices(self):
         rclpy, duration = ModuleType("rclpy"), ModuleType("rclpy.duration")
         duration.Duration = lambda **_: None
-        io, calls = scope({}), []
+        io, calls = scope({}, publishers={"arm.joint_target": NS(wait_for_all_acked=lambda timeout: False)}), []
         io.enrolled.add("arm")
-        io.publishers = {"arm.joint_target": NS(wait_for_all_acked=lambda timeout: False)}
+        io.unacknowledged.add("arm.joint_target")
 
         async def stop(devices):
             calls.append(devices)
@@ -249,79 +247,198 @@ class Errors(unittest.IsolatedAsyncioTestCase):
                 self.assertRaisesRegex(TimeoutError, "arm.joint_target"):
             await io.close()
         self.assertEqual(calls, [["arm"]])
+        self.assertEqual(io.bridge.publishers.keys(), {"arm.joint_target"})  # the bridge keeps what it made
 
     async def test_stop_calls_each_declared_stop_service(self):
-        io, endpoints = scope({**WAIT, "detector.detect": {"type": "custom_interfaces/srv/Json", "endpoint": "/detect"}}), []
+        io, endpoints = scope({**WORLD, "detector.detect": {"type": "custom_interfaces/srv/Json", "endpoint": "/detect"}}), []
 
-        async def request(spec, fields, timeout_s=None, **_):
-            endpoints.append((spec["endpoint"], fields))
+        async def request(reference, spec, fields, timeout_s=None):
+            endpoints.append((reference, spec["endpoint"], fields))
             return NS(success=True)
 
         io._request = request
         await io._stop(["detector", "world"])
-        self.assertEqual(endpoints, [("/world/stop", {})])
+        self.assertEqual(endpoints, [("world.stop", "/world/stop", {})])
 
 
 class ProgramLoop(unittest.TestCase):
     """exec releases its scope after the program's own event loop has ended."""
 
-    def test_a_scope_closes_in_a_new_loop_after_its_own_ended(self):
-        import threading
-        rclpy, duration = ModuleType("rclpy"), ModuleType("rclpy.duration")
-        duration.Duration = lambda **_: None
-        for error, acknowledged, stopped in ((None, True, False), (RuntimeError("failure"), True, True), (None, False, True)):
-            io, calls = scope({}), []
-            io.enrolled.add("arm")
-            io.publishers = {"arm.joint_target": NS(wait_for_all_acked=lambda timeout: acknowledged)}
-            io.clock_lock, io.clock_scheduled = threading.Lock(), False
+    def test_naming_a_device_binds_no_loop_and_starts_no_ros(self):
+        """A program may name its devices before its loop runs; ROS starts with what it awaits."""
+        from kinex.communication import Scope
+        catalog = {"arm.joint_state": {"transport": "topic", "direction": "output"}, "arm.move": {"transport": "action", "direction": "input"}}
+        io = Scope(catalog=catalog, enroll=AsyncMock())
+        arm = io.device("arm")
+        self.assertEqual((set(arm.operations), arm.topic("joint_state") is arm.topic("joint_state")), ({"joint_state", "move"}, True))
+        self.assertTrue(callable(arm.action("move")))
+        self.assertIsNone(io.given)
+        for wrong in (lambda: arm.service("move"), lambda: arm.topic("move")):
+            with self.assertRaisesRegex(TypeError, "arm.move is a action"):
+                wrong()
+        with self.assertRaises(RPCError) as caught:
+            arm.topic("missing")
+        self.assertEqual(caught.exception.code, "operation_unavailable")
+        with self.assertRaises(RPCError) as caught:  # only what the host keeps for itself is loaded
+            Scope(catalog={"_world.time": {}}, enroll=AsyncMock()).device("arm").topic("joint_state")
+        self.assertEqual(caught.exception.code, "devices_not_ready")
 
-            async def program():
-                io.loop = asyncio.get_running_loop()
 
-            async def stop(devices):
-                calls.append((devices, io.loop is asyncio.get_running_loop()))
+class StubWorld:
+    """A world for a scope: its now and wait_any, over a time the waits advance, as a stepped one's does."""
 
-            io._stop = stop
-            asyncio.run(program())
-            # A message arriving between the loops is dropped, and leaves its delivery free to be scheduled again.
-            io._clock_received(NS())
-            self.assertFalse(io.clock_scheduled)
-            with self.assertRaisesRegex(RuntimeError, "one asyncio.run"):
-                io.open()
-            with patch.dict(sys.modules, {"rclpy": rclpy, "rclpy.duration": duration}):
-                if error is None and not acknowledged:
-                    with self.assertRaisesRegex(TimeoutError, "arm.joint_target"):
-                        asyncio.run(io.close(error))
-                else:
-                    asyncio.run(io.close(error))
-            self.assertEqual(calls, [(["arm"], True)] if stopped else [])
-            self.assertTrue(io.closed)
+    def __init__(self):
+        self.time, self.budget, self.late, self.asked, self.finishes = 0., (float("nan"), float("nan")), 0., [], {}
+        self.io = scope({**WORLD, "arm.move": {"transport": "action", "direction": "input", "type": "x/action/Move"}}).open()
+        self.io._request, self.io.act = self.request, self.act
+
+    def act(self, reference, finishes):
+        """A goal the world finishes at world time finishes."""
+        from kinex.communication import Goal
+        goal, done = Goal.__new__(Goal), asyncio.get_running_loop().create_future()
+        goal.status, goal.task, goal.handle = "executing", done, NS(goal_id=NS(uuid=len(self.finishes)))
+
+        async def cancel():  # the device ends it, and its result arrives
+            goal.status = "canceled"
+            done.done() or done.set_result(None)
+        goal.cancel = AsyncMock(side_effect=cancel)
+        self.finishes[goal.handle.goal_id.uuid] = finishes, goal
+        return goal
+
+    async def request(self, reference, spec, fields, timeout_s=None):
+        if reference == "world.stop":
+            return NS(success=True)
+        if reference == "world.now":
+            return NS(time_s=self.time, used_s=self.budget[0], max_s=self.budget[1])
+        self.asked.append((round(self.time + fields["seconds"][0], 9) if fields["seconds"] else None, self.io.world.holds))
+        await asyncio.sleep(0)
+        named = [self.finishes[goal["uuid"]] for goal in fields["goals"]]
+        ends = [self.time + seconds for seconds in fields["seconds"]]
+        self.time, self.late = min([*ends, *(finishes for finishes, _ in named)]) + self.late, 0.
+        for finishes, goal in named:
+            if finishes <= self.time and not goal.task.done():
+                goal.status = "succeeded"
+                goal.task.set_result(finishes)
+        return NS(success=True, message="ok", time_s=self.time, elapsed=[end <= self.time + 1e-9 for end in ends],
+                  finished=[goal.task.done() for _, goal in named])
+
+
+class WorldTime(unittest.IsolatedAsyncioTestCase):
+    async def test_now_is_the_worlds_time_and_budget(self):
+        stub = StubWorld()
+        self.assertEqual(await stub.io.world.now(), (0., None, None))
+        stub.time, stub.budget = 2.5, (1.5, float("inf"))
+        self.assertEqual(await stub.io.world.now(), (2.5, 1.5, None))
+        with self.assertRaises(RPCError) as caught:
+            await scope({}).world.now()
+        self.assertEqual(caught.exception.code, "world_unavailable")
+
+    async def test_waits_for_seconds_and_goals_all_of_them_or_the_first(self):
+        stub = StubWorld()
+        world = stub.io.world
+        slow, fast = stub.io.act("arm.move", 2.), stub.io.act("arm.move", 1.)
+        self.assertEqual(await world.wait_any([slow, fast, 5]), [False, True, False])
+        self.assertEqual((await world.now()).time_s, 1.)
+        self.assertEqual(await world.wait_all([slow, .5]), [True, True])  # the later of the two
+        self.assertEqual((await world.now()).time_s, 2.)
+        # A timeout ends the wait with what is left, and cancels the goals still executing.
+        late = stub.io.act("arm.move", 9.)
+        self.assertEqual(await world.wait_all([late, .2], timeout=.5), [False, True])
+        late.cancel.assert_awaited_once()
+        self.assertEqual((await world.now()).time_s, 2.5)
+        other = stub.io.act("arm.move", 99.)
+        self.assertEqual(await world.wait_any([3, other], timeout=.5), [False, False])
+        other.cancel.assert_awaited_once()
+        self.assertEqual(await world.wait_all([0]), [True])  # a barrier: no time passes
+        self.assertEqual(await world.wait_all([]), [])
+        self.assertEqual((await world.now()).time_s, 3.)
+        # Tasks wait at once: the world is asked for the earliest time, then for the rest.
+        stub.asked.clear()
+        self.assertEqual(await asyncio.gather(world.wait_all([.3]), world.wait_any([.1, .2])), [[True], [True, False]])
+        self.assertEqual(stub.asked, [(3.1, 0), (3.3, 0)])
+        for bad in ("soon", -1, True, None):
+            with self.assertRaisesRegex(TypeError, "goals and for nonnegative seconds"):
+                await world.wait_all([bad])
+        with self.assertRaisesRegex(ValueError, "needs an entry"):
+            await world.wait_any([])
+        self.assertEqual((world.holds, world.waits, world.driver), (0, [], None))
+
+    async def test_loops_at_different_rates_share_the_world_which_rests_while_a_body_runs(self):
+        stub = StubWorld()
+        world, ticks = stub.io.world, {10: [], 4: []}
+
+        async def loop(hz, count):
+            async for now in world.rate(hz):
+                ticks[hz].append(round(now, 9))
+                with world.hold():  # as a command in flight does
+                    await asyncio.sleep(.002)
+                await asyncio.sleep(.002)  # a body that awaits anything still holds its tick
+                if len(ticks[hz]) == count:
+                    break
+        await asyncio.gather(loop(10, 6), loop(4, 3))
+        self.assertEqual(ticks, {10: [0., .1, .2, .3, .4, .5], 4: [0., .25, .5]})
+        # One wait for each deadline, earliest first, and none while a tick's body ran.
+        self.assertEqual(stub.asked, [(until, 0) for until in (0., .1, .2, .25, .3, .4, .5)])
+        self.assertEqual((world.holds, world.waits, world.driver), (0, [], None))
+
+    async def test_a_tick_whose_time_has_passed_is_skipped(self):
+        stub = StubWorld()
+        ticks, stub.late = [], 0.
+
+        async def loop():
+            async for now in stub.io.world.rate(10):
+                ticks.append(round(now, 9))
+                if len(ticks) == 2:
+                    stub.late = .17  # the world is late for the next tick, as a slow body makes it
+                if len(ticks) == 5:
+                    break
+        await loop()
+        self.assertEqual(ticks, [0., .1, .37, .4, .5])  # the tick at 0.2 comes late, the one at 0.3 never
+        with self.assertRaises(ValueError):
+            stub.io.world.rate(0)
 
 
 class Dialog(unittest.IsolatedAsyncioTestCase):
-    async def test_subscription_closes_as_a_context_manager(self):
-        import threading
-        from collections import deque
-        from kinex.communication import Subscription
+    async def test_a_topic_reads_its_stream_and_reopens_it(self):
+        from kinex.device import Device
 
-        def stream():
-            io = NS(node=NS(destroy_subscription=Mock()), subscriptions=[])
-            value = Subscription.__new__(Subscription)
-            value.io, value.handle, value.closed = io, object(), False
-            value.lock, value.inbox, value.buffer = threading.Lock(), deque(), deque()
-            value.event, value.last = asyncio.Event(), None
-            io.subscriptions.append(value)
-            return value
+        class Stream:
+            def __init__(self):
+                self.buffer, self.latest, self.closed, self.timeouts = [], None, False, []
 
-        first, second = stream(), stream()
-        with first as entered:
-            self.assertIs(entered, first)
-        async with second as entered:
-            self.assertIs(entered, second)
-        for value in (first, second):
-            self.assertTrue(value.closed)
-            value.io.node.destroy_subscription.assert_called_once_with(value.handle)
-            self.assertEqual(value.io.subscriptions, [])
+            async def next(self, timeout_s=None):
+                self.timeouts.append(timeout_s)
+                self.latest = "message"
+                return self.latest
+
+            def close(self):
+                self.closed = True
+                self.latest = None
+
+        spec = {"transport": "topic", "direction": "output", "timeout_s": 3, "qos": {"durability": "transient_local"}}
+        catalog, opened = {"arm.state": spec, "arm.target": {"transport": "topic", "direction": "input"}}, []
+        io = NS(catalog=catalog, topics={}, operation=lambda reference, transport=None: catalog[reference],
+                subscribe=lambda spec, depth: opened.append(Stream()) or opened[-1], publish=AsyncMock())
+        state = Device(io, "arm").topic("state")
+        self.assertFalse(opened)  # naming a topic subscribes to nothing
+        self.assertIsNone(state.latest)
+        self.assertEqual((await state.next(), opened[0].timeouts, state.latest), ("message", [3], "message"))
+        # A topic that retains its last message is subscribed to again when none is unread: it is sent that message.
+        await state.next(timeout_s=1)
+        self.assertEqual((len(opened), opened[0].closed, opened[1].timeouts, state.latest), (2, True, [1], "message"))
+        opened[1].buffer.append("unread")
+        await state.next()
+        self.assertEqual(len(opened), 2)
+        state.close()
+        self.assertTrue(opened[1].closed)
+        async for message in state:  # following it opens it again
+            break
+        self.assertEqual((len(opened), opened[2].timeouts), (3, [None]))
+        target = Device(io, "arm").topic("target")
+        await target.publish({"data": 1})
+        io.publish.assert_awaited_once_with("arm.target", {"data": 1})
+        with self.assertRaisesRegex(TypeError, "not a device output"):
+            target.latest
 
     def test_plain_converts_messages_poses_arrays_records_and_non_finite_numbers(self):
         from dataclasses import dataclass
@@ -437,24 +554,6 @@ class DeviceHostShutdown(unittest.IsolatedAsyncioTestCase):
                 patch.object(sys, "stdout", io.StringIO()):
             await device.main()
         self.assertEqual(calls, [("unload", {})])
-
-    async def test_a_scope_opened_by_one_request_closes_in_another(self):
-        from kinex.common import frames
-        from kinex.communication import Communication
-        from kinex.host import device
-
-        def opened(scope):
-            scope.node = None
-            return scope
-
-        host = device.DeviceHost()
-        with patch.object(Communication, "open", opened), patch.object(Communication, "close", AsyncMock()) as close, \
-                patch.object(frames, "publish_profile"), patch.object(device.DeviceHost, "ready", AsyncMock()):
-            # Each request runs in its own task, as the host's dialog starts them.
-            await asyncio.create_task(host.run("load", {"profile": {"name": "arm", "runtime": {}, "operations": {}}}))
-            self.assertEqual(await asyncio.create_task(host.run("unload", {})), {"unloaded": True})
-        close.assert_awaited_once()
-        self.assertIsNone(host.io)
 
 
 if __name__ == "__main__":

@@ -12,12 +12,11 @@ function run(source, input, dialog = false) {
   return spawnSync(python, ['-c', source], { input, env, encoding: 'utf8', timeout: 5000 })
 }
 
-test('exec startup rejects missing, malformed and non-object arguments', () => {
+test('the runtime rejects a missing, malformed or non-object startup request', () => {
   for (const [input, error] of [
-    ['', /missing exec startup request/],
+    ['', /missing startup request/],
     ['broken\n', /JSONDecodeError/],
-    ['[]\n', /requires object args/],
-    ['{"args":null}\n', /requires object args/],
+    ['[]\n', /startup request is an object/],
   ]) {
     const result = run('import kinex', input, true)
     assert.equal(result.status, 1, result.stderr)

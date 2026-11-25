@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import time
 
-from kinex.communication import Subscription, communication
+from kinex.communication import communication
 
 
 class Recording:
@@ -29,13 +29,12 @@ class Recording:
                          rosbag2_py.ConverterOptions("cdr", "cdr"))
         self.index = (self.directory / "samples.jsonl").open("w", buffering=1)
         # Preserve the time and frame authorities needed to interpret observations.
-        catalog = dict(self.io.catalog)
+        catalog = self.io.catalog
         catalog["_frames.dynamic"] = {
             "transport": "topic", "direction": "output", "endpoint": "/tf",
             "type": "tf2_msgs/msg/TFMessage", "qos": {"depth": 64, "durability": "transient_local"}}
         catalog["_frames.static"] = {**catalog["_frames.dynamic"], "endpoint": "/tf_static",
                                      "qos": {"depth": 64, "durability": "transient_local"}}
-        self.io.catalog = catalog
         selected = list(dict.fromkeys([*self.operations, "_frames.dynamic", "_frames.static",
             *[name for name, op in catalog.items() if op["type"] == "rosgraph_msgs/msg/Clock"]]))
         topics = {}
@@ -52,8 +51,7 @@ class Recording:
             except TypeError:  # Humble's rosbag2 has no topic ids.
                 metadata = rosbag2_py.TopicMetadata(**fields)
             self.writer.create_topic(metadata)
-            stream = Subscription(self.io, op, 64)
-            self.io.subscriptions.append(stream)
+            stream = self.io.subscribe(op, 64)
             self.streams.append(stream)
             self.counts[name] = 0
             self.tasks.append(asyncio.create_task(self.consume(name, op, stream)))
@@ -67,9 +65,9 @@ class Recording:
                 message = await stream.next()
                 # Startup can receive retained calibration before the first clock.
                 # Wait only for transport; do not request world advancement.
-                while self.io.world_stamp is None:
+                while self.io.bridge.world_stamp is None:
                     await asyncio.sleep(.01)
-                stamp, epoch = self.io.world_stamp, self.io.world_epoch
+                stamp, epoch = self.io.bridge.world_stamp, self.io.bridge.world_epoch
                 previous = self.last.get(name)
                 if name in self.operations and op["direction"] == "output" and op["type"] != "rosgraph_msgs/msg/Clock":
                     if previous is not None and previous[0] == epoch and stamp - previous[1] < self.period:

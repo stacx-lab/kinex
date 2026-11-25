@@ -25,7 +25,7 @@ need. Evidence lives under .kinex/calib/<run>/: save manual observations, timest
 frame conventions and exclusions there with run.save, and archive the inputs and
 outputs of custom procedures the same way. Never edit samples.json or result files.
 
-After submitting motion, wait on the loaded world's declared wait operation, then
+After submitting motion, wait on the world (world.wait_all), then
 verify arrival with fresh measured feedback; references do not prove arrival or
 contact. Respect the selected procedure's speed. Settling needs measured velocities;
 without them, confirm rest independently. On mobile embodiments, verify any reference

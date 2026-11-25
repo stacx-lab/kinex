@@ -1,51 +1,57 @@
 ---
 name: world
 type: world
-description: Authoritative world clock, waits and optional scene geometry.
+description: The world's time and its waits, with optional scene geometry.
 ---
 
 ## Setup
 
-Every workspace requires a world device: exactly one per ROS domain. Its clock is
-world time for every device node, tf2 lookup and recording. Kinex owns tf2
-lookup. Keep task instructions and benchmark judging outside device operations.
+Every workspace requires exactly one world device per ROS domain. It keeps time for
+every device node, tf2 lookup and recording, and it is where programs wait. Keep
+task instructions and benchmark judging out of its operations.
+
+Every world, the real one or a simulator's, declares the same four operations with
+the names, types and descriptions below: they are what a program's `world` object
+calls and what the model reads in the profile. Worlds differ only in whether time
+passes by itself. In the real world and in a simulator running in real time it
+does, and a wait only answers once its entries are over. A stepped simulator
+advances only during a wait and rests otherwise. The profile says neither.
+
+The world also publishes its time on the domain's `/clock`
+(`rosgraph_msgs/msg/Clock`, reliable and `transient_local`), which Kinex's device
+nodes, tf2 history and recording follow. It is not an operation: do not declare it,
+and let no other node publish `/clock` in the domain. A world has no `reset`: an
+episode starts with its world.
+
+A physical workspace copies the sibling `node.py`: it publishes system time on
+`/clock`, serves the four operations against it and learns that a goal has finished
+from the status its action server publishes; a goal no server reports counts as
+executing.
 
 ### Operations
 
-- `time` (required): output topic `rosgraph_msgs/msg/Clock`, `transient_local`.
-  No other device publishes a clock; Kinex remaps device nodes' `/clock` to it.
-- `wait` (recommended): service `custom_interfaces/srv/Wait`. It completes after
-  `duration_s` (finite, nonnegative) of world time; zero is an observation barrier.
-  Waits are sequential: one requested while another is pending is rejected.
-  With `goals`, executing action goals, a wait also lasts until all have finished,
-  cancelling those still executing `goal_timeout_s` into it. This node does not observe
-  goals: it waits `duration_s` and reports none `finished`, and Kinex then awaits them
-  itself, since time passes by itself here.
-  `timeout_s` bounds the longest wait. A world may end a wait early, with `success`
-  false, when a device refuses a command or stops a motion it cannot execute;
-  `waited_s` is how far it ran, and a stepped world never advances the rest.
-- `budget` (optional): output topic `std_msgs/msg/Float64MultiArray`, reliable and
-  `transient_local`, whose `data` is `[used_s, max_s]`, published whenever
-  consumption changes.
-- `stop` (required with `wait`): service `std_srvs/srv/Trigger` that cancels the
-  pending wait. Kinex calls it when a script that waited fails or abandons its wait.
-- `reset` (simulators only): service `std_srvs/srv/Trigger` resetting the episode
-  and clock. It invalidates observations and the pending wait.
+- `now`: service `custom_interfaces/srv/Now`, no request fields. It replies
+  `time_s`, world time in seconds, and the time budget in seconds of world time,
+  `used_s` spent of `max_s` allowed: NaN for both without a budget, as in the real
+  world, and an infinite `max_s` without a limit. `used_s` may include
+  initialization, so it can differ from `time_s`. Kinex reports the budget as
+  supplied and does not enforce it.
+- `wait_all`: service `custom_interfaces/srv/Wait`. Its entries are `seconds`,
+  durations of world time from now, and `goals`, ids of executing action goals,
+  each over once it finishes. The wait ends once every entry is over, or at a
+  positive `timeout`, in seconds of world time, with `timed_out` true; the goals
+  left go on, and a caller that gives up on one cancels it. It replies `time_s`,
+  the world time reached, and whether each entry was over: `elapsed` for the
+  seconds, `finished` for the goals. A wait with no entries returns at once. A
+  world admits one wait at a time and rejects a second with `success` false.
+- `wait_any`: service `custom_interfaces/srv/Wait`, as `wait_all`, but the wait
+  ends once one entry is over; it needs an entry.
+- `stop`: service `std_srvs/srv/Trigger` that cancels the pending wait. Kinex calls
+  it when a program fails during a wait or abandons one.
 
-A physical workspace keeps time with the real-world clock: copy the sibling
-`node.py`, which publishes system time on `time` and completes `wait` against it.
-It has no `reset`. A simulator relays its own clock, wait, stop and reset; describe
-its pacing (realtime, stepped or paused) and terminal-episode behavior on `time`
-and `wait`.
-
-The episode budget is world time in seconds: `used_s` consumed and `max_s` allowed,
-with `max_s` infinite for no cap. Only a stepped world has one, since its time passes
-only when the agent spends it; a simulator running in realtime keeps the operation
-and publishes `[NaN, NaN]`, no budget. Convert native counts to seconds before
-reporting; consumption may include initialization, so `used_s` can differ from world
-time. Kinex reports the budget as supplied, showing non-finite values as null; it
-does not infer it from the clock, enforce it, or change control behavior. The
-real-world clock has no budget and declares no `budget`.
+A world may end a wait early with `success` false, for example when a device
+refuses a command: `time_s` says how far it ran, and a stepped world never advances
+the rest. The waits' `timeout_s` bounds the wall time of one call.
 
 ### Profile
 
@@ -53,22 +59,29 @@ real-world clock has no budget and declares no `budget`.
 name: world
 type: world
 loaded: false
-description: Real-world clock from system time. No reset; bounds and surfaces are informational.
+description: World time and waits.
 runtime:
+  observation: now
   nodes: [{entry: node.py, factory: create}]
 operations:
-  time:
-    description: System time published every 10 ms.
-    transport: topic
-    direction: output
-    endpoint: /kinex/world/time
-    type: rosgraph_msgs/msg/Clock
-    qos: {depth: 1, reliability: reliable, durability: transient_local}
-  wait:
-    description: Await duration_s seconds of system time (finite, nonnegative, under 120) with 10 ms granularity. Zero is an observation barrier. One wait at a time; returns time_s and waited_s.
+  now:
+    description: 'World time, time_s, and the time budget in seconds of world time: used_s spent of max_s allowed. Without a budget both are NaN; without a limit max_s is inf.'
     transport: service
     direction: input
-    endpoint: /kinex/world/wait
+    endpoint: /kinex/world/now
+    type: custom_interfaces/srv/Now
+  wait_all:
+    description: 'Wait until every entry is over: each of seconds, a duration of world time from now, and each of goals, the id of an executing action goal, once it finishes. A positive timeout, in seconds of world time, ends the wait with entries left (timed_out). The reply gives time_s, the world time reached, and whether each entry was over: elapsed for seconds, finished for goals. One wait at a time: a second is rejected. With no entries it returns at once.'
+    transport: service
+    direction: input
+    endpoint: /kinex/world/wait_all
+    type: custom_interfaces/srv/Wait
+    timeout_s: 120
+  wait_any:
+    description: 'Wait until one entry is over: each of seconds, a duration of world time from now, and each of goals, the id of an executing action goal, once it finishes. A positive timeout, in seconds of world time, ends the wait with entries left (timed_out). The reply gives time_s, the world time reached, and whether each entry was over: elapsed for seconds, finished for goals. One wait at a time: a second is rejected.'
+    transport: service
+    direction: input
+    endpoint: /kinex/world/wait_any
     type: custom_interfaces/srv/Wait
     timeout_s: 120
   stop:
@@ -83,6 +96,7 @@ frames:
   base: {parent: null, translation_m: null, rotation_xyzw: null}
 ```
 
-Bounds are `{min: [x,y,z], max: [x,y,z]}` in metres; null bounds impose no box,
-null sides are open, and `???` means unresolved. Surfaces have a unique name,
-world pose and rectangle, polygon or unbounded extent. Use only measured geometry.
+Bounds are `{min: [x, y, z], max: [x, y, z]}` in metres; null bounds impose no box,
+null sides are open, and `???` means unresolved. Surfaces have a unique name, a
+world pose and a rectangle, polygon or unbounded extent. Record only measured
+geometry.

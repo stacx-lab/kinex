@@ -1,0 +1,6 @@
+# A world's now: its time, and the episode's budget where it has one.
+---
+float64 time_s
+# Seconds of world time the episode has used and is allowed: NaN without a budget, max_s infinite without a cap.
+float64 used_s
+float64 max_s

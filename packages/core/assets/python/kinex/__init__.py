@@ -1,10 +1,11 @@
 """Kinex API for exec programs.
 
-A program imports what it uses: io for pub/sub and request/response, runtime for device
-discovery, lib for reusable functions, subagent for a judgment only a model can make,
-args for its arguments and finish to end with its result. Programs compute with NumPy
-arrays, poses (pose) and seconds (seconds); io and finish convert them to and from ROS
-fields and JSON, and plain gives the JSON form to a program that writes its own. The
+A program imports what it uses: device for a loaded device's topics, services and
+actions, world for time and waits, runtime for device discovery, lib for reusable
+functions, subagent for a judgment only a model can make, args for its arguments and
+finish to end with its result. Programs compute with NumPy arrays, poses (pose) and
+seconds (seconds); devices and finish convert them to and from ROS fields and JSON, and
+plain gives the JSON form to a program that writes its own. The
 host dialog carries invocation metadata, profiles, subagent calls and the result. One
 execution approval covers the invocation; Python cannot change device lifecycle.
 """
@@ -16,22 +17,24 @@ import os
 import queue
 import sys
 import threading
-import traceback
 
-from kinex.communication import communication, io, seconds
+from kinex.communication import seconds
+from kinex.device import device
 from kinex.errors import RPCError, OperationError
 from kinex.common.plain import image_file, plain
 from kinex.values import pose
+from kinex.world import world
 
 # Protocol channel: the real stdout, captured only INSIDE a tool dialog (the
-# harness marks exec processes with KINEX_TOOL_DIALOG=1). Everything print()ed
+# harness marks its runtime process with KINEX_TOOL_DIALOG=1). Everything print()ed
 # afterwards lands on stderr, so debug output can never corrupt the dialog.
 # Outside a dialog (a device node or standalone script importing kinex) the
 # import stays side-effect-free and any protocol call raises instead.
 _out = None
 _in = None
 _buffer = b""
-_request = None
+_request = None  # the runtime's startup request, then the request of the program it runs
+_serve = None  # the runtime's handler of the host's own requests
 
 
 def _lines():
@@ -56,10 +59,10 @@ if os.environ.get("KINEX_TOOL_DIALOG") == "1":
     # Consume startup before any call reads the dialog.
     line = next(_lines(), None)
     if not line:
-        raise RuntimeError("missing exec startup request")
+        raise RuntimeError("missing startup request")
     _request = json.loads(line)
-    if not isinstance(_request, dict) or not isinstance(_request.get("args"), dict):
-        raise ValueError("exec startup request requires object args")
+    if not isinstance(_request, dict):
+        raise ValueError("the startup request is an object")
 
 
 _write_lock = threading.Lock()
@@ -74,28 +77,19 @@ def _emit(payload):
         _out.flush()
 
 
-if _out is not None:
-    # Uncaught exceptions travel through the dialog once, leaving stderr to printed output.
-    def _excepthook(kind, error, trace):
-        if isinstance(error, RPCError) and (error.code is not None or error.details is not None):
-            _emit(error.payload())
-        else:
-            _emit({"error": "".join(traceback.format_exception(kind, error, trace)).rstrip()})
-
-    sys.excepthook = _excepthook
-
-
 # Calls carry an id, so a slow one, such as a subagent, does not hold back the others.
 # One thread reads the host's answers and hands each to the call that waits for it.
 _calls = {}
 _calls_lock = threading.Lock()
 _ids = itertools.count(1)
-_reading = False
 
 
 def _read():
     for line in _lines():
         answer = json.loads(line)
+        if "action" in answer or "cancel" in answer:
+            _serve(answer)
+            continue
         with _calls_lock:
             deliver = _calls.pop(answer.pop("id", None), None)
         if deliver:
@@ -106,10 +100,30 @@ def _read():
         _calls[None] = None  # marks the dialog closed
     for deliver in waiting:
         deliver(None)
+    _serve(None)
+
+
+def _listen(serve):
+    """Read the dialog: the host's answers go to the calls that wait for them, its requests to serve, and None
+    once the host closes it."""
+    global _serve
+    _serve = serve
+    threading.Thread(target=_read, daemon=True).start()
+
+
+class _Output:
+    """A program's printed text, sent through the dialog so it stays in order with the result."""
+
+    def write(self, text):
+        if text:
+            _emit({"output": text})
+        return len(text)
+
+    def flush(self):
+        pass
 
 
 def _send(payload, deliver):
-    global _reading
     if _out is None:
         raise RuntimeError("not running inside exec: the host dialog is unavailable")
     with _calls_lock:
@@ -117,9 +131,6 @@ def _send(payload, deliver):
             raise RuntimeError("harness closed the dialog")
         identifier = next(_ids)
         _calls[identifier] = deliver
-        if not _reading:
-            _reading = True
-            threading.Thread(target=_read, daemon=True).start()
     _emit({**payload, "id": identifier})
 
 

@@ -49,8 +49,8 @@ Examples include:
   feedback.
 - A detection or policy model exposes inference as a device through JSON
   services. Controller tools decide how to apply its output to the robot.
-- A `world` device exposes environment time through its clock topic and its wait
-  and stop services. Tools schedule work through these operations for hardware or
+- A `world` device exposes environment time through its `now`, `wait_all` and
+  `wait_any` services, the same in every world. Tools schedule work through these operations for hardware or
   simulation.
 
 See [device contracts](devices.md) for frames, motion and node behavior.
@@ -69,13 +69,14 @@ choosing the next action.
 The function library is the `kinex.lib` package: builtin modules plus the
 workspace's `.kinex/lib`. A public function's signature and docstring are its
 interface; no manifest or registration exists. Programs and library functions
-reach devices through the invocation's one communication scope, `io`, with
-`read`, `subscribe`, `publish`, `request` and `serve`, so functions call each
-other as ordinary Python and ordinary branching and asyncio task groups define
-the workflow. The agent browses the library level by level with the `lib` tool;
+reach devices as objects, `device(name)` with its topics, services and actions,
+and time through `world`, so functions call each other as ordinary Python and
+ordinary branching and asyncio task groups define the workflow. A program
+attaches to the workspace's Python runtime, which keeps the loaded devices'
+operations between programs. The agent browses the library level by level with the `lib` tool;
 the user runs a saved program with `/exec`, without the agent. Perception and
-control share one execution approval. An invocation's
-temporary communication resources end with it; model state persists in devices.
+control share one execution approval. What a program
+made ends with it; model state persists in devices.
 
 `lib.frames` queries tf2; camera geometry comes from profile intrinsics or the
 camera node's geometry services.

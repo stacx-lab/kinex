@@ -122,7 +122,7 @@ goal a joint device reaches at its own pace. A device executes one goal at a tim
 newer goal or command, a stop or a cancel ends it.
 Anything that moves declares a `stop`, which must be a `std_srvs/srv/Trigger`
 service; validation requires one for joint, gripper, suction and locomotion
-devices with command topics or actions and for worlds with `wait`. Abort, timeout and failure
+devices with command topics or actions and for worlds, whose waits it cancels. Abort, timeout and failure
 stop the devices an invocation commanded; successful completion need not stop
 motion, and scripts call a device's `stop` explicitly when it should. Host stop is
 available without approval and cancels invocations commanding the device.
@@ -139,39 +139,34 @@ selected declared topics and saves rosbag2, world time and TF. It never advances
 time. Explicit snapshots read `runtime.observation`; a camera without one reads its
 image and, for rgbd, the equally stamped depth; stereo returns `left_file`,
 `right_file` and each eye's stamp and frame. Other devices fall back to
-their first joint state, image or clock output. Recorder deactivation precedes
+their first joint state or image output. Recorder deactivation precedes
 device unload; disposal finalizes recordings. Model recording is opt-in.
 
 ## World: time and geometry
 
-Every workspace requires one world device per ROS domain. Its required `time`
-clock is the world time of device nodes, tf2 lookup and recording; `wait` is
-recommended with the `stop` that cancels it, and `reset` only for simulators.
-Waits are sequential. A wait may name `goals`, executing action goals: it then ends
-once `duration_s` has passed and all have finished, goals still executing
-`goal_timeout_s` into it being cancelled, and `finished` says which had. A
-world that does not observe goals, as the template node, waits `duration_s` and
-reports none finished; Kinex then awaits them itself, as time passes by itself there.
-Physical workspaces keep real-world time with the template
-node; a simulator, such as one run by
-[kinex-sim](https://github.com/stacx-lab/kinex-sim), relays its own. Bounds and
-surfaces are informational facts. Document pacing, epoch resets and terminal
-episode behavior on each relevant operation. Workflow loops use world time rather
-than a simulator-specific timer.
+Every workspace requires one world device per ROS domain. It keeps the time of
+device nodes, tf2 lookup and recording, on the domain's `/clock`, and declares the
+same four operations in every world, with the same descriptions: `now`, the world's
+time and the time budget; `wait_all` and `wait_any`, which wait for seconds of world
+time and for action goals, with an optional timeout; and the `stop` that cancels a
+pending wait. A world admits one wait at a time and has no reset. Physical workspaces
+copy the template node, where time is system time; a simulator, such as one run by
+[kinex-sim](https://github.com/stacx-lab/kinex-sim), serves the same operations from
+its own clock. A profile does not say which it is: whether time passes by itself or
+only during a wait changes nothing a program writes. Bounds and surfaces are
+informational facts. Workflow loops use world time rather than a simulator-specific
+timer.
 
-An optional `budget` output topic (`std_msgs/msg/Float64MultiArray`,
-transient-local) reports the episode budget whenever consumption changes: `data` is
-`[used_s, max_s]`, seconds of world time consumed and allowed, `max_s` infinite for
-no cap. Only stepped time is the agent's to spend, so a simulator running in
-realtime keeps the operation and publishes `[NaN, NaN]`, no budget. Worlds convert
-native counts to seconds, and consumption may include initialization; Kinex reports
-the budget as supplied, without inferring it from the clock, enforcing it or
-changing control behavior.
+`now` reports the time budget as `used_s` and `max_s`, seconds of world time consumed
+and allowed, `max_s` infinite without a limit. Only stepped time is the agent's to
+spend, so the real world and a simulator running in real time report NaN for both, no
+budget. Consumption may include initialization; Kinex reports the budget as supplied,
+without inferring it from the clock, enforcing it or changing control behavior.
 
 The name is shared but the scope differs. kinex-sim's `world` is a ROS node that
 runs the whole simulated environment and hosts every device's endpoints. Kinex's
-world device covers only its time operations (`/clock`, `world/wait`,
-`world/stop`); arms, grippers and cameras on the same node are separate Kinex
+world device covers only its time operations (`world/now`, `world/wait_all`,
+`world/wait_any` and `world/stop`); arms, grippers and cameras on the same node are separate Kinex
 devices.
 
 ## Models: inference as a device
@@ -223,10 +218,10 @@ Devices remain unlocalized roots: odometry drifts and is never a global pose.
 
 Cameras publish `image` (`rgb8`) and, for rgbd, `depth` (`16UC1` in
 `scale_m_per_unit`, 0 for missing samples) from one acquisition with equal stamps,
-in calibrated optical frames. Readers subscribe and take the next frame; a
-simulator publishes a current frame to each new subscriber with reliable QoS and
-repeats it while paused, so reading a paused world never advances it, also from a
-reader that subscribed before discovering the camera. A stereo rgb camera
+in calibrated optical frames. Readers subscribe and take the next frame; where
+world time rests between waits, a camera sends its current frame to each new
+subscriber with reliable QoS and repeats it while subscribed, so a read never needs
+time to pass. A stereo rgb camera
 publishes `left_image` and `right_image` in `<device>/left` and `<device>/right`
 instead of `image`; each
 keeps its own stamp, and a paired read does not imply hardware synchronization. IMU

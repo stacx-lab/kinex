@@ -16,8 +16,9 @@ from importlib.machinery import PathFinder
 DEFS = (ast.FunctionDef, ast.AsyncFunctionDef)
 OPAQUE = (*DEFS, ast.Lambda, ast.ClassDef)
 COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
-VERBS = {"request", "publish", "read", "subscribe"}
-STREAM = {"next", "latest"}
+# What a device's operation is reached through, with what calling it does.
+ENDPOINTS = {"topic": None, "service": "request", "action": "act"}
+WAITS = {"wait_all", "wait_any"}
 SPAWN = {"asyncio.create_task", "asyncio.ensure_future"}
 LIB = "kinex.lib"
 LIMIT = 400
@@ -145,10 +146,11 @@ class Function:
 
     def __init__(self, charts, module, qualified, node, outer=None):
         self.charts, self.module, self.qualified = charts, module, qualified
-        # Functions defined inside this one or around it, the names bound to subscriptions
-        # and to tasks, and the name each call's result is assigned to.
+        # Functions defined inside this one or around it, the names bound to devices, to their
+        # operations and to tasks, and the name each call's result is assigned to.
         self.nested = dict(outer.nested) if outer else {}
-        self.streams = dict(outer.streams) if outer else {}
+        self.devices = dict(outer.devices) if outer else {}
+        self.endpoints = dict(outer.endpoints) if outer else {}
         self.tasks, self.bound = set(outer.tasks) if outer else set(), {}
         pending = list(node.body)
         while pending:
@@ -165,16 +167,29 @@ class Function:
     def name(self, call):
         return self.qualify(dotted(call.func))
 
-    def operation(self, call):
-        """The operation an io call names, or None when the call is not one."""
-        names = dotted(call.func)
-        if not names or len(names) < 2 or names[-1] not in VERBS or not call.args:
-            return None
-        if self.name(call) != f"kinex.io.{names[-1]}" and names[-2] != "io":
-            return None
-        first = call.args[0]
-        literal = isinstance(first, ast.Constant) and isinstance(first.value, str)
-        return {"verb": names[-1], "operation": first.value if literal else text(first), "dynamic": not literal}
+    def device(self, node):
+        """The device an expression is, as (name or its expression, whether it is computed): device(...) or a
+        name bound to one. None for any other expression."""
+        if isinstance(node, ast.Name):
+            return self.devices.get(node.id)
+        if isinstance(node, ast.Call) and self.name(node) == "kinex.device" and node.args:
+            first = node.args[0]
+            literal = isinstance(first, ast.Constant) and isinstance(first.value, str)
+            return (first.value if literal else "{" + text(first, 30) + "}"), not literal
+
+    def endpoint(self, node):
+        """The operation an expression is: a device's topic, service or action, or a name bound to one."""
+        if isinstance(node, ast.Name):
+            return self.endpoints.get(node.id)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ENDPOINTS and node.args:
+            device, first = self.device(node.func.value), node.args[0]
+            literal = isinstance(first, ast.Constant) and isinstance(first.value, str)
+            if device:
+                return {"operation": f"{device[0]}.{first.value if literal else '{' + text(first, 30) + '}'}",
+                        "dynamic": device[1] or not literal, "transport": node.func.attr}
+
+    def io(self, endpoint, verb, at):
+        return {"kind": "io", "verb": verb, "operation": endpoint["operation"], "dynamic": endpoint["dynamic"], **at}
 
     def target(self, name):
         """The chart a called name opens: a nested, local or imported function."""
@@ -227,9 +242,16 @@ class Function:
     def call(self, call, at):
         """The steps of a call this chart understands, or None for any other call."""
         name, names = self.name(call), dotted(call.func)
-        io = self.operation(call)
-        if io:
-            return self.inputs(call, 1) + [{"kind": "io", **io, **at}]
+        # A service or an action is called with its fields; a topic is read and commanded through its methods.
+        called = self.endpoint(call.func)
+        if called and ENDPOINTS[called["transport"]]:
+            return self.inputs(call) + [self.io(called, ENDPOINTS[called["transport"]], at)]
+        reached = self.endpoint(call.func.value) if isinstance(call.func, ast.Attribute) and call.func.attr in ("next", "publish") else None
+        if reached and reached["transport"] == "topic":
+            return self.inputs(call) + [self.io(reached, call.func.attr, at)]
+        if name and name.startswith("kinex.world.") and names[-1] in WAITS:
+            label = ", ".join(text(part, 40) for part in (*call.args, *call.keywords))
+            return self.inputs(call) + [{"kind": "wait", "label": f"{names[-1].replace('_', ' ')} {label}".strip(), **at}]
         if name == "kinex.subagent" and call.args:
             first = call.args[0]
             literal = isinstance(first, ast.Constant) and isinstance(first.value, str) and first.value.strip()
@@ -241,12 +263,6 @@ class Function:
             label = ", ".join(text(part, 40) for part in (*call.args, *call.keywords))
             return self.inputs(call) + [{"kind": "exit", "how": "finish", "label": label, **at}]
         func = call.func
-        if isinstance(func, ast.Attribute) and func.attr in STREAM:
-            source = self.operation(func.value) if isinstance(func.value, ast.Call) else None
-            stream = source or (self.streams.get(func.value.id) if isinstance(func.value, ast.Name) else None)
-            if stream:
-                before = self.inputs(func.value, 1) if source else []
-                return before + self.inputs(call) + [{"kind": "io", **stream, "verb": func.attr, **at}]
         if isinstance(func, ast.Attribute) and func.attr == "cancel" and isinstance(func.value, ast.Name) and func.value.id in self.tasks:
             return [{"kind": "cancel", "task": func.value.id, **at}]
         if name in SPAWN or (isinstance(func, ast.Attribute) and func.attr == "create_task"):
@@ -281,11 +297,6 @@ class Function:
         """The scope a with item opens, as (steps before it, its label, extra fields)."""
         expression = item.context_expr
         if isinstance(expression, ast.Call):
-            io = self.operation(expression)
-            if io and io["verb"] == "subscribe":
-                if isinstance(item.optional_vars, ast.Name):
-                    self.streams[item.optional_vars.id] = io
-                return self.inputs(expression, 1), f"subscribed to {io['operation']}", {}
             name = self.name(expression)
             if name in ("asyncio.timeout", "asyncio.timeout_at") and expression.args:
                 unit = " s" if name == "asyncio.timeout" else ""
@@ -340,12 +351,14 @@ class Function:
                 forever = isinstance(statement.test, ast.Constant) and statement.test.value is True
                 add(statement, [{"kind": "loop", "header": "repeat" if forever else f"while {text(statement.test)}", "body": body, "orelse": self.block(statement.orelse), **at}])
             elif isinstance(statement, (ast.For, ast.AsyncFor)):
-                stream = self.streams.get(statement.iter.id) if isinstance(statement.iter, ast.Name) else None
+                stream = self.endpoint(statement.iter)
+                rate = isinstance(statement.iter, ast.Call) and self.name(statement.iter) == "kinex.world.rate" and statement.iter.args
                 header = f"for {text(statement.target, 30)} in {'each message of ' + stream['operation'] if stream else text(statement.iter, 50)}"
                 body = self.block(statement.body)
                 if isinstance(statement, ast.AsyncFor):
                     head = {"line": statement.lineno, "end": statement.lineno}
-                    body = [{"kind": "io", **stream, "verb": "next", **head} if stream else {"kind": "wait", "label": "wait for the next item", **head}, *body]
+                    label = f"wait for the next tick at {text(statement.iter.args[0], 20)} Hz" if rate else "wait for the next item"
+                    body = [self.io(stream, "next", head) if stream else {"kind": "wait", "label": label, **head}, *body]
                 add(statement, self.steps(statement.iter) + [{"kind": "loop", "header": header, "body": body, "orelse": self.block(statement.orelse), **at}])
             elif isinstance(statement, (ast.With, ast.AsyncWith)):
                 opened = [self.scope(item) for item in statement.items]
@@ -372,9 +385,10 @@ class Function:
                     value = value.value
                 if isinstance(value, ast.Call) and isinstance(targets[0], ast.Name):
                     self.bound[id(value)] = targets[0].id
-                    io = self.operation(value)
-                    if io and io["verb"] == "subscribe":
-                        self.streams[targets[0].id] = io
+                    if self.device(value):
+                        self.devices[targets[0].id] = self.device(value)
+                    elif self.endpoint(value):
+                        self.endpoints[targets[0].id] = self.endpoint(value)
                 add(statement, self.steps(statement))
         flush()
         return steps

@@ -68,43 +68,44 @@ def save(message):
     return file.name
 
 
-async def frame(io, camera, *, timeout_s=None, eye=None):
-    """The camera's next image and, for an rgbd camera, its depth from the same acquisition.
+async def frame(camera, *, timeout_s=None, eye=None):
+    """The next image of camera, a Device, and for an rgbd camera its depth from the same acquisition.
 
     Subscribing yields a current frame: live cameras stream, and simulators publish one
     to each new subscriber and repeat it while the world is paused. Depth is paired with
     the image of equal stamp. eye selects a stereo camera's left or right image. timeout_s
     defaults to the image operation's timeout_s.
     """
-    names = [f"{eye}_image"] if eye else ["image"] + (["depth"] if f"{camera}.depth" in io.catalog else [])
-    streams = [io.subscribe(f"{camera}.{name}") for name in names]
-    limit = timeout_s if timeout_s is not None else io.operation(f"{camera}.{names[0]}").get("timeout_s", 10)
+    names = [f"{eye}_image"] if eye else ["image"] + (["depth"] if "depth" in camera.operations else [])
+    # A stream of its own, opened here: it does not take a frame from one the program follows.
+    streams = [camera.topic(name, depth=1) for name in names]
+    limit = timeout_s if timeout_s is not None else streams[0].spec.get("timeout_s", 10)
 
     def stamp(message):
         return message.header.stamp.sec, message.header.stamp.nanosec
     try:
         async with asyncio.timeout(limit):
-            latest = [await stream.next() for stream in streams]
+            latest = [await stream.next(timeout_s=limit) for stream in streams]
             while len(latest) == 2 and stamp(latest[0]) != stamp(latest[1]):
                 older = 0 if stamp(latest[0]) < stamp(latest[1]) else 1
-                latest[older] = await streams[older].next()
+                latest[older] = await streams[older].next(timeout_s=limit)
     finally:
         for stream in streams:
             stream.close()
     return latest[0], latest[1] if len(latest) == 2 else None
 
 
-async def stereo_frame(io, camera, *, timeout_s=None):
-    """A stereo camera's next left and right images.
+async def stereo_frame(camera, *, timeout_s=None):
+    """The next left and right images of camera, a stereo camera's Device.
 
     Each image keeps its own stamp and optical frame. Reading a pair does not imply
     hardware synchronization, so compare the stamps when the task depends on it.
     """
-    streams = [io.subscribe(f"{camera}.{eye}_image") for eye in ("left", "right")]
-    limit = timeout_s if timeout_s is not None else io.operation(f"{camera}.left_image").get("timeout_s", 10)
+    streams = [camera.topic(f"{eye}_image", depth=1) for eye in ("left", "right")]
+    limit = timeout_s if timeout_s is not None else streams[0].spec.get("timeout_s", 10)
     try:
         async with asyncio.timeout(limit):
-            return tuple(await asyncio.gather(*(stream.next() for stream in streams)))
+            return tuple(await asyncio.gather(*(stream.next(timeout_s=limit) for stream in streams)))
     finally:
         for stream in streams:
             stream.close()
