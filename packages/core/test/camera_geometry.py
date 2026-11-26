@@ -2,7 +2,7 @@ import asyncio
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 import numpy as np
 from kinex.communication import ambient
 from kinex.lib.images import camera_geometry
@@ -10,6 +10,11 @@ from kinex.common.camera import rays
 
 STREAM = {"width":4,"height":3,"frame":"camera/base","calibration_id":"one",
           "projection":{"fx":2,"fy":2,"cx":1,"cy":1,"skew":0},"distortion":{"model":"vendor"}}
+
+def profiled(value):
+    """The camera's profile."""
+    return patch("kinex.device.Device.profile", new_callable=PropertyMock, return_value=value)
+
 
 def scope(request, operations=("geometry", "unproject", "project")):
     """A scope whose camera serves these operations through request."""
@@ -29,7 +34,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
                 return {"rays":[[(u-1)/2,(v-1)/2,1] if u>=0 else None for u,v in args["pixels"]]}
             return {"pixels":[[x/z*2+1,y/z*2+1] for x,y,z in args["points"]]}
         self.enterContext(ambient(scope(request)))
-        with patch("kinex.lib.images.profile",return_value={"color":{"width":4,"height":3}}):
+        with profiled({"color":{"width":4,"height":3}}):
             geometry=await camera_geometry("camera")
         result=await geometry.unproject([[1,1]]*8193)
         self.assertEqual(result.shape,(8193,3))
@@ -37,7 +42,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(np.isnan((await geometry.unproject([[-1,0]]))[0]).all())
         pixel=[[3,2]]
         np.testing.assert_allclose(await geometry.project(await geometry.unproject(pixel)*2),pixel)
-        with patch("kinex.lib.images.profile",return_value={"color":{"width":5}}):
+        with profiled({"color":{"width":5}}):
             with self.assertRaisesRegex(ValueError,"differ"):
                 await camera_geometry("camera")
 
@@ -45,7 +50,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
         async def request(operation, **args):
             return {"streams":{"color":STREAM,"depth":STREAM}}
         self.enterContext(ambient(scope(request)))
-        with patch("kinex.lib.images.profile",return_value={"color":"???","depth":{"registration":"native","width":"???"}}):
+        with profiled({"color":"???","depth":{"registration":"native","width":"???"}}):
             geometry=await camera_geometry("camera")
         self.assertEqual(set(geometry.streams),{"color","depth"})
 
@@ -55,7 +60,7 @@ class Geometry(unittest.IsolatedAsyncioTestCase):
         for error in [TimeoutError(), asyncio.CancelledError()]:
             async def request(*args,**kwargs):
                 raise error
-            with patch("kinex.lib.images.profile",return_value={"color":STREAM}):
+            with profiled({"color":STREAM}):
                 with self.assertRaises(type(error)), ambient(scope(request)):
                     await camera_geometry("camera")
 

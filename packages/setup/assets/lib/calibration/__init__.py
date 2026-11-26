@@ -107,7 +107,7 @@ class Run:
                      stable_reads=3, timeout_s=30, note=None):
         if device not in self.bindings.values():
             raise ValueError(f"{device} is not bound in run {self.id}: {self.bindings}")
-        profile = kinex.profile(device)
+        profile = kinex.device(device).profile
         model = _model(profile, frame)
         operation = operation or (profile.get("runtime") or {}).get("observation")
         sample = {"device": device, "recorded_at": _now()}

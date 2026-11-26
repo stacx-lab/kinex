@@ -1,7 +1,16 @@
-"""A loaded device as a program holds it: its topics, services and actions, by the names its profile declares."""
-from functools import partial
-
+"""A device as a program holds it: its profile, and its topics, services and actions by the names it declares."""
 from kinex.communication import scope
+
+
+def described(spec):
+    """An operation's description and declaration with its ROS interface (kinex.common.interfaces), or, where
+    Kinex Python lacks the interface, error saying so."""
+    from kinex.common.interfaces import interface
+    try:
+        found = interface(spec["type"])
+    except (ImportError, AttributeError, ValueError) as error:
+        found = {"error": f"Kinex Python lacks interface {spec['type']}: {error}"}
+    return {key: spec[key] for key in ("description", "transport", "direction", "type")} | found
 
 
 class Topic:
@@ -46,16 +55,51 @@ class Topic:
         """Send one message, a ROS message or field mapping, once the device is listening. Sending is not arrival."""
         return self.scope.publish(self.reference, message)
 
+    def describe(self):
+        """Its description and declaration with its ROS interface."""
+        return described(self.spec)
+
+
+class Service:
+    """A device's service: call it with its request's fields and await the response, or a Json operation's decoded
+    object. A rejection raises kinex.OperationError."""
+
+    def __init__(self, scope, reference, spec):
+        self.scope, self.reference, self.spec = scope, reference, spec
+
+    def __call__(self, *args, **fields):
+        return self.scope.request(self.reference, *args, **fields)
+
+    def describe(self):
+        """Its description and declaration with its ROS interface."""
+        return described(self.spec)
+
+
+class Action(Service):
+    """A device's action: call it with a goal's fields for the Goal, already sent."""
+
+    def __call__(self, *args, **fields):
+        return self.scope.act(self.reference, *args, **fields)
+
 
 class Device:
     def __init__(self, scope, name):
-        self.scope, self.name = scope, name
+        self.scope, self.name, self._profile = scope, name, None
 
     @property
-    def operations(self):
-        """The device's loaded operations: name -> its profile's declaration."""
-        return {reference.split(".", 1)[1]: spec for reference, spec in self.scope.catalog.items()
-                if reference.split(".", 1)[0] == self.name}
+    def profile(self):
+        """Its parsed profile.yaml, loaded or not, with its URDF model resolved: the facts lib functions compute
+        with, such as frames, color geometry and the model."""
+        if self._profile is None:
+            from kinex import _rpc
+            self._profile = _rpc({"call": "profile", "device": self.name})["profile"]
+        return self._profile
+
+    def describe(self):
+        """Its description and each operation it declares, loaded or not, described as the operation's own describe()
+        describes it."""
+        return {"description": self.profile["description"],
+                "operations": {name: described(spec) for name, spec in self.profile["operations"].items()}}
 
     def topic(self, name, *, depth=None):
         """The topic the device declares as name; depth is how many unread messages it keeps."""
@@ -66,21 +110,18 @@ class Device:
         return topics[reference, depth]
 
     def service(self, name):
-        """The service the device declares as name: call it with its request's fields and await the response,
-        or a Json operation's decoded object. A rejection raises kinex.OperationError."""
+        """The service the device declares as name."""
         reference = f"{self.name}.{name}"
-        self.scope.operation(reference, "service")
-        return partial(self.scope.request, reference)
+        return Service(self.scope, reference, self.scope.operation(reference, "service"))
 
     def action(self, name):
-        """The action the device declares as name: call it with a goal's fields for the Goal, already sent."""
+        """The action the device declares as name."""
         reference = f"{self.name}.{name}"
-        self.scope.operation(reference, "action")
-        return partial(self.scope.act, reference)
+        return Action(self.scope, reference, self.scope.operation(reference, "action"))
 
 
 def device(name):
-    """A loaded device by name, such as device("arm"), to reach its operations through.
+    """A device by name, such as device("arm"): its profile and description, and the operations of a loaded one.
 
     Example: state = await device("arm").topic("joint_state").next()
     """

@@ -25,7 +25,7 @@ test('the runtime rejects a missing, malformed or non-object startup request', (
 })
 
 test('ordinary Python imports leave stdin and stdout available to the caller', () => {
-  const result = run('import kinex, kinex.runtime, sys\nprint(sys.stdin.readline().strip())', 'caller input\n')
+  const result = run('import kinex, kinex.device, sys\nprint(sys.stdin.readline().strip())', 'caller input\n')
   assert.equal(result.status, 0, result.stderr)
   assert.equal(result.stdout, 'caller input\n')
   assert.equal(result.stderr, '')

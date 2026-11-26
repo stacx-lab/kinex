@@ -414,10 +414,10 @@ class Scope:
             raise self.given.spin_error
         spec = self.catalog.get(reference)
         if spec is None and self.enroll and all(name.startswith("_") for name in self.catalog):
-            raise RPCError("No device operations are ready. Query runtime.devices(); load required devices through the host first.",
+            raise RPCError("No device operations are ready; load required devices through the host first.",
                            code="devices_not_ready")
         if spec is None:
-            raise RPCError(f"unknown or unavailable operation {reference}; query runtime.operations(device) and runtime.devices()", code="operation_unavailable", details={"operation": reference})
+            raise RPCError(f"unknown or unavailable operation {reference}: kinex_context lists the devices and their operations; load the device first", code="operation_unavailable", details={"operation": reference})
         if transport and spec["transport"] != transport:
             raise TypeError(f"{reference} is a {spec['transport']}, not a {transport}")
         if direction and spec["direction"] != direction:

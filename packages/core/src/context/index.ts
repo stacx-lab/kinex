@@ -6,12 +6,13 @@ import { pythonEnvironment } from "../python/environment.ts"
 import { Recorder } from "../record/recorder.ts"
 import { listSkills, formatSkills } from "../skill/index.ts"
 import { formatLib } from "../lib/catalog.ts"
+import { devicesContext } from "./devices.ts"
 import ROBOTICS from "./robotics.txt"
 
 // Structured sections let each host place stable instructions ahead of live
 // state without importing the standalone agent's identity or system prompt.
 export async function roboticsContext(directory: string, enableRecording = false) {
-  const [skills, roots, python, lib] = await Promise.all([listSkills(directory), deviceContentRoots(directory), pythonEnvironment(directory), formatLib(directory)])
+  const [skills, roots, python, lib, devices] = await Promise.all([listSkills(directory), deviceContentRoots(directory), pythonEnvironment(directory), formatLib(directory), devicesContext(directory)])
   return {
     instructions: ROBOTICS,
     guideRoots: `Device guide roots (nearest first): ${roots.join(", ")}.`,
@@ -22,6 +23,7 @@ export async function roboticsContext(directory: string, enableRecording = false
       library: Assets.python(), workspaceLibrary: path.join(await ProfileStore.workspaceDir(directory), "lib"),
     },
     lib,
+    devices,
     skills: skills.length ? formatSkills(skills) : undefined,
     recording: enableRecording ? Recorder.render() : undefined,
   }

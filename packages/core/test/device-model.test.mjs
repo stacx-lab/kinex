@@ -106,8 +106,8 @@ test('gripper URDF trees resolve mimic joints, validate the grip and expose the 
     [{ grip, frames: { ...gripper.frames, left_pad: tcp } }, /gripper:left_pad: URDF link collides with a profile frame/],
   ]) await assert.rejects(runtime.profiles.writeDevice({ ...gripper, ...patch }), error)
   await runtime.profiles.writeDevice({ ...gripper, grip })
-  const result = await runtime.tools.call('exec', { python: `from kinex import finish, profile
-model = profile("gripper")["resolved_model"]
+  const result = await runtime.tools.call('exec', { python: `from kinex import device, finish
+model = device("gripper").profile["resolved_model"]
 finish({"links": model["links"], "mimic": [joint["mimic"] for joint in model["joints"] if joint.get("mimic")]})` }, { sessionID: 'gripper', ask: async () => {} })
   assert.ok(!result.isError, result.output)
   assert.deepEqual(JSON.parse(result.output).result, { links: ['base_link', 'left_finger', 'right_finger', 'left_pad', 'right_pad'],

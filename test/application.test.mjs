@@ -20,7 +20,7 @@ test('headless context includes one short Python instruction without onboarding 
   const request = fake.requests[0]
   const system = JSON.stringify(request.messages.filter(message => message.role === 'system' || message.role === 'developer'))
   assert.equal(system.match(/exec runs Kinex Python/g)?.length, 1)
-  assert.match(system, /Discover devices with `runtime` and lib functions with the lib tool/)
+  assert.match(system, /Plan from the devices and operations kinex_context lists/)
   assert.doesNotMatch(system, /Default pyproject\.toml|\{\{PROJECT\}\}/)
   const context = await app.owner.runtime.context()
   assert.ok(JSON.stringify(request).includes(context.python.executable))
@@ -58,13 +58,13 @@ test('/exec in a new session waits for the loaded devices that are still connect
   // The device now takes a moment to start, as real nodes do.
   await writeFile(path.join(cwd, '.kinex/devices/sensor/handler.py'), 'import time\ntime.sleep(1.5)\n')
   await mkdir(path.join(cwd, '.kinex/programs'), { recursive: true })
-  await writeFile(path.join(cwd, '.kinex/programs/ready.py'), 'from kinex import finish, runtime\nfinish({device["name"]: device["ready"] for device in runtime.devices()})\n')
+  await writeFile(path.join(cwd, '.kinex/programs/ready.py'), 'from kinex import device, finish\nfinish({"sensor": device("sensor").topic("read").describe()["transport"]})\n')
   const outputs = []
   const app = await createApplication({ cwd, report: text => outputs.push(text) })
   t.after(() => app.dispose())
   await bind(app)
   await app.host.session.prompt('/exec .kinex/programs/ready.py')
-  assert.deepEqual(JSON.parse(outputs.at(-1)).result, { sensor: true })
+  assert.deepEqual(JSON.parse(outputs.at(-1)).result, { sensor: 'topic' })
   // The model reads who ran the command and what it returned; the row is drawn from the details.
   const entry = app.host.session.sessionManager.getBranch().findLast(item => item.type === 'custom_message' && item.customType === 'kinex')
   assert.equal(entry.content, `User ran /exec .kinex/programs/ready.py:\n${outputs.at(-1)}`)

@@ -17,8 +17,7 @@ A program is a complete script that ends with finish:
 
   asyncio.run(main())
 finish(result=None, file=None) is the only way to return. result is JSON data: messages, arrays, poses and times are converted. file attaches the images you must see: an image message or path, or a list of them. Printed text is returned too; keep it short.
-runtime discovers devices without starting them: runtime.devices(), runtime.operations(name), runtime.describe("device.operation"). Use the names these give, never guessed ones.
-device(name) reaches a loaded device by the operations its profile declares; await means wait until it is done.
+device(name) is a device: .describe() is its description with its operations' descriptions and interfaces, .profile its whole profile. Reach a loaded device's operations by their declared names; each has .describe() for its own.
 - topic(op): await .next() is an output's next message, .latest the last received; await .publish(message) commands an input.
 - service(op)(**fields): await it for the response; a rejection raises kinex.OperationError.
 - action(op)(**fields) sends a goal and returns it at once; await the goal to wait until it has ended: that gives its result, or raises if the device rejected, aborted or cancelled it. goal.status, goal.result and goal.feedback follow it; await goal.cancel() ends it.

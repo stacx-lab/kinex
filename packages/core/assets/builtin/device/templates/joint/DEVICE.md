@@ -23,7 +23,7 @@ URDF limits, except a bounded inward recovery toward home
 (`kinex.common.joints.recovery_targets`); use `native` when the device enforces
 its own limits.
 
-Programs read the resolved tree as `profile(name)["resolved_model"]` and compute FK
+Programs read the resolved tree as `device(name).profile["resolved_model"]` and compute FK
 and IK with `lib.kinematics.joint_model(name)`, so a device need not serve
 kinematics. A controller with its own may declare `fk` or `ik` as optional
 operations, such as MoveIt's `moveit_msgs/srv/GetPositionFK` and `GetPositionIK`,

@@ -12,7 +12,7 @@ import { Operation } from '../dist/device/profile/operations.js'
 import { coreContribution } from '../dist/integration.js'
 import { protocolDevice, inputOperation, outputOperation } from './fixtures/protocol.mjs'
 
-async function fixture(t, options = {}) {
+async function fixture(t, options = {}, interpreter = 'python3') {
   const directory = await mkdtemp(path.join(tmpdir(),'kinex-protocol-'))
   await useUv(path.join(directory, '.kinex'))
   const runtime = createKinexRuntime({directory,host:{ask:async()=>{}},...options})
@@ -20,7 +20,7 @@ async function fixture(t, options = {}) {
   await runtime.profiles.writeManifest({identity:{id:'protocol',name:'Protocol',kind:'other'}})
   const python=(await runtime.python.status()).executable
   await mkdir(path.dirname(python),{recursive:true})
-  await symlink(execFileSync('python3',['-c','import sys;print(sys.executable)'],{encoding:'utf8'}).trim(),python)
+  await symlink(execFileSync(interpreter,['-c','import sys;print(sys.executable)'],{encoding:'utf8'}).trim(),python)
   return {runtime,directory}
 }
 const exec = (runtime, python, extra={}) => runtime.tools.call('exec',{python},{sessionID:'test',...extra})
@@ -40,7 +40,7 @@ test('device and operation descriptions are required strings and accept empty te
  assert.throws(()=>Device.parse({...base,description:'',access:{}}),/access/)
 })
 
-test('descriptions are discovered unloaded without ROS imports; type does not determine operations',async t=>{
+test('devices are described unloaded without ROS imports and listed in the context; type does not determine operations',async t=>{
  const {runtime,directory}=await fixture(t)
  for(const [name,operation] of [['one','temperature'],['two','distance']])
    await runtime.profiles.writeDevice({ name,
@@ -51,22 +51,43 @@ test('descriptions are discovered unloaded without ROS imports; type does not de
      operations:{[operation]:{...outputOperation(operation),description:`Operation ${name}`}},
      frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
  const result=await exec(runtime,`import sys
-from kinex import finish, runtime
+from kinex import device, finish
+one=device('one').describe()
 assert 'rclpy' not in sys.modules
-one=runtime.device('one')
-assert 'rclpy' not in sys.modules
-finish({'device':one,'ops':runtime.operations('two'),'devices':runtime.devices()})`)
+finish({'one':one,'two':device('two').profile['operations']['distance']['description']})`)
  assert.ok(!result.isError,result.output)
  const value=JSON.parse(result.output).result
- assert.deepEqual(value.device,{name:'one',type:'other',description:'General one',loaded:false,ready:false})
- assert.deepEqual(Object.keys(value.ops),['distance'])
- assert.ok(value.devices.every(d=>!('description' in d)))
- const before=await coreContribution(runtime).context()
+ assert.equal(value.one.description,'General one')
+ const {temperature}=value.one.operations
+ assert.deepEqual([temperature.description,temperature.transport,temperature.direction,temperature.type],['Operation one','topic','output','std_msgs/msg/Float64'])
+ // Its interface, or why Kinex Python lacks it.
+ assert.ok(temperature.interface?.message || /lacks interface std_msgs\/msg\/Float64/.test(temperature.error),JSON.stringify(temperature))
+ assert.equal(value.two,'Operation two')
+ const listed=async()=>(await coreContribution(runtime).context()).sections.devices
+ assert.match(await listed(),/^<devices>\none: General one\n  temperature \(topic output, std_msgs\/msg\/Float64\): Operation one\n/)
+ assert.match(await listed(),/\ntwo: General two\n  distance \(topic output, std_msgs\/msg\/Float64\): Operation two\n/)
  await runtime.profiles.writeDevice({name:'one',description:'Changed description'})
- const after=await coreContribution(runtime).context()
- assert.deepEqual(after,before)
- assert.doesNotMatch(JSON.stringify(after),/General one|Operation one|Changed description/)
+ assert.match(await listed(),/^<devices>\none: Changed description\n/)
  await assert.rejects(access(path.join(directory,'.kinex/devices/one/events.jsonl')))
+})
+
+test('the devices section gives each operation its interface once Kinex Python resolves it, none to free-form ones',async t=>{
+ const interpreter=process.env.PYTHON ?? 'python3'
+ const {runtime}=await fixture(t,{},interpreter)
+ await runtime.profiles.writeDevice({ name:'gauge', type:'other', description:'A gauge.', loaded:false,
+   runtime:{interpreter:'/never/start'},
+   operations:{ value:{...outputOperation('value'),description:'Reading.'},
+     set:{description:'Set it.',transport:'service',direction:'input',endpoint:'/gauge/set',type:'custom_interfaces/srv/Json'},
+     stop:{...inputOperation('stop'),description:'Stop.'} },
+   frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
+ const section=(await coreContribution(runtime).context()).sections.devices
+ const head=['<devices>','gauge: A gauge.','  value (topic output, std_msgs/msg/Float64): Reading.']
+ if (execFileSync(interpreter,['-c','import importlib.util;print(bool(importlib.util.find_spec("rosidl_runtime_py")))'],{encoding:'utf8'}).trim()==='True')
+   assert.equal(section,[...head,'    message {data: double}','  set (service input, custom_interfaces/srv/Json): Set it.',
+     '  stop (service input, std_srvs/srv/Trigger): Stop.','    request {}; response {success: boolean, message: string}','</devices>'].join('\n'))
+ else
+   assert.equal(section,[...head,'  set (service input, custom_interfaces/srv/Json): Set it.','  stop (service input, std_srvs/srv/Trigger): Stop.',
+     "interfaces unavailable: No module named 'rosidl_runtime_py' (std_msgs/msg/Float64, std_srvs/srv/Trigger)",'</devices>'].join('\n'))
 })
 
 test('devices without a runtime and invalid profiles fail with actionable diagnostics',async t=>{

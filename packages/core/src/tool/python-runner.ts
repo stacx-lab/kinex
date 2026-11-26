@@ -1,4 +1,4 @@
-import { rosExec, rosReady } from "../device/ros.ts"
+import { rosExec } from "../device/ros.ts"
 import { libRoots } from "../lib/catalog.ts"
 import { enrollDevice, registerInvocation, releaseInvocation } from "../device/stop.ts"
 import { abortable } from "../util/abort.ts"
@@ -39,26 +39,6 @@ interface Returned { result: unknown; files: string[] }
 
 async function dispatch(cwd: string, request: Request, ctx: InvocationContext): Promise<Record<string, unknown>> {
   const call = request["call"]
-  if (call === "runtime_devices") {
-    const devices = await ProfileStore.listDevices(cwd)
-    return { ok: true, result: await Promise.all(devices.map(async device => ({
-      name: device.name, type: device.type, loaded: device.loaded,
-      ready: await rosReady(cwd, device),
-    }))) }
-  }
-  if (call === "runtime_device") {
-    const name = z.string().parse(request["device"])
-    const device = await ProfileStore.readDevice(cwd, name)
-    if (!device) return { ok: false, error: `unknown device "${name}"` }
-    return { ok: true, result: { name: device.name, type: device.type, description: device.description,
-      loaded: device.loaded, ready: await rosReady(cwd, device) } }
-  }
-  if (call === "runtime_operations") {
-    const name = z.string().parse(request["device"])
-    const device = await ProfileStore.readDevice(cwd, name)
-    if (!device) return { ok: false, error: `unknown device "${name}"` }
-    return { ok: true, result: device.operations }
-  }
   if (call === "ros_enroll") {
     await enrollDevice(cwd, ctx.invocation, z.string().parse(request["device"]))
     return { ok: true }
@@ -73,14 +53,13 @@ async function dispatch(cwd: string, request: Request, ctx: InvocationContext): 
     const name = request["device"]
     if (typeof name !== "string") return { ok: false, error: "profile needs a device name" }
     const device = await ProfileStore.readDevice(cwd, name)
-    if (!device && request["optional"] === true) return { ok: true, profile: null }
     if (!device) return { ok: false, error: `no device "${name}" for robot ${robot.identity.id}` }
     const error = modelErrors.get(device)
     if (error) return { ok: false, error }
     const model = deviceTree(device)
     return { ok: true, profile: model ? { ...device, resolved_model: model } : device }
   }
-  return { ok: false, error: `unknown call "${String(call)}" — use runtime_devices, runtime_device, runtime_operations, ros_enroll, profile, robot or subagent` }
+  return { ok: false, error: `unknown call "${String(call)}" — use ros_enroll, profile, robot or subagent` }
 }
 
 // A program's question to a model. Its failures are the program's to handle, so they

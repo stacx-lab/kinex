@@ -8,7 +8,7 @@ const exec = promisify(execFile)
 const root = fileURLToPath(new URL('../', import.meta.url))
 
 export async function checkCorePackage(directory, env, pack) {
-  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/runtime.py'))
+  assert.ok(pack.files.some(file => file.path === 'assets/python/kinex/common/interfaces.py'))
   for (const file of ['action/Json.action', 'srv/Json.srv', 'srv/Now.srv', 'srv/Wait.srv', 'package.xml', 'CMakeLists.txt'])
     assert.ok(pack.files.some(entry => entry.path === `assets/ros/custom_interfaces/${file}`))
   // Cameras are native image topics; no capture service is shipped.
@@ -75,9 +75,9 @@ export async function checkCorePackage(directory, env, pack) {
       const capabilities = coreContribution(runtime)
       assert.ok(capabilities.commands.some(command => command.name === 'unregister'))
       assert.equal('conventions' in await runtime.context(),false)
-      const listed = await runtime.tools.call('exec', { python: 'from kinex import finish, runtime; finish(runtime.devices())' }, {sessionID:'package'})
+      const listed = await runtime.tools.call('exec', { python: 'from kinex import device, finish; finish(device("world").describe())' }, {sessionID:'package'})
       assert.ok(!listed.isError, listed.output)
-      assert.equal(JSON.parse(listed.output).result[0].name, 'world')
+      assert.equal(JSON.parse(listed.output).result.description, 'World description')
       const reading = await runtime.tools.call('device', { deviceID: 'world', action: 'read' }, {sessionID:'package'})
       assert.ok(!reading.isError, reading.output)
       const batch = await runtime.tools.call('devices', { calls: [{ deviceID: 'world', action: 'read' }] }, {sessionID:'package'})
@@ -85,7 +85,7 @@ export async function checkCorePackage(directory, env, pack) {
       await executeRoboticsCommand(runtime, 'unregister', 'world', context)
       await assert.rejects(stat('.kinex/devices/world'), {code:'ENOENT'})
       const python = (await runtime.context()).python.library
-      execFileSync('python3', ['-c', 'import kinex; import kinex.runtime; import kinex.common.camera; import kinex.common.kinematics'], {
+      execFileSync('python3', ['-c', 'import kinex; import kinex.device; import kinex.common.interfaces; import kinex.common.camera; import kinex.common.kinematics'], {
         env: {...process.env, PYTHONPATH: python, PYTHONDONTWRITEBYTECODE: '1'}
       })
       execFileSync('python3', ['-c', [

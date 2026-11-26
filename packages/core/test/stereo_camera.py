@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace as NS
 import unittest
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from kinex.communication import ambient
 from kinex.lib import images
@@ -73,10 +73,10 @@ class StereoFrames(unittest.IsolatedAsyncioTestCase):
     async def test_single_read_selects_an_eye(self):
         scope = Scope(left_image=Stream([]), right_image=Stream([image(3, "camera/right")]))
         self.assertEqual((await frame(scope.device("camera"), eye="right"))[0].header.frame_id, "camera/right")
-        with patch.object(images, "profile", lambda _: STEREO):
+        with patch.object(Device, "profile", new_callable=PropertyMock, return_value=STEREO):
             with self.assertRaisesRegex(ValueError, "eye is required"), ambient(scope):
                 await images.camera_frame("camera")
-        with patch.object(images, "profile", lambda _: {"type": "rgb", "layout": "mono", "color": {}}):
+        with patch.object(Device, "profile", new_callable=PropertyMock, return_value={"type": "rgb", "layout": "mono", "color": {}}):
             with self.assertRaisesRegex(ValueError, "eye is required"), ambient(scope):
                 await images.camera_frame("camera", eye="left")
 
@@ -98,11 +98,27 @@ class StereoFrames(unittest.IsolatedAsyncioTestCase):
             Path(sample[key]).unlink()
 
 
+class DeviceCalls(unittest.IsolatedAsyncioTestCase):
+    async def test_a_call_and_a_sample_take_the_operation_the_profile_declares(self):
+        """The device tool reads an operation by its profile's declaration; a sample, the first image output."""
+        msg = ModuleType("sensor_msgs.msg")
+        msg.Image, msg.JointState = NS, type("JointState", (), {})
+        ros = {"sensor_msgs": ModuleType("sensor_msgs"), "sensor_msgs.msg": msg}
+        scope = Scope(left_image=Stream([image(5, "camera/left"), image(6, "camera/left")]))
+        with patch.dict(sys.modules, ros), patch.dict(sys.modules, {"rclpy": ModuleType("rclpy")}):
+            from kinex.host.device import DeviceHost
+            host = DeviceHost()
+            host.io, host.profile = scope, {"name": "camera", "type": "other", "runtime": {}, "operations": {
+                "left_image": {"direction": "output", "transport": "topic", "type": "sensor_msgs/msg/Image"}}}
+            read, sample = await host.run("left_image", {}), await host.run("$sample", {})
+        self.assertEqual((read["timestamp"], sample["timestamp"]), (5, 6))
+
+
 class StereoGeometry(unittest.IsolatedAsyncioTestCase):
     async def test_each_eye_unprojects_with_its_own_calibration(self):
         scope = Scope()
         scope.catalog.update({f"camera.{name}": {} for name in ("geometry", "unproject")})
-        with patch.object(images, "profile", lambda _: STEREO), ambient(scope):
+        with patch.object(Device, "profile", new_callable=PropertyMock, return_value=STEREO), ambient(scope):
             geometry = await images.camera_geometry("camera")
             await geometry.unproject([[1, 1]], "right")
         unproject = next(fields for reference, fields in scope.requests if reference == "camera.unproject")

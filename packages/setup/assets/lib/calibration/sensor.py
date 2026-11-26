@@ -26,7 +26,7 @@ def bias(run, gravity_m_s2=None):
     Example: result = lib.calibration.sensor.bias(run, gravity_m_s2=[0, 0, 9.80665])
     """
     target = run.role("target")
-    profile = kinex.profile(target)
+    profile = kinex.device(target).profile
     if profile["type"] not in CHANNELS:
         raise ValueError("bias calibration needs an imu or force_torque target")
     if not isinstance(profile.get("measurement"), dict):

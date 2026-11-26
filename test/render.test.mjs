@@ -47,8 +47,8 @@ test('an exec title names the program file, then its arguments, then the descrip
 test('exec calls show inline source under the title, bounded until expanded', () => {
   const renderers = toolRenderers('exec')
   const call = (args, expanded = false) => renderers.renderCall(args, theme, { ...context, expanded }).render(100).map(line => stripTerminalSequences(line).trimEnd())
-  assert.deepEqual(call({ description: 'inspect arm state', python: 'from kinex import runtime\nprint(runtime.devices())' }),
-    ['exec inspect arm state', '', 'from kinex import runtime', 'print(runtime.devices())'])
+  assert.deepEqual(call({ description: 'inspect arm state', python: 'from kinex import device\nprint(device("arm").describe())' }),
+    ['exec inspect arm state', '', 'from kinex import device', 'print(device("arm").describe())'])
   assert.deepEqual(call({ description: 'pick the block', file: 'programs/pick.py', args: { object: 'red block' } }, true),
     ['exec programs/pick.py object="red block" pick the block'])
   assert.deepEqual(call({ description: 'inspect' }), ['exec inspect'])
