@@ -42,9 +42,8 @@ function session(request) {
   if (latest(request).role !== 'tool') {
     if (text.includes('hello again')) return { text: 'HOME_AGAIN_OK' }
     if (text.includes('pi_subagents_notice')) return has('improve_next') ? { tool: 'improve_next', args: {} } : { text: 'RUN_OVER' }
-    return has('improve_tasks') ? { tool: 'improve_tasks', args: { pattern: 'sim/press-button', command: kinexSim } } : { text: 'KINEX_TUI_READY' }
+    return has('improve_plan') ? { tool: 'improve_plan', args: { tasks: ['sim/press-button'], command: kinexSim } } : { text: 'KINEX_TUI_READY' }
   }
-  if (/^sim\/[^\n]* \(robot /.test(text)) return { tool: 'improve_plan', args: { tasks: ['sim/press-button'] } }
   // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.
   const waves = [...text.matchAll(/subagent\(\{ workflow: ("[^"]+"), args: \{ run: ("[^"]+"), library: ("[^"]+"), tasks: (\[[^\]]*\]) \}, globalConcurrencyLimit: (\d+), async: true \}\)/g)]
     .map(([, workflow, run, library, tasks, limit]) => ({ workflow: JSON.parse(workflow), args: { run: JSON.parse(run), library: JSON.parse(library), tasks: JSON.parse(tasks) }, globalConcurrencyLimit: Number(limit), async: true }))
@@ -67,7 +66,7 @@ test('in the terminal the user approves the plan, which moves Kinex to auto mode
     [0.2, '/self-improve the press task\r'], ['Approve', '\r'], ['RUN_OVER', 'hello again\r'], ['HOME_AGAIN_OK', '/quit\r'],
   ], 170)
   assert.match(text, /Approve and switch Kinex to auto mode\?/)
-  assert.match(text, /Self-improve plan: 1 task of kinex-sim's catalog on robot sim\/arm: sim\/press-button/)
+  assert.match(text, /Self-improve plan: 1 task on robot sim\/arm sim\/press-button 1 round, 1 trial at a time/)
   assert.match(text, /devices · auto/, 'the session works without approvals from then on')
   assert.match(text, /TRIALS_STARTED/, 'the turn that started the trial ended')
   const home = fake.requests.at(-1)

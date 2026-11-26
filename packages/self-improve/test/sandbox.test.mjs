@@ -15,6 +15,7 @@ process.env.KINEX_DATA_DIR = path.join(root, 'data')
 const { sandboxed, unavailable } = await import('../dist/sandbox.js')
 const { homeOf, pythonDir } = await import('../dist/layout.js')
 const { trialPython } = await import('../dist/trial.js')
+const { childEnv } = await import('../dist/session.js')
 
 const put = async (file, text) => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text) }
 // A run belongs to the workspace it was planned in, which has content of its own that no child may find.
@@ -71,6 +72,20 @@ test('a Docker sandbox is given the same folders, and the child\'s environment b
   for (const folder of hidden) assert.ok(!mounts.some(mount => mount.split(',')[0] === folder), `${folder} is not bound`)
   assert.deepEqual(binds(argv, '--env'), ['KINEX_SELF_IMPROVE_ROLE', 'FASTDDS_BUILTIN_TRANSPORTS=UDPv4'])
   assert.deepEqual([binds(argv, '--network'), binds(argv, '--cap-drop'), binds(argv, '--workdir')], [['host'], ['ALL'], [workspace]])
+})
+
+test('a child keeps its ROS logs in its sandbox\'s own home, not in the host folders this process names', () => {
+  const host = { ROS_HOME: process.env.ROS_HOME, ROS_LOG_DIR: process.env.ROS_LOG_DIR, ROS_DOMAIN_ID: process.env.ROS_DOMAIN_ID }
+  Object.assign(process.env, { ROS_HOME: path.join(root, 'ros'), ROS_LOG_DIR: path.join(root, 'ros/log'), ROS_DOMAIN_ID: '7' })
+  try {
+    for (const role of ['worker', 'distiller']) {
+      const env = childEnv(role)
+      assert.deepEqual([env.ROS_HOME, env.ROS_LOG_DIR, env.ROS_DOMAIN_ID], [undefined, undefined, '7'], role)
+      assert.ok(!binds(sandboxed(['true'], workspace, [session], 'docker', { python, env }), '--env').some(name => name.startsWith('ROS_HOME') || name.startsWith('ROS_LOG_DIR')))
+    }
+  } finally {
+    for (const [name, value] of Object.entries(host)) if (value === undefined) delete process.env[name]; else process.env[name] = value
+  }
 })
 
 test('a trial\'s Python is prepared from the settings its worker reads in the sandbox, not from the workspace the run belongs to', async () => {

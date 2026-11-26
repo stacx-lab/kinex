@@ -23,8 +23,6 @@ import type { Task } from "./sim.ts"
 export interface Scheduled {
   /** What the user asked for. */
   request: string
-  /** The command that runs kinex-sim, once the session has named it while it plans. */
-  command?: string
   run?: Run
   /** Whether the user has approved that the run goes on with nobody to approve its steps. */
   approved?: boolean
@@ -38,7 +36,7 @@ export const schedule = (next: Scheduled | undefined) => { scheduled = next }
 export function checked(ids: readonly string[], catalog: readonly Task[]): string[] {
   const robots = new Map(catalog.map(task => [task.id, task.robot]))
   const unknown = ids.filter(id => !robots.has(id))
-  if (unknown.length) throw new Error(`Unknown tasks: ${unknown.join(", ")}; improve_tasks lists the ids`)
+  if (unknown.length) throw new Error(`Unknown tasks: ${unknown.join(", ")}; \`kinex-sim tasks list\` lists the ids`)
   const used = [...new Set(ids.map(id => robots.get(id)))]
   if (used.length !== 1) throw new Error(used.length ? `The tasks use different robots (${used.join(", ")}); a run practises on one` : "A run needs at least one task")
   return [...new Set(ids)].sort()

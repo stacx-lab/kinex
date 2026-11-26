@@ -16,20 +16,27 @@ export interface SessionExit {
 /** How a child runs: in which sandbox, with which Docker image, reading which Python environment. */
 export interface Confinement { sandbox: Sandbox; image?: string; python?: string }
 
-// The one place a child's command and environment are built; it runs inside its sandbox.
-function command(role: Role, cwd: string, record: string, prompt: string, { sandbox, image, python }: Confinement) {
-  if (!kinex.entry) throw new Error("Cannot locate the running Kinex entry point")
-  const { KINEX_SIM_PROJECT: _project, VIRTUAL_ENV: _venv, ...inherited } = process.env
+/** The environment a child of `role` runs with in its sandbox: this process's, less what names the host's kinex-sim or folders the sandbox does not have. */
+export function childEnv(role: Role): NodeJS.ProcessEnv {
+  // ROS_HOME and ROS_LOG_DIR name host folders the sandbox does not have, where its devices could not
+  // start their logging: without them ROS keeps its logs in ~/.ros, in the sandbox's own home.
+  const { KINEX_SIM_PROJECT: _project, VIRTUAL_ENV: _venv, ROS_HOME: _rosHome, ROS_LOG_DIR: _rosLog, ...inherited } = process.env
   // A child is a session of its own, not a sub-agent of the one that scheduled its job.
   for (const name of Object.keys(inherited)) if (name.startsWith("PI_SUBAGENT")) delete inherited[name]
   // kinex-sim is put on PATH by activating its environment; a child never needs it.
   const visible = (entry: string) => !(existsSync(path.join(entry, "kinex-sim")) && existsSync(path.join(entry, "activate")))
-  const argv = [process.execPath, kinex.entry, "run", "--yolo", ...modelFlags(), "--session", sessionFile(record), "--", ...first[role], prompt]
-  const env = { ...inherited, [ROLE_VARIABLE]: role,
+  return { ...inherited, [ROLE_VARIABLE]: role,
     // A worker does its task itself: it starts no sub-agents. A distiller starts its own, so its
     // Kinex opens pi-subagents from the start.
     ...(role === "worker" ? { PI_SUBAGENT_MAX_DEPTH: "0" } : { KINEX_SUBAGENTS: "on" }),
     PATH: (process.env.PATH ?? "").split(path.delimiter).filter(visible).join(path.delimiter) }
+}
+
+// The one place a child's command is built; it runs inside its sandbox.
+function command(role: Role, cwd: string, record: string, prompt: string, { sandbox, image, python }: Confinement) {
+  if (!kinex.entry) throw new Error("Cannot locate the running Kinex entry point")
+  const argv = [process.execPath, kinex.entry, "run", "--yolo", ...modelFlags(), "--session", sessionFile(record), "--", ...first[role], prompt]
+  const env = childEnv(role)
   // A container is named so that it can be removed when the command that started it was killed.
   const container = sandbox === "docker" ? `kinex-self-improve-${process.pid}-${path.basename(path.dirname(record))}-${Date.now()}` : undefined
   // A worker writes its transcript. pi-subagents keeps what a session's sub-agents leave (their sessions, artifacts

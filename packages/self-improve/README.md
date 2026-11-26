@@ -25,9 +25,9 @@ the request to the session, which plans the run and has the user approve the
 plan; after that code decides every step and the session only starts what it
 names.
 
-1. **Plan.** The session finds the tasks in kinex-sim's catalog with
-   `improve_tasks` and proposes them with `improve_plan`: tasks, rounds, trials at
-   a time and batches.
+1. **Plan.** The session finds the tasks in kinex-sim's catalog with its own
+   `tasks list` and proposes them with `improve_plan`: tasks, rounds, trials at a
+   time and batches.
 2. **Approval.** `improve_plan` shows the user the plan with how a trial is
    started, ended and judged, and waits. Approving makes the run; from `ask` mode
    it also moves Kinex to `auto`, because trials and distillations go on with
@@ -43,7 +43,7 @@ names.
 | Role | Is | Package tools |
 | --- | --- | --- |
 | Scheduler | Code, `src/scheduler.ts`: it decides the next step from the run's folder and admits the jobs that do it | none: it is not a model |
-| Session | The user's session, which plans the run and starts the sub-agents of each step | `improve_tasks` and `improve_plan` while it plans, `improve_next` while a run is scheduled |
+| Session | The user's session, which plans the run and starts the sub-agents of each step | `improve_plan` while it plans, `improve_next` while a run is scheduled |
 | Worker | A headless child Kinex, one per trial, in a fresh rig workspace with one library version installed, sandboxed | none |
 | Distiller | A headless child Kinex, one per distillation, in a session and a folder of its own, sandboxed | `improve_check` |
 
@@ -106,7 +106,11 @@ and tells the session when the call's sub-agents have ended.
 - The command opens its job while it alone holds the run's lock and claims it
   with its process id (`claim.json`), so a task started twice is tried once.
 - What it prints is what the session is told: the trial's line as `status` shows
-  it and the path of its record.
+  it and the path of its record. While it works it writes a newline to standard
+  error every 30 s: pi-subagents sees of an external command only its output, and
+  takes one silent for a minute for a sub-agent that needs attention. Only a
+  newline, because the standard error of a command that fails, trimmed, is the
+  error the session is told.
 - A job is a process of its own, so it goes on when the Kinex that started it
   quits. `/self-improve stop` ends the run's jobs from any Kinex.
 
@@ -186,7 +190,7 @@ distillations/d001/
   none leaves the worker the task's name, which `status` reports. kinex-sim's
   commands do not report an episode's step limit, nor take one: a worker is told the number only after an earlier trial of its task was
   ended at it. Its task list
-  does not report splits, so `improve_tasks` selects by simulator, pattern and count.
+  does not report splits: the session selects tasks by simulator, robot or id.
 - Trials run as many at a time as the plan says, but their workers start `startGapS`
   apart (10 s), whichever workspace their run belongs to: each loads a ROS process
   per device, and workers that load in the same moment run past the devices' ready

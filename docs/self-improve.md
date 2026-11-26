@@ -12,14 +12,16 @@ run's files and its settings; this page keeps the contracts.
 | Role | Runs in | Package tools |
 | --- | --- | --- |
 | Scheduler | Code that decides the next step from the run's folder and admits the jobs that do it | none |
-| Session | The user's session: it plans the run and starts the sub-agents of each step | `improve_tasks`, `improve_plan`; then `improve_next` |
+| Session | The user's session: it plans the run and starts the sub-agents of each step | `improve_plan`; then `improve_next` |
 | Worker | A headless child Kinex in a trial workspace with one library version installed; starts with `/load all`; sandboxed | none |
 | Distiller | A headless child Kinex in the distillation's folder, in a session of its own; sandboxed | `improve_check` |
 
 - `/self-improve <request>` is a workflow: the session reads the request, settles
   how kinex-sim is run for it (its command and environment, more options for
-  `launch`, a seed), finds the tasks and proposes a plan. Nothing exists until the
-  user approves it, with the lines a trial is started, ended and judged with.
+  `launch`, a seed), finds the tasks with kinex-sim's own `tasks list` and
+  proposes a plan. Nothing exists until the user approves it, shown in sections:
+  the tasks, the rounds, the command that runs kinex-sim, once, and the lines a
+  trial is started, ended and judged with.
   `improve_plan` asks for the permission `unattended` with the plan as its
   description; the host shows it, and from `ask` mode the approval moves the
   session to `auto`. `yolo` does not ask, and without a user only a session that
@@ -174,7 +176,9 @@ all run outside, in the trial's own process. A distiller's workspace has a Kinex
 folder of its own, so Kinex never takes the one above it. A child shares the
 host's network, which DDS to a worker's simulator and the model's API need, so
 other ROS domains and the internet stay reachable. Its `/dev/shm` is its own, so
-DDS reaches the simulator over UDP.
+DDS reaches the simulator over UDP. A child does not take this process's
+`ROS_HOME` or `ROS_LOG_DIR`, which name host folders it does not have: ROS keeps
+its logs in `~/.ros`, in the sandbox's own home.
 
 The package reaches simulators only through the kinex-sim command, core only
 through package exports, and background work only through pi-subagents, which

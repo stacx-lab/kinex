@@ -4,6 +4,7 @@ import { z } from "zod"
 import { createScope, inScope, withSignal } from "@kinex/core/scope"
 import { runDistillation } from "./distill.ts"
 import type { Scheduler } from "./agents.ts"
+import { heartbeat } from "./heartbeat.ts"
 import { finishJob, type Result } from "./job.ts"
 import { inputFile, readJson, recordDir, schedulerFile } from "./layout.ts"
 import { kinex } from "./kinex.ts"
@@ -15,7 +16,8 @@ import { runTrial } from "./trial.ts"
 // The process of one job: a background sub-agent the session started runs this
 // command, which asks the scheduler for the trial or the distillation its call
 // names, does it, and says in a line how it ended. What it prints is what the
-// session that started it is told.
+// session that started it is told; while it works it writes newlines to standard
+// error, so that pi-subagents sees it at work (heartbeat.ts).
 //   node main.js <trial|distill>, with the call's words on standard input:
 //   run=<run folder> for a distillation, run=<run folder> task=<task> [library=<version>] for a trial
 // A value is a word, or a JSON string where it holds a space or a quote.
@@ -66,6 +68,7 @@ async function main(): Promise<void> {
   kinex.args = scheduler.flags
   const abort = new AbortController()
   for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, () => abort.abort(new Error("The job was stopped")))
+  const stopBeat = heartbeat(text => process.stderr.write(text))
   let deadline: NodeJS.Timeout | undefined
   const within = (seconds: number) => { deadline = setTimeout(() => abort.abort(new Error("The job ran past its deadline")), (seconds + SLACK_S) * 1000) }
   const scope = createScope(run.config.libRoots ? { builtinLibRoots: run.config.libRoots } : {})
@@ -78,6 +81,7 @@ async function main(): Promise<void> {
     console.log(abort.signal.aborted ? `The ${what} was stopped and left no result. Call improve_next.` : `The ${what} failed: ${message(error)}. Call improve_next.`)
     process.exitCode = 1
   } finally {
+    stopBeat()
     clearTimeout(deadline)
     scope.closed = true
   }

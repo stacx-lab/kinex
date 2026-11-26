@@ -216,3 +216,17 @@ test('a plan says how kinex-sim is run: the command with its environment, and la
     assert.throws(() => launchOptions(['--split', 'target', fixed]), new RegExp(`^Error: ${fixed} is not a launch option of a plan`))
   assert.throws(() => launchOptions(['--execution-mode=realtime']), /--execution-mode is not a launch option of a plan/)
 })
+
+test('the plan the user approves is in sections, with the command that runs kinex-sim named once', async () => {
+  const { planText } = await import('../dist/tools.js')
+  const plan = { tasks: ['sim/open-door', 'sim/press-button'], robot: 'sim/arm', rounds: 2, parallel: 1, batches: [1], command: 'kinex-sim', trialTimeoutS: 60, distillTimeoutS: 120 }
+  const text = planText(plan, 'Docker')
+  assert.match(text, /^Self-improve plan: 2 tasks on robot sim\/arm\n  sim\/open-door\n  sim\/press-button\n\n2 rounds, 1 trial at a time\n/)
+  assert.match(text, /\n  Tasks open in batches of 1, then the rest, one batch a wave\.\n\nkinex-sim, below, is the one on PATH\n\n/)
+  assert.match(text, /\nA distillation: one sub-agent in a folder of its own, for at most 120 s\n/)
+  assert.match(text, /each in a Docker sandbox that shows it only its own folder\.$/)
+  const command = 'CUDA_VISIBLE_DEVICES=4 /sim/kinex-sim'
+  const named = planText({ ...plan, command }, 'Docker')
+  assert.equal(named.split(command).length, 2, 'the command is written out once')
+  assert.match(named, /\n\nkinex-sim, below, is run as\n  CUDA_VISIBLE_DEVICES=4 \/sim\/kinex-sim\n\n/)
+})

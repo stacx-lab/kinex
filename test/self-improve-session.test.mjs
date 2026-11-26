@@ -46,29 +46,32 @@ test('a session has the tools only while it plans or schedules a run, and a run 
   // The command hands the request to the session, which plans it with the user.
   const planning = await improve.execute('the sim tasks, two rounds', command)
   assert.equal(planning.kind, 'workflow')
-  assert.match(planning.prompt, /^The user asks for a self-improve run: the sim tasks, two rounds\n\n[^]*improve_tasks[^]*improve_plan[^]*improve_next/)
-  assert.deepEqual(await names(), ['improve_tasks', 'improve_plan'])
-  assert.match((await call('improve_tasks', { pattern: 'sim/*', command: kinexSim })).output, /^sim\/open-door \(robot sim\/arm\)\nsim\/press-button \(robot sim\/arm\)$/)
+  // It finds the tasks with kinex-sim's own list; the plan is its one tool.
+  assert.match(planning.prompt, /^The user asks for a self-improve run: the sim tasks, two rounds\n\n[^]*`tasks list`[^]*improve_plan[^]*improve_next/)
+  assert.deepEqual(await names(), ['improve_plan'])
 
   // Nothing exists before the user approves: a plan that is declined leaves the session planning.
-  await assert.rejects(call('improve_plan', { tasks: ['sim/open-door'] }, false), PermissionDeniedError)
+  await assert.rejects(call('improve_plan', { tasks: ['sim/open-door'], command: kinexSim }, false), PermissionDeniedError)
   assert.equal(current().run, undefined)
   const [request] = asked
   assert.equal(request.permission, 'unattended')
-  assert.match(request.description, /^Self-improve plan: 1 task of kinex-sim's catalog on robot sim\/arm: sim\/open-door\nRounds: 1\./)
-  assert.match(request.description, /A trial starts with `[^`]* launch <task> --execution-mode stepped --early-stop --detach`[^\n]*one worker sub-agent attempts the task[^\n]*It ends with `[^`]* stop`, and `[^`]* judge` decides the outcome/)
-  assert.match(request.description, /\nTrials and distillations run in the background with nobody to approve their steps, each in a (bubblewrap|Docker) sandbox that shows it only its own folder\.$/)
+  // The plan is shown in sections, the command that runs kinex-sim once.
+  assert.match(request.description, /^Self-improve plan: 1 task on robot sim\/arm\n  sim\/open-door\n\n1 round, 1 trial at a time\n  A round is a wave of trials/)
+  assert.ok(request.description.includes(`\n\nkinex-sim, below, is run as\n  ${kinexSim}\n\n`))
+  assert.match(request.description, /\n\nA trial: one worker sub-agent [^\n]*, for at most 3600 s\n  start  kinex-sim launch <task> --execution-mode stepped --early-stop --detach\n {9}on a ROS domain of its own, then kinex-sim setup <task> into the workspace\n  end    kinex-sim stop\n  judge  kinex-sim judge: the simulator's verdict, never the worker's report\n\n/)
+  assert.match(request.description, /\n\nTrials and distillations run in the background with nobody to approve their steps,\neach in a (bubblewrap|Docker) sandbox that shows it only its own folder\.$/)
   // How kinex-sim is run is the plan's: its command with the environment it needs, more launch options and a seed. The user is shown the lines.
   const simulator = `SIM_GPU=1 ${kinexSim}`
   await assert.rejects(call('improve_plan', { tasks: ['sim/open-door'], command: simulator, launch: ['--split', 'target'], seed: 7 }, false), PermissionDeniedError)
-  assert.ok(asked.at(-1).description.includes(`A trial starts with \`${simulator} launch <task> --execution-mode stepped --early-stop --detach --seed 7 --split target\` on a ROS domain of its own and \`${simulator} setup <task>\``))
+  assert.ok(asked.at(-1).description.includes(`kinex-sim, below, is run as\n  ${simulator}\n`))
+  assert.ok(asked.at(-1).description.includes('\n  start  kinex-sim launch <task> --execution-mode stepped --early-stop --detach --seed 7 --split target\n'))
   // What makes a trial a trial is not the plan's to change.
-  const fixed = await call('improve_plan', { tasks: ['sim/open-door'], launch: ['--execution-mode=realtime'] })
+  const fixed = await call('improve_plan', { tasks: ['sim/open-door'], command: kinexSim, launch: ['--execution-mode=realtime'] })
   assert.deepEqual([fixed.isError, /--execution-mode is not a launch option of a plan/.test(fixed.output)], [true, true])
-  const unknown = await call('improve_plan', { tasks: ['sim/missing'] })
+  const unknown = await call('improve_plan', { tasks: ['sim/missing'], command: kinexSim })
   assert.deepEqual([unknown.isError, /Unknown tasks: sim\/missing/.test(unknown.output)], [true, true])
 
-  const approved = await call('improve_plan', { tasks: ['sim/press-button', 'sim/open-door'], rounds: 2, parallel: 2, batches: [1] })
+  const approved = await call('improve_plan', { tasks: ['sim/press-button', 'sim/open-door'], command: kinexSim, rounds: 2, parallel: 2, batches: [1] })
   const { run } = current()
   assert.deepEqual({ ...run.config, libRoots: undefined }, { selection: 'the sim tasks, two rounds', tasks: ['sim/open-door', 'sim/press-button'], robot: 'sim/arm', rounds: 2, parallel: 2, batches: [1],
     libRoots: undefined, helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, command: kinexSim })

@@ -4,7 +4,7 @@ import { promisify } from "node:util"
 // The simulator seam: list tasks, open one episode of a task for a workspace,
 // close it and read the simulator's own verdict. kinex-sim is called as the
 // command a user runs by hand; it is not imported.
-export interface Task { id: string; robot: string; split?: string }
+export interface Task { id: string; robot: string }
 export interface Verdict { success: boolean; steps?: number; worldS?: number; reason?: string; cause?: string; seed?: number }
 /** What a worker is told to do, and where it was found: the simulator's own words, or the task's name when it gave none. */
 export interface Instruction { text: string; source: "simulator" | "task name" }
@@ -57,13 +57,10 @@ async function kinexSim(command: string, args: string[]): Promise<Record<string,
   return value as Record<string, unknown>
 }
 
-/** A pattern against whole task ids, where * matches any characters: libero/libero-spatial-*. */
-export const matching = (pattern: string) => new RegExp(`^${pattern.split("*").map(part => part.replaceAll(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`)
-
-export async function listTasks(command: string, simulator?: string): Promise<Task[]> {
-  const catalog = await kinexSim(command, ["tasks", "list", ...(simulator ? ["--simulator", simulator] : [])]) as
-    { ids?: string[]; robots?: Record<string, string>; splits?: Record<string, string> }
-  return (catalog.ids ?? []).map(id => ({ id, robot: catalog.robots?.[id] ?? "", ...(catalog.splits?.[id] ? { split: catalog.splits[id] } : {}) }))
+/** kinex-sim's catalog: every task, with the robot it is done with. */
+export async function listTasks(command: string): Promise<Task[]> {
+  const catalog = await kinexSim(command, ["tasks", "list"]) as { ids?: string[]; robots?: Record<string, string> }
+  return (catalog.ids ?? []).map(id => ({ id, robot: catalog.robots?.[id] ?? "" }))
 }
 
 // kinex-sim starts simulators detached, so one this process opened is stopped

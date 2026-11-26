@@ -10,62 +10,66 @@ import { currentRole } from "./roles.ts"
 import { REPAIRS, createRun, newConfig, type Config, type Run } from "./run.ts"
 import { sandboxName } from "./sandbox.ts"
 import { checked, current, describe, next, schedule } from "./scheduler.ts"
-import { KINEX_SIM, launchOptions, listTasks, matching } from "./sim.ts"
+import { KINEX_SIM, launchOptions, listTasks } from "./sim.ts"
 
 // The session that schedules a run has this package's tools only while it does:
-// two to plan one, then one that says what to start next. A distiller has the gate.
-export const toolNames: readonly string[] = ["improve_tasks", "improve_plan", "improve_next", "improve_check"]
+// one to plan it, then one that says what to start next. A distiller has the gate.
+// The session finds the tasks itself, with kinex-sim's own `tasks list`.
+export const toolNames: readonly string[] = ["improve_plan", "improve_next", "improve_check"]
 
 /** The permission a tool asks for to go on with nobody to approve its steps; the host asks the user once. */
 const UNATTENDED = "unattended"
 
 const output = (title: string, text: string) => ({ title, output: text })
 
-/** What the user approves: the tasks, the commands a trial is started, ended and judged with, what a round is, and the sandbox its sub-agents run in. */
+const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`
+
+/**
+ * What the user approves, in sections: the tasks, what a round is, how kinex-sim is run, the commands a
+ * trial is started, ended and judged with, what a distillation publishes, and the sandbox its sub-agents run in.
+ * The dialog shows it as one block of text, so a section is a heading line with its lines indented under it.
+ */
 export function planText(config: Pick<Config, "tasks" | "robot" | "rounds" | "parallel" | "batches" | "command" | "launch" | "seed" | "trialTimeoutS" | "distillTimeoutS">, sandbox: string): string {
   const tasks = config.tasks ?? []
   const seed = config.seed === undefined ? "" : ` --seed ${config.seed}`
   const launch = launchOptions(config.launch)
   const also = launch.length ? ` ${launch.join(" ")}` : ""
   return [
-    `Self-improve plan: ${tasks.length} ${tasks.length === 1 ? "task" : "tasks"} of kinex-sim's catalog on robot ${config.robot}: ${tasks.join(", ")}`,
-    `Rounds: ${config.rounds}. A round is a wave of trials, one for each task still unsolved, ${config.parallel} at a time, then one distillation.${config.batches?.length ? ` Tasks open in batches of ${config.batches.join(", ")}, then the rest, one batch a wave.` : ""}`,
-    `A trial starts with \`${config.command} launch <task> --execution-mode stepped --early-stop --detach${seed}${also}\` on a ROS domain of its own and \`${config.command} setup <task>\` into a fresh workspace, where one worker sub-agent attempts the task with the newest library for at most ${config.trialTimeoutS} s. It ends with \`${config.command} stop\`, and \`${config.command} judge\` decides the outcome: the simulator's verdict, never the worker's report.`,
-    `A distillation is a sub-agent in a folder of its own that turns every trial record into the next library version in at most ${config.distillTimeoutS} s; a version is published only when improve_check finds nothing${REPAIRS ? `, after up to ${REPAIRS} repair turns` : ""}.`,
-    `Trials and distillations run in the background with nobody to approve their steps, each in a ${sandbox} sandbox that shows it only its own folder.`,
+    `Self-improve plan: ${plural(tasks.length, "task")} on robot ${config.robot}`,
+    ...tasks.map(task => `  ${task}`),
+    "",
+    `${plural(config.rounds, "round")}, ${plural(config.parallel, "trial")} at a time`,
+    "  A round is a wave of trials, one for each task still unsolved, then one distillation.",
+    ...(config.batches?.length ? [`  Tasks open in batches of ${config.batches.join(", ")}, then the rest, one batch a wave.`] : []),
+    "",
+    ...(config.command === KINEX_SIM ? ["kinex-sim, below, is the one on PATH"] : ["kinex-sim, below, is run as", `  ${config.command}`]),
+    "",
+    `A trial: one worker sub-agent with the newest library, in a fresh workspace, for at most ${config.trialTimeoutS} s`,
+    `  start  kinex-sim launch <task> --execution-mode stepped --early-stop --detach${seed}${also}`,
+    "         on a ROS domain of its own, then kinex-sim setup <task> into the workspace",
+    "  end    kinex-sim stop",
+    "  judge  kinex-sim judge: the simulator's verdict, never the worker's report",
+    "",
+    `A distillation: one sub-agent in a folder of its own, for at most ${config.distillTimeoutS} s`,
+    "  It turns every trial record into the next library version,",
+    `  published only when improve_check finds nothing${REPAIRS ? `, after up to ${REPAIRS} repair turns` : ""}.`,
+    "",
+    "Trials and distillations run in the background with nobody to approve their steps,",
+    `each in a ${sandbox} sandbox that shows it only its own folder.`,
   ].join("\n")
 }
 
 // How kinex-sim is run is the session's to work out from what the user said, and the user's to approve with the plan.
 const COMMAND = "the command that runs kinex-sim where it is not `kinex-sim` on PATH: words without quoting, the environment it needs first as NAME=value, e.g. CUDA_VISIBLE_DEVICES=1 /sim/kinex-sim/.venv/bin/kinex-sim"
 
-const tasksTool = define("improve_tasks", {
-  description: "Tasks in kinex-sim's catalog that match the pattern, split and count: id and robot. improve_plan takes ids.",
-  parameters: z.strictObject({
-    command: z.string().optional().describe(COMMAND),
-    simulator: z.string().optional().describe("limit to one simulator, e.g. robocasa"),
-    pattern: z.string().optional().describe("matched against the whole task id; * matches any characters, e.g. libero/libero-spatial-*"),
-    split: z.string().optional().describe("a split the catalog marks, e.g. target"),
-    count: z.number().int().positive().optional().describe("at most this many, in id order"),
-  }),
-  execute: async args => {
-    const planned = current()
-    if (planned && args.command) planned.command = args.command
-    const listed = await listTasks(args.command ?? planned?.command ?? KINEX_SIM, args.simulator)
-    if (args.split && !listed.some(task => task.split)) throw new Error("kinex-sim does not report task splits; select by pattern or by ids")
-    const matched = listed.filter(task => (!args.pattern || matching(args.pattern).test(task.id)) && (!args.split || task.split === args.split)).slice(0, args.count)
-    return output(`${matched.length} tasks`, matched.map(task => `${task.id} (robot ${task.robot})`).join("\n") || "No task matches.")
-  },
-})
-
 const planTool = define("improve_plan", {
   description: "Propose the self-improve run: its tasks, how kinex-sim is run for them, rounds and trials at a time. The user is shown the plan with the commands a trial is started, ended and judged with, and approves it; then the run exists and the result gives the call that starts its first sub-agents. Call it once you have told the user the plan.",
   parameters: z.strictObject({
-    tasks: z.array(z.string()).min(1).describe("task ids from improve_tasks, all on one robot"),
+    tasks: z.array(z.string()).min(1).describe("task ids from `kinex-sim tasks list`, all on one robot"),
     rounds: z.number().int().positive().default(1).describe("how many waves of trials are distilled"),
     parallel: z.number().int().positive().default(1).describe("trials at a time"),
     batches: z.array(z.number().int().positive()).optional().describe("sizes of the first batches of tasks to open, one batch a wave; the rest open together after them"),
-    command: z.string().optional().describe(`${COMMAND}; absent, the one improve_tasks was given`),
+    command: z.string().optional().describe(COMMAND),
     launch: z.array(z.string()).optional().describe("more options for every `kinex-sim launch` of the run, each word an item, e.g. [\"--split\", \"target\"]. {record} in an option is each trial's own record folder, for what must not be shared, e.g. [\"--record\", \"{record}/video\"]. The execution mode, the early stop and the ROS domain are not yours to give"),
     seed: z.number().int().optional().describe("the seed every trial of a task starts from; absent, the simulator's default state for the task"),
   }),
@@ -73,7 +77,7 @@ const planTool = define("improve_plan", {
     const planned = current()
     if (!planned) throw new Error("No self-improve run is being planned; the user starts one with /self-improve")
     if (planned.run) throw new Error(`The self-improve run ${planned.run.root} is already scheduled in this Kinex; /self-improve stop ends it`)
-    const command = args.command ?? planned.command ?? KINEX_SIM
+    const command = args.command ?? KINEX_SIM
     const launch = launchOptions(args.launch)
     const catalog = await listTasks(command)
     const tasks = checked(args.tasks, catalog)
@@ -130,5 +134,5 @@ export function tools(): Def[] {
   if (role) return role === "distiller" ? [checkTool] : []
   const planned = current()
   if (!planned) return []
-  return planned.run ? [nextTool] : [tasksTool, planTool]
+  return planned.run ? [nextTool] : [planTool]
 }
