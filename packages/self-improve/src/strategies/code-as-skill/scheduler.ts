@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto"
 import path from "node:path"
-import { DISTILL_AGENT } from "./agents.ts"
+import { DISTILL_AGENT } from "../../common/agents.ts"
 import { openDistillation, scheduled as ordered } from "./distill.ts"
-import { alive, openJob, type Job } from "./job.ts"
-import { claimFile, distillationsDir, entries, lockDir, readJson, trialsDir, waveScript, wavesDir, writeJson } from "./layout.ts"
+import { alive, openJob, type Job } from "../../common/job.ts"
+import { claimFile, distillationsDir, entries, lockDir, readJson, trialsDir, waveScript, wavesDir, writeJson } from "../../common/layout.ts"
 import { newestVersion } from "./library.ts"
-import { locked, running } from "./lock.ts"
+import { locked, running } from "../../common/lock.ts"
 import { renderStatus, scan, settled, solvedTasks, stepLimits, type Status, type TrialInput } from "./records.ts"
 import { RERUNS, type Run } from "./run.ts"
-import type { Task } from "./sim.ts"
+import type { Task } from "../../common/sim.ts"
 
 // The scheduler is code: it reads a run's folder and says what is to be done
 // now, and it admits the jobs that do it. It starts nothing itself. The session

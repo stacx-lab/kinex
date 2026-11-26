@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { configFile, entries, readJson, runsDir, selfImproveDir, writeJson } from "./layout.ts"
+import { configFile, entries, readJson, runsDir, selfImproveDir, writeJson } from "../../common/layout.ts"
 import { createLibrary } from "./library.ts"
-import { KINEX_SIM } from "./sim.ts"
+import { KINEX_SIM } from "../../common/sim.ts"
 
 export interface Config {
   /** The request as the user typed it. */

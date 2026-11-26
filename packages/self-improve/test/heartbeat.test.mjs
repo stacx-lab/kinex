@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { BEAT_MS, heartbeat } from '../dist/heartbeat.js'
+import { BEAT_MS, heartbeat } from '../dist/common/heartbeat.js'
 
 test('a job writes newlines more often than pi-subagents takes a silent sub-agent for one that needs attention, and only newlines', async () => {
   assert.ok(BEAT_MS < 60_000, 'pi-subagents waits 60 s')

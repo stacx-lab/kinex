@@ -12,10 +12,10 @@ const exec = promisify(execFile)
 const root = await mkdtemp(path.join(tmpdir(), 'kinex-sandbox-'))
 process.env.KINEX_CONFIG_DIR = path.join(root, 'config')
 process.env.KINEX_DATA_DIR = path.join(root, 'data')
-const { sandboxed, unavailable } = await import('../dist/sandbox.js')
-const { homeOf, pythonDir } = await import('../dist/layout.js')
-const { trialPython } = await import('../dist/trial.js')
-const { childEnv } = await import('../dist/session.js')
+const { sandboxed, unavailable } = await import('../dist/common/sandbox.js')
+const { homeOf, pythonDir } = await import('../dist/common/layout.js')
+const { trialPython } = await import('../dist/strategies/code-as-skill/trial.js')
+const { childEnv } = await import('../dist/common/session.js')
 
 const put = async (file, text) => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text) }
 // A run belongs to the workspace it was planned in, which has content of its own that no child may find.

@@ -1,10 +1,10 @@
 import { cp, mkdir, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { distillationsDir, entries, inputFile, readJson, recordDir, resultFile, sessionFile, trialsDir, versionDir, workspaceDir } from "./layout.ts"
+import { distillationsDir, entries, inputFile, readJson, recordDir, resultFile, sessionFile, trialsDir, versionDir, workspaceDir } from "../../common/layout.ts"
 import { keep } from "./learned.ts"
 import { versions } from "./library.ts"
 import { RERUNS, RETRIES, type Config } from "./run.ts"
-import { writeTranscript } from "./transcript.ts"
+import { writeTranscript } from "../../common/transcript.ts"
 
 export interface TrialInput {
   /** The wave the trial belongs to; waves count from 1. */

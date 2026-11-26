@@ -2,7 +2,7 @@ import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/pro
 import path from "node:path"
 import { parse as parseYaml } from "yaml"
 import { parseFrontmatter } from "@kinex/core/skill/index"
-import { entries } from "./layout.ts"
+import { entries } from "../../common/layout.ts"
 import { PARTS, payloadDir } from "./library.ts"
 
 // What a worker leaves in the folders it keeps things in, for the distiller:

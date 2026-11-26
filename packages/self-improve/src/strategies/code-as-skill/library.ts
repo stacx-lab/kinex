@@ -6,7 +6,7 @@ import { ConfigPaths } from "@kinex/core/config/paths"
 import { libRoots } from "@kinex/core/lib/catalog"
 import { parseFrontmatter } from "@kinex/core/skill/index"
 import { which } from "@kinex/core/util/process"
-import { entries, librariesDir, parseLine, selfImproveDir, versionDir, writeJson } from "./layout.ts"
+import { entries, librariesDir, parseLine, selfImproveDir, versionDir, writeJson } from "../../common/layout.ts"
 
 // A library is what a worker is given beyond plain Kinex. payload/ ships and
 // uses Kinex's own folder names, so installing is a copy; memory/ is the

@@ -27,7 +27,7 @@ export async function isolate() {
 export async function sandboxOrStandIn() {
   // A sandbox binds the Kinex its children run, which the check names as a Kinex process would.
   const entry = fileURLToPath(new URL('../bin/kinex.mjs', import.meta.url))
-  const check = `const { kinex } = await import('@kinex/self-improve/kinex'); kinex.entry = ${JSON.stringify(entry)}; await (await import('@kinex/self-improve/sandbox')).sandboxOf()`
+  const check = `const { kinex } = await import('@kinex/self-improve/common/kinex'); kinex.entry = ${JSON.stringify(entry)}; await (await import('@kinex/self-improve/common/sandbox')).sandboxOf()`
   const root = fileURLToPath(new URL('../', import.meta.url))
   const real = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', check], { cwd: root }).then(() => true, () => false)
   if (!real) process.env.PATH = [fileURLToPath(new URL('./fixtures/sandbox', import.meta.url)), process.env.PATH].join(path.delimiter)

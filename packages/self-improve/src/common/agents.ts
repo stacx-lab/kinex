@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { Global } from "@kinex/core/global"
 import { kinex, modelFlags } from "./kinex.ts"
 import { schedulerFile, waveScript, writeJson } from "./layout.ts"
-import type { Run } from "./run.ts"
+import type { Run } from "../strategies/code-as-skill/run.ts"
 
 // A trial and a distillation each run as a background sub-agent of pi-subagents,
 // which starts them, shows them, stops them and tells the session when they end.
@@ -44,7 +44,7 @@ description: ${JSON.stringify(description)}
 runner:
   type: external-cli
   command: ${JSON.stringify(process.execPath)}
-  args: ${JSON.stringify([fileURLToPath(new URL("./main.ts", import.meta.url)), kind])}
+  args: ${JSON.stringify([fileURLToPath(new URL("../main.ts", import.meta.url)), kind])}
   promptDelivery: stdin
 async: true
 timeoutMs: ${BACKSTOP_MS}

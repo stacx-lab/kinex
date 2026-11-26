@@ -15,7 +15,7 @@ process.env.FAKE_KINEX_SIM_STATE = isolation.root
 await sandboxOrStandIn()
 const { createKinexRuntime, PermissionDeniedError } = await import('@kinex/core')
 const { selfImproveContribution } = await import('@kinex/self-improve')
-const { checked, current } = await import('@kinex/self-improve/scheduler')
+const { checked, current } = await import('@kinex/self-improve/strategies/code-as-skill/scheduler')
 
 const catalog = [{ id: 'sim/open-door', robot: 'sim/arm' }, { id: 'sim/press-button', robot: 'sim/arm' }, { id: 'lab/stack', robot: 'lab/hand' }]
 const command = { sessionID: 'session', confirm: async () => false }
