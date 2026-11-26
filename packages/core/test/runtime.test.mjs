@@ -39,7 +39,7 @@ const execScript = (runtime, input, invocation = {}) => runtime.tools.call('exec
 test('exec runs a complete program, inline or from a file, with arguments and runtime access', async t => {
   const { runtime, directory } = await fixture(t, {host})
   const source = `import asyncio, sys, os
-from kinex import args, finish, lib, robot, runtime
+from kinex import args, device, finish, lib, robot
 assert __name__ == '__main__'
 assert sys.stdin.read() == '' and os.read(0, 1) == b''
 assert args() == {'value': 7}
@@ -49,11 +49,11 @@ def double(value):
     return value * 2
 async def main():
     await asyncio.sleep(0)
-    finish({'doubled': double(args()['value']), 'devices': [device['name'] for device in runtime.devices()], 'lib': lib.motion.__name__})
+    finish({'doubled': double(args()['value']), 'sensor': device('sensor').describe(), 'lib': lib.motion.__name__})
 asyncio.run(main())
 raise AssertionError('finish ends the program')
 `
-  const result = { doubled: 14, devices: ['sensor'], lib: 'kinex.lib.motion' }
+  const result = { doubled: 14, sensor: { description: '', operations: {} }, lib: 'kinex.lib.motion' }
   const inline = await execScript(runtime, { description: 'inspect runtime', python: source, args: { value: 7 } })
   assert.ok(!inline.isError, inline.output)
   assert.deepEqual(JSON.parse(inline.output), { output: 'node-test\nordinary script\n', result })
@@ -300,13 +300,13 @@ test('a program asks the host subagent, alongside other calls, and handles its f
   const result = await execScript(runtime, { args: { image: 'frame.png' }, python: `
 import asyncio
 from pathlib import Path
-from kinex import RPCError, args, finish, runtime, subagent
+from kinex import RPCError, args, device, finish, subagent
 async def main():
     slow = asyncio.create_task(subagent("slow"))
     await asyncio.sleep(0)
     # A subagent that is still thinking holds back neither another subagent nor a host call.
     fast = await subagent("fast", show={"view": Path(args()["image"]), "pose": [0.1, float("nan")], "note": "plain text"}, model="fake/small", thinking="low")
-    devices = [device["name"] for device in runtime.devices()]
+    sensor = device("sensor").describe()
     early = slow.done()
     pair = await asyncio.gather(subagent("a"), subagent("b"))
     failures = []
@@ -315,13 +315,13 @@ async def main():
             await subagent(instruction, **options)
         except RPCError as error:
             failures.append([str(error).splitlines()[0], error.code])
-    finish({"fast": fast, "devices": devices, "early": early, "slow": await slow, "pair": pair, "failures": failures})
+    finish({"fast": fast, "sensor": sensor, "early": early, "slow": await slow, "pair": pair, "failures": failures})
 asyncio.run(main())
 ` })
   assert.ok(!result.isError, result.output)
   const { output, result: returned } = JSON.parse(result.output)
   assert.deepEqual(returned, {
-    fast: 'reply to fast\n', devices: ['sensor'], early: false, slow: 'reply to slow\n', pair: ['reply to a\n', 'reply to b\n'],
+    fast: 'reply to fast\n', sensor: { description: '', operations: {} }, early: false, slow: 'reply to slow\n', pair: ['reply to a\n', 'reply to b\n'],
     failures: [
       ['provider refused', 'subagent_failed'],
       ['subagent gave no reply within 0.3 s', 'subagent_failed'],
@@ -349,7 +349,7 @@ asyncio.run(main())
   const aborted = state.aborted
   const abandoned = await execScript(runtime, { python: `
 import asyncio
-from kinex import finish, runtime, subagent
+from kinex import device, finish, subagent
 async def main():
     try:
         await asyncio.wait_for(subagent("slow"), 0.1)
@@ -357,15 +357,15 @@ async def main():
         pass
     task = asyncio.create_task(subagent("never"))
     await asyncio.sleep(0.5)
-    finish([device["name"] for device in runtime.devices()])
+    finish(device("sensor").describe()["description"])
 asyncio.run(main())
 ` })
   assert.ok(!abandoned.isError, abandoned.output)
-  assert.deepEqual(JSON.parse(abandoned.output).result, ['sensor'])
+  assert.equal(JSON.parse(abandoned.output).result, '')
   assert.match(JSON.parse(abandoned.output).output, /^subagent fake\/default \(\d+\.\d s\): reply to slow\n$/)
   assert.equal(state.aborted, aborted + 1)
-  const next = await execScript(runtime, { timeout_s: 5, python: 'from kinex import finish, runtime\nfinish([device["name"] for device in runtime.devices()])' })
-  assert.deepEqual(JSON.parse(next.output), { output: '', result: ['sensor'] })
+  const next = await execScript(runtime, { timeout_s: 5, python: 'from kinex import device, finish\nfinish(device("sensor").describe())' })
+  assert.deepEqual(JSON.parse(next.output), { output: '', result: { description: '', operations: {} } })
 
   // A host without subagents says so, and the program can fall back.
   const plain = await fixture(t, { host })
@@ -496,7 +496,7 @@ test('core Python status is inert and initialization preserves the host Python p
   assert.equal((await runtime.python.status()).present, false)
 })
 
-test('runtime discovery is read-only and exec does not borrow device interpreters', async t => {
+test('devices are described read-only and exec does not borrow device interpreters', async t => {
   const {runtime, directory} = await fixture(t, {host})
   await runtime.profiles.writeDevice({ description: '',
     name:'clock',
@@ -508,18 +508,15 @@ test('runtime discovery is read-only and exec does not borrow device interpreter
     },
     frames: { base: {parent: null, translation_m: null, rotation_xyzw: null} } })
   const source = `import sys
-from kinex import finish, runtime
-entry = next(d for d in runtime.devices() if d["name"] == "clock")
-finish({"python":sys.executable,"devices":runtime.devices(),"ops":runtime.operations("clock"),
-        "entry_ops":runtime.operations(entry),"entry_device":runtime.device(entry)["name"]})`
+from kinex import device, finish
+finish({"python":sys.executable,"clock":device("clock").describe(),"type":device("clock").profile["type"]})`
   const result = await execScript(runtime,{python:source})
   assert.ok(!result.isError,result.output)
   const value = JSON.parse(result.output).result
   assert.equal(value.python,path.join(directory,'.kinex/python/.venv/bin/python3'))
-  assert.deepEqual(value.devices.find(d=>d.name==='clock'),{name:'clock',type:'world',loaded:false,ready:false})
-  assert.equal(value.ops.time.type,'rosgraph_msgs/msg/Clock')
-  assert.deepEqual(value.entry_ops,value.ops)
-  assert.equal(value.entry_device,'clock')
+  assert.equal(value.type,'world')
+  assert.deepEqual(Object.keys(value.clock.operations),['time'])
+  assert.deepEqual([value.clock.operations.time.description,value.clock.operations.time.type],['Clock','rosgraph_msgs/msg/Clock'])
   const override = await runtime.tools.call('exec',{python:'raise Exception("must not run")',interpreter:'/must/not/run'},{sessionID:'override'})
   assert.equal(override.isError,true)
   const noDevices = await execScript(runtime,{python:'import asyncio\nfrom kinex import device\nasyncio.run(device("clock").topic("time").next())'})

@@ -110,8 +110,10 @@ only changed minimal context sections append to the active history tail. Core's
 stable robotics instructions cover the `.kinex` workspace layout, devices, Python,
 principles and tools; setup adds none, as its tools, workflows and skills carry
 their own guidance.
-Device catalogs, readiness and ROS payload schemas are queried inside exec
-through `kinex.runtime`, never injected into the stable prefix or model tool list.
+The device catalog, each operation's description and ROS interface, is the
+`core.devices` context section; it changes only with profiles, not with load state,
+and never enters the stable prefix or the model tool list. Readiness is the device
+tool's `status`.
 Exec instructions and examples are workspace-independent. Compaction restores
 the same minimal sections before the next request, stopping if recovery fails.
 Images enter history as bytes; recording traces keep only conversation messages,

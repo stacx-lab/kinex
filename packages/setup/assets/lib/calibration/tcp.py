@@ -20,7 +20,7 @@ def fit(run, frame):
     Example: result = lib.calibration.tcp.fit(run, "flange")
     """
     arm, target = run.role("arm"), run.role("target")
-    tool = kinex.profile(target)
+    tool = kinex.device(target).profile
     mount, tcp = tool["frames"].get("base", {}), tool["frames"].get("tcp")
     if mount.get("parent") != f"{arm}:{frame}" or not all(isinstance(mount.get(key), list) for key in ("translation_m", "rotation_xyzw")):
         raise ValueError(f"TCP fitting requires a known mount of {target} in {arm}:{frame}")

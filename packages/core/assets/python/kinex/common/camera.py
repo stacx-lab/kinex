@@ -76,7 +76,7 @@ async def frame(camera, *, timeout_s=None, eye=None):
     the image of equal stamp. eye selects a stereo camera's left or right image. timeout_s
     defaults to the image operation's timeout_s.
     """
-    names = [f"{eye}_image"] if eye else ["image"] + (["depth"] if "depth" in camera.operations else [])
+    names = [f"{eye}_image"] if eye else ["image"] + (["depth"] if f"{camera.name}.depth" in camera.scope.catalog else [])
     # A stream of its own, opened here: it does not take a frame from one the program follows.
     streams = [camera.topic(name, depth=1) for name in names]
     limit = timeout_s if timeout_s is not None else streams[0].spec.get("timeout_s", 10)

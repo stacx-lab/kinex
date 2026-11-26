@@ -71,17 +71,14 @@ readiness; normal calls never restart failed nodes.
 
 Unload before changing definitions. Core fingerprints runtime fields, profile
 facts, node entrypoint source and the URDF; changed definitions require explicit
-reload. Read device and operation descriptions directly from profiles. Discovery
-remains read-only. A program imports `runtime` from `kinex`: use
-`runtime.devices()` for configured devices and host-known readiness,
-`runtime.device(name)` for one device's description and state,
-`runtime.operations(device)` for declared operations (including unloaded devices;
-both take a name or an entry of `runtime.devices()`),
-and `runtime.describe("device.operation")` for protocol metadata and recursive
-ROS payload definitions. These queries never load devices or advance time.
-Catalogs stay in Python unless the program finishes with them; they are not
-injected into the system prompt or exported as per-operation model tools.
-The host TypeScript API retains `runtime.devices.operations()`.
+reload. The `core.devices` context section lists every device, its operations,
+their descriptions and, but for free-form Json operations, their ROS interfaces.
+In a program, `device(name).describe()` gives the same for one device, loaded or
+not, `device(name).profile` its whole profile, and a loaded device's operation
+handle, such as `device("arm").topic("joint_state")`, has `describe()` for its
+own description and interface. Interfaces come from installed definitions without
+ROS init; none of these load a device or advance time. Devices are not exported as
+per-operation model tools. The host TypeScript API retains `runtime.devices.operations()`.
 
 Device and operation descriptions are required strings and may be empty. Typed
 templates guide setup; they recommend operation names without enforcing them and

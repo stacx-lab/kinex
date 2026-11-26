@@ -43,7 +43,7 @@ class Library(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "no communication scope"):
             device("a")
         with ambient(NS(catalog={"a.b": {}}, world=NS(rate=lambda hz: hz))):
-            self.assertEqual((device("a").operations, world.rate(5)), ({"b": {}}, 5))
+            self.assertEqual((device("a").scope.catalog, world.rate(5)), ({"a.b": {}}, 5))
         with self.assertRaises(RuntimeError):
             world.rate(5)
 
@@ -269,7 +269,7 @@ class ProgramLoop(unittest.TestCase):
         catalog = {"arm.joint_state": {"transport": "topic", "direction": "output"}, "arm.move": {"transport": "action", "direction": "input"}}
         io = Scope(catalog=catalog, enroll=AsyncMock())
         arm = io.device("arm")
-        self.assertEqual((set(arm.operations), arm.topic("joint_state") is arm.topic("joint_state")), ({"joint_state", "move"}, True))
+        self.assertEqual((arm.action("move").spec, arm.topic("joint_state") is arm.topic("joint_state")), (catalog["arm.move"], True))
         self.assertTrue(callable(arm.action("move")))
         self.assertIsNone(io.given)
         for wrong in (lambda: arm.service("move"), lambda: arm.topic("move")):
