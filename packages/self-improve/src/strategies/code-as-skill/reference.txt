@@ -1,0 +1,20 @@
+# What reference/ holds
+
+- kinex-core.md: what a sub-agent can do in its environment. It is a Kinex session in a robot workspace: the device tools, `exec` for Python programs, the `lib` tool that browses the function library, and the host's shell and file tools.
+- python-kinex/: the Python package a sub-agent's code imports as `kinex`, the same source the sub-agent runs. `__init__.py` documents what a program can use (`device`, `world`, `lib`, `args`, `finish`, `subagent`, `pose`, `seconds`, `plain`), `device.py` the object `device(name)` gives: its profile and, with `describe()`, its description and operations, loaded or not, and the topics, services and actions of a loaded device, `world.py` the `world` object's time and waits, `values.py` the forms values take, and `lib/` the builtin library modules, each a complete example of a library module. Code written for a sub-agent can be run offline against a stub of this package.
+- workspace/: the robot workspace every sub-agent starts in, as its `.kinex/` folder holds it: `workspace.yaml` and `devices/<device>/`, whose `profile.yaml` names the device's operations with their types and units. A function can name these operations itself; they are the same in every trial.
+
+How a sub-agent runs code:
+
+- `exec` runs one complete Python program, given as source or as a file (saved programs go in `.kinex/programs/` by convention). The program imports what it uses from `kinex`, runs its own `asyncio.run(main())` and ends with `finish(result, file=None)`: `result` is JSON data and `file` names the images to show. Without `finish` the result is null; an uncaught exception is the failure. Programs compute with NumPy arrays, poses (a scipy RigidTransform) and seconds.
+- `.kinex/lib/` in a sub-agent's workspace is a root of the `kinex.lib` package: `.kinex/lib/grasp.py` is imported as `from kinex.lib.grasp import pick` or called as `lib.grasp.pick(...)`, never as `import grasp`, which fails. A module there replaces a builtin module of the same name. Library functions take device names and reach a device with `device(name)`, imported from `kinex`, as `lib.images.camera_frame("camera")` does. The `lib` tool shows a module's docstring and a function's signature and docstring: that is how a sub-agent finds them.
+
+A library is installed into the sub-agent's workspace as it is, so it uses Kinex's own formats:
+
+- A skill is `skills/<name>/SKILL.md`: a frontmatter block (`---`, then `name: <name>` and `description: <one line>`, then `---`) followed by the text. Both keys are required.
+- `lib/` is installed as `.kinex/lib/`: each module or package in it is a `kinex.lib` module. A name that a builtin module has (the modules in `python-kinex/lib/`) would replace that builtin for every sub-agent, and skill_check refuses it.
+- `programs/` is installed as `.kinex/programs/`: each file is a complete program, run with `exec` by its path.
+- `tools/` holds only `.ts` or `.js` files, each a tool definition for the host; Kinex has no Python tools. Python code belongs in `lib/`.
+- `brief.md` is plain text.
+
+skill_check loads the candidate the way Kinex would and reports what does not load: it also compiles the Python in `lib/` and `programs/`, and reports a skill or the brief naming something a `lib/` module does not define. It runs none of the code.

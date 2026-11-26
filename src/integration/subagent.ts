@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
+import { readFile } from "node:fs/promises"
 import {
   createAgentSession, DefaultResourceLoader, resolveCliModel, SessionManager, SettingsManager,
   type CreateAgentSessionOptions, type ModelRuntime,
@@ -10,10 +9,6 @@ import SYSTEM from "./subagent.txt"
 type Model = NonNullable<CreateAgentSessionOptions["model"]>
 type Thinking = NonNullable<CreateAgentSessionOptions["thinkingLevel"]>
 const LEVELS: readonly Thinking[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-const USAGE = "Usage: /subagent [<provider/model> [thinking] | session]"
-
-/** The model a program's subagents use unless a call names another. */
-export interface SubagentSettings { model?: string; thinking?: Thinking }
 
 function level(value: string | undefined): Thinking | undefined {
   const found = LEVELS.find(item => item === value)
@@ -24,32 +19,21 @@ function level(value: string | undefined): Thinking | undefined {
 /**
  * Subagents for programs: each call is a Pi session of its own, without tools, on the
  * application's model runtime, so every provider and credential the user configured
- * for Kinex serves it.
+ * for Kinex serves it. A call uses the session's model unless it names another.
  */
-export function createSubagents(options: { modelRuntime: ModelRuntime; agentDir: string; file: string; directory(): string; sessionModel(): Model | undefined }) {
-  const { modelRuntime, agentDir, file } = options
-  const read = async (): Promise<SubagentSettings> => {
-    const text = await readFile(file, "utf8").catch(() => "")
-    if (!text.trim()) return {}
-    const value: unknown = JSON.parse(text)
-    const field = (name: string) => value && typeof value === "object" && typeof Reflect.get(value, name) === "string" ? String(Reflect.get(value, name)) : undefined
-    return { model: field("model"), thinking: level(field("thinking")) }
-  }
+export function createSubagents(options: { modelRuntime: ModelRuntime; agentDir: string; directory(): string; sessionModel(): Model | undefined }): Subagent {
+  const { modelRuntime, agentDir } = options
   const named = (reference: string): { model: Model; thinking?: Thinking } => {
     const resolved = resolveCliModel({ cliModel: reference, modelRuntime })
     if (!resolved.model) throw new Error(resolved.error ?? `Unknown model ${reference}`)
     return { model: resolved.model, thinking: resolved.thinkingLevel }
   }
   const name = (model: Model) => `${model.provider}/${model.id}`
-  const describe = (settings: SubagentSettings) =>
-    `Subagents use ${settings.model ?? "the session's model"}, thinking ${settings.thinking ?? "off"}.`
 
-  const run: Subagent = async (request, signal) => {
-    const settings = await read()
-    const reference = request.model ?? settings.model
-    const chosen = reference ? named(reference) : undefined
+  return async (request, signal) => {
+    const chosen = request.model ? named(request.model) : undefined
     const model = chosen?.model ?? options.sessionModel()
-    if (!model) throw new Error("No model for subagents: choose one with /subagent <provider/model>")
+    if (!model) throw new Error("No model for subagents: the session has none, and the call names none")
     const images = await Promise.all(request.show.flatMap(item => "image" in item
       ? [readFile(item.image.path, { signal }).then(data => ({ type: "image" as const, data: data.toString("base64"), mimeType: item.image.mime }))] : []))
     if (images.length && !model.input.includes("image")) throw new Error(`${name(model)} does not read images`)
@@ -62,7 +46,7 @@ export function createSubagents(options: { modelRuntime: ModelRuntime; agentDir:
     await resourceLoader.reload()
     const { session } = await createAgentSession({
       cwd, agentDir, modelRuntime, model, noTools: "all", resourceLoader,
-      thinkingLevel: level(request.thinking) ?? (request.model ? chosen?.thinking : settings.thinking ?? chosen?.thinking) ?? "off",
+      thinkingLevel: level(request.thinking) ?? chosen?.thinking ?? "off",
       sessionManager: SessionManager.inMemory(cwd), settingsManager: SettingsManager.inMemory(),
     })
     const abort = () => { void session.abort() }
@@ -81,24 +65,4 @@ export function createSubagents(options: { modelRuntime: ModelRuntime; agentDir:
       session.dispose()
     }
   }
-
-  return {
-    run,
-    /** Models the user has credentials for, as provider/model. */
-    models: async () => (await modelRuntime.getAvailable()).map(name).sort(),
-    /** The /subagent command: show the setting, choose a model, or follow the session's model. */
-    async configure(args: string): Promise<string> {
-      const [reference, thinking, ...rest] = args.trim().split(/\s+/).filter(Boolean)
-      if (rest.length) throw new Error(USAGE)
-      if (!reference) return describe(await read())
-      if (reference === "session" && thinking) throw new Error(USAGE)
-      const chosen = reference === "session" ? undefined : named(reference)
-      if (chosen && !modelRuntime.hasConfiguredAuth(chosen.model.provider)) throw new Error(`No credentials for ${chosen.model.provider}; sign in with /login or set its API key first`)
-      const settings: SubagentSettings = chosen ? { model: name(chosen.model), thinking: level(thinking) ?? chosen.thinking ?? "off" } : {}
-      await mkdir(path.dirname(file), { recursive: true })
-      await writeFile(file, JSON.stringify(settings, null, 2) + "\n")
-      return describe(settings)
-    },
-  }
 }
-export type Subagents = ReturnType<typeof createSubagents>

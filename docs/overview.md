@@ -13,6 +13,7 @@ repository root.
 | --- | --- |
 | `packages/core` | Device management, ROS communication and supervision, schemas, runtime Python, `custom_interfaces`, operational tools, setup-device and device guides with reference nodes. No setup, agent or UI dependency. |
 | `packages/setup` | Onboarding and calibration workflows, tools, skills and evidence. Device preparation, including ROS, uses core's setup-device. Imports core through package exports. |
+| `packages/self-improve` | Self-improvement strategies, each a command: `/code-as-skill` (a run planned with the user, a scheduler in code, trials and distillations as background sub-agents, library versions and installation) and the `/code-as-policy` skeleton, on what `src/common/` gives every strategy. Reaches simulators only through the kinex-sim command, core through package exports and background work through the bundled pi-subagents extension. |
 | `src`, `src/integration` | Standalone CLI, storage, product policy, Kinex tool rendering and bundled Pi extensions. Published Pi SDKs supply providers, coding tools, agent loops and TUI. |
 | `../kinex-plugins` | Plugins for Pi, Claude Code and Codex using a shared MCP adapter and explicit packed core/setup snapshots. |
 
@@ -20,7 +21,7 @@ repository root.
 compose contributions explicitly; new interaction or lifecycle semantics need
 host adaptation. Standalone selects an `ApplicationComposition` before runtime
 creation, carrying roots, reservations and factories across workspace/session
-changes. Defaults include setup; custom compositions replace those defaults.
+changes. Defaults include setup and self-improve; custom compositions replace those defaults.
 Duplicate contribution identifiers are errors.
 
 Core alone can provision, register, remove and operate devices. Setup borrows its

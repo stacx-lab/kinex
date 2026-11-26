@@ -37,6 +37,23 @@ calls without rolling back completed work. Pure coding batches remain parallel.
 Standalone labels each user command result it adds to the conversation with the
 command that produced it.
 
+A tool asks for the permission `unattended` before work that goes on with nobody
+to approve its steps. Standalone shows the user its description and asks once,
+also in `auto` mode; from `ask` the approval moves the session to `auto`. `yolo`
+does not ask, and without a user only a session that already works without
+approvals may go on. [Self-improvement](self-improve.md#what-every-strategy-shares) has its plan
+approved this way.
+
+Standalone bundles pi-subagents closed: the extension loads, but its tools,
+commands and shortcuts are held back, and its skills and prompt templates are not
+loaded, so neither the model nor the user sees anything of it. Granting
+`unattended` opens it for the rest of the process, and the tools are there for
+the model's next request. Its `subagents_enable` loader is never registered: the
+gate already keeps the tools away until they are wanted, and without the loader
+pi-subagents leaves `subagent` active. A process pi-subagents started as a sub-agent, and one
+started with `KINEX_SUBAGENTS=on`, has it open from the start. A user who
+installs `npm:pi-subagents` gets their own copy instead, always open.
+
 `exec` requests `python_tool` approval once per invocation; its device reads and
 commands share that approval, and Python cannot change device lifecycle or control
 recording. Library functions run inside that invocation and add no approval of
@@ -114,6 +131,8 @@ The device catalog, each operation's description and ROS interface, is the
 `core.devices` context section; it changes only with profiles, not with load state,
 and never enters the stable prefix or the model tool list. Readiness is the device
 tool's `status`.
+An installed self-improve brief is a context section, never part of the stable
+prefix ([self-improvement](self-improve.md#libraries)).
 Exec instructions and examples are workspace-independent. Compaction restores
 the same minimal sections before the next request, stopping if recovery fails.
 Images enter history as bytes; recording traces keep only conversation messages,

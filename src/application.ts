@@ -1,4 +1,5 @@
 import { createKinexSetup, setupContribution, setupLibRoots, setupSkillRoots, setupToolNames } from "@kinex/setup"
+import { selfImproveContribution, selfImproveToolNames } from "@kinex/self-improve"
 import path from "node:path"
 import {
   createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices,
@@ -11,7 +12,7 @@ import { RoboticsOwner } from "./integration/owner.ts"
 import { createSubagents } from "./integration/subagent.ts"
 import { kinexExtension } from "./integration/extension.ts"
 import { createCompactionControl } from "./integration/compaction.ts"
-import { defaultExtensionPaths } from "./integration/default-extensions.ts"
+import { createGate, defaultExtensions, GATED, LOADER } from "./integration/default-extensions.ts"
 import type { Mode } from "./integration/interaction.ts"
 import type { KinexRuntime } from "@kinex/core"
 import { composeContributions, coreContribution, type KinexContribution } from "@kinex/core/integration"
@@ -24,8 +25,8 @@ export interface ApplicationComposition {
 }
 
 const defaultComposition: ApplicationComposition = {
-  builtinSkillRoots: setupSkillRoots, builtinLibRoots: setupLibRoots, reservedToolNames: setupToolNames,
-  contributions: runtime => [coreContribution(runtime), setupContribution(createKinexSetup(runtime))],
+  builtinSkillRoots: setupSkillRoots, builtinLibRoots: setupLibRoots, reservedToolNames: [...setupToolNames, ...selfImproveToolNames],
+  contributions: runtime => [coreContribution(runtime), setupContribution(createKinexSetup(runtime)), selfImproveContribution(runtime)],
 }
 
 export interface ApplicationOptions {
@@ -57,8 +58,12 @@ export async function createApplication(options: ApplicationOptions) {
     authPath, modelsPath: path.join(storage.agent, "models.json"),
     modelsStorePath: path.join(storage.state, "models-cache.json"), allowModelNetwork: false,
   })
+  // pi-subagents is bundled closed. Granting work that goes on without approvals opens it; a
+  // sub-agent it started, and a process told to with KINEX_SUBAGENTS=on, has it from the start.
+  const subagents = createGate(process.env.KINEX_SUBAGENTS === "on" || process.env.PI_SUBAGENT_CHILD === "1", [LOADER])
+  owner.interaction.onUnattended = () => subagents.open()
   owner.subagents = createSubagents({
-    modelRuntime, agentDir: storage.agent, file: path.join(storage.config, "subagent.json"),
+    modelRuntime, agentDir: storage.agent,
     directory: () => owner.runtime?.directory ?? cwd, sessionModel: () => owner.model,
   })
   const sessionDir = sessionDirectory(cwd)
@@ -72,15 +77,17 @@ export async function createApplication(options: ApplicationOptions) {
       const compaction = await createCompactionControl()
       let submitWorkflow = async (_prompt: string): Promise<void> => { throw new Error("Session is not initialized") }
       let settle = async (): Promise<void> => {}
+      const bundled = defaultExtensions(settingsManager)
       const services = await createAgentSessionServices({
         cwd: directory, agentDir: storage.agent, modelRuntime, settingsManager,
         resourceLoaderOptions: {
-          additionalExtensionPaths: defaultExtensionPaths(settingsManager),
+          additionalExtensionPaths: bundled.filter(extension => extension.name !== GATED).map(extension => extension.path),
           noExtensions: false, noSkills: false, noPromptTemplates: false, noThemes: false,
           systemPrompt: "", appendSystemPrompt: [],
           extensionFactories: [{ name: "kinex", factory: kinexExtension(owner, core, capabilities, options.report ?? (() => {}), {
             prompt: prompt => submitWorkflow(prompt), settle: () => settle(), compaction,
-          }), hidden: true }],
+          }), hidden: true },
+          ...(bundled.some(extension => extension.name === GATED) ? [{ name: GATED, factory: subagents.extension(async () => (await import("pi-subagents")).default) }] : [])],
         },
       })
       const errors = services.resourceLoader.getExtensions().errors

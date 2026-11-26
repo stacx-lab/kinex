@@ -7,7 +7,8 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const workspaces = [
   { location: 'packages/core', name: '@kinex/core', dependencies: [] },
   { location: 'packages/setup', name: '@kinex/setup', dependencies: ['@kinex/core'] },
-  { location: '', name: 'kinex', dependencies: ['@kinex/core', '@kinex/setup'] },
+  { location: 'packages/self-improve', name: '@kinex/self-improve', dependencies: ['@kinex/core'] },
+  { location: '', name: 'kinex', dependencies: ['@kinex/core', '@kinex/setup', '@kinex/self-improve'] },
 ]
 
 export async function versionState(directory = root) {
@@ -45,10 +46,12 @@ export async function versionState(directory = root) {
     assert.ok(entry, `Missing lockfile workspace: ${pkg.name}`)
     set(lockFile, entry, 'version', `packages[${pkg.location}].version`)
     for (const dependency of workspaces.find(workspace => workspace.name === pkg.name).dependencies) {
-      assert.ok(pkg.dependencies, `Missing manifest dependencies: ${pkg.name}`)
-      set(file, pkg.dependencies, dependency, `dependencies.${dependency}`)
-      assert.ok(entry.dependencies, `Missing lockfile dependencies: ${pkg.name}`)
-      set(lockFile, entry.dependencies, dependency, `packages[${pkg.location}].dependencies.${dependency}`)
+      // A package bundled into standalone takes its Kinex packages as peers, so the bundle holds only itself.
+      const field = pkg.peerDependencies?.[dependency] === undefined ? 'dependencies' : 'peerDependencies'
+      assert.ok(pkg[field], `Missing manifest dependencies: ${pkg.name}`)
+      set(file, pkg[field], dependency, `${field}.${dependency}`)
+      assert.ok(entry[field], `Missing lockfile dependencies: ${pkg.name}`)
+      set(lockFile, entry[field], dependency, `packages[${pkg.location}].${field}.${dependency}`)
     }
   }
   return { version, packages, files, drift }

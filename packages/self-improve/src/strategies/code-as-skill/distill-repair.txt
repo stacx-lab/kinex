@@ -1,0 +1,5 @@
+The library you left did not pass skill_check, so it was not published: the next trials would ship the previous version. What the check found:
+
+[[PROBLEMS]]
+
+This turn is short: it ends at [[DEADLINE]]. Your library, library/memory/ and notes/ are as you left them. Fix exactly what the check names, call skill_check until it reports no problems, add one line to library/memory/CHANGES.md, and end your turn. Do not redo the analysis.

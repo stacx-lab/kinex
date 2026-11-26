@@ -33,7 +33,9 @@ test('Pi package skills, prompts, themes and extensions coexist with Kinex acros
     handler: async () => pi.appendEntry('package-command-ran', {})
   })`)
   await mkdir(path.join(cwd, '.pi'), { recursive: true })
-  await writeFile(path.join(cwd, '.pi/settings.json'), 'invalid Pi settings must not be read')
+  // Pi's own project settings are not Kinex's: a package they name is not loaded. The file stays
+  // valid JSON because the bundled pi-subagents reads its own `subagents` key from it.
+  await writeFile(path.join(cwd, '.pi/settings.json'), JSON.stringify({ packages: ['./pi-settings-must-not-be-read'] }))
   const app = await createApplication({ cwd, model: 'fake/test', mode: 'auto' })
   t.after(() => app.dispose())
   await bind(app)

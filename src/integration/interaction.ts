@@ -4,11 +4,15 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { PermissionDeniedError, QuestionDeclinedError, kinexPermissionAction, loadPermissionRules, type RuntimeOptions, type Question } from "@kinex/core"
 
 export type Mode = "ask" | "auto" | "yolo"
+/** The permission a tool asks for to go on without approvals. */
+const UNATTENDED = "unattended"
 export class Interaction {
   private calls = new AsyncLocalStorage<{ ctx: ExtensionContext; signal: AbortSignal }>()
   private lifetime = new AbortController()
   private queue: Promise<unknown> = Promise.resolve()
   private grants = new Set<string>()
+  /** Runs each time work that goes on without approvals is granted. */
+  onUnattended: () => void = () => {}
   constructor(public mode: Mode) {}
 
   reset() {
@@ -39,6 +43,11 @@ export class Interaction {
   readonly host: NonNullable<RuntimeOptions["host"]> = {
     ask: async request => {
       const { ctx, signal } = this.current()
+      if (request.permission === UNATTENDED) {
+        await this.unattended(ctx, signal, request.description)
+        this.onUnattended()
+        return
+      }
       const key = `${ctx.sessionManager.getSessionId()}:${request.permission}`
       if (this.mode !== "ask" || this.grants.has(key)) return
       const action = kinexPermissionAction(request.permission, await loadPermissionRules(ctx.cwd), setupPermissionDefaults)
@@ -52,6 +61,18 @@ export class Interaction {
       throw new PermissionDeniedError(request.permission)
     },
     questions: async questions => this.questions(questions),
+  }
+
+  // A tool asks this before work that goes on with nobody to approve its steps. The user approves
+  // it once, also in auto mode, and from ask mode the approval moves the session to auto. Yolo
+  // does not ask, and without a user only a session that already works without approvals may go on.
+  private async unattended(ctx: ExtensionContext, signal: AbortSignal, description: string): Promise<void> {
+    if (this.mode === "yolo") return
+    if (!ctx.hasUI) { if (this.mode === "ask") throw new PermissionDeniedError(UNATTENDED); return }
+    const approved = await this.dialog(() => ctx.ui.confirm(this.mode === "ask" ? "Approve and switch Kinex to auto mode?" : "Approve?", description, { signal }))
+    signal.throwIfAborted()
+    if (!approved) throw new PermissionDeniedError(UNATTENDED)
+    if (this.mode === "ask") { this.grants.clear(); this.mode = "auto" }
   }
 
   async questions(questions: Question[]): Promise<Record<string, string>> {

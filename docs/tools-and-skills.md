@@ -207,11 +207,9 @@ program went the way it did. A failed call raises `kinex.RPCError` with code
 
 Core defines only the exchange; the host answers it. Standalone runs each call as
 a Pi session of its own, without tools, on the application's model runtime, so
-every provider and credential configured for Kinex serves it. `/subagent
-<provider/model> [thinking]` chooses the model for all later calls and
-`/subagent session` returns to the session's model, which is also the default; the
-choice is kept in `subagent.json` of the Kinex configuration directory. A call's
-`model` and `thinking` override it. The plugins' hosts run no subagents yet.
+every provider and credential configured for Kinex serves it. A call uses the
+session's model with thinking off unless it names a `model`, as `provider/model`,
+or a `thinking` level. The plugins' hosts run no subagents yet.
 
 ### Flow charts
 
