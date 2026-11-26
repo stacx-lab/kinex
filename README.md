@@ -117,21 +117,24 @@ See [using kinex-sim with Kinex](https://github.com/stacx-lab/kinex-sim/blob/mai
 
 #### Practise tasks and keep what was learned
 
-With a simulator prepared, `/self-improve` lets Kinex attempt a set of tasks,
-study its own attempts and distill them into a library of skills and code:
+With a simulator prepared, `/code-as-skill` lets Kinex attempt a set of tasks,
+study its own attempts and distill them into a library of skills and code that
+later tasks, practised or not, start from:
 
 ```text
-/self-improve the RoboCasa tasks about doors, two rounds
-/self-improve status
-/self-improve install L2
+/code-as-skill the RoboCasa tasks about doors, two rounds
+/code-as-skill status
+/code-as-skill install L2
 ```
 
 Kinex plans the run and starts it once you approve. Each task runs as a trial
 judged by the simulator; a distillation then turns the trial records into the
 next library version, and later trials run with it. Trials and distillations are
 background sub-agents, each in a sandbox, so the conversation stays yours while
-they work. A run is kept in the workspace, under `.kinex/self-improve/runs/`, and
-`install` copies a version into the current workspace's `.kinex/`. See
+they work. A run is kept in the workspace, under `.kinex/self-improve/code-as-skill/runs/`,
+and `install` copies a version into the current workspace's `.kinex/`.
+`/code-as-policy`, which is to practise one task over seeds and layouts until a
+program does it, is not implemented yet. See
 [self-improve](packages/self-improve/README.md) for the files and limits.
 
 ### Real-world robots
@@ -172,7 +175,7 @@ extensions, skills, prompt templates and themes.
 [pi-btw](https://www.npmjs.com/package/pi-btw) and
 [pi-subagents](https://www.npmjs.com/package/pi-subagents), for sub-agents and
 background work, are bundled. pi-subagents stays closed, with none of its tools
-or commands in a session, until you approve a `/self-improve` plan;
+or commands in a session, until you approve a `/code-as-skill` plan;
 `KINEX_SUBAGENTS=on kinex` starts with it open, and installing
 `npm:pi-subagents` yourself keeps it open.
 

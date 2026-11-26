@@ -21,7 +21,7 @@ export async function isolate() {
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) }
 }
 
-// Self-improve runs its workers and distillers only in a sandbox. Where neither bubblewrap nor
+// Self-improvement runs every child of a run only in a sandbox. Where neither bubblewrap nor
 // Docker can start one, children of these tests run under a stand-in bubblewrap that does not
 // isolate them. The check runs in a process of its own, which caches its answer, not in this one.
 export async function sandboxOrStandIn() {

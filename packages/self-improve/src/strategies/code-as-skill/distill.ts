@@ -3,10 +3,12 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Assets } from "@kinex/core/installation/assets"
 import { finishJob, openJob, type Job, type Result } from "../../common/job.ts"
-import { distillationsDir, homeOf, parseLine, pythonDir, readJson, trialsDir, versionDir, workspaceDir } from "../../common/layout.ts"
+import { homeOf, parseLine, pythonDir, readJson, workspaceDir } from "../../common/layout.ts"
+import { distillationsDir, trialsDir, versionDir } from "./layout.ts"
 import { check, newestVersion, publish } from "./library.ts"
 import { collect, type DistillInput, type Status } from "./records.ts"
 import { HELPERS, REPAIRS, REPAIR_S, type Run } from "./run.ts"
+import { DISTILLER } from "./roles.ts"
 import { sandboxOf } from "../../common/sandbox.ts"
 import { runSession, type SessionExit } from "../../common/session.ts"
 import FRAME from "./distill-frame.txt"
@@ -128,7 +130,7 @@ export async function runDistillation(run: Run, job: Job, input: DistillInput, s
   const started = Date.now()
   let turns = 0
   const turn = async (prompt: string, deadline: number): Promise<Exit> => {
-    const exit = await runSession("distiller", job.workspace, job.record, prompt, deadline, { ...confinement, signal, resume: turns++ > 0 })
+    const exit = await runSession(DISTILLER, job.workspace, job.record, prompt, deadline, { ...confinement, signal, resume: turns++ > 0 })
     return exit.status === "error" ? { status: "error", error: `the distiller exited ${exit.exitCode}; see output.log` } : { status: exit.status }
   }
   const exit = await distillTurns(distillation, turn)

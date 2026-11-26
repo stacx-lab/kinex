@@ -14,9 +14,12 @@ Design history and progress belong in git.
 - `packages/setup` owns onboarding and calibration procedures/assets, including
   calibration skills and evidence. Setup borrows core operational
   runtime resources through package exports.
-- `packages/self-improve` owns `/self-improve`: planning a run with the user, the
-  scheduler in code, trials and distillations as background sub-agents, library
-  versions, and installing one. It reaches simulators only through the kinex-sim
+- `packages/self-improve` owns the self-improvement strategies, each a command:
+  `/code-as-skill` (planning a run with the user, the scheduler in code, trials and
+  distillations as background sub-agents, library versions, and installing one)
+  and `/code-as-policy`, a skeleton so far. `src/common/` holds what every strategy
+  shares and imports no strategy; `src/strategies/<name>/` holds each strategy's
+  own. It reaches simulators only through the kinex-sim
   command, core only through package exports and background work only through the
   bundled pi-subagents extension. It ships inside the standalone archive, so its
   dependencies are peers that core or standalone provide; a release stays at

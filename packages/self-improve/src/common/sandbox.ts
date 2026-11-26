@@ -8,13 +8,13 @@ import { agentsDir } from "./agents.ts"
 import { kinex } from "./kinex.ts"
 import { dataDir } from "./layout.ts"
 
-// A worker and a distiller run in a sandbox built from an empty root: bubblewrap's,
-// or where that cannot run a Docker container's; there is no other way to run one.
-// It sees only what is bound here: the system, Node, Kinex, the trials' Python
-// environment, its configuration and credentials, its workspace and its
-// transcript. Everything else on the host has no name inside: the workspace the
-// run belongs to, kinex-sim's command, files and processes, other jobs, the run's
-// libraries and the verdicts. It shares the host's network, which DDS to a
+// Every child of a run, a worker or a distiller say, runs in a sandbox built from an
+// empty root: bubblewrap's, or where that cannot run a Docker container's; there is
+// no other way to run one. It sees only what is bound here: the system, Node, Kinex,
+// the workspace's shared Python environment, its configuration and credentials, its
+// workspace and its transcript. Everything else on the host has no name inside: the
+// workspace the run belongs to, kinex-sim's command, files and processes, other jobs,
+// what the run has made and the verdicts. It shares the host's network, which DDS to a
 // worker's simulator and the model's API need.
 export type Sandbox = "bwrap" | "docker"
 
@@ -67,7 +67,7 @@ function binds(python: string | undefined) {
   }
 }
 
-/** The Docker image, and the trials' Python environment, which a child reads. */
+/** The Docker image, and the workspace's shared Python environment, which a child reads. */
 interface Given { image?: string; python?: string }
 interface Options extends Given { name?: string; env?: NodeJS.ProcessEnv }
 
@@ -129,8 +129,8 @@ export function unavailable(kind: Sandbox, given: Given = {}): Promise<string | 
 }
 
 /**
- * The sandbox a run's workers and distillers use here: bubblewrap where it can
- * run, else Docker. A host that can give neither runs no job.
+ * The sandbox a run's children use here: bubblewrap where it can run, else Docker.
+ * A host that can give neither runs no job.
  */
 export async function sandboxOf(given: Given = {}): Promise<Sandbox> {
   const reasons: string[] = []
@@ -139,7 +139,7 @@ export async function sandboxOf(given: Given = {}): Promise<Sandbox> {
     if (!reason) return kind
     reasons.push(`${NAMES[kind]}: ${reason}`)
   }
-  throw new Error(`Self-improve runs its workers and distillers in a sandbox, and none can run here (${reasons.join("; ")}). ` +
+  throw new Error(`Self-improvement runs every child of a run, such as a worker, in a sandbox, and none can run here (${reasons.join("; ")}). ` +
     "Install bubblewrap and allow unprivileged user namespaces, or give this user a Docker that can bind Node, Kinex and Kinex's folders.")
 }
 

@@ -5,7 +5,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { settled, stepLimits } from '../dist/strategies/code-as-skill/records.js'
-import { Refused, admit, describe, next, stop, waveTasks } from '../dist/strategies/code-as-skill/scheduler.js'
+import { admit, describe, next, stop, waveTasks } from '../dist/strategies/code-as-skill/scheduler.js'
+import { Refused } from '../dist/common/schedule.js'
 import { claimFile, configFile, resultFile } from '../dist/common/layout.js'
 import { commandLine, instruction, launchOptions } from '../dist/common/sim.js'
 import { distillTurns, scheduled } from '../dist/strategies/code-as-skill/distill.js'
@@ -77,7 +78,7 @@ test('a candidate that fails the check gets repair turns that are shown what it 
   const turn = async prompt => { prompts.push(prompt); await put(brief, prompts.length < 3 ? 'x'.repeat(2001) : 'Short.\n'); return { status: 'done' } }
   assert.deepEqual(await distillTurns(distillation, turn), { status: 'done', repairs: 2 })
   assert.equal(prompts[0], 'DISTILL')
-  assert.match(prompts[1], /^The library you left did not pass improve_check[^]*\n\npayload\/brief\.md: 1 lines and 2001 characters, at most 15 lines and 2000 characters\n\nThis turn is short: it ends at 20\d\d-[^]*Do not redo the analysis\.$/)
+  assert.match(prompts[1], /^The library you left did not pass skill_check[^]*\n\npayload\/brief\.md: 1 lines and 2001 characters, at most 15 lines and 2000 characters\n\nThis turn is short: it ends at 20\d\d-[^]*Do not redo the analysis\.$/)
   assert.ok(distillation.deadline > Date.now() + 1700 * 1000, 'a repair turn has half an hour')
 
   await t.test('two repairs are the most, and a turn that did not end is not repaired', async () => {
@@ -107,7 +108,7 @@ test('the order of new tasks is read from the distillation that made the newest 
   }
 })
 
-// A run's folder as improve_plan leaves it. A job is opened by the process that does it, here this one, so it
+// A run's folder as skill_plan leaves it. A job is opened by the process that does it, here this one, so it
 // counts as running until it is finished: a result, and a claim whose process is gone.
 async function scheduledRun(t, config) {
   const root = await directory(t)
@@ -154,7 +155,7 @@ library is the version the workers are given: L0 is the newest. Nothing else in 
 
   // The wave is distilled before another opens, and no trial is admitted meanwhile.
   assert.deepEqual(await next(run), { kind: 'distill' })
-  assert.match(await describe(run, { kind: 'distill' }), new RegExp(`\nsubagent\\(\\{ agent: "self-improve-distill", task: "run=${run.root}" \\}\\)\n`))
+  assert.match(await describe(run, { kind: 'distill' }), new RegExp(`\nsubagent\\(\\{ agent: "code-as-skill-distill", task: "run=${run.root}" \\}\\)\n`))
   await assert.rejects(admit(run, { task: y }), /is not to be tried now: the wave is to be distilled/)
   const distill = await admit(run, 'distill')
   assert.equal(distill.id, 'd001')
@@ -177,7 +178,7 @@ library is the version the workers are given: L0 is the newest. Nothing else in 
   for (const job of jobs) await finish(job, judged(true))
   const end = await next(run)
   assert.deepEqual(end, { kind: 'end', reason: 'every task is solved' })
-  assert.match(await describe(run, end), /has ended: every task is solved\.\n\nRun: [^]*Tasks: 3\/3 solved[^]*\/self-improve install <version>/)
+  assert.match(await describe(run, end), /has ended: every task is solved\.\n\nRun: [^]*Tasks: 3\/3 solved[^]*\/code-as-skill install <version>/)
 })
 
 test('a trial that did not run is tried again twice, and a wave none of whose trials ran ends the run', async t => {
@@ -193,7 +194,7 @@ test('a trial that did not run is tried again twice, and a wave none of whose tr
   const end = await next(run)
   assert.deepEqual([end.kind, end.failed], ['end', true])
   assert.match(end.reason, /^no trial of the wave ran: t001 \(a\): kinex-sim launch: no simulator could start; t003 \(a\)/)
-  assert.match(await describe(run, end), /stopped on an error: no trial of the wave ran[^]*\/self-improve resume continues it\./)
+  assert.match(await describe(run, end), /stopped on an error: no trial of the wave ran[^]*\/code-as-skill resume continues it\./)
   await assert.rejects(admit(run, { task: 'a' }), /a is not to be tried now: the run has ended: no trial of the wave ran/)
 })
 
@@ -203,7 +204,7 @@ test('a run ends when its rounds are done, and stopping tells the processes of i
   await finish(await admit(run, 'distill'), { status: 'done', problems: ['payload/brief.md: too long'] })
   assert.deepEqual(await next(run), { kind: 'end', reason: 'its rounds are done' }, 'a library that could not be published is still a round')
   // Only a job whose process is alive is stopped; here none is.
-  assert.deepEqual(await stop(run), [])
+  assert.deepEqual(await stop(run.root), [])
 })
 
 test('a plan says how kinex-sim is run: the command with its environment, and launch options that leave the method alone', () => {
@@ -221,7 +222,7 @@ test('the plan the user approves is in sections, with the command that runs kine
   const { planText } = await import('../dist/strategies/code-as-skill/tools.js')
   const plan = { tasks: ['sim/open-door', 'sim/press-button'], robot: 'sim/arm', rounds: 2, parallel: 1, batches: [1], command: 'kinex-sim', trialTimeoutS: 60, distillTimeoutS: 120 }
   const text = planText(plan, 'Docker')
-  assert.match(text, /^Self-improve plan: 2 tasks on robot sim\/arm\n  sim\/open-door\n  sim\/press-button\n\n2 rounds, 1 trial at a time\n/)
+  assert.match(text, /^code-as-skill plan: 2 tasks on robot sim\/arm\n  sim\/open-door\n  sim\/press-button\n\n2 rounds, 1 trial at a time\n/)
   assert.match(text, /\n  Tasks open in batches of 1, then the rest, one batch a wave\.\n\nkinex-sim, below, is the one on PATH\n\n/)
   assert.match(text, /\nA distillation: one sub-agent in a folder of its own, for at most 120 s\n/)
   assert.match(text, /each in a Docker sandbox that shows it only its own folder\.$/)

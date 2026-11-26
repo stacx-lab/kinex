@@ -12,9 +12,9 @@ How a sub-agent runs code:
 A library is installed into the sub-agent's workspace as it is, so it uses Kinex's own formats:
 
 - A skill is `skills/<name>/SKILL.md`: a frontmatter block (`---`, then `name: <name>` and `description: <one line>`, then `---`) followed by the text. Both keys are required.
-- `lib/` is installed as `.kinex/lib/`: each module or package in it is a `kinex.lib` module. A name that a builtin module has (the modules in `python-kinex/lib/`) would replace that builtin for every sub-agent, and improve_check refuses it.
+- `lib/` is installed as `.kinex/lib/`: each module or package in it is a `kinex.lib` module. A name that a builtin module has (the modules in `python-kinex/lib/`) would replace that builtin for every sub-agent, and skill_check refuses it.
 - `programs/` is installed as `.kinex/programs/`: each file is a complete program, run with `exec` by its path.
 - `tools/` holds only `.ts` or `.js` files, each a tool definition for the host; Kinex has no Python tools. Python code belongs in `lib/`.
 - `brief.md` is plain text.
 
-improve_check loads the candidate the way Kinex would and reports what does not load: it also compiles the Python in `lib/` and `programs/`, and reports a skill or the brief naming something a `lib/` module does not define. It runs none of the code.
+skill_check loads the candidate the way Kinex would and reports what does not load: it also compiles the Python in `lib/` and `programs/`, and reports a skill or the brief naming something a `lib/` module does not define. It runs none of the code.

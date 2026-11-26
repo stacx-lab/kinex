@@ -1,7 +1,16 @@
 # @kinex/self-improve
 
-Lets Kinex practise simulated robot tasks, learn from its own attempts and keep
-what it learned as ordinary Kinex skills, `kinex.lib` modules and programs. Requires Node >=22.19, an
+Lets Kinex practise simulated robot tasks and learn from its own attempts, with a
+self-improvement strategy, each a command of its own:
+
+- `/code-as-skill` keeps what it learned as a library of ordinary Kinex skills,
+  `kinex.lib` modules and programs, so that later workers, and tasks never
+  practised, start from it. The rest of this page is about it, except where it says
+  every strategy.
+- `/code-as-policy` is a skeleton so far: it will practise one task over seeds and
+  layouts until a program does it, and return that program.
+
+Requires Node >=22.19, an
 aligned `@kinex/core` version, a prepared
 [kinex-sim](https://github.com/stacx-lab/kinex-sim), as for any simulated work,
 the [pi-subagents](https://www.npmjs.com/package/pi-subagents) extension, which
@@ -10,14 +19,14 @@ sandbox, either [bubblewrap](https://github.com/containers/bubblewrap) with
 unprivileged user namespaces or Docker.
 
 ```text
-/self-improve ten RoboCasa tasks about doors, three rounds    plan a run with the session, approve it, and it starts
-/self-improve with the kinex-sim in ~/sim on GPU 1, the target split of RoboCasa, two rounds
-                                                              how the simulator is run is part of the request
-/self-improve robocasa/* six rounds, batches of 10, 20, 40    the request is read by the session, whatever its form
-/self-improve status [run]                                    no model: jobs, solved tasks per version
-/self-improve install L2 [run]                                no model: copy L2 into this workspace; another workspace's run by its folder
-/self-improve resume [run]                                    schedule a run again from what is on disk
-/self-improve stop                                            no model: end the run's jobs
+/code-as-skill ten RoboCasa tasks about doors, three rounds    plan a run with the session, approve it, and it starts
+/code-as-skill with the kinex-sim in ~/sim on GPU 1, the target split of RoboCasa, two rounds
+                                                               how the simulator is run is part of the request
+/code-as-skill robocasa/* six rounds, batches of 10, 20, 40    the request is read by the session, whatever its form
+/code-as-skill status [run]                                    no model: jobs, solved tasks per version
+/code-as-skill install L2 [run]                                no model: copy L2 into this workspace; another workspace's run by its folder
+/code-as-skill resume [run]                                    schedule a run again from what is on disk
+/code-as-skill stop                                            no model: end the run's jobs
 ```
 
 One round is a wave of trials followed by one distillation. The command hands
@@ -26,26 +35,26 @@ plan; after that code decides every step and the session only starts what it
 names.
 
 1. **Plan.** The session finds the tasks in kinex-sim's catalog with its own
-   `tasks list` and proposes them with `improve_plan`: tasks, rounds, trials at a
+   `tasks list` and proposes them with `skill_plan`: tasks, rounds, trials at a
    time and batches.
-2. **Approval.** `improve_plan` shows the user the plan with how a trial is
+2. **Approval.** `skill_plan` shows the user the plan with how a trial is
    started, ended and judged, and waits. Approving makes the run; from `ask` mode
    it also moves Kinex to `auto`, because trials and distillations go on with
    nobody to approve their steps. `yolo` does not ask. Without a user (`kinex run`)
    a session in `auto` or `yolo` goes on and one in `ask` makes no run.
-3. **Run.** `improve_next` reads the run's folder and gives the call that starts
+3. **Run.** `skill_next` reads the run's folder and gives the call that starts
    the next background sub-agents: the wave's trials together, as many at a time
    as the plan allows, or the wave's distillation. Each is a sub-agent of
    pi-subagents, so the conversation stays the user's while they work. When they
    have ended the session is told how, with each trial's verdict and where its
-   record is, and calls `improve_next` again.
+   record is, and calls `skill_next` again.
 
 | Role | Is | Package tools |
 | --- | --- | --- |
-| Scheduler | Code, `src/scheduler.ts`: it decides the next step from the run's folder and admits the jobs that do it | none: it is not a model |
-| Session | The user's session, which plans the run and starts the sub-agents of each step | `improve_plan` while it plans, `improve_next` while a run is scheduled |
+| Scheduler | Code, `src/strategies/code-as-skill/scheduler.ts`: it decides the next step from the run's folder and admits the jobs that do it | none: it is not a model |
+| Session | The user's session, which plans the run and starts the sub-agents of each step | `skill_plan` while it plans, `skill_next` while a run is scheduled |
 | Worker | A headless child Kinex, one per trial, in a fresh rig workspace with one library version installed, sandboxed | none |
-| Distiller | A headless child Kinex, one per distillation, in a session and a folder of its own, sandboxed | `improve_check` |
+| Distiller | A headless child Kinex, one per distillation, in a session and a folder of its own, sandboxed | `skill_check` |
 
 A wave gives every open task still unsolved one trial with the newest version;
 they run as many at a time as the plan allows. With
@@ -64,7 +73,7 @@ on the launched ROS domain, the library installed, one worker, then `kinex-sim s
 and `kinex-sim judge`. The simulator's verdict decides; the worker's report never
 counts. A **distillation** gives the distiller every finished trial's record and the
 newest library, and publishes its candidate as the next version when its session
-ended normally and `improve_check` finds the candidate loadable, its Python
+ended normally and `skill_check` finds the candidate loadable, its Python
 compiling and its skills naming only what its code defines. The distiller starts
 sub-agents of its own with pi-subagents' `subagent` and `bg_wait`. The distill prompts are rsi's distill-lean
 prompts with the edits this design forces (one episode per trial, waves, folder
@@ -74,14 +83,14 @@ code as `kinex.lib` modules instead of a skill's body).
 ## Jobs
 
 A trial and a distillation are each one job: a process of its own, which opens
-the job's folder once the scheduler has admitted it. `improve_next` gives the
+the job's folder once the scheduler has admitted it. `skill_next` gives the
 call and the session makes it:
 
 ```js
 // a wave: one workflow, a trial sub-agent for each task
 subagent({ workflow: "<run folder>/wave.js", args: { run: "<run folder>", library: "L1", tasks: ["sim/a", "sim/b"] }, globalConcurrencyLimit: 2, async: true })
 // its distillation
-subagent({ agent: "self-improve-distill", task: "run=<run folder>" })
+subagent({ agent: "code-as-skill-distill", task: "run=<run folder>" })
 ```
 
 pi-subagents runs each command in the background, shows it, stops it on request
@@ -95,9 +104,9 @@ and tells the session when the call's sub-agents have ended.
   and asks to be admitted, so a task that is not to be tried now is refused and a
   trial beyond the plan's number waits for one to end.
 
-- The two agents are files in Kinex's agent folder (`agents/self-improve-trial.md`,
-  `agents/self-improve-distill.md`). Each names this package's command,
-  `dist/main.js`, and nothing of a run: the call says the run, so Kinex processes
+- The two agents are files in Kinex's agent folder (`agents/code-as-skill-trial.md`,
+  `agents/code-as-skill-distill.md`). Each names this package's command,
+  `dist/main.js code-as-skill trial` or `distill`, and nothing of a run: the call says the run, so Kinex processes
   that schedule different runs share the files. The files stay after a run.
 - The run's `scheduler.json` keeps the Kinex and the model flags of the session that
   schedules it; the command starts workers and distillers as that Kinex.
@@ -112,14 +121,16 @@ and tells the session when the call's sub-agents have ended.
   newline, because the standard error of a command that fails, trimmed, is the
   error the session is told.
 - A job is a process of its own, so it goes on when the Kinex that started it
-  quits. `/self-improve stop` ends the run's jobs from any Kinex.
+  quits. `/code-as-skill stop` ends the run's jobs from any Kinex.
 
 ## Files
 
 A run belongs to the workspace it was planned in and keeps everything under
-`.kinex/self-improve/runs/<run>/` there. Beside the runs, `.kinex/self-improve/python/`
-is the Kinex Python environment the workspace's trials share, and a `.gitignore`
-keeps both out of version control. Kinex discovery merges each ancestor's
+`.kinex/self-improve/code-as-skill/runs/<run>/` there, as every strategy's runs are
+kept under `.kinex/self-improve/<strategy>/runs/`. Beside them,
+`.kinex/self-improve/python/` is the Kinex Python environment the workspace's
+children share, whichever strategy runs them, and a `.gitignore` keeps both out of
+version control. Kinex discovery merges each ancestor's
 `.kinex`, but workers and distillers run in a sandbox, where nothing of the
 workspace above their own folder has a name. Not `kinex.json`: Kinex reads a
 `kinex.json` in every folder above a workspace as configuration.
@@ -153,7 +164,7 @@ distillations/d001/
 - `payload/` uses Kinex's folder names, so installing is a copy into
   `.kinex/skills`, `.kinex/tools`, `.kinex/lib` and `.kinex/programs`; a `lib/`
   module named like a builtin `kinex.lib` module never ships. The brief goes to
-  `.kinex/self-improve/brief.md`, and this package's context gives an installed
+  `.kinex/self-improve/code-as-skill/brief.md`, and this package's context gives an installed
   brief to every session in that workspace as a context section, so installing
   or editing it leaves the stable prompt unchanged. A published brief has at most
   15 lines and 2,000 characters. A trial workspace
@@ -163,18 +174,18 @@ distillations/d001/
 
 ## Limits
 
-- One run is scheduled in a Kinex at a time.
-  `/self-improve stop` ends its jobs: workers and distillers are stopped and their
+- One run is scheduled in a Kinex at a time, whichever strategy made it.
+  `/code-as-skill stop` ends its jobs: workers and distillers are stopped and their
   simulators closed. Quitting Kinex does not: the jobs in flight finish and leave
   their results, and `resume` schedules the run again. A job left without a result
   is abandoned, its task is simply still unsolved, and its wave starts it again.
 - The session schedules the run under its own permission mode, `auto` or `yolo`
   once the plan is approved. It is told of every job that ends, which takes a
   short turn of the conversation.
-- Headless, `kinex run --auto "/self-improve ..."` returns when the run has ended;
+- Headless, `kinex run --auto "/code-as-skill ..."` returns when the run has ended;
   it waits half an hour for a job by default (pi-subagents' `timeoutMs`), so a
   long run is better scheduled from the terminal. Interrupted, it waits for its
-  jobs; `/self-improve stop` from another Kinex ends them.
+  jobs; `/code-as-skill stop` from another Kinex ends them.
 - Workers and distillers keep network access. The numbers show whether a library helps; they
   are not benchmark results.
 - The check guarantees that a library loads and that its code compiles. Whether
@@ -230,11 +241,33 @@ things of its host, and standalone Kinex gives them:
   background and whose notice tells the session when it has ended. Standalone
   keeps it closed until `unattended` is granted, and open from the start in a
   process started with `KINEX_SUBAGENTS=on`, as a distiller's is.
-- The permission `unattended`, which `improve_plan` asks for: the host shows the
-  user the description and lets the session work without approvals once they
-  agree.
+- The permission `unattended`, which a strategy's plan tool (`skill_plan`) asks
+  for: the host shows the user the description and lets the session work without
+  approvals once they agree.
 - An entry point that runs a headless child the way standalone does:
-  `src/session.ts` starts it with `run --yolo --session <file>`.
+  `src/common/session.ts` starts it with `run --yolo --session <file>`.
+
+## Strategies
+
+`src/common/` is what every strategy is built on, and imports no strategy; each
+strategy is `src/strategies/<strategy>/` and imports only `common/` and itself
+(`test/architecture.test.mjs` holds both).
+
+| `src/common/` | Gives every strategy |
+| --- | --- |
+| `strategy.ts` | `Strategy`, what a strategy is to the package: command, tools, plan prompt, `status`, `resume`, job folders, jobs by kind |
+| `run.ts`, `layout.ts` | runs under `.kinex/self-improve/<strategy>/runs/`, their common settings, job folders and JSON files |
+| `schedule.ts`, `job.ts`, `lock.ts` | the one scheduled run, the run's lock, admission's `Refused`, live and abandoned jobs, stopping them |
+| `agents.ts`, `heartbeat.ts` | the pi-subagents agents `<strategy>-<kind>` that run `main.js <strategy> <kind>`, and the job's newlines on standard error |
+| `plan.ts` | the permission `unattended`, the kinex-sim command and launch options a plan tool takes, the task-id check |
+| `sim.ts`, `episode.ts` | kinex-sim: tasks, launch, setup, describe, stop, judge; worker starts spaced, a verdict over a worker's exit |
+| `roles.ts`, `session.ts`, `sandbox.ts`, `python.ts` | a child in its role, run in the sandbox with the workspace's shared Python |
+| `transcript.ts` | a worker's transcript as summary.md, history.md, history.json and images/ |
+
+A new strategy is a `Strategy` in `src/strategies/<strategy>/index.ts`, listed in
+`src/strategies/index.ts`; the package then gives it its command, tools, job
+agents and context sections. `src/strategies/code-as-policy/` is that skeleton,
+and says what of `common/` it is to use.
 
 ## Development
 

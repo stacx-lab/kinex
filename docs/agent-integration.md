@@ -41,7 +41,7 @@ A tool asks for the permission `unattended` before work that goes on with nobody
 to approve its steps. Standalone shows the user its description and asks once,
 also in `auto` mode; from `ask` the approval moves the session to `auto`. `yolo`
 does not ask, and without a user only a session that already works without
-approvals may go on. [Self-improvement](self-improve.md#roles) has its plan
+approvals may go on. [Self-improvement](self-improve.md#what-every-strategy-shares) has its plan
 approved this way.
 
 Standalone bundles pi-subagents closed: the extension loads, but its tools,

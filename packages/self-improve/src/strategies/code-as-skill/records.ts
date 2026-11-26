@@ -1,10 +1,12 @@
 import { cp, mkdir, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { distillationsDir, entries, inputFile, readJson, recordDir, resultFile, sessionFile, trialsDir, versionDir, workspaceDir } from "../../common/layout.ts"
+import { jobViews } from "../../common/job.ts"
+import { recordDir, sessionFile, workspaceDir } from "../../common/layout.ts"
+import { writeTranscript } from "../../common/transcript.ts"
+import { distillationsDir, trialsDir, versionDir } from "./layout.ts"
 import { keep } from "./learned.ts"
 import { versions } from "./library.ts"
 import { RERUNS, RETRIES, type Config } from "./run.ts"
-import { writeTranscript } from "../../common/transcript.ts"
 
 export interface TrialInput {
   /** The wave the trial belongs to; waves count from 1. */
@@ -55,19 +57,10 @@ export interface Status {
   fresh: string[]
 }
 
-async function jobs<View>(directory: string): Promise<View[]> {
-  const views: View[] = []
-  for (const id of await entries(directory)) {
-    const input = await readJson<object>(inputFile(path.join(directory, id)))
-    if (input) views.push({ id, ...input, ...await readJson<object>(resultFile(path.join(directory, id))) } as View)
-  }
-  return views
-}
-
 /** The state of a run, read from its folders; nothing else records it. */
 export async function scan(root: string): Promise<Status> {
-  const trials = await jobs<TrialView>(trialsDir(root))
-  const distillations = await jobs<DistillationView>(distillationsDir(root))
+  const trials = await jobViews<TrialView>(trialsDir(root))
+  const distillations = await jobViews<DistillationView>(distillationsDir(root))
   const seen = new Set(distillations.filter(distillation => distillation.version).flatMap(distillation => distillation.trials))
   return { versions: await versions(root), trials, distillations, fresh: trials.filter(trial => trial.status && !seen.has(trial.id)).map(trial => trial.id) }
 }
@@ -148,7 +141,8 @@ export function renderStatus(root: string, status: Status, running: (id: string)
 export async function writeRecord(root: string, trial: TrialView): Promise<void> {
   const directory = path.join(trialsDir(root), trial.id)
   await keep(workspaceDir(directory), versionDir(root, trial.library), recordDir(directory))
-  await writeTranscript(recordDir(directory), trial)
+  await writeTranscript(recordDir(directory), { ...trial, shipped: `Library: ${trial.library}`,
+    kept: "What the sub-agent kept beyond the library as shipped: learned.md (copies in learned/)." })
 }
 
 /** Trials to distillation: every record copied into the distiller's own folder, with the index files its prompt names. */

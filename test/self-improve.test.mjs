@@ -18,7 +18,7 @@ process.env.PI_SUBAGENTS_TEMP_ROOT = path.join(isolation.root, 'subagents')
 // Workers and distillers run in a sandbox: a real one where one can run here, else the stand-in.
 await sandboxOrStandIn()
 // A run belongs to the workspace it was planned in.
-const runsOf = cwd => path.join(cwd, '.kinex/self-improve/runs')
+const runsOf = cwd => path.join(cwd, '.kinex/self-improve/code-as-skill/runs')
 
 // A stand-in for kinex-sim: two tasks on one robot, and an episode that succeeds once the workspace has the `press` skill.
 const kinexSim = fileURLToPath(new URL('./fixtures/kinex-sim.mjs', import.meta.url))
@@ -30,29 +30,29 @@ const last = request => { const message = request.messages.at(-1); return typeof
 // The tools a request offers: those it lists, and those a model that takes tools mid-conversation was given since.
 const offered = request => [...request.tools ?? [], ...request.messages.flatMap(message => message.tools ?? [])].map(tool => tool.function.name)
 const offers = (request, name) => offered(request).includes(name)
-const improving = request => offered(request).filter(name => name.startsWith('improve_')).sort()
+const improving = request => offered(request).filter(name => name.startsWith('skill_')).sort()
 const called = (request, name) => request.messages.some(message => message.tool_calls?.some(made => made.function.name === name))
-const PLANNING = 'The user asks for a self-improve run'
+const PLANNING = 'The user asks for a code-as-skill run'
 const RESUMED = 'is scheduled in this Kinex again'
 
 // The session that schedules a run, scripted: it plans, has the plan approved, and from then on
-// does what improve_next says, starting the sub-agents it names and asking again when one has ended.
+// does what skill_next says, starting the sub-agents it names and asking again when one has ended.
 // How kinex-sim is run is the plan's: the session names the command in it.
 function scheduler({ command = kinexSim, ...plan }) {
   return request => {
     const text = last(request)
     const has = name => offers(request, name)
     if (request.messages.at(-1).role !== 'tool') {
-      if (text.includes('pi_subagents_notice')) return has('improve_next') ? call('improve_next') : { text: 'RUN_OVER' }
-      return has('improve_plan') ? call('improve_plan', { ...plan, command }) : has('improve_next') ? call('improve_next') : { text: 'NO_TOOLS' }
+      if (text.includes('pi_subagents_notice')) return has('skill_next') ? call('skill_next') : { text: 'RUN_OVER' }
+      return has('skill_plan') ? call('skill_plan', { ...plan, command }) : has('skill_next') ? call('skill_next') : { text: 'NO_TOOLS' }
     }
-    // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.
+    // The calls skill_next gives are made as they are written: a wave's workflow, or the distillation.
     const waves = [...text.matchAll(/subagent\(\{ workflow: ("[^"]+"), args: \{ run: ("[^"]+"), library: ("[^"]+"), tasks: (\[[^\]]*\]) \}, globalConcurrencyLimit: (\d+), async: true \}\)/g)]
       .map(([, workflow, run, library, tasks, limit]) => ({ workflow: JSON.parse(workflow), args: { run: JSON.parse(run), library: JSON.parse(library), tasks: JSON.parse(tasks) }, globalConcurrencyLimit: Number(limit), async: true }))
     const starts = [...waves, ...[...text.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)].map(([, agent, task]) => ({ agent, task }))]
     if (starts.length) return has('subagent') ? { tools: starts.map(args => ({ name: 'subagent', args })) } : { text: 'NO_SUBAGENT_TOOL' }
     if (/has ended|stopped on an error/.test(text)) return { text: 'RUN_OVER' }
-    if (/Not started: /.test(text)) return call('improve_next')
+    if (/Not started: /.test(text)) return call('skill_next')
     return { text: 'WAITING' }
   }
 }
@@ -69,7 +69,7 @@ function script(request) {
     // Its sub-agents start together, as its frame says: a workflow written in the reply that starts it.
     { ...call('subagent', { workflow: true, globalConcurrencyLimit: 10, async: true }), text: 'I read the records in parallel.\n\n```js workflow\nreturn runs.all([{ key: "door", agent: "delegate", task: "HELPER_PROMPT read records/ and write notes/door.md" }, { key: "button", agent: "delegate", task: "HELPER_PROMPT read records/ and write notes/button.md" }])\n```' },
     call('bg_wait'),
-    call('improve_check'),
+    call('skill_check'),
     { text: 'The library is ready.' },
   ][Math.min(step, 5)]
   if (text.includes('HELPER_PROMPT')) return { text: 'notes written' }
@@ -81,7 +81,7 @@ function script(request) {
   return { text: 'UNEXPECTED_SESSION' }
 }
 
-test('/self-improve plans the run, runs its trials and distillation as background sub-agents and reruns with the library', { timeout: 300000 }, async t => {
+test('/code-as-skill plans the run, runs its trials and distillation as background sub-agents and reruns with the library', { timeout: 300000 }, async t => {
   const fake = await fakeProvider(t, isolation.root)
   fake.respond = script
   // A model that can be given a tool mid-conversation, as the current ones can: pi-subagents
@@ -99,7 +99,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     return pending
   }
   const cwd = await workspace(t)
-  const scheduled = await invoke(cwd, '/self-improve the sim tasks, two rounds')
+  const scheduled = await invoke(cwd, '/code-as-skill the sim tasks, two rounds')
   assert.match(scheduled.stdout, /RUN_OVER/)
   const scheduling = fake.requests.filter(request => said(request).includes(PLANNING))
   const told = said(scheduling.at(-1))
@@ -115,7 +115,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     robot: 'sim/arm', rounds: 2, parallel: 1, libRoots: ['setup'], helpers: 10, trialTimeoutS: 3600, distillTimeoutS: 7200, startGapS: 10, command: kinexSim })
   assert.deepEqual(await json('waves/w001.json'), { wave: 1, library: 'L0', tasks: ['sim/open-door', 'sim/press-button'] })
   // Beside the workspace's runs is the Python its trials share; both stay out of version control, and the run keeps which Kinex schedules it.
-  assert.equal(await readFile(path.join(cwd, '.kinex/self-improve/.gitignore'), 'utf8'), 'runs/\npython/\n')
+  assert.equal(await readFile(path.join(cwd, '.kinex/self-improve/.gitignore'), 'utf8'), '*/runs/\npython/\n')
   for (const trial of ['t001', 't003']) assert.equal(await readlink(path.join(root, 'trials', trial, 'workspace/.kinex/python')), path.join(cwd, '.kinex/self-improve/python'))
   assert.deepEqual(Object.keys(await json('scheduler.json')), ['entry', 'flags'])
 
@@ -125,7 +125,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     assert.ok(results[0].includes(`is scheduled.\n\nWave 1: 2 tasks to try, 1 at a time, each a trial in a background sub-agent. Start them with this call, unless you did a moment ago:\nsubagent({ workflow: ${JSON.stringify(path.join(root, 'wave.js'))}, args: { run: ${JSON.stringify(root)}, library: "L0", tasks: ["sim/open-door","sim/press-button"] }, globalConcurrencyLimit: 1, async: true })\nlibrary is the version the workers are given: L0 is the newest. Nothing else in the call is yours to change.`))
     // What a sub-agent leaves is told to the session that started it: the verdict, and where the record is.
     assert.match(told, new RegExp(`pi_subagents_notice[^]*t001, sim/open-door, L0, failure, stopped, 40 steps[^]*Its record: ${path.join(root, 'trials/t001/record')} \\(summary\\.md first\\)`))
-    assert.ok(told.includes(`The wave is done. Start its distillation now, as a background sub-agent, unless you did a moment ago:\\nsubagent({ agent: \\"self-improve-distill\\", task: \\"run=${root}\\" })`))
+    assert.ok(told.includes(`The wave is done. Start its distillation now, as a background sub-agent, unless you did a moment ago:\\nsubagent({ agent: \\"code-as-skill-distill\\", task: \\"run=${root}\\" })`))
     assert.match(told, /d001, base L0, 2 trials \(2 new\), published L1/)
     // The next wave's call gives the new version, and says that another may be given.
     assert.ok(told.includes(`library: \\"L1\\", tasks: [\\"sim/open-door\\",\\"sim/press-button\\"] }, globalConcurrencyLimit: 1, async: true })\\nlibrary is the version the workers are given: L1 is the newest, and it may be another of L0, L1.`))
@@ -205,9 +205,9 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
 
   await t.test('each session sees only the tools of its role', async () => {
     const names = marker => improving(fake.requests.find(request => JSON.stringify(request.messages).includes(marker)))
-    assert.deepEqual(names(PLANNING), ['improve_plan'])
-    assert.deepEqual(scheduling.at(-1).tools.map(tool => tool.function.name).filter(tool => tool.startsWith('improve_')), [], 'when the run has ended the session has none')
-    assert.deepEqual(names('You turn the records of earlier trials'), ['improve_check'])
+    assert.deepEqual(names(PLANNING), ['skill_plan'])
+    assert.deepEqual(scheduling.at(-1).tools.map(tool => tool.function.name).filter(tool => tool.startsWith('skill_')), [], 'when the run has ended the session has none')
+    assert.deepEqual(names('You turn the records of earlier trials'), ['skill_check'])
     const helper = fake.requests.find(request => said(request).includes('HELPER_PROMPT') && !said(request).includes('You turn the records'))
     assert.deepEqual(improving(helper), [], 'a sub-agent has none')
     // A worker does its task itself.
@@ -227,7 +227,7 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
 
   await t.test('status and install need no model', async () => {
     const before = fake.requests.length
-    const status = (await invoke(cwd, '/self-improve status')).stdout
+    const status = (await invoke(cwd, '/code-as-skill status')).stdout
     assert.match(status, /Tasks: 2\/2 solved/)
     assert.match(status, /- sim\/open-door \[solved\] L0 0\/1, L1 1\/1/)
     assert.match(status, /- d001, base L0, 2 trials \(2 new\), published L1/)
@@ -235,13 +235,13 @@ test('/self-improve plans the run, runs its trials and distillation as backgroun
     const target = await workspace(t)
     // A version the run never published is refused, not installed as an empty library.
     // The run is the other workspace's: it is named by its folder.
-    await assert.rejects(invoke(target, '/self-improve install L99'), /No self-improve run in this workspace yet/)
-    await assert.rejects(invoke(target, `/self-improve install L99 ${root}`), /No library version L99 in .*; versions: L0, L1/)
-    await assert.rejects(readFile(path.join(target, '.kinex/self-improve/brief.md')), { code: 'ENOENT' })
-    assert.match((await invoke(target, `/self-improve install L1 ${root}`)).stdout, /Installed L1 .*skills press; tools none/)
+    await assert.rejects(invoke(target, '/code-as-skill install L99'), /No code-as-skill run in this workspace yet/)
+    await assert.rejects(invoke(target, `/code-as-skill install L99 ${root}`), /No library version L99 in .*; versions: L0, L1/)
+    await assert.rejects(readFile(path.join(target, '.kinex/self-improve/code-as-skill/brief.md')), { code: 'ENOENT' })
+    assert.match((await invoke(target, `/code-as-skill install L1 ${root}`)).stdout, /Installed L1 .*skills press; tools none/)
     assert.equal(await readFile(path.join(target, '.kinex/skills/press/SKILL.md'), 'utf8'), SKILL)
-    assert.match(await readFile(path.join(target, '.kinex/self-improve/brief.md'), 'utf8'), /BRIEF_MARKER/)
-    await assert.rejects(invoke(target, `/self-improve install L1 ${root}`), /Already present/)
+    assert.match(await readFile(path.join(target, '.kinex/self-improve/code-as-skill/brief.md'), 'utf8'), /BRIEF_MARKER/)
+    await assert.rejects(invoke(target, `/code-as-skill install L1 ${root}`), /Already present/)
     assert.equal(fake.requests.length, before)
   })
 })
@@ -255,10 +255,10 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
     const text = JSON.stringify(request.messages)
     const step = request.messages.filter(message => message.role === 'tool').length
     // The repair turn continues the distiller's session: four tool results are already behind it.
-    if (text.includes('did not pass improve_check')) return [
+    if (text.includes('did not pass skill_check')) return [
       call('write', { path: 'library/payload/brief.md', content: 'BRIEF_MARKER load the press skill first.\n' }),
       call('bash', { command: 'rm library/payload/lib/calibration.py' }),
-      call('improve_check'),
+      call('skill_check'),
       { text: 'Repaired.' },
     ][step - 4]
     if (text.includes('You turn the records of earlier trials')) return [
@@ -286,8 +286,8 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
     return pending
   }
   const cwd = await workspace(t)
-  assert.match((await invoke(cwd, '/self-improve every sim task, two rounds, the first batch of one')).stdout, /RUN_OVER/)
-  const stdout = (await invoke(cwd, '/self-improve status')).stdout
+  assert.match((await invoke(cwd, '/code-as-skill every sim task, two rounds, the first batch of one')).stdout, /RUN_OVER/)
+  const stdout = (await invoke(cwd, '/code-as-skill status')).stdout
   assert.match(stdout, /Tasks: 2\/2 solved/)
   const runs = runsOf(cwd)
   const root = path.join(runs, (await readdir(runs)).filter(entry => !entry.startsWith('.')).at(-1))
@@ -320,7 +320,7 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
     const result = await json('distillations/d001/record/result.json')
     assert.deepEqual({ status: result.status, version: result.version, problems: result.problems, repairs: result.repairs }, { status: 'done', version: 'L1', problems: [], repairs: 1 })
     const transcript = await read('distillations/d001/record/session.jsonl')
-    assert.match(transcript, /did not pass improve_check[^]*payload\/lib\/calibration\.py: replaces the builtin kinex\.lib module[^]*payload\/brief\.md: 1 lines and 2001 characters/)
+    assert.match(transcript, /did not pass skill_check[^]*payload\/lib\/calibration\.py: replaces the builtin kinex\.lib module[^]*payload\/brief\.md: 1 lines and 2001 characters/)
     assert.match(transcript, /The library is ready[^]*Repaired\./, 'one session, the repair after the distillation')
     assert.match(await read('libraries/L1/payload/brief.md'), /BRIEF_MARKER/)
     assert.match(stdout, /- d001, base L0, 2 trials \(2 new\), published L1 after 1 repair turn/)
@@ -335,7 +335,7 @@ test('tasks open in batches in the distiller\'s order, a trial that did not run 
   })
 })
 
-test('a run outlives the Kinex that scheduled it, /self-improve stop ends its jobs, and resume continues from what is on disk', { timeout: 300000 }, async t => {
+test('a run outlives the Kinex that scheduled it, /code-as-skill stop ends its jobs, and resume continues from what is on disk', { timeout: 300000 }, async t => {
   const fake = await fakeProvider(t, isolation.root)
   const working = Promise.withResolvers()
   let hold = true
@@ -346,7 +346,7 @@ test('a run outlives the Kinex that scheduled it, /self-improve stop ends its jo
       if (hold) { working.resolve(); return { wait: new Promise(() => {}) } }
       return { text: 'I could not press it.' }
     }
-    if (text.includes('You turn the records of earlier trials')) return [call('improve_check'), { text: 'Nothing to add.' }][Math.min(step, 1)]
+    if (text.includes('You turn the records of earlier trials')) return [call('skill_check'), { text: 'Nothing to add.' }][Math.min(step, 1)]
     if (text.includes(PLANNING) || text.includes(RESUMED)) return scheduler({ tasks: ['sim/press-button'] })(request)
     return { text: 'UNEXPECTED_SESSION' }
   }
@@ -359,7 +359,7 @@ test('a run outlives the Kinex that scheduled it, /self-improve stop ends its jo
     pending.child.stdin.end()
     return pending
   }
-  const kinex = spawn(process.execPath, [entry, 'run', '--auto', '/self-improve the press task'], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const kinex = spawn(process.execPath, [entry, 'run', '--auto', '/code-as-skill the press task'], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
   await working.promise
   const runs = runsOf(cwd)
   const name = (await readdir(runs)).filter(entry => !entry.startsWith('.')).at(-1)
@@ -371,22 +371,22 @@ test('a run outlives the Kinex that scheduled it, /self-improve stop ends its jo
   kinex.kill('SIGKILL')
   await once(kinex, 'exit')
   assert.ok(alive([trial]) && alive(worker), 'the trial goes on')
-  assert.match((await invoke('/self-improve status')).stdout, /- t001, sim\/press-button, L0, running/)
+  assert.match((await invoke('/code-as-skill status')).stdout, /- t001, sim\/press-button, L0, running/)
 
   const before = fake.requests.length
-  assert.match((await invoke('/self-improve stop')).stdout, new RegExp(`^Stopped the self-improve run ${path.join(runs, name)}: t001 ended and count as abandoned\\. /self-improve resume continues it`))
+  assert.match((await invoke('/code-as-skill stop')).stdout, new RegExp(`^Stopped the code-as-skill run ${path.join(runs, name)}: t001 ended and count as abandoned\\. /code-as-skill resume continues it`))
   const calls = async () => (await readFile(path.join(state, 'calls.log'), 'utf8')).split('\n')
   const stopped = async () => (await calls()).some(line => line.startsWith('stop run1'))
   for (let attempt = 0; attempt < 150 && (!(await stopped()) || alive([trial, ...worker])); attempt++) await new Promise(resolve => setTimeout(resolve, 100))
   assert.ok(await stopped(), 'the simulator the trial opened is stopped')
   assert.equal(alive([trial, ...worker]), false, 'the trial and its worker ended')
   await assert.rejects(readFile(path.join(runs, name, 'trials/t001/record/result.json')), { code: 'ENOENT' })
-  assert.match((await invoke('/self-improve status')).stdout, /- t001, sim\/press-button, L0, abandoned/)
+  assert.match((await invoke('/code-as-skill status')).stdout, /- t001, sim\/press-button, L0, abandoned/)
   assert.equal(fake.requests.length, before, 'status and stop need no model')
 
   hold = false
-  assert.match((await invoke('/self-improve resume')).stdout, /RUN_OVER/)
-  const status = (await invoke('/self-improve status')).stdout
+  assert.match((await invoke('/code-as-skill resume')).stdout, /RUN_OVER/)
+  const status = (await invoke('/code-as-skill status')).stdout
   assert.match(status, /t001, sim\/press-button, L0, abandoned/)
   assert.match(status, /t002, sim\/press-button, L0, failure/)
   assert.match(status, /d001, base L0, 1 trials \(1 new\), published L1/)
@@ -406,10 +406,10 @@ test('without a user, a run starts only in a session that already works without 
   const runs = runsOf(cwd)
   const before = (await readdir(runs).catch(() => [])).length
   // Headless in ask mode there is nobody to approve the plan, so the run is not made.
-  const refused = exec(process.execPath, [entry, 'run', '/self-improve the press task'], { cwd, env: { ...process.env, FAKE_KINEX_SIM_STATE: state }, timeout: 60000 })
+  const refused = exec(process.execPath, [entry, 'run', '/code-as-skill the press task'], { cwd, env: { ...process.env, FAKE_KINEX_SIM_STATE: state }, timeout: 60000 })
   refused.child.stdin.end()
   await refused.catch(() => {})
-  assert.ok(fake.requests.some(request => request.tools.some(tool => tool.function.name === 'improve_plan')), 'the session planned')
+  assert.ok(fake.requests.some(request => request.tools.some(tool => tool.function.name === 'skill_plan')), 'the session planned')
   assert.equal((await readdir(runs).catch(() => [])).length, before, 'and no run was made')
   assert.ok(!(await readFile(path.join(state, 'calls.log'), 'utf8')).includes('launch'), 'nor a simulator launched')
 })
@@ -419,5 +419,5 @@ test('an ordinary session has the command and none of the tools', { timeout: 600
   const pending = exec(process.execPath, [entry, 'run', 'hello'], { cwd: await workspace(t), env: process.env, timeout: 30000 })
   pending.child.stdin.end()
   await pending
-  assert.deepEqual(fake.requests[0].tools.map(tool => tool.function.name).filter(name => name.startsWith('improve_')), [])
+  assert.deepEqual(fake.requests[0].tools.map(tool => tool.function.name).filter(name => name.startsWith('skill_')), [])
 })

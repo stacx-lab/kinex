@@ -10,8 +10,8 @@ import { check, createLibrary, install, installedBrief, newestVersion, publish, 
 import { collect, renderStatus, scan, writeRecord } from '../dist/strategies/code-as-skill/records.js'
 import { writeTranscript } from '../dist/common/transcript.js'
 import { openJob, finishJob } from '../dist/common/job.js'
-import { trialsDir, distillationsDir } from '../dist/common/layout.js'
-import { judged } from '../dist/strategies/code-as-skill/trial.js'
+import { trialsDir, distillationsDir } from '../dist/strategies/code-as-skill/layout.js'
+import { judged } from '../dist/common/episode.js'
 import { reference } from '../dist/strategies/code-as-skill/distill.js'
 
 async function directory(t) {
@@ -164,7 +164,7 @@ test('a transcript is written in brief, bounded and complete, with its images', 
     message({ role: 'toolResult', toolCallId: 'c2', toolName: 'skill', content: [{ type: 'text', text: 'how to press' }] }),
     message({ role: 'assistant', usage: { input: 5, output: 3 }, content: [{ type: 'text', text: 'Done.' }] }),
   ].join('\n') + '\n')
-  await writeTranscript(root, { id: 't001', task: 'sim/press', library: 'L1', status: 'done', success: true, steps: 12, reason: 'success', wallS: 30, note: 'worker exited 1; see output.log' })
+  await writeTranscript(root, { id: 't001', task: 'sim/press', shipped: 'Library: L1', kept: 'What the sub-agent kept beyond the library as shipped: learned.md (copies in learned/).', status: 'done', success: true, steps: 12, reason: 'success', wallS: 30, note: 'worker exited 1; see output.log' })
   const history = await readFile(path.join(root, 'history.md'), 'utf8')
   assert.match(history, /^## user\n\npress the button\n\n## assistant\n\nLooking\.\n\n### call 1: device \(error\)\n\n```json\n/)
   assert.match(history, /…\(\d+ more characters; the full text is in history\.json\)\n```\n\n```\no+\n…\(1000 more characters; the full text is in history\.json\)\n```\n\n!\[call 1\]\(images\/001\.png\)\n\n### call 2: skill\n/)

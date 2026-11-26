@@ -1,10 +1,10 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { currentScope } from "@kinex/core/scope"
-import { claimFile, inputFile, parseLine, readJson, recordDir, reserve, resultFile, workspaceDir, writeJson } from "./layout.ts"
+import { claimFile, entries, inputFile, parseLine, readJson, recordDir, reserve, resultFile, workspaceDir, writeJson } from "./layout.ts"
 import { running } from "./lock.ts"
 
-// A trial or a distillation: one folder with an input, a workspace and a record.
+// A job of a run, such as a trial: one folder with an input, a workspace and a record.
 export interface Job { id: string; directory: string; workspace: string; record: string }
 export type Result = Record<string, unknown> & { status: "done" | "timeout" | "error" }
 
@@ -21,6 +21,26 @@ export async function openJob(directory: string, prefix: string, input: unknown)
   await mkdir(job.workspace)
   await mkdir(job.record)
   return job
+}
+
+/** Every job kept in `directory`, as its input and, once it has one, its result say. */
+export async function jobViews<View>(directory: string): Promise<View[]> {
+  const views: View[] = []
+  for (const id of await entries(directory)) {
+    const input = await readJson<object>(inputFile(path.join(directory, id)))
+    if (input) views.push({ id, ...input, ...await readJson<object>(resultFile(path.join(directory, id))) } as View)
+  }
+  return views
+}
+
+/** The jobs kept in `folders` that have no result: being done, or abandoned. */
+export async function unfinished(folders: readonly string[]): Promise<string[]> {
+  const found: string[] = []
+  for (const folder of folders) for (const id of await entries(folder)) {
+    const directory = path.join(folder, id)
+    if (await readJson(inputFile(directory)) !== undefined && await readJson(resultFile(directory)) === undefined) found.push(directory)
+  }
+  return found
 }
 
 /** Whether a job without a result is still being done: its process is alive. Otherwise it is abandoned. */

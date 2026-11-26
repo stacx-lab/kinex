@@ -6,7 +6,9 @@ import { ConfigPaths } from "@kinex/core/config/paths"
 import { libRoots } from "@kinex/core/lib/catalog"
 import { parseFrontmatter } from "@kinex/core/skill/index"
 import { which } from "@kinex/core/util/process"
-import { entries, librariesDir, parseLine, selfImproveDir, versionDir, writeJson } from "../../common/layout.ts"
+import { entries, parseLine, strategyDir, writeJson } from "../../common/layout.ts"
+import { librariesDir, versionDir } from "./layout.ts"
+import { STRATEGY } from "./names.ts"
 
 // A library is what a worker is given beyond plain Kinex. payload/ ships and
 // uses Kinex's own folder names, so installing is a copy; memory/ is the
@@ -14,7 +16,7 @@ import { entries, librariesDir, parseLine, selfImproveDir, versionDir, writeJson
 // the newest is the current one.
 export const payloadDir = (library: string) => path.join(library, "payload")
 export const memoryDir = (library: string) => path.join(library, "memory")
-export const briefFile = (kinex: string) => path.join(selfImproveDir(kinex), "brief.md")
+export const briefFile = (kinex: string) => path.join(strategyDir(kinex, STRATEGY), "brief.md")
 // The payload folders, each installed into the workspace's Kinex folder of the same
 // name: skills, host tools, kinex.lib modules, and programs exec runs by file.
 export const PARTS = ["skills", "tools", "lib", "programs"] as const
@@ -191,7 +193,7 @@ export async function publish(root: string, candidate: string, manifest: { paren
 /**
  * Version to workspace: each payload part goes where Kinex discovers it and the
  * brief where this package's context gives it to every session. Trial
- * workspaces and /self-improve install use this same copy, so a worker sees a
+ * workspaces and /code-as-skill install use this same copy, so a worker sees a
  * library exactly as a user who installed it. Nothing existing is overwritten.
  */
 export async function install(library: string, workspace: string): Promise<Record<Part, string[]>> {

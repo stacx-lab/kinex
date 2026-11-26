@@ -2,8 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { parseLine, sessionFile } from "./layout.ts"
 
-// A transcript as a distiller reads it, rendered from the session file Kinex
-// wrote, which holds every image inline and is too large to read raw:
+// A worker's transcript as a model that studies it reads it, rendered from the
+// session file Kinex wrote, which holds every image inline and is too large to read raw:
 //   summary.md    the transcript in a page, read first
 //   history.md    every turn and every tool call, input and output bounded per call
 //   history.json  the same, with every call complete
@@ -25,11 +25,14 @@ type Entry = Turn | Call
 const isCall = (entry: Entry): entry is Call => "call" in entry
 const input = (call: Call) => JSON.stringify(call.input ?? {})
 
-/** What the trial's result says, for the head of the summary. */
+/** What the trial's result says, for the head of the summary, and what the strategy adds there. */
 export interface Facts {
   id: string
   task: string
-  library: string
+  /** What the worker was given, before the skills it loaded: "Library: L1". */
+  shipped?: string
+  /** Where what the worker kept is. */
+  kept?: string
   status?: string
   success?: boolean
   steps?: number
@@ -110,9 +113,9 @@ function summary(facts: Facts, entries: Entry[], tokens: { input: number; output
   return [
     `# ${facts.id} — ${facts.task}`, "",
     `Verdict: ${verdict}. Cost: ${calls.length} tool calls, ${facts.wallS ?? "?"} s, ${tokens.input} input / ${tokens.output} output tokens.`,
-    `Library: ${facts.library}. Skills loaded: [${[...loaded].join(", ")}].`,
+    `${facts.shipped ? `${facts.shipped}. ` : ""}Skills loaded: [${[...loaded].join(", ")}].`,
     ...(facts.note ? [`Host note: ${facts.note}`] : []),
-    "What the sub-agent kept beyond the library as shipped: learned.md (copies in learned/).",
+    ...(facts.kept ? [facts.kept] : []),
     "", `## Tools called (${calls.length})`, [...counts].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ×${count}`).join(", ") || "none",
     "", `## Errors (${errors.length})`, ...(errors.length ? errors.slice(0, 12).map(call => line(call, 160, 200)) : ["none"]),
     "", "## Last 12 calls", ...(calls.length ? calls.slice(-12).map(call => line(call, 200, 300)) : ["none"]),

@@ -1,46 +1,27 @@
 import { createHash } from "node:crypto"
 import path from "node:path"
-import { DISTILL_AGENT } from "../../common/agents.ts"
+import { openJob, type Job } from "../../common/job.ts"
+import { entries, readJson, writeJson } from "../../common/layout.ts"
+import { Refused, alone, live as liveIn, stopJobs } from "../../common/schedule.ts"
 import { openDistillation, scheduled as ordered } from "./distill.ts"
-import { alive, openJob, type Job } from "../../common/job.ts"
-import { claimFile, distillationsDir, entries, lockDir, readJson, trialsDir, waveScript, wavesDir, writeJson } from "../../common/layout.ts"
+import { distillationsDir, trialsDir, waveScript, wavesDir } from "./layout.ts"
 import { newestVersion } from "./library.ts"
-import { locked, running } from "../../common/lock.ts"
 import { renderStatus, scan, settled, solvedTasks, stepLimits, type Status, type TrialInput } from "./records.ts"
 import { RERUNS, type Run } from "./run.ts"
-import type { Task } from "../../common/sim.ts"
+import { DISTILL_AGENT, NEXT, STRATEGY } from "./names.ts"
 
-// The scheduler is code: it reads a run's folder and says what is to be done
-// now, and it admits the jobs that do it. It starts nothing itself. The session
-// that planned the run asks it through improve_next and starts the wave's
-// trials and the distillation as background sub-agents; each sub-agent asks to
-// be admitted before it does anything, so which tasks run, how often and how
-// many at a time holds whatever the session started. When the sub-agents have
-// ended the session is told, and asks again. A run belongs to the Kinex
-// process, and one is scheduled at a time.
+// The scheduler of a code-as-skill run (common/schedule.ts): the session that
+// planned the run asks it through skill_next and starts the wave's trials and the
+// distillation as background sub-agents; each sub-agent asks to be admitted before
+// it does anything, so which tasks run, how often and how many at a time holds
+// whatever the session started. When the sub-agents have ended the session is
+// told, and asks again.
 
-/** What this Kinex schedules: a run, or the plan of one while `run` is absent. */
-export interface Scheduled {
-  /** What the user asked for. */
-  request: string
-  run?: Run
-  /** Whether the user has approved that the run goes on with nobody to approve its steps. */
-  approved?: boolean
-}
+/** The folders of a run's jobs. */
+export const jobFolders = (root: string) => [trialsDir(root), distillationsDir(root)]
 
-let scheduled: Scheduled | undefined
-export const current = () => scheduled
-export const schedule = (next: Scheduled | undefined) => { scheduled = next }
-
-/** The ids as a run's tasks: every one in the catalog, all on one robot. */
-export function checked(ids: readonly string[], catalog: readonly Task[]): string[] {
-  const robots = new Map(catalog.map(task => [task.id, task.robot]))
-  const unknown = ids.filter(id => !robots.has(id))
-  if (unknown.length) throw new Error(`Unknown tasks: ${unknown.join(", ")}; \`kinex-sim tasks list\` lists the ids`)
-  const used = [...new Set(ids.map(id => robots.get(id)))]
-  if (used.length !== 1) throw new Error(used.length ? `The tasks use different robots (${used.join(", ")}); a run practises on one` : "A run needs at least one task")
-  return [...new Set(ids)].sort()
-}
+/** The jobs of the run that are being done. */
+export const live = (root: string) => liveIn(jobFolders(root))
 
 // The order tasks open in when a distiller has not said: by a hash of the id, so
 // that a batch is a mix of the catalog and the same on every pass.
@@ -66,17 +47,6 @@ const waveFile = (root: string, wave: number) => path.join(wavesDir(root), `w${S
 async function waves(root: string): Promise<Wave[]> {
   const found = await Promise.all((await entries(wavesDir(root))).filter(name => name.endsWith(".json")).map(name => readJson<Wave>(path.join(wavesDir(root), name))))
   return found.filter(wave => wave !== undefined).sort((a, b) => a.wave - b.wave)
-}
-
-const unfinished = (root: string, status: Status) => [
-  ...status.trials.filter(trial => !trial.status).map(trial => path.join(trialsDir(root), trial.id)),
-  ...status.distillations.filter(distillation => !distillation.status).map(distillation => path.join(distillationsDir(root), distillation.id))]
-
-/** The jobs that are being done: those without a result whose process is alive. Any other job without one is abandoned. */
-export async function live(root: string, status: Status): Promise<Set<string>> {
-  const found = new Set<string>()
-  for (const directory of unfinished(root, status)) if (await alive(directory)) found.add(path.basename(directory))
-  return found
 }
 
 /**
@@ -119,7 +89,7 @@ async function decide(run: Run): Promise<{ step: Step; status: Status }> {
   for (;;) {
     const status = await scan(run.root)
     const step = (decided: Step) => ({ step: decided, status })
-    const jobs = await live(run.root, status)
+    const jobs = await live(run.root)
     const distilling = status.distillations.filter(distillation => jobs.has(distillation.id)).map(distillation => distillation.id)
     if (distilling.length) return step({ kind: "wait", running: distilling })
     const wave = (await waves(run.root)).at(-1)
@@ -150,17 +120,11 @@ async function decide(run: Run): Promise<{ step: Step; status: Status }> {
   }
 }
 
-// The scheduler and every job are processes of their own, so each reads the run's folder while it alone holds the run's lock.
-const alone = <T>(run: Run, work: () => Promise<T>, signal?: AbortSignal) => locked(lockDir(run.root), work, signal)
-
 /** The next step of the run. It starts nothing and opens no job: the session starts the sub-agents, and each is admitted when it asks. */
-export const next = (run: Run): Promise<Step> => alone(run, async () => (await decide(run)).step)
+export const next = (run: Run): Promise<Step> => alone(run.root, async () => (await decide(run)).step)
 
 /** What a call may say of the trial it starts: the task, and the library version the worker is given. */
 export interface TrialRequest { task: string; library?: string }
-
-/** Why a job a call asked for is not done; the session that asked is told, and asks improve_next. */
-export class Refused extends Error {}
 
 const standing = (step: Step) => step.kind === "trials" ? `wave ${step.wave} has ${step.tasks.join(", ")} to try`
   : step.kind === "distill" ? "the wave is to be distilled"
@@ -175,7 +139,7 @@ const standing = (step: Step) => step.kind === "trials" ? `wave ${step.wave} has
  */
 export async function admit(run: Run, request: TrialRequest | "distill", signal?: AbortSignal): Promise<Job> {
   for (;;) {
-    const job = await alone(run, async () => {
+    const job = await alone(run.root, async () => {
       const { step, status } = await decide(run)
       if (request === "distill") {
         if (step.kind !== "distill") throw new Refused(`No distillation is to be started: ${standing(step)}`)
@@ -204,7 +168,7 @@ const word = (value: string) => /^[^\s"'`\\]+$/.test(value) ? value : JSON.strin
 
 /** A step as the session reads it: the calls that start it, and what to do when it has ended. */
 export async function describe(run: Run, step: Step): Promise<string> {
-  const after = "When you are told that it has ended, call improve_next again; where no such notice comes, call bg_wait first. Do not attempt the tasks yourself, and start nothing improve_next did not give."
+  const after = `When you are told that it has ended, call ${NEXT} again; where no such notice comes, call bg_wait first. Do not attempt the tasks yourself, and start nothing ${NEXT} did not give.`
   if (step.kind === "trials") {
     const calls = Array.from({ length: Math.ceil(step.tasks.length / CALL_TASKS) }, (_, index) => step.tasks.slice(index * CALL_TASKS, (index + 1) * CALL_TASKS))
       .map(tasks => `subagent({ workflow: ${literal(waveScript(run.root))}, args: { run: ${literal(run.root)}, library: ${literal(step.library)}, tasks: ${literal(tasks)} }, globalConcurrencyLimit: ${run.config.parallel}, async: true })`)
@@ -222,19 +186,9 @@ export async function describe(run: Run, step: Step): Promise<string> {
   ].join("\n")
   if (step.kind === "wait") return `Nothing to start: ${step.running.join(", ")} ${step.running.length === 1 ? "is" : "are"} still running. ${after}`
   const how = step.failed ? `stopped on an error: ${step.reason}` : `has ended: ${step.reason}`
-  const then = step.failed ? "/self-improve resume continues it." : "Install a library version into a workspace with /self-improve install <version>."
-  return `The self-improve run ${run.root} ${how}.\n\n${renderStatus(run.root, await scan(run.root), () => false)}\n\n${then}\nTell the user how the run ended.`
+  const then = step.failed ? `/${STRATEGY} resume continues it.` : `Install a library version into a workspace with /${STRATEGY} install <version>.`
+  return `The ${STRATEGY} run ${run.root} ${how}.\n\n${renderStatus(run.root, await scan(run.root), () => false)}\n\n${then}\nTell the user how the run ended.`
 }
 
 /** Ends the run's work at once: its jobs' processes are told to stop, and what finished stays on disk. Returns the jobs stopped. */
-export async function stop(run: Run): Promise<string[]> {
-  const status = await scan(run.root)
-  const stopped: string[] = []
-  for (const directory of unfinished(run.root, status)) {
-    const claimed = await readJson<{ pid?: number }>(claimFile(directory)).catch(() => undefined)
-    if (typeof claimed?.pid !== "number" || !running(claimed.pid)) continue
-    process.kill(claimed.pid, "SIGTERM")
-    stopped.push(path.basename(directory))
-  }
-  return stopped
-}
+export const stop = (root: string) => stopJobs(jobFolders(root))

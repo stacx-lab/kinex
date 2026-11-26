@@ -14,13 +14,14 @@ process.env.KINEX_CONFIG_DIR = path.join(root, 'config')
 process.env.KINEX_DATA_DIR = path.join(root, 'data')
 const { sandboxed, unavailable } = await import('../dist/common/sandbox.js')
 const { homeOf, pythonDir } = await import('../dist/common/layout.js')
-const { trialPython } = await import('../dist/strategies/code-as-skill/trial.js')
+const { trialPython } = await import('../dist/common/python.js')
 const { childEnv } = await import('../dist/common/session.js')
+const { DISTILLER, WORKER } = await import('../dist/strategies/code-as-skill/roles.js')
 
 const put = async (file, text) => { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text) }
 // A run belongs to the workspace it was planned in, which has content of its own that no child may find.
 const home = path.join(root, 'robot')
-const run = path.join(home, '.kinex/self-improve/runs/20260101-000000')
+const run = path.join(home, '.kinex/self-improve/code-as-skill/runs/20260101-000000')
 const python = pythonDir(homeOf(run))
 const workspace = path.join(run, 'trials/t001/workspace')
 const session = path.join(run, 'trials/t001/record/session.jsonl')
@@ -39,7 +40,7 @@ await put(path.join(root, 'data/agent/auth.json'), '{}')
 await mkdir(python, { recursive: true })
 await symlink(path.join(root, 'data/agent/auth.json'), path.join(agent, 'auth.json'))
 after(() => rm(root, { recursive: true, force: true }))
-await put(path.join(agent, 'agents/self-improve-trial.md'), 'the command a trial is started with')
+await put(path.join(agent, 'agents/code-as-skill-trial.md'), 'the command a trial is started with')
 // Awaited before the first test: a test file whose tests have all ended runs its after hooks.
 // A sandbox can run here when a child could start in it, which Docker cannot where it may not read Node's folder.
 const can = Object.fromEntries(await Promise.all(['bwrap', 'docker'].map(async kind => [kind, !await unavailable(kind, { python })])))
@@ -63,7 +64,7 @@ test('a child can write only its workspace, what it is given to write and its cr
 })
 
 test('a Docker sandbox is given the same folders, and the child\'s environment by name', () => {
-  const argv = sandboxed(['node', 'kinex', 'run'], workspace, [session], 'docker', { name: 'worker-t001', python, env: { KINEX_SELF_IMPROVE_ROLE: 'worker', 'not a name': 'x' } })
+  const argv = sandboxed(['node', 'kinex', 'run'], workspace, [session], 'docker', { name: 'worker-t001', python, env: { KINEX_SELF_IMPROVE_ROLE: 'code-as-skill/worker', 'not a name': 'x' } })
   assert.deepEqual(argv.slice(0, 5), ['docker', 'run', '--rm', '--name', 'worker-t001'])
   assert.deepEqual(argv.slice(-4), ['ubuntu:24.04', 'node', 'kinex', 'run'])
   const mounts = binds(argv, '--mount').map(mount => mount.replace(/^type=bind,source=([^,]+),target=\1/, '$1'))
@@ -78,9 +79,12 @@ test('a child keeps its ROS logs in its sandbox\'s own home, not in the host fol
   const host = { ROS_HOME: process.env.ROS_HOME, ROS_LOG_DIR: process.env.ROS_LOG_DIR, ROS_DOMAIN_ID: process.env.ROS_DOMAIN_ID }
   Object.assign(process.env, { ROS_HOME: path.join(root, 'ros'), ROS_LOG_DIR: path.join(root, 'ros/log'), ROS_DOMAIN_ID: '7' })
   try {
-    for (const role of ['worker', 'distiller']) {
+    for (const role of [WORKER, DISTILLER]) {
       const env = childEnv(role)
-      assert.deepEqual([env.ROS_HOME, env.ROS_LOG_DIR, env.ROS_DOMAIN_ID], [undefined, undefined, '7'], role)
+      assert.deepEqual([env.ROS_HOME, env.ROS_LOG_DIR, env.ROS_DOMAIN_ID], [undefined, undefined, '7'], role.name)
+      // A child is told its strategy and role; one that starts sub-agents opens pi-subagents, any other cannot start one.
+      assert.equal(env.KINEX_SELF_IMPROVE_ROLE, `code-as-skill/${role.name}`)
+      assert.deepEqual([env.KINEX_SUBAGENTS, env.PI_SUBAGENT_MAX_DEPTH], role.subagents ? ['on', undefined] : [undefined, '0'])
       assert.ok(!binds(sandboxed(['true'], workspace, [session], 'docker', { python, env }), '--env').some(name => name.startsWith('ROS_HOME') || name.startsWith('ROS_LOG_DIR')))
     }
   } finally {
@@ -103,7 +107,7 @@ for (const kind of ['bwrap', 'docker']) test(`inside the ${kind} sandbox, the wo
     fs.appendFileSync(${JSON.stringify(session)}, '{"line":1}\\n')
     const write = file => { try { fs.writeFileSync(file, 'changed'); return 'writable' } catch (error) { return error.code } }
     const settings = write(${JSON.stringify(path.join(agent, 'settings.json'))})
-    const agents = write(${JSON.stringify(path.join(agent, 'agents/self-improve-trial.md'))})
+    const agents = write(${JSON.stringify(path.join(agent, 'agents/code-as-skill-trial.md'))})
     console.log(JSON.stringify({
       otherTrial: seen(${JSON.stringify(path.join(run, 'trials/t002/record/result.json'))}),
       library: seen(${JSON.stringify(path.join(run, 'libraries/L1/manifest.json'))}),

@@ -21,3 +21,21 @@ test('self-improve imports only core package exports, Node APIs and declared dep
     }
   }
 })
+
+test('what every strategy shares imports no strategy, and a strategy imports no other', async () => {
+  const src = fileURLToPath(new URL('../src/', import.meta.url))
+  const place = file => {
+    const [top, name] = path.relative(src, file).split(path.sep)
+    return top === 'common' ? 'common' : top === 'strategies' && name !== 'index.ts' ? `strategies/${name}` : 'top'
+  }
+  for (const entry of await readdir(src, { recursive: true })) {
+    if (!entry.endsWith('.ts')) continue
+    const file = path.join(src, entry)
+    const from = place(file)
+    if (from === 'top') continue
+    for (const match of (await readFile(file, 'utf8')).matchAll(/(?:from\s*|import\s*\()\s*["'](\.[^"']+)["']/g)) {
+      const to = place(path.resolve(path.dirname(file), match[1]))
+      assert.ok(to === 'common' || to === from, `${entry} imports ${match[1]}`)
+    }
+  }
+})

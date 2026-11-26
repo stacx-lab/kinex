@@ -76,7 +76,7 @@ test('standalone, setup and core tarballs install and relocate without plugin pa
       assert.ok(app.host.session.getAllTools().some(tool => tool.name === 'web_search'))
       assert.ok(app.host.session.extensionRunner.getCommand('btw'))
       assert.ok(app.host.session.extensionRunner.getCommand('onboarding'))
-      assert.ok(app.host.session.extensionRunner.getCommand('self-improve'))
+      for (const name of ['code-as-skill', 'code-as-policy']) assert.ok(app.host.session.extensionRunner.getCommand(name), name)
       for (const name of ['onboarding-ros2', 'kinex-onboarding-ros2']) assert.equal(app.host.session.extensionRunner.getCommand(name), undefined)
     } finally { await app.dispose() }
   `], { cwd: relocated, env, timeout: 20000 })

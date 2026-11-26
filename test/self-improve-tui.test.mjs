@@ -35,16 +35,16 @@ async function terminal(t, name, mode, keys, timeout) {
   return { text: stripTerminalSequences(stdout).replaceAll(/\s+/g, ' '), state, cwd }
 }
 
-// The user's session, scripted: it plans the press task, and then does what improve_next says.
+// The user's session, scripted: it plans the press task, and then does what skill_next says.
 function session(request) {
   const text = last(request)
   const has = name => request.tools.some(tool => tool.function.name === name)
   if (latest(request).role !== 'tool') {
     if (text.includes('hello again')) return { text: 'HOME_AGAIN_OK' }
-    if (text.includes('pi_subagents_notice')) return has('improve_next') ? { tool: 'improve_next', args: {} } : { text: 'RUN_OVER' }
-    return has('improve_plan') ? { tool: 'improve_plan', args: { tasks: ['sim/press-button'], command: kinexSim } } : { text: 'KINEX_TUI_READY' }
+    if (text.includes('pi_subagents_notice')) return has('skill_next') ? { tool: 'skill_next', args: {} } : { text: 'RUN_OVER' }
+    return has('skill_plan') ? { tool: 'skill_plan', args: { tasks: ['sim/press-button'], command: kinexSim } } : { text: 'KINEX_TUI_READY' }
   }
-  // The calls improve_next gives are made as they are written: a wave's workflow, or the distillation.
+  // The calls skill_next gives are made as they are written: a wave's workflow, or the distillation.
   const waves = [...text.matchAll(/subagent\(\{ workflow: ("[^"]+"), args: \{ run: ("[^"]+"), library: ("[^"]+"), tasks: (\[[^\]]*\]) \}, globalConcurrencyLimit: (\d+), async: true \}\)/g)]
     .map(([, workflow, run, library, tasks, limit]) => ({ workflow: JSON.parse(workflow), args: { run: JSON.parse(run), library: JSON.parse(library), tasks: JSON.parse(tasks) }, globalConcurrencyLimit: Number(limit), async: true }))
   const starts = [...waves, ...[...text.matchAll(/subagent\(\{ agent: "([^"]+)", task: "([^"]+)" \}\)/g)].map(([, agent, task]) => ({ agent, task }))]
@@ -58,39 +58,39 @@ test('in the terminal the user approves the plan, which moves Kinex to auto mode
     const text = said(request)
     const step = request.messages.filter(message => message.role === 'tool').length
     if (text.includes('Work only in this directory')) return { text: 'I could not press it.' }
-    if (text.includes('You turn the records of earlier trials')) return [{ tool: 'improve_check', args: {} }, { text: 'DISTILLER_SPOKE' }][Math.min(step, 1)]
+    if (text.includes('You turn the records of earlier trials')) return [{ tool: 'skill_check', args: {} }, { text: 'DISTILLER_SPOKE' }][Math.min(step, 1)]
     return session(request)
   }
   // Started in ask mode. Keys wait for single words: a phrase may be broken across two lines of the terminal.
   const { text } = await terminal(t, 'kinex-sim-tui', [], [
-    [0.2, '/self-improve the press task\r'], ['Approve', '\r'], ['RUN_OVER', 'hello again\r'], ['HOME_AGAIN_OK', '/quit\r'],
+    [0.2, '/code-as-skill the press task\r'], ['Approve', '\r'], ['RUN_OVER', 'hello again\r'], ['HOME_AGAIN_OK', '/quit\r'],
   ], 170)
   assert.match(text, /Approve and switch Kinex to auto mode\?/)
-  assert.match(text, /Self-improve plan: 1 task on robot sim\/arm sim\/press-button 1 round, 1 trial at a time/)
+  assert.match(text, /code-as-skill plan: 1 task on robot sim\/arm sim\/press-button 1 round, 1 trial at a time/)
   assert.match(text, /devices · auto/, 'the session works without approvals from then on')
   assert.match(text, /TRIALS_STARTED/, 'the turn that started the trial ended')
   const home = fake.requests.at(-1)
-  assert.match(said(home), /TUI smoke[^]*The user asks for a self-improve run[^]*pi_subagents_notice[^]*hello again/, 'the run went on in the user\'s own conversation')
+  assert.match(said(home), /TUI smoke[^]*The user asks for a code-as-skill run[^]*pi_subagents_notice[^]*hello again/, 'the run went on in the user\'s own conversation')
   assert.match(said(home), /t001, sim\/press-button, L0, failure/)
   assert.match(said(home), /d001, base L0, 1 trials \(1 new\), published L1/)
   assert.match(said(home), /has ended: its rounds are done/)
   assert.doesNotMatch(said(home), /You turn the records of earlier trials|DISTILLER_SPOKE/, 'the distillation was a session of its own')
 })
 
-test('in the terminal /self-improve stop ends a run and its trials', { timeout: 120000 }, async t => {
+test('in the terminal /code-as-skill stop ends a run and its trials', { timeout: 120000 }, async t => {
   const fake = await fakeProvider(t, isolation.root)
   fake.respond = request => said(request).includes('Work only in this directory') ? { wait: new Promise(() => {}) } : session(request)
   const { text, state, cwd } = await terminal(t, 'kinex-sim-tui-stop', ['--auto'], [
-    [0.2, '/self-improve the press task\r'], ['Approve', '\r'], ['TRIALS_STARTED', '/self-improve another run\r'],
+    [0.2, '/code-as-skill the press task\r'], ['Approve', '\r'], ['TRIALS_STARTED', '/code-as-skill another run\r'],
     // The stopped trial closes its simulator before it is gone, so the last status waits a moment.
-    [8, '/self-improve status\r'], ['running', '/self-improve stop\r'], [6, '/self-improve status\r'], ['abandoned', '/quit\r'],
+    [8, '/code-as-skill status\r'], ['running', '/code-as-skill stop\r'], [6, '/code-as-skill status\r'], ['abandoned', '/quit\r'],
   ], 90)
   assert.match(text, /Approve\?/, 'a session in auto mode is asked too')
   assert.match(text, /t001, sim\/press-button, L0, running/, 'the session is free while trials run')
   assert.match(text, /is already scheduled in this Kinex/)
-  assert.match(text, /Stopped the self-improve run [^ ]+: t001 ended and count as abandoned/)
+  assert.match(text, /Stopped the code-as-skill run [^ ]+: t001 ended and count as abandoned/)
   assert.match(text, /t001, sim\/press-button, L0, abandoned/)
-  const runs = path.join(cwd, '.kinex/self-improve/runs')
+  const runs = path.join(cwd, '.kinex/self-improve/code-as-skill/runs')
   const name = (await readdir(runs)).filter(entry => !entry.startsWith('.')).at(-1)
   await assert.rejects(readFile(path.join(runs, name, 'trials/t001/record/result.json')), { code: 'ENOENT' })
   assert.ok((await readFile(path.join(state, 'calls.log'), 'utf8')).split('\n').some(line => line.startsWith('stop run1')), 'its simulator was stopped')

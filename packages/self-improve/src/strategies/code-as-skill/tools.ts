@@ -2,23 +2,24 @@ import { z } from "zod"
 import { define, type Def } from "@kinex/core"
 import { ConfigPaths } from "@kinex/core/config/paths"
 import { currentScope } from "@kinex/core/scope"
-import { writeAgents } from "../../common/agents.ts"
-import { candidateDir } from "./distill.ts"
 import { homeOf, pythonDir, runOf, selfImproveDir } from "../../common/layout.ts"
-import { check } from "./library.ts"
-import { currentRole } from "../../common/roles.ts"
-import { REPAIRS, createRun, newConfig, type Config, type Run } from "./run.ts"
+import { COMMAND, LAUNCH, UNATTENDED, checked } from "../../common/plan.ts"
+import { openRunAt } from "../../common/run.ts"
 import { sandboxName } from "../../common/sandbox.ts"
-import { checked, current, describe, next, schedule } from "./scheduler.ts"
+import { current, schedule } from "../../common/schedule.ts"
 import { KINEX_SIM, launchOptions, listTasks } from "../../common/sim.ts"
+import { writeAgents } from "./agents.ts"
+import { candidateDir } from "./distill.ts"
+import { check } from "./library.ts"
+import { CHECK, NEXT, PLAN, STRATEGY } from "./names.ts"
+import { DISTILLER } from "./roles.ts"
+import { REPAIRS, createRun, newConfig, type Config, type Run } from "./run.ts"
+import { describe, next } from "./scheduler.ts"
 
-// The session that schedules a run has this package's tools only while it does:
+// The session that schedules a run has this strategy's tools only while it does:
 // one to plan it, then one that says what to start next. A distiller has the gate.
 // The session finds the tasks itself, with kinex-sim's own `tasks list`.
-export const toolNames: readonly string[] = ["improve_plan", "improve_next", "improve_check"]
-
-/** The permission a tool asks for to go on with nobody to approve its steps; the host asks the user once. */
-const UNATTENDED = "unattended"
+export const toolNames: readonly string[] = [PLAN, NEXT, CHECK]
 
 const output = (title: string, text: string) => ({ title, output: text })
 
@@ -35,7 +36,7 @@ export function planText(config: Pick<Config, "tasks" | "robot" | "rounds" | "pa
   const launch = launchOptions(config.launch)
   const also = launch.length ? ` ${launch.join(" ")}` : ""
   return [
-    `Self-improve plan: ${plural(tasks.length, "task")} on robot ${config.robot}`,
+    `${STRATEGY} plan: ${plural(tasks.length, "task")} on robot ${config.robot}`,
     ...tasks.map(task => `  ${task}`),
     "",
     `${plural(config.rounds, "round")}, ${plural(config.parallel, "trial")} at a time`,
@@ -52,31 +53,28 @@ export function planText(config: Pick<Config, "tasks" | "robot" | "rounds" | "pa
     "",
     `A distillation: one sub-agent in a folder of its own, for at most ${config.distillTimeoutS} s`,
     "  It turns every trial record into the next library version,",
-    `  published only when improve_check finds nothing${REPAIRS ? `, after up to ${REPAIRS} repair turns` : ""}.`,
+    `  published only when ${CHECK} finds nothing${REPAIRS ? `, after up to ${REPAIRS} repair turns` : ""}.`,
     "",
     "Trials and distillations run in the background with nobody to approve their steps,",
     `each in a ${sandbox} sandbox that shows it only its own folder.`,
   ].join("\n")
 }
 
-// How kinex-sim is run is the session's to work out from what the user said, and the user's to approve with the plan.
-const COMMAND = "the command that runs kinex-sim where it is not `kinex-sim` on PATH: words without quoting, the environment it needs first as NAME=value, e.g. CUDA_VISIBLE_DEVICES=1 /sim/kinex-sim/.venv/bin/kinex-sim"
-
-const planTool = define("improve_plan", {
-  description: "Propose the self-improve run: its tasks, how kinex-sim is run for them, rounds and trials at a time. The user is shown the plan with the commands a trial is started, ended and judged with, and approves it; then the run exists and the result gives the call that starts its first sub-agents. Call it once you have told the user the plan.",
+const planTool = define(PLAN, {
+  description: "Propose the code-as-skill run: its tasks, how kinex-sim is run for them, rounds and trials at a time. The user is shown the plan with the commands a trial is started, ended and judged with, and approves it; then the run exists and the result gives the call that starts its first sub-agents. Call it once you have told the user the plan.",
   parameters: z.strictObject({
     tasks: z.array(z.string()).min(1).describe("task ids from `kinex-sim tasks list`, all on one robot"),
     rounds: z.number().int().positive().default(1).describe("how many waves of trials are distilled"),
     parallel: z.number().int().positive().default(1).describe("trials at a time"),
     batches: z.array(z.number().int().positive()).optional().describe("sizes of the first batches of tasks to open, one batch a wave; the rest open together after them"),
     command: z.string().optional().describe(COMMAND),
-    launch: z.array(z.string()).optional().describe("more options for every `kinex-sim launch` of the run, each word an item, e.g. [\"--split\", \"target\"]. {record} in an option is each trial's own record folder, for what must not be shared, e.g. [\"--record\", \"{record}/video\"]. The execution mode, the early stop and the ROS domain are not yours to give"),
+    launch: z.array(z.string()).optional().describe(LAUNCH),
     seed: z.number().int().optional().describe("the seed every trial of a task starts from; absent, the simulator's default state for the task"),
   }),
   execute: async (args, ctx) => {
     const planned = current()
-    if (!planned) throw new Error("No self-improve run is being planned; the user starts one with /self-improve")
-    if (planned.run) throw new Error(`The self-improve run ${planned.run.root} is already scheduled in this Kinex; /self-improve stop ends it`)
+    if (planned?.strategy !== STRATEGY) throw new Error(`No ${STRATEGY} run is being planned; the user starts one with /${STRATEGY}`)
+    if (planned.root) throw new Error(`The ${STRATEGY} run ${planned.root} is already scheduled in this Kinex; /${STRATEGY} stop ends it`)
     const command = args.command ?? KINEX_SIM
     const launch = launchOptions(args.launch)
     const catalog = await listTasks(command)
@@ -90,9 +88,9 @@ const planTool = define("improve_plan", {
     const sandbox = await sandboxName({ python: pythonDir(selfImproveDir(kinex)) })
     await ctx.ask({ permission: UNATTENDED, description: planText(config, sandbox) })
     const run = await createRun(kinex, config)
-    await writeAgents(run)
-    schedule({ request: planned.request, run, approved: true })
-    return output("Plan approved", `The self-improve run ${run.root} is scheduled.\n\n${await step(run)}`)
+    await writeAgents(run.root)
+    schedule({ strategy: STRATEGY, request: planned.request, root: run.root, approved: true })
+    return output("Plan approved", `The ${STRATEGY} run ${run.root} is scheduled.\n\n${await step(run)}`)
   },
 })
 
@@ -103,22 +101,24 @@ async function step(run: Run): Promise<string> {
   return describe(run, decided)
 }
 
-const nextTool = define("improve_next", {
-  description: "What the scheduled self-improve run needs now, decided from what its trials and distillations have left on disk: the sub-agents to start, that nothing is to be started yet, or how the run ended. Call it whenever a trial or a distillation has ended.",
+const nextTool = define(NEXT, {
+  description: "What the scheduled code-as-skill run needs now, decided from what its trials and distillations have left on disk: the sub-agents to start, that nothing is to be started yet, or how the run ended. Call it whenever a trial or a distillation has ended.",
   parameters: z.strictObject({}),
   execute: async (_args, ctx) => {
     const planned = current()
-    if (!planned?.run) throw new Error("No self-improve run is scheduled in this Kinex; /self-improve resume continues one")
+    if (planned?.strategy !== STRATEGY || !planned.root) throw new Error(`No ${STRATEGY} run is scheduled in this Kinex; /${STRATEGY} resume continues one`)
+    // The run's settings as its folder keeps them now: they can be edited while no job runs.
+    const run = await openRunAt<Config>(planned.root)
     // A resumed run was approved in another session; this one is asked once.
     if (!planned.approved) {
-      await ctx.ask({ permission: UNATTENDED, description: `Continue the self-improve run ${planned.run.root} (${planned.run.config.selection}). Its trials and distillations run in the background with nobody to approve their steps.` })
+      await ctx.ask({ permission: UNATTENDED, description: `Continue the ${STRATEGY} run ${run.root} (${run.config.selection}). Its trials and distillations run in the background with nobody to approve their steps.` })
       planned.approved = true
     }
-    return output("Next step", await step(planned.run))
+    return output("Next step", await step(run))
   },
 })
 
-const checkTool = define("improve_check", {
+const checkTool = define(CHECK, {
   description: "The gate: loads library/payload the way Kinex would and returns what does not load, a lib module named like a builtin kinex.lib module, Python in lib/ or programs/ that does not compile, a skill or the brief naming something a lib module does not define, a row in memory/rows that is not a JSON object, and a brief.md longer than 15 lines or 2,000 characters. A library with problems is not published.",
   parameters: z.strictObject({}),
   execute: async (_args, ctx) => {
@@ -128,11 +128,10 @@ const checkTool = define("improve_check", {
   },
 })
 
-/** The tools of this process's session: a distiller's gate, or those of the run the user's Kinex plans or schedules. */
-export function tools(): Def[] {
-  const role = currentRole()
-  if (role) return role === "distiller" ? [checkTool] : []
+/** The tools of a session: a distiller's gate, or those of the user's session while it plans or schedules a run of this strategy. */
+export function tools(role?: string): Def[] {
+  if (role) return role === DISTILLER.name ? [checkTool] : []
   const planned = current()
-  if (!planned) return []
-  return planned.run ? [nextTool] : [planTool]
+  if (planned?.strategy !== STRATEGY) return []
+  return planned.root ? [nextTool] : [planTool]
 }

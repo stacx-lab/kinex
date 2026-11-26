@@ -1,75 +1,76 @@
-import type { CommandContext, CommandResult, KinexRuntime } from "@kinex/core"
+import type { CommandContext, CommandResult, Def, KinexRuntime } from "@kinex/core"
 import { ConfigPaths } from "@kinex/core/config/paths"
 import type { KinexContribution } from "@kinex/core/integration"
 import { toModelSchema } from "@kinex/core/tool/registry"
-import { writeAgents } from "./common/agents.ts"
-import { versionDir } from "./common/layout.ts"
-import { PARTS, install, installedBrief, versions } from "./strategies/code-as-skill/library.ts"
-import { renderStatus, scan } from "./strategies/code-as-skill/records.ts"
 import { currentRole } from "./common/roles.ts"
-import { openRun } from "./strategies/code-as-skill/run.ts"
-import { current, live, schedule, stop } from "./strategies/code-as-skill/scheduler.ts"
-import { toolNames, tools } from "./strategies/code-as-skill/tools.ts"
-import PLAN from "./strategies/code-as-skill/plan.txt"
+import { openRun } from "./common/run.ts"
+import { current, schedule, stopJobs } from "./common/schedule.ts"
+import type { Strategy } from "./common/strategy.ts"
+import { STRATEGIES, strategyNamed } from "./strategies/index.ts"
 
-export const selfImproveToolNames = toolNames
+export const selfImproveToolNames: readonly string[] = STRATEGIES.flatMap(strategy => strategy.toolNames)
 
-// A run is one of this workspace's by name, or any run by its folder.
-const USAGE = "Usage: /self-improve <what to practise> | status [run] | install <version> [run] | resume [run] | stop"
+/** The tools of this process's session: those of a child's role, or those of the strategy whose run the user's Kinex plans or schedules. */
+function tools(): Def[] {
+  const role = currentRole()
+  if (role) return strategyNamed(role.strategy)?.tools(role.name) ?? []
+  const planned = current()
+  return planned ? strategyNamed(planned.strategy)?.tools() ?? [] : []
+}
+
+const output = (text: string): CommandResult => ({ kind: "output", text })
 
 export function selfImproveContribution(runtime: KinexRuntime): KinexContribution {
-  // Whether this session was given a brief, so that it is also told when one is removed.
-  const session: { briefed?: boolean } = {}
+  // The context sections this session was given, so that it is also told when one is removed.
+  const given = new Set<string>()
   // Runs belong to the workspace they were planned in: this one's Kinex folder holds them.
   const kinex = () => ConfigPaths.projectDir(runtime.directory)
-  async function execute(args: string, context: CommandContext): Promise<CommandResult> {
+
+  async function execute(strategy: Strategy, args: string, context: CommandContext): Promise<CommandResult> {
     context.signal?.throwIfAborted()
-    if (currentRole()) throw new Error("/self-improve is not available inside a self-improve session")
-    const tokens = args.trim().split(/\s+/).filter(Boolean)
-    const [first, second, third] = tokens
+    const { name } = strategy
+    if (currentRole()) throw new Error(`/${name} is not available inside a self-improvement session`)
+    const usage = `Usage: /${name} ${strategy.arguments}`
+    const [first, ...rest] = args.trim().split(/\s+/).filter(Boolean)
     if (first === "status") {
-      const run = await openRun(await kinex(), second)
-      const status = await scan(run.root)
-      const jobs = await live(run.root, status)
-      return { kind: "output", text: renderStatus(run.root, status, id => jobs.has(id)) }
+      if (rest.length > 1) throw new Error(usage)
+      return output(await strategy.status((await openRun(await kinex(), name, rest[0])).root))
     }
-    if (first === "install") {
-      if (!second) throw new Error(USAGE)
-      const run = await openRun(await kinex(), third)
-      // A folder that is not a published version would install as an empty library.
-      const known = await versions(run.root)
-      if (!known.includes(second)) throw new Error(`No library version ${second} in ${run.root}; versions: ${known.join(", ")}`)
-      const installed = await install(versionDir(run.root, second), runtime.directory)
-      return { kind: "output", text: `Installed ${second} of ${run.root}: ${PARTS.map(part => `${part} ${installed[part].join(", ") || "none"}`).join("; ")}` }
-    }
+    const own = first === undefined ? undefined : strategy.subcommands?.[first]
+    if (own) return output(await own(rest, { directory: runtime.directory, kinex: await kinex() }))
     if (first === "stop") {
-      if (second) throw new Error(USAGE)
+      if (rest.length) throw new Error(usage)
+      const planned = current()?.strategy === name ? current() : undefined
       // After Kinex was started again no run is scheduled here, and the newest may still have jobs running.
-      const run = current()?.run ?? await openRun(await kinex()).catch(() => undefined)
-      const stopped = run ? await stop(run) : []
-      const planned = current()
-      schedule(undefined)
-      if (!run || (!planned && !stopped.length)) return { kind: "output", text: "No self-improve run is scheduled in this Kinex." }
-      return { kind: "output", text: `Stopped the self-improve run ${run.root}${stopped.length ? `: ${stopped.join(", ")} ended and count as abandoned` : ""}. /self-improve resume continues it from what is finished.` }
+      const root = planned?.root ?? (await openRun(await kinex(), name).catch(() => undefined))?.root
+      const stopped = root ? await stopJobs(strategy.jobFolders(root)) : []
+      if (planned) schedule(undefined)
+      if (!root || (!planned && !stopped.length)) return output(`No ${name} run is scheduled in this Kinex.`)
+      return output(`Stopped the ${name} run ${root}${stopped.length ? `: ${stopped.join(", ")} ended and count as abandoned` : ""}. /${name} resume continues it from what is finished.`)
     }
-    if (current()?.run) throw new Error(`The self-improve run ${current()?.run?.root} is already scheduled in this Kinex; /self-improve stop ends it`)
+    const scheduled = current()
+    if (scheduled?.root) throw new Error(`The ${scheduled.strategy} run ${scheduled.root} is already scheduled in this Kinex; /${scheduled.strategy} stop ends it`)
     if (first === "resume") {
-      const run = await openRun(await kinex(), second)
-      await writeAgents(run)
-      schedule({ request: run.config.selection, run })
-      return { kind: "workflow", prompt: `The self-improve run ${run.root} (${run.config.selection}) is scheduled in this Kinex again. Call improve_next and do what it says: it gives the calls of the subagent tool that start the next sub-agents. Do not attempt the tasks yourself.` }
+      if (rest.length > 1) throw new Error(usage)
+      const run = await openRun(await kinex(), name, rest[0])
+      const prompt = await strategy.resume(run.root)
+      schedule({ strategy: name, request: run.config.selection, root: run.root })
+      return { kind: "workflow", prompt }
     }
-    if (!tokens.length) throw new Error(USAGE)
-    // The session plans the run with the user; improve_plan makes it once the user has approved.
-    schedule({ request: args.trim() })
-    return { kind: "workflow", prompt: PLAN.trim().replaceAll("$REQUEST", () => args.trim()) }
+    if (first === undefined) throw new Error(usage)
+    // The session plans the run with the user; the strategy's plan tool makes it once the user has approved.
+    const prompt = strategy.plan(args.trim())
+    schedule({ strategy: name, request: args.trim() })
+    return { kind: "workflow", prompt }
   }
-  // What completes after the command: its subcommands, and the newest run's versions to install.
-  async function choices(): Promise<string[]> {
+
+  // What completes after a command: its subcommands, and what the strategy adds for the workspace's newest run.
+  async function choices(strategy: Strategy): Promise<string[]> {
     if (currentRole()) return []
-    const run = await openRun(await kinex()).catch(() => undefined)
-    return ["status", "stop", "resume", ...(run ? (await versions(run.root)).map(version => `install ${version}`) : [])]
+    const run = await openRun(await kinex(), strategy.name).catch(() => undefined)
+    return ["status", "stop", "resume", ...await strategy.choices?.(run?.root) ?? []]
   }
+
   return {
     id: "self-improve",
     tools: {
@@ -80,22 +81,21 @@ export function selfImproveContribution(runtime: KinexRuntime): KinexContributio
         return runtime.tools.execute(def, input, { sessionID: call.sessionID, callID: call.callID, signal: call.abort, ask: call.ask, questions: call.questions })
       },
     },
-    // An installed library's brief is a context section of every session in that
-    // workspace, not an instruction: the host sends it before the first request,
-    // again only when it changes and after compaction, and the stable prompt stays
-    // the same when a library is installed or its brief is edited.
+    // A strategy's context sections, such as an installed brief, are sent before the
+    // first request, again only when they change and after compaction, never as part
+    // of the stable prompt. One that is gone is sent empty once.
     context: () => runtime.operation(async () => {
       const sections: Record<string, string> = {}
-      const brief = await installedBrief(runtime.directory)
-      if (brief || session.briefed) sections.brief = brief
-      if (brief) session.briefed = true
+      for (const strategy of STRATEGIES) for (const [section, text] of Object.entries(await strategy.context?.(runtime.directory) ?? {})) {
+        if (text || given.has(section)) sections[section] = text
+        if (text) given.add(section)
+      }
       return { instructions: "", sections }
     }),
-    commands: [{
-      name: "self-improve", description: "Practise simulated tasks and distill a library of skills and code",
-      arguments: "<what to practise> | status | install <version> | resume | stop", kind: "workflow",
-      choices,
-      execute: (args, context) => runtime.operation(() => execute(args, context), context.signal),
-    }],
+    commands: STRATEGIES.map(strategy => ({
+      name: strategy.name, description: strategy.description, arguments: strategy.arguments, kind: "workflow" as const,
+      choices: () => choices(strategy),
+      execute: (args: string, context: CommandContext) => runtime.operation(() => execute(strategy, args, context), context.signal),
+    })),
   }
 }
