@@ -603,6 +603,23 @@ class DeviceHostShutdown(unittest.IsolatedAsyncioTestCase):
             await device.main()
         self.assertEqual(calls, [("unload", {})])
 
+    async def test_unload_stops_only_a_served_device_and_releases_it_whatever_the_stop_does(self):
+        """A world that has gone serves no stop: unload skips it at once, and a stop that fails still releases."""
+        from kinex.host.device import DeviceHost
+        stop = {"endpoint": "/arm/stop", "type": "std_srvs/srv/Trigger"}
+        for servers, outcome in ((0, None), (1, RuntimeError("stop timed out"))):
+            host, closed = DeviceHost(), []
+            request = AsyncMock(side_effect=outcome)
+            host.profile = {"name": "arm", "operations": {"stop": stop}}
+            host.io = NS(bridge=NS(node=NS(count_services=lambda endpoint, n=servers: n)), _request=request,
+                         close=AsyncMock(side_effect=lambda: closed.append(True)))
+            if outcome:
+                with self.assertRaisesRegex(RuntimeError, "stop timed out"):
+                    await host.run("unload", {})
+            else:
+                self.assertEqual(await host.run("unload", {}), {"unloaded": True})
+            self.assertEqual((request.await_count, closed, host.io), (servers, [True], None))
+
 
 if __name__ == "__main__":
     unittest.main()

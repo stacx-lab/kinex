@@ -110,9 +110,11 @@ class DeviceHost:
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
-                await self.stop()
-                await self.io.close()
-                self.io = None
+                try:
+                    await self.stop(served=True)
+                finally:  # a failed stop still releases the device, so exit does not stop it again
+                    await self.io.close()
+                    self.io = None
             return {"unloaded": True}
         if not self.io:
             raise RuntimeError("device is unloaded")
@@ -158,8 +160,11 @@ class DeviceHost:
         await device.topic(action).publish(args)
         return {"published": True}
 
-    async def stop(self):
+    async def stop(self, served=False):
+        """The declared stop; with served, none where no server answers it, as once the device's world has gone."""
         op = self.profile["operations"].get("stop")
+        if op and served and not self.io.bridge.node.count_services(op["endpoint"]):
+            return {"success": True, "message": f"no server answers {op['endpoint']}"}
         if op:
             return plain(await self.io._request(f"{self.profile['name']}.stop", op, {}))
         # Passive devices declare the built-in no-op stop.
