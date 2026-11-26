@@ -40,12 +40,11 @@ device.
 Builtin DEVICE.md files are setup templates with profile examples; most ship
 reference nodes beside them. They help authors write device/operation
 descriptions and register nodes. They have no usage section, and no type or
-instance usage text enters runtime context. Agents read descriptions directly
-from profiles. In a program, `runtime.devices()` and `runtime.operations(name)`
-provide discovery; `runtime.describe("device.operation")` resolves ROS payload
-schemas when needed. These work on unloaded profiles and never start nodes.
-Stable prompt prefixes do not change when descriptions, device catalogs or load
-state change.
+instance usage text enters runtime context. The `core.devices` context section
+carries each device's and operation's description and interface; in a program,
+`device(name).describe()` and an operation's `describe()` give the same, and work on
+unloaded profiles without starting nodes. Stable prompt prefixes do not change when
+descriptions, device catalogs or load state change.
 
 ### Frames and poses
 

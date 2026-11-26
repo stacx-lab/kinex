@@ -33,20 +33,18 @@ and ROS type. Describe only that operation: units, frames, timing, input/output
 conventions, errors and effects. Both descriptions are required strings and may
 be empty. `load`, `unload` and `status` are reserved host lifecycle actions. A
 `stop` operation must be a `std_srvs/srv/Trigger` service; commanded actuators and
-world waits require one. Read descriptions directly from `profile.yaml`. Query
-runtime metadata and ROS payload schemas when needed, including while unloaded:
+world waits require one. The `core.devices` context section lists every device
+with its operations' descriptions and ROS interfaces; a program reads the same:
 
 ```python
-from kinex import finish, runtime
-names = runtime.devices()             # small identity/readiness list
-ops = runtime.operations("sensor")    # operation metadata
-spec = runtime.describe("sensor.sample")  # recursive ROS payload schemas
-finish({"sample": spec})
+from kinex import device, finish
+sensor = device("sensor").describe()               # description and operations, loaded or not
+sample = device("sensor").topic("sample").describe()  # one loaded operation and its interface
+finish({"sensor": sensor, "sample": sample, "frames": device("sensor").profile["frames"]})
 ```
 
-These calls never load a device or advance time. `devices` and `operations` do not
-import ROS; `describe` resolves installed interface definitions without ROS init.
-Catalogs and descriptions stay in Python until the program finishes with them.
+These calls never load a device or advance time; interfaces resolve from installed
+definitions without ROS init.
 
 The model `device` tool accepts `{deviceID, action, args}`. Action is explicit.
 `devices` accepts `{calls: [...]}` and preauthorizes all valid calls before
@@ -205,7 +203,7 @@ label, such as `inspect arm state`, that hosts show as the call's subject;
 standalone shows the highlighted source or the file beneath it.
 
 ```json
-{"description": "list devices", "python": "from kinex import finish, runtime\nfinish(runtime.devices())"}
+{"description": "describe the arm", "python": "from kinex import device, finish\nfinish(device(\"arm\").describe())"}
 {"file": ".kinex/programs/pick_place.py", "args": {"object": "red block", "target": "blue pad"}}
 {"file": "scripts/inspect.py", "argv": ["--samples", "10"]}
 ```
@@ -255,8 +253,8 @@ when successful completion must stop motion.
 
 Python startup uses a separate host RPC channel; ordinary script stdout/stderr
 remain diagnostics. Importing the library outside exec is inert.
-`runtime.devices`, `runtime.device`, `runtime.operations`, and `runtime.describe`
-provide device discovery. Device operation payloads follow declared ROS interfaces.
+`device(name).describe()` and an operation's `describe()` give descriptions and ROS
+interfaces; operation payloads follow those interfaces.
 
 ### Programs and the function library
 

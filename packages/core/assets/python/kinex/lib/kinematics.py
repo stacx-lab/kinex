@@ -1,6 +1,6 @@
 """Joint device FK and IK from the device's resolved URDF, without device I/O."""
 
-from kinex import profile
+import kinex
 from kinex.common import joints
 from kinex.common.kinematics import IKError  # noqa: F401  (raised by ik; programs catch it here)
 from kinex.values import components, pose
@@ -44,4 +44,4 @@ def joint_model(device):
 
     Example: arm = lib.kinematics.joint_model("arm"); q = arm.ik(arm.fk(seed), seed)
     """
-    return JointModel(profile(device))
+    return JointModel(kinex.device(device).profile)

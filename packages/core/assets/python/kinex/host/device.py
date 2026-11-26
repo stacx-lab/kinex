@@ -135,13 +135,13 @@ class DeviceHost:
                 # One acquisition: the image and, for rgbd, its equally stamped depth.
                 image, depth = await frame(device)
                 return {**observation(image), **({"depth_file": save(depth)} if depth is not None else {})}
-            candidates = [name for name, op in device.operations.items()
+            candidates = [name for name, op in self.profile["operations"].items()
                           if op["direction"] == "output" and op["type"] in
                           ("sensor_msgs/msg/JointState", "sensor_msgs/msg/Image")]
             action = configured or (candidates[0] if candidates else None)
             if not action:
                 raise ValueError("declare runtime.observation for this device")
-        op = device.operations[action]
+        op = self.profile["operations"][action]
         if op["direction"] == "output":
             stream = device.topic(action, depth=1)
             try:

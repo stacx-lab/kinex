@@ -5,7 +5,7 @@ see it. Reading a camera never advances world time.
 """
 import numpy as np
 
-from kinex import device, profile
+from kinex import device
 from kinex.common.camera import array, camera_stream, frame, project, rays, save, stereo
 from kinex.common.camera import stereo_frame as read_stereo
 
@@ -18,8 +18,9 @@ async def camera_frame(camera, timeout_s=None, eye=None):
 
     Example: image, depth = await lib.images.camera_frame("camera")
     """
-    camera_stream(profile(camera), eye)
-    return await frame(device(camera), timeout_s=timeout_s, eye=eye)
+    camera = device(camera)
+    camera_stream(camera.profile, eye)
+    return await frame(camera, timeout_s=timeout_s, eye=eye)
 
 
 async def stereo_frame(camera, timeout_s=None):
@@ -29,8 +30,9 @@ async def stereo_frame(camera, timeout_s=None):
 
     Example: left, right = await lib.images.stereo_frame("camera")
     """
-    camera_stream(profile(camera), "left")
-    return await read_stereo(device(camera), timeout_s=timeout_s)
+    camera = device(camera)
+    camera_stream(camera.profile, "left")
+    return await read_stereo(camera, timeout_s=timeout_s)
 
 
 def image_array(image):
@@ -102,10 +104,11 @@ async def camera_geometry(camera):
 
     Example: rays = await (await lib.images.camera_geometry("camera")).unproject([[320, 240]])
     """
-    record = profile(camera)
-    remote = "geometry" in device(camera).operations
+    reached = device(camera)
+    record = reached.profile
+    remote = f"{camera}.geometry" in reached.scope.catalog
     if remote:
-        streams = (await device(camera).service("geometry")())["streams"]
+        streams = (await reached.service("geometry")())["streams"]
     else:
         streams = {eye: record[eye] for eye in ("left", "right")} if stereo(record) else {"color": record["color"]}
         if record.get("depth", {}).get("registration") == "native":

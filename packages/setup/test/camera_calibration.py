@@ -12,6 +12,7 @@ import numpy as np
 
 import kinex
 from kinex.communication import ambient
+from kinex.device import Device
 from kinex.common.camera_geometry import OpenCVGeometry
 from kinex.lib import calibration, images
 from kinex.lib.calibration import camera
@@ -68,7 +69,7 @@ class Observations(Workspace):
         run = calibration.start("calibrate-camera-extrinsics", target="camera", arm="arm")
         self.record(run, samples)
         streams = ["left", "right"] if layout == "stereo" else ["color"]
-        with patch.object(images, "profile", lambda _: self.profiles["camera"]), ambient(Scope(streams)):
+        with patch.object(Device, "profile", property(lambda device: self.profiles[device.name])), ambient(Scope(streams)):
             return asyncio.run(camera.observations(run, "camera", 30, **options))
 
     def test_stereo_views_use_the_last_capture_after_a_settled_pose(self):

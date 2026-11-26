@@ -1,7 +1,7 @@
 """Kinex API for exec programs.
 
-A program imports what it uses: device for a loaded device's topics, services and
-actions, world for time and waits, runtime for device discovery, lib for reusable
+A program imports what it uses: device for a device's profile and description and a
+loaded device's topics, services and actions, world for time and waits, lib for reusable
 functions, subagent for a judgment only a model can make, args for its arguments and
 finish to end with its result. Programs compute with NumPy arrays, poses (pose) and
 seconds (seconds); devices and finish convert them to and from ROS fields and JSON, and
@@ -160,13 +160,6 @@ async def _call(payload):
     """A host call that leaves the event loop free while the host works. An answer that arrives after
     the loop has ended goes nowhere: wrap_future drops it."""
     return _answer(await asyncio.wrap_future(_send(payload)))
-
-
-def profile(device, *, optional=False):
-    """The device's parsed profile.yaml — the white-box read path for top-level
-    calibrated facts (color projection, frames, URDF model and typed device facts).
-    With optional=True, an absent profile returns None; other errors still raise."""
-    return _rpc({"call": "profile", "device": device, "optional": optional})["profile"]
 
 
 def robot():

@@ -14,6 +14,8 @@ import numpy as np
 
 import kinex
 from kinex.common import urdf
+from kinex.communication import ambient
+from kinex.device import Device
 from kinex.lib import calibration
 from kinex.lib.calibration import base, rigid, sensor, tcp
 
@@ -31,7 +33,7 @@ def merge(profile, patch):
 
 
 class Workspace(unittest.TestCase):
-    """A temporary .kinex with profiles the solvers read through kinex.profile."""
+    """A temporary .kinex with profiles the solvers read through kinex.device(name).profile."""
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -39,9 +41,10 @@ class Workspace(unittest.TestCase):
         self.root = Path(directory.name)
         self.profiles = {}
         for active in (patch.dict(os.environ, {"KINEX_WORKSPACE": str(self.root / ".kinex")}),
-                       patch.object(kinex, "profile", lambda name, optional=False: copy.deepcopy(self.profiles[name]))):
+                       patch.object(Device, "profile", property(lambda device: copy.deepcopy(self.profiles[device.name])))):
             active.start()
             self.addCleanup(active.stop)
+        self.enterContext(ambient(SimpleNamespace(catalog={})))  # kinex.device names a device within a program
 
     def device(self, name, type, **fields):
         self.profiles[name] = {"name": name, "type": type, "frames": {"base": ROOT}, "runtime": {"nodes": []}, "operations": {}, **fields}

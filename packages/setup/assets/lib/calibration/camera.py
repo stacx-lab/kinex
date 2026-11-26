@@ -31,7 +31,7 @@ async def observations(run, camera, square_mm, *, arm=None, frame=None, eye=None
     """
     from kinex.common.camera import camera_stream, stereo
     from kinex.lib.images import camera_geometry
-    profile = kinex.profile(camera)
+    profile = kinex.device(camera).profile
     streams = ["left", "right"] if stereo(profile) and eye is None else [camera_stream(profile, eye)]
     if len(streams) == 1 and arm is None:
         raise ValueError("single-stream observations need arm and frame for hand-eye calibration")
@@ -216,12 +216,12 @@ def _parent(run, mode, frame):
 def _stream(target, eye):
     """The calibrated stream: color, or a stereo camera's eye, which it requires."""
     from kinex.common.camera import camera_stream
-    return camera_stream(kinex.profile(target), eye)
+    return camera_stream(kinex.device(target).profile, eye)
 
 
 def _lens(target, stream):
     """The stream's current OpenCV distortion model."""
-    descriptor = kinex.profile(target).get(stream)
+    descriptor = kinex.device(target).profile.get(stream)
     distortion = descriptor.get("distortion") if isinstance(descriptor, dict) else None
     model = distortion.get("model") if isinstance(distortion, dict) else None
     if model not in LENS_MODELS:
@@ -232,7 +232,7 @@ def _lens(target, stream):
 def _stereo_target(run):
     """The bound stereo target, its reference and other eye, and its frames."""
     target = run.role("target")
-    profile = kinex.profile(target)
+    profile = kinex.device(target).profile
     if profile["type"] != "rgb" or profile.get("layout") != "stereo":
         raise ValueError(f"{target} is not a stereo rgb camera")
     reference = "left" if profile["frames"].get("left", {}).get("parent") == f"{target}:base" else "right"
